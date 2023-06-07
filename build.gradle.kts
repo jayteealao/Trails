@@ -22,6 +22,9 @@ plugins {
     id("org.jetbrains.kotlin.kapt") version "1.8.10" apply false
     id("com.google.dagger.hilt.android") version "2.45" apply false
     id("com.google.devtools.ksp") version "1.8.21-1.0.11" apply false
+    kotlin("plugin.serialization") version "1.8.21" apply false
+    id("app.cash.zipline") version "0.9.20" apply false
+    kotlin("multiplatform").version("1.8.21").apply(false)
 }
 
 //repositories {

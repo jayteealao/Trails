@@ -16,3 +16,4 @@
 local.properties
 /app/release
 /memory-20230601T150720.hprof
+/ExtractorHost/build/

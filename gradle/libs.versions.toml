@@ -25,12 +25,16 @@ ksp = "1.8.21-1.0.11"
 library = "3.5.2"
 libraryNoOp = "3.5.2"
 okhttp = "4.11.0"
+okio = "3.3.0"
 paging = "3.1.1"
 readability4j = "1.0.8"
 retrofit = "2.9.0"
 splashscreen = "1.0.1"
 timber = "5.0.1"
 workManager = "2.8.1"
+zipline = "0.9.20"
+ziplineLoader = "0.9.20"
+org-jetbrains-kotlin-jvm = "1.8.21"
 
 [libraries]
 accompanist-webview = { module = "com.google.accompanist:accompanist-webview", version.ref = "accompanistWebview" }
@@ -88,6 +92,7 @@ hilt-gradle-plugin = { module = "com.google.dagger:hilt-android-gradle-plugin", 
 junit = { module = "junit:junit", version.ref = "junit" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 
+okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 readability4j = { module = "net.dankito.readability4j:readability4j", version.ref = "readability4j" }
 retrofit-core = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit" }
 retrofit-gson = { module = "com.squareup.retrofit2:converter-gson", version.ref = "retrofit" }
@@ -99,7 +104,11 @@ splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "spla
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 androidx-hilt-work = { group = "androidx.hilt", name = "hilt-work", version = "1.0.0" }
 androidx-hilt-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler", version = "1.0.0" }
-
+zipline = { module = "app.cash.zipline:zipline", version.ref = "zipline" }
+zipline-loader = { module = "app.cash.zipline:zipline-loader", version.ref = "ziplineLoader" }
+ziplineKotlinPlugin = { module = "app.cash.zipline:zipline-kotlin-plugin", version.ref = "zipline" }
+ziplineGradlePlugin = { module = "app.cash.zipline:zipline-gradle-plugin", version.ref = "zipline" }
+kotlinGradlePlugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
 [bundles]
 #androidx-compose = ["androidx-compose-material3", "androidx-compose-ui", "androidx-compose-ui-tooling-preview",]
 retrofit = ["retrofit-core", "retrofit-gson", "retrofit-sandwich"]
@@ -114,3 +123,4 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kapt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp"}
 hilt-gradle = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+org-jetbrains-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "org-jetbrains-kotlin-jvm" }

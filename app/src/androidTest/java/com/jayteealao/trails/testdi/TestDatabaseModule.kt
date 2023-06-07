@@ -22,7 +22,7 @@ import dagger.hilt.components.SingletonComponent
 import dagger.hilt.testing.TestInstallIn
 import com.jayteealao.trails.data.PocketRepository
 import com.jayteealao.trails.data.di.DataModule
-import com.jayteealao.trails.data.di.FakePocketRepository
+//import com.jayteealao.trails.data.di.FakePocketRepository
 
 @Module
 //@TestInstallIn(

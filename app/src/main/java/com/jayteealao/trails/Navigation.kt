@@ -45,6 +45,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.jayteealao.shared.main
 import com.jayteealao.trails.ui.TrailScaffold
 import com.jayteealao.trails.ui.TrailsTopAppBar
 import com.jayteealao.trails.ui.article.ArticleScreen
@@ -78,6 +79,10 @@ fun MainNavigation(
         if (isLoggedIn) {
             pocketViewModel.sync()
         }
+    }
+
+    LaunchedEffect(true) {
+        main()
     }
     TrailScaffold(
         topBar = {

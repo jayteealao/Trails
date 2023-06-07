@@ -29,7 +29,7 @@ android {
 
     defaultConfig {
         applicationId = "com.jayteealao.trails"
-        minSdk = 21
+        minSdk = 24
         targetSdk = 33
         versionCode = 1
         versionName = "1.0"
@@ -106,6 +106,7 @@ kotlin {
 
 dependencies {
 
+    implementation(project(":ExtractorHost"))
     implementation(libs.androidx.hilt.work)
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
