@@ -16,3 +16,7 @@
 local.properties
 /app/release
 /memory-20230601T150720.hprof
+/ExtractorHost/build/
+/ExtractorJs/build/
+/ExtractorCommon/build/
+/app/schemas/com.jayteealao.trails.data.local.database.AppDatabase/
