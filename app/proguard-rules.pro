@@ -38,7 +38,7 @@
 
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 #-keep class com.jayteealao.trails.network.** { *; }
-#-keep interface com.jayteealao.trails.network.PocketService {
+#-keep interface com.jayteealao.trails.network.pocket.PocketService {
 #  *;
 #}
 #keep rules for the Retrofit 2.0 implementation
@@ -129,4 +129,8 @@
 
 -keepclassmembers,allowshrinking,allowobfuscation interface * {
     @retrofit2.http.* <methods>;
+}
+
+-keep class org.apache.http.conn.ssl.AllowAllHostnameVerifier {
+    public static org.apache.http.conn.ssl.AllowAllHostnameVerifier INSTANCE;
 }
