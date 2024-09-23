@@ -21,11 +21,13 @@ plugins {
     alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.hilt.gradle)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kotlin.serialization)
+//    id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
 }
 
 android {
     namespace = "com.jayteealao.trails"
-    compileSdk = 33
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.jayteealao.trails"
@@ -96,6 +98,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+//            excludes += "META-INF/DEPENDENCIES"
         }
     }
 }
@@ -126,6 +129,9 @@ dependencies {
     testImplementation(libs.hilt.android.testing)
     kaptTest(libs.hilt.android.compiler)
 
+    //compose Icons
+    implementation(libs.compose.icons.cssgg)
+
     // Arch Components
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -154,13 +160,19 @@ dependencies {
 
     // WorkManager
     implementation(libs.bundles.work)
-    androidTestImplementation(libs.androidx.work.testing)
     kapt(libs.androidx.hilt.hilt.compiler)
+    annotationProcessor(libs.androidx.hilt.hilt.compiler)
+    androidTestImplementation(libs.androidx.work.testing)
 
     // Retrofit
     implementation(libs.bundles.retrofit)
     //okhttp
     implementation(libs.okhttp)
+//    {
+        //noinspection DuplicatePlatformClasses
+//        exclude(group = "org.apache.httpcomponents", module = "httpcore")
+//        exclude(group = "org.apache.httpcomponents", module = "httpclient")
+//    }
 
 //    splashscreen
     implementation(libs.splashscreen)
@@ -184,6 +196,20 @@ dependencies {
     //accompanist-webview
     implementation(libs.accompanist.webview)
 
+    //supabase
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.realtime)
+    //ktor
+    implementation(libs.ktor)
+    //weaviate
+//    implementation(libs.weaviate.client) {
+        //noinspection DuplicatePlatformClasses
+//        exclude(group = "org.apache.httpcomponents", module = "httpcore")
+//    }
+
+//    shadowsPlus
+    implementation(libs.shadows.plus)
+
     // Local tests: jUnit, coroutines, Android runner
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
@@ -193,4 +219,13 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+
+//    implementation("org.apache.httpcomponents:httpclient:4.5.14")
+//    implementation("org.apache.httpcomponents:httpcore:4.4.16")
+
+//    configurations.all {
+//        resolutionStrategy {
+//            failOnVersionConflict()
+//        }
+//    }
 }
