@@ -17,13 +17,21 @@
 // Root build.gradle.kts
 
 plugins {
-    id("com.android.application") version "8.0.1" apply false
-    id("org.jetbrains.kotlin.android") version "1.8.21" apply false
+    id("com.android.application") version "8.2.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.22" apply false
     id("org.jetbrains.kotlin.kapt") version "1.8.10" apply false
-    id("com.google.dagger.hilt.android") version "2.45" apply false
-    id("com.google.devtools.ksp") version "1.8.21-1.0.11" apply false
+    id("com.google.dagger.hilt.android") version "2.48" apply false
+    id("com.google.devtools.ksp") version "1.9.22-1.0.17" apply false
+    id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
+    id(libs.plugins.kotlin.serialization.get().pluginId) version libs.versions.kotlin.get() apply false
 }
 
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>() {
+    compilerOptions.freeCompilerArgs.addAll(
+        "-P",
+        "plugin:androidx.compose.compiler.plugins.kotlin:experimentalStrongSkipping=true",
+    )
+}
 //repositories {
 //    maven {
 //        url = java.net.URI("https://services.gradle.org/distributions/")
