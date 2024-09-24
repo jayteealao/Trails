@@ -1,12 +1,10 @@
 package com.jayteealao.trails.usecases
 
-import com.jayteealao.trails.data.PocketRepository
-import kotlinx.coroutines.flow.first
-import timber.log.Timber
+import com.jayteealao.trails.data.ArticleRepository
 import javax.inject.Inject
 
 class SynchronizePocketUseCase @Inject constructor(
-    private val pocketRepository: PocketRepository,
+    private val pocketRepository: ArticleRepository,
 ) {
     suspend operator fun invoke() = pocketRepository.synchronize()
 }

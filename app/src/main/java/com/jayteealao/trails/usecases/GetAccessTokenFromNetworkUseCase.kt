@@ -1,6 +1,6 @@
 package com.jayteealao.trails.usecases
 
-import com.jayteealao.trails.network.PocketClient
+import com.jayteealao.trails.network.pocket.PocketClient
 import com.skydoves.sandwich.messageOrNull
 import com.skydoves.sandwich.suspendOnError
 import com.skydoves.sandwich.suspendOnSuccess

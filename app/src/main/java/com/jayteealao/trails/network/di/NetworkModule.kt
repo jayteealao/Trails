@@ -1,34 +1,34 @@
 package com.jayteealao.trails.network.di
 
 import android.content.Context
-import androidx.room.Index
 import com.chuckerteam.chucker.api.ChuckerCollector
 import com.chuckerteam.chucker.api.ChuckerInterceptor
 import com.chuckerteam.chucker.api.RetentionManager
-import com.google.gson.ExclusionStrategy
-import com.google.gson.Gson
-import com.google.gson.GsonBuilder
-import com.jayteealao.trails.common.di.dispatchers.Dispatcher
-import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
-import com.jayteealao.trails.network.PocketService
+import com.jayteealao.trails.network.pocket.PocketService
+import com.jayteealao.trails.services.semanticSearch.modal.ModalService
 import com.skydoves.sandwich.adapters.ApiResponseCallAdapterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.runBlocking
+import okhttp3.ConnectionPool
 import okhttp3.ConnectionSpec
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import timber.log.Timber
+import java.util.concurrent.TimeUnit
+import javax.inject.Qualifier
 import javax.inject.Singleton
+
+private const val DEFAULT_BROWSER_VERSION = "100.0.0.0"
+
+internal const val CHROME_USER_AGENT = "Mozilla/5.0 (Linux; Android 11; Build/RQ2A.210505.003) AppleWebKit/537.36 " +
+        "(KHTML, like Gecko) Version/4.0 Chrome/$DEFAULT_BROWSER_VERSION Mobile Safari/537.36"
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -75,28 +75,47 @@ object NetworkModule {
             .followRedirects(true)
             .followSslRedirects(true)
             .connectionSpecs(listOf(ConnectionSpec.CLEARTEXT,  ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS))
+            .connectionPool(ConnectionPool(20, 5, TimeUnit.MINUTES))
             .hostnameVerifier(OkHttpClient().hostnameVerifier)
+            .addNetworkInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header("User-Agent", CHROME_USER_AGENT).build()
+                )
+            }
             .addInterceptor(HttpRequestInterceptor())
             .addInterceptor(chuckerInterceptor)
+            .connectTimeout(90, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .writeTimeout(90, TimeUnit.SECONDS)
 //            .addInterceptor(CoroutineCallInterceptor())
             .build()
     }
 
     @Provides
     @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
-        return Retrofit.Builder()
+    fun providePocketService(okHttpClient: OkHttpClient): PocketService {
+        val retrofit = Retrofit.Builder()
             .client(okHttpClient)
             .baseUrl("https://getpocket.com/v3/")
             .addConverterFactory(GsonConverterFactory.create())
             .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
             .build()
+        return retrofit.create(PocketService::class.java)
     }
 
     @Provides
     @Singleton
-    fun providePocketService(retrofit: Retrofit): PocketService {
-        return retrofit.create(PocketService::class.java)
+    fun provideModalService(okHttpClient: OkHttpClient): ModalService {
+        val retrofit = Retrofit.Builder()
+            .client(okHttpClient)
+//            .baseUrl("https://jayteealao--example-get-started-app-dev.modal.run")
+//            .baseUrl("https://jayteealao--ollama-server-ollama-app-dev.modal.run")
+            .baseUrl("https://jayteealao--trails-app-ollama-app-dev.modal.run")
+            .addConverterFactory(GsonConverterFactory.create())
+            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
+            .build()
+        return retrofit.create(ModalService::class.java)
     }
 }
 
@@ -110,6 +129,10 @@ internal class HttpRequestInterceptor : Interceptor {
                 if (originalRequest.url.host.contains("getpocket.com") && originalRequest.url.encodedPath.contains("v3")) {
                     addHeader("X-Accept", "application/json")
                     addHeader("Content-Type", "application/json; charset=UTF-8")
+                }
+                if (originalRequest.url.host.contains("modal.run")) {
+                    addHeader("X-Accept", "application/json")
+                    addHeader("Content-Type", "application/json")
                 }
             }.build()
 //        Timber.d(request.toString())
@@ -129,4 +152,14 @@ class CoroutineCallInterceptor : Interceptor {
 
         return response
     }
+}
+
+
+@Qualifier
+@Retention(AnnotationRetention.RUNTIME)
+annotation class Services(val retrofitService: RetrofitServices)
+
+enum class RetrofitServices {
+    POCKET,
+    MODAL
 }

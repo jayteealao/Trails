@@ -18,10 +18,8 @@ package com.jayteealao.trails.data.local.database
 
 import androidx.room.AutoMigration
 import androidx.room.Database
-import androidx.room.DeleteColumn
 import androidx.room.RoomDatabase
-import androidx.room.migration.AutoMigrationSpec
-import androidx.room.migration.Migration
+import com.jayteealao.trails.data.models.PocketSummary
 import com.jayteealao.trails.network.DomainMetadata
 import com.jayteealao.trails.network.PocketAuthors
 import com.jayteealao.trails.network.PocketImages
@@ -37,24 +35,26 @@ import com.jayteealao.trails.network.PocketVideos
         PocketImages::class,
         PocketVideos::class,
         DomainMetadata::class,
-               ],
-    version = 2,
+        ModalArticleTable::class,
+        PocketSummary::class,
+    ],
+    version = 3,
     autoMigrations = [
-//        AutoMigration(from = 1, to = 2, spec = AppDatabase.FtsMigrationSpec::class)
-//        AutoMigration(from = 2, to = 3),
+        AutoMigration(from = 1, to = 2),
+        AutoMigration(from = 2, to = 3),
 //        AutoMigration(from = 3, to = 4),
 //        AutoMigration(from = 4, to = 5),
+//        AutoMigration(from = 5, to = 6),
+//        AutoMigration(from = 5, to = 6, spec = AppDatabase.ModalDeleteTableSpec::class),
+//        AutoMigration(from = 6, to = 7),
+//        AutoMigration(from = 7, to = 8)
     ]
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun pocketDao(): PocketDao
 
-    @DeleteColumn.Entries(
-        DeleteColumn(tableName = "pocketarticle_fts", columnName = "givenTitle"),
-        DeleteColumn(tableName = "pocketarticle_fts", columnName = "url"),
-        DeleteColumn(tableName = "pocketarticle_fts", columnName = "givenUrl"),
-        DeleteColumn(tableName = "pocketarticle_fts", columnName = "excerpt"),
-    )
-    class FtsMigrationSpec : AutoMigrationSpec
+
+
+
 }
 

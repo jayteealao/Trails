@@ -16,23 +16,17 @@
 
 package com.jayteealao.trails.testdi
 
-import dagger.Binds
-import dagger.Module
-import dagger.hilt.components.SingletonComponent
-import dagger.hilt.testing.TestInstallIn
-import com.jayteealao.trails.data.PocketRepository
-import com.jayteealao.trails.data.di.DataModule
-import com.jayteealao.trails.data.di.FakePocketRepository
+//import com.jayteealao.trails.data.di.FakePocketRepository
+//
+//@Module
+//@TestInstallIn(
+//    components = [SingletonComponent::class],
+//    replaces = [DataModule::class]
+//)
+//interface FakeDataModule {
 
-@Module
-@TestInstallIn(
-    components = [SingletonComponent::class],
-    replaces = [DataModule::class]
-)
-interface FakeDataModule {
-
-    @Binds
-    abstract fun bindRepository(
-        fakeRepository: FakePocketRepository
-    ): PocketRepository
-}
+//    @Binds
+//    abstract fun bindRepository(
+//        fakeRepository: FakePocketRepository
+//    ): ArticleRepository
+//}

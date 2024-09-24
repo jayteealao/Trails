@@ -23,16 +23,14 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.navigation.compose.rememberNavController
-import com.jayteealao.trails.ui.auth.AuthViewModel
+import com.jayteealao.trails.screens.auth.AuthViewModel
 import dagger.hilt.android.AndroidEntryPoint
-import com.jayteealao.trails.ui.theme.MyApplicationTheme
+import com.jayteealao.trails.screens.theme.TrailsTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -59,7 +57,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MyApplicationTheme {
+            TrailsTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

@@ -7,22 +7,19 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkManager
 import com.jayteealao.trails.R
-import com.jayteealao.trails.sync.workers.SyncWorker
 
 /**
  * Foreground information for sync on lower API levels when sync workers are being run with a
  * foreground service.
  */
 context(CoroutineWorker)
-internal fun Context.syncForegroundInfo() = ForegroundInfo(
+fun Context.syncForegroundInfo() = ForegroundInfo(
     SyncNotificationId,
     syncWorkNotification()
 )
