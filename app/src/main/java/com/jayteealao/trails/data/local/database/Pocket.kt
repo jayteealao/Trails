@@ -16,26 +16,16 @@
 
 package com.jayteealao.trails.data.local.database
 
-import androidx.compose.ui.geometry.Offset
-import androidx.paging.PagingData
-import androidx.paging.PagingSource
 import androidx.room.ColumnInfo
-import androidx.room.Dao
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Fts4
-import androidx.room.Insert
+import androidx.room.Index
 import androidx.room.PrimaryKey
-import androidx.room.Query
-import androidx.room.Upsert
-import com.jayteealao.trails.network.DomainMetadata
-import com.jayteealao.trails.network.PocketAuthors
-import com.jayteealao.trails.network.PocketImages
-import com.jayteealao.trails.network.PocketTags
-import com.jayteealao.trails.network.PocketVideos
-import kotlinx.coroutines.flow.Flow
-import java.net.URL
+import com.jayteealao.trails.data.models.ArticleItem
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity
 data class PocketArticle(
     @PrimaryKey val itemId: String,
@@ -61,56 +51,8 @@ data class PocketArticle(
     val timeToRead: Int,
     val listenDurationEstimate: Int,
     var text : String? = null,
+//    @ColumnInfo(defaultValue = "0") val modal: Boolean = false,
 )
-
-//@Entity
-//data class PocketImages(
-//    @PrimaryKey val imageId: String,
-//    val src: String,
-//    val width: Int,
-//    val height: Int,
-//    val credit: String,
-//    val caption: String,
-//)
-//
-//@Entity
-//data class PocketVideos(
-//    @PrimaryKey val videoId: String,
-//    val src: String,
-//    val width: Int,
-//    val height: Int,
-//    val type: String,
-//    val vid: String,
-//    val duration: Int,
-//    val image: String,
-//)
-//
-//@Entity
-//data class PocketTags(
-//    @PrimaryKey val itemId: String,
-//    val tag: String,
-//    val sortId: Int,
-//    val type: String,
-//)
-//
-//@Entity
-//data class PocketAuthors(
-//    @PrimaryKey val itemId: String,
-//    val authorId: String,
-//    val name: String,
-//    val url: String,
-//    val domain: String,
-//    val image: String,
-//    val bio: String,
-//    val twitter: String,
-//)
-//
-//@Entity
-//data class DomainMetadata(
-//    @PrimaryKey val name: String,
-//    val logo: String,
-//    val domain: String,
-//)
 
 @Entity(tableName = "pocketarticle_fts")
 @Fts4(contentEntity = PocketArticle::class)
@@ -120,81 +62,8 @@ data class PocketArticleFts(
     var text : String? = null,
 )
 
-@Dao
-interface PocketDao {
-    @Query("SELECT itemId, title, url FROM pocketarticle ORDER BY timeAdded DESC")
-    fun getPockets(): PagingSource<Int, PocketTuple>
-
-    @Query("SELECT * FROM pocketarticle WHERE itemId = :itemId")
-    fun getPocketById(itemId: String): PocketArticle?
-
-    @Upsert
-    suspend fun insertPocket(item: PocketArticle)
-
-    @Upsert
-    suspend fun insertPockets(items: List<PocketArticle>)
-
-    @Upsert
-    suspend fun insertPocketImages(items: List<PocketImages>)
-
-    @Upsert
-    suspend fun insertPocketVideos(item: List<PocketVideos>)
-
-    @Upsert
-    suspend fun insertPocketTags(items: List<PocketTags>)
-
-    @Upsert
-    suspend fun insertPocketAuthors(items: List<PocketAuthors>)
-
-    @Upsert
-    suspend fun insertDomainMetadata(item: DomainMetadata)
-
-    @Query("""
-        SELECT pocketarticle.itemId, pocketarticle.title, pocketarticle.url FROM pocketarticle
-        JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
-        WHERE pocketarticle_fts MATCH :query
-    """)
-    suspend fun searchPockets(query: String): List<PocketTuple>
-
-    @Query("""
-        SELECT pocketarticle.itemId, pocketarticle.title, pocketarticle.url, snippet(pocketarticle_fts) as snippet, matchinfo(pocketarticle_fts) as matchInfo FROM pocketarticle
-        JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
-        WHERE pocketarticle_fts MATCH :query
-    """)
-    suspend fun searchPocketsWithMatchInfo(query: String): List<PocketWithMatchInfo>
-
-    @Query("""
-        SELECT * FROM pocketarticle
-        ORDER BY timeAdded DESC
-        LIMIT 1
-    """
-    )
-    fun getLatestArticle(): PocketArticle?
-
-    @Query("""
-        SELECT * FROM pocketarticle
-        WHERE text IS NULL
-        ORDER BY timeAdded DESC
-        LIMIT 10
-        OFFSET :offset
-    """
-    )
-    fun getPocketsWithoutText(offset: Int): List<PocketArticle>
-}
-
-data class PocketTuple(
-    val itemId: String,
-    val title: String,
-    val url: String,
-    val snippet: String? = null,
-) {
-    val domain: String by lazy {
-        URL(url).host
-    }
-}
-
 data class PocketWithMatchInfo(
-    @Embedded val pocket: PocketTuple,
+    @Embedded val pocket: ArticleItem,
     @ColumnInfo(name = "matchInfo")
     val matchInfo: ByteArray
 ) {
@@ -216,3 +85,12 @@ data class PocketWithMatchInfo(
         return result
     }
 }
+
+@Entity(
+    indices = [Index(value = ["modalId"], unique = true)]
+)
+data class ModalArticleTable(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val pocketId: String,
+    val modalId: String
+)

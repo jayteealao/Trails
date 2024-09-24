@@ -1,6 +1,6 @@
 package com.jayteealao.trails.usecases
 
-import com.jayteealao.trails.network.PocketClient
+import com.jayteealao.trails.network.pocket.PocketClient
 import javax.inject.Inject
 
 class GetRequestTokenUseCase @Inject constructor(

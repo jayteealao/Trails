@@ -9,6 +9,6 @@ class GetArticleTextUseCase @Inject constructor(
     private val articleExtractor: ArticleExtractor
 ) {
     suspend operator fun invoke(url: String): String? {
-        return articleExtractor.extractEssence(URL(url))
+        return articleExtractor.extractEssence(url.toHttpUrl())
     }
 }

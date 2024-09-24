@@ -8,14 +8,11 @@ import com.jayteealao.trails.common.CONSUMERKEY
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.SharedPreferencesManager
-import com.jayteealao.trails.data.local.database.PocketArticle
 import com.jayteealao.trails.network.ArticleExtractor
-import com.jayteealao.trails.network.PocketClient
+import com.jayteealao.trails.network.pocket.PocketClient
 import com.jayteealao.trails.network.PocketData
-import com.jayteealao.trails.network.mapper.toPocketArticleEntity
 import com.jayteealao.trails.network.mapper.toPocketData
 import com.jayteealao.trails.usecases.GetAccessTokenFromLocalUseCase
-import com.jayteealao.trails.usecases.GetSinceFromLocalUseCase
 import com.skydoves.sandwich.message
 import com.skydoves.sandwich.onError
 import com.skydoves.sandwich.onException
@@ -24,11 +21,8 @@ import com.skydoves.sandwich.onSuccess
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import java.net.URL
 import javax.inject.Inject
 
 class NetworkDataSource @Inject constructor(

@@ -2,7 +2,7 @@ package com.jayteealao.trails.usecases
 
 import com.jayteealao.trails.common.CONSUMERKEY
 import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.network.PocketClient
+import com.jayteealao.trails.network.pocket.PocketClient
 import com.jayteealao.trails.network.mapper.toPocketArticleEntity
 import com.skydoves.sandwich.message
 import com.skydoves.sandwich.onError

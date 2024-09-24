@@ -16,15 +16,12 @@
 
 package com.jayteealao.trails.data.di
 
+import com.jayteealao.trails.data.ArticleRepository
+import com.jayteealao.trails.data.ArticleRepositoryImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
-import com.jayteealao.trails.data.PocketRepository
-import com.jayteealao.trails.data.DefaultPocketRepository
-import javax.inject.Inject
 import javax.inject.Singleton
 
 @Module
@@ -33,17 +30,7 @@ interface DataModule {
 
     @Singleton
     @Binds
-    fun bindsPocketRepository(
-        pocketRepository: DefaultPocketRepository
-    ): PocketRepository
+    fun bindsArticleRepository(
+        articleRepository: ArticleRepositoryImpl
+    ): ArticleRepository
 }
-
-//class FakePocketRepository @Inject constructor() : PocketRepository {
-//    override val pockets: Flow<List<String>> = flowOf(fakePockets)
-//
-//    override suspend fun add(name: String) {
-//        throw NotImplementedError()
-//    }
-//}
-//
-//val fakePockets = listOf("One", "Two", "Three")

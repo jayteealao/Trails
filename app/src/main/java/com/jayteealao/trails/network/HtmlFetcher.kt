@@ -40,8 +40,8 @@ class HtmlFetcher @Inject constructor(
         return outputUrl
     }
 
-    suspend fun fetch(url: URL): String? = withContext(ioDispatcher) {
-        var httpUrl = url.toHttpUrlOrNull()
+    suspend fun fetch(url: HttpUrl): String? = withContext(ioDispatcher) {
+        var httpUrl = url
         if (httpUrl != null) {
             httpUrl = rewrite(httpUrl)
         } else return@withContext null

@@ -21,6 +21,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.work.impl.Migration_7_8
 import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.PocketDao
 import dagger.Module
@@ -47,7 +48,7 @@ class DatabaseModule {
             AppDatabase::class.java,
             "Pocket"
         )
-            .addMigrations(MIGRATION_1_2)
+//            .addMigrations(MIGRATION_1_2, MIGRATION_5_6, MIGRATION_7_8)
 //            .addCallback(
 //            object : RoomDatabase.Callback() {
 //                override fun onOpen(db: SupportSQLiteDatabase) {
@@ -58,13 +59,5 @@ class DatabaseModule {
 //        )
             .fallbackToDestructiveMigration()
             .build()
-    }
-}
-
-val MIGRATION_1_2 = object : Migration(1, 2) {
-    override fun migrate(database: SupportSQLiteDatabase) {
-        database.execSQL("DROP TABLE `pocketarticle_fts`")
-        database.execSQL("CREATE VIRTUAL TABLE IF NOT EXISTS `pocketarticle_fts` USING FTS4(`itemId` TEXT NOT NULL, `title` TEXT NOT NULL, `text` TEXT, content=`PocketArticle`)")
-        database.execSQL("INSERT INTO `pocketarticle_fts` (`itemId`,`title`,`text`,`docid`) SELECT `itemId`,`title`,`text`,`rowid` FROM `PocketArticle`")
     }
 }

@@ -1,5 +1,6 @@
 package com.jayteealao.trails.sync
 
+import androidx.work.Constraints
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -8,3 +9,7 @@ import kotlinx.coroutines.flow.Flow
 interface SyncStatusMonitor {
     val isSyncing: Flow<Boolean>
 }
+
+val constraints = Constraints.Builder()
+//    .setRequiredNetworkType(NetworkType.CONNECTED)
+    .build()

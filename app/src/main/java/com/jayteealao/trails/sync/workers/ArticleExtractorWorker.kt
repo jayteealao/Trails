@@ -24,8 +24,8 @@ import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
-import java.net.URL
 import javax.inject.Inject
 
 
@@ -63,10 +63,11 @@ class ArticleExtractorWorker @AssistedInject constructor(
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private fun CoroutineScope.producePocketArticleFromLocal() = produce<List<PocketArticle>> {
+    private fun CoroutineScope.producePocketArticleFromLocal() = produce<MutableList<PocketArticle>> {
         var offset = 0
         while (true) {
-            val articles = pocketDao.getPocketsWithoutText(offset)
+            var articles: MutableList<PocketArticle>? = null
+            articles = pocketDao.getPocketsWithoutText(offset).toMutableList()
             if (articles.isEmpty()) {
                 Timber.d("No more articles to retrieve")
                 break
@@ -75,6 +76,8 @@ class ArticleExtractorWorker @AssistedInject constructor(
             send(articles)
             Timber.d("Sent ${articles.size} articles")
         }
+        Timber.d("Closing channel")
+//        articles = null
         close()
     }
 
@@ -94,23 +97,47 @@ class ArticleExtractorWorker @AssistedInject constructor(
      *
      */
     private fun CoroutineScope.retrieveTextForArticles(
-        receiveArticle: ReceiveChannel<List<PocketArticle>>,
+        receiveArticle: ReceiveChannel<MutableList<PocketArticle>>,
     ) = launch {
         for (articles in receiveArticle) {
+
+            //create an empty list of deferred jobs to retrieve article text
             val deferredList = mutableListOf<Deferred<Unit>>()
+
+            //for each article in the list, retrieve the article text
             articles.forEach { article ->
                 deferredList.add(
                     async {
                         try {
-                            val url = URL(article.url)
+                            //if the article already has text or is an empty string, skip
+                            if (article.text != null) {
+                                return@async
+                            }
+
+                            //if the article is a pdf, skip
                             if (article.url?.endsWith(".pdf") == true) {
                                 return@async
                             }
-                            article.text = articleExtractor.extractEssence(url)
-                                ?: articleExtractor.extractReadability(url)
-                                        ?: articleExtractor.extractCrux(url)
-                                        ?: ""
+
+                            //if the article has a url or givenUrl, retrieve the article text
+                            if(article.url?.isNotBlank() == true || article.givenUrl?.isNotBlank() == true){
+//                                Timber.d("URL: ${article.url} - GIVENURL: ${article.givenUrl}")
+//                                Timber.d(article.givenUrl)
+                                //convert the url to a HttpUrl object
+                                var url = article.url?.toHttpUrlOrNull() ?: article.givenUrl?.toHttpUrlOrNull()
+
+//                                article.text = articleExtractor.extractEssence(url)
+//                                    ?: articleExtractor.extractReadability(url)
+//                                            ?: articleExtractor.extractCrux(url)
+//                                            ?: ""
+                                article.text = articleExtractor(url) ?: ""
+                                url = null
+                            } else {
+                                article.text = ""
+                            }
+
                             pocketDao.insertPocket(article)
+
                         } catch (e: Exception) {
                             Timber.d("Failed to insert ${article.itemId} url ${article.url} givenUrl ${article.givenUrl}")
                             Timber.e(e)
@@ -119,6 +146,8 @@ class ArticleExtractorWorker @AssistedInject constructor(
                 )
             }
             deferredList.map { it.await() }
+            deferredList.clear()
+            articles.clear()
         }
     }
 
@@ -128,6 +157,8 @@ class ArticleExtractorWorker @AssistedInject constructor(
          */
         internal fun startUpArticleExtractorWork() = OneTimeWorkRequestBuilder<ArticleExtractorWorker>()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+//            .setConstraints(constraints)
+            .addTag("ArticleExtractorWorker")
             .build()
     }
 }

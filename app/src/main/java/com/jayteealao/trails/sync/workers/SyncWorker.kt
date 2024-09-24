@@ -10,7 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.jayteealao.trails.data.PocketRepository
+import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.datasource.NetworkDataSource
 import com.jayteealao.trails.network.PocketData
 import com.jayteealao.trails.sync.initializers.syncForegroundInfo
@@ -47,7 +47,7 @@ class SyncWorker @AssistedInject constructor(
     @Inject
     lateinit var getAccessTokenFromLocalUseCase: GetAccessTokenFromLocalUseCase
     @Inject
-    lateinit var pocketRepository: PocketRepository
+    lateinit var articleRepository: ArticleRepository
     @Inject
     lateinit var getSinceFromLocalUseCase: GetSinceFromLocalUseCase
     @Inject
@@ -60,7 +60,7 @@ class SyncWorker @AssistedInject constructor(
 
         setForeground(getForegroundInfo())
         appContext.awaitAccessPermission(getAccessTokenFromLocalUseCase)
-        syncJob = launch {
+        syncJob = launch(Dispatchers.IO) {
             producePocketArticles()
                 .let { receiveArticles ->
                     repeat(10) { no ->
@@ -88,6 +88,7 @@ class SyncWorker @AssistedInject constructor(
          */
         internal fun startUpSyncWork() = OneTimeWorkRequestBuilder<SyncWorker>()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+//            .setConstraints(constraints)
             .build()
 
         private const val PROGRESS = "PROGRESS"
@@ -113,24 +114,27 @@ class SyncWorker @AssistedInject constructor(
     private fun CoroutineScope.producePocketArticles() = produce<MutableList<PocketData>> {
         val since = getSinceFromLocalUseCase()
         var offset = 0
-        var next = true
+        val next = true
         while (next) {
-            val response = networkDataSource(
+            var articleList = mutableListOf<PocketData>()
+            articleList = networkDataSource(
                 since, ARTICLE_LIMIT, offset
             )
-            if (response.isNotEmpty()) {
-                send(response)
-                Timber.d("Sent ${response.size} articles, offset: $offset")
+            if (articleList.isNotEmpty()) {
+                send(articleList)
+                Timber.d("Sent ${articleList.size} articles, offset: $offset")
                 offset += ARTICLE_LIMIT
             } else {
-                next = false
+//                next = false
                 Timber.d("No more articles")
+                break
                 // handle error
 //                    throw RuntimeException("Failed to retrieve articles: ${response. .errorBody()?.string()}")
             }
         }
         Timber.d("Closing channel")
         close()
+//        articleList.clear()
     }
 
 
@@ -144,20 +148,26 @@ class SyncWorker @AssistedInject constructor(
      * TODO: handle error
      */
 //    context(PocketRepository)
-    private fun CoroutineScope.articleSaver(no: Int, receiveArticles: ReceiveChannel<List<PocketData>>) =
-        launch {
+    private fun CoroutineScope.articleSaver(no: Int, receiveArticles: ReceiveChannel<MutableList<PocketData>>) =
+        launch(Dispatchers.IO) {
             for (msg in receiveArticles) {
-                pocketRepository.add(msg)
+                Timber.d("articleSaver: $no Saving ${msg.size} articles")
+                articleRepository.add(msg)
                 Timber.d("articleSaver: $no Saved ${msg.size} articles")
+                msg.clear()
             }
         }
 }
 
 private suspend fun Context.awaitAccessPermission(getAccessTokenFromLocalUseCase: GetAccessTokenFromLocalUseCase) {
     while (currentCoroutineContext().isActive) {
-        val getAccessToken = getAccessTokenFromLocalUseCase().firstOrNull()
-        if (getAccessToken != null) {
+        try {
+            val getAccessToken = getAccessTokenFromLocalUseCase().firstOrNull()
+            if (getAccessToken != null) {
             return
+            }
+        } catch (e: Exception) {
+            Timber.e(e)
         }
     }
 }

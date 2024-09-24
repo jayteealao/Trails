@@ -38,29 +38,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.jayteealao.trails.ui.TrailScaffold
-import com.jayteealao.trails.ui.TrailsTopAppBar
-import com.jayteealao.trails.ui.article.ArticleScreen
-import com.jayteealao.trails.ui.article.ArticleViewModel
-import com.jayteealao.trails.ui.auth.AuthScreen
-import com.jayteealao.trails.ui.auth.AuthViewModel
-import com.jayteealao.trails.ui.pocket.PocketScreen
-import com.jayteealao.trails.ui.pocket.PocketViewModel
+import com.jayteealao.trails.screens.TrailScaffold
+import com.jayteealao.trails.screens.TrailsTopAppBar
+import com.jayteealao.trails.screens.articleDetail.ArticleDetailScreen
+import com.jayteealao.trails.screens.articleDetail.ArticleDetailViewModel
+import com.jayteealao.trails.screens.articleList.ArticleListScreen
+import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
+import com.jayteealao.trails.screens.articleSearch.ArticleSearchViewModel
+import com.jayteealao.trails.screens.auth.AuthScreen
+import com.jayteealao.trails.screens.auth.AuthViewModel
+import com.jayteealao.trails.screens.settings.SettingsScreen
+import com.jayteealao.trails.screens.settings.SettingsViewModel
 import timber.log.Timber
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun MainNavigation(
     authViewModel: AuthViewModel,
-    pocketViewModel: PocketViewModel = hiltViewModel(),
-    articleViewModel: ArticleViewModel = hiltViewModel()
+    articleListViewModel: ArticleListViewModel = hiltViewModel(),
+    articleDetailViewModel: ArticleDetailViewModel = hiltViewModel(),
+    articleSearchViewModel: ArticleSearchViewModel = hiltViewModel(),
+    settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
     val route = navController.currentBackStackEntryAsState()
@@ -76,7 +81,7 @@ fun MainNavigation(
 
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
-            pocketViewModel.sync()
+            articleListViewModel.sync()
         }
     }
     TrailScaffold(
@@ -86,7 +91,7 @@ fun MainNavigation(
                     title = "Trails",
                     navController = navController,
                     route = route,
-                    menuState = it
+                    menuState = it,
                 )
             }
         }
@@ -116,10 +121,10 @@ fun MainNavigation(
                         }
                 ){
                     val context = LocalContext.current
-                    PocketScreen(
+                    ArticleListScreen(
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.surface),
-                        viewModel = pocketViewModel,
+                        viewModel = articleListViewModel,
                         onSelectArticle = { article ->
                             navController.navigate("article/${article.itemId}")
 //                            OpenChromeCustomTab(context, "https://getpocket.com/read/${article.itemId}")
@@ -134,10 +139,24 @@ fun MainNavigation(
                     Timber.e("Article ID is null")
                     return@composable
                 }
-                articleViewModel.getArticle(articleId)
-                ArticleScreen(
-                    articleViewModel = articleViewModel,
+                articleDetailViewModel.getArticle(articleId)
+                ArticleDetailScreen(
                     articleId = articleId,
+                )
+            }
+            composable("search") {
+                ArticleSearchScreen(searchBarState = searchBarState, viewModel = articleSearchViewModel) { article ->
+                    navController.navigate("article/${article.itemId}")
+
+                }
+            }
+
+            composable("settings") {
+                SettingsScreen(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxSize(),
+                    settingsViewModel = settingsViewModel
                 )
             }
             // TODO: Add more destinations
@@ -147,6 +166,7 @@ fun MainNavigation(
 
 class SearchBarState(
     searchBarActive: Boolean,
+    private val onSearch: (String) -> Unit = { },
 ) {
 
     var searchText by mutableStateOf("")
@@ -171,6 +191,8 @@ class SearchBarState(
             MaterialTheme.colorScheme.surface
         }
     }
+
+    fun search(text: String) = onSearch(text)
 }
 
 fun OpenChromeCustomTab(context: Context, url: String) {

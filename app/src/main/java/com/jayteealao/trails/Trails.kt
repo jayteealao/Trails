@@ -24,9 +24,12 @@ import timber.log.Timber
 import javax.inject.Inject
 
 @HiltAndroidApp
-class Trails : Application(), Configuration.Provider {
+class Trails() : Application(), Configuration.Provider {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
+
+//    override val workManagerConfiguration: Configuration = Configuration.Builder()
+
 
     override fun onCreate() {
         super.onCreate()
@@ -34,8 +37,8 @@ class Trails : Application(), Configuration.Provider {
         Timber.plant(Timber.DebugTree())
     }
 
-    override fun getWorkManagerConfiguration() =
-        Configuration.Builder()
-            .setWorkerFactory(workerFactory)
-            .build()
+    override fun getWorkManagerConfiguration() = Configuration.Builder()
+        .setWorkerFactory(workerFactory)
+        .setMinimumLoggingLevel(android.util.Log.INFO)
+        .build()
 }
