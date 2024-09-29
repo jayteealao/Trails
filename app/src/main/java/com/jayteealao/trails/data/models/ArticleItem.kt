@@ -8,7 +8,7 @@ data class ArticleItem(
     val itemId: String,
     val title: String,
     val url: String,
-    val tagsString: String = "",
+    val tagsString: String? = "",
     val snippet: String? = null,
 ) {
     val domain: String by lazy {
@@ -16,7 +16,7 @@ data class ArticleItem(
     }
 
     val tags: List<String> by lazy {
-        tagsString.split(",").map { it.trim() }
+        tagsString?.split(",")?.map { it.trim() } ?: emptyList()
     }
 }
 

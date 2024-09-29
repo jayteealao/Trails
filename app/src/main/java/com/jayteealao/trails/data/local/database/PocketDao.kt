@@ -3,6 +3,8 @@ package com.jayteealao.trails.data.local.database
 import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.RewriteQueriesToDropUnusedColumns
+import androidx.room.RoomWarnings
 import androidx.room.Upsert
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.PocketSummary
@@ -14,6 +16,8 @@ import com.jayteealao.trails.network.PocketVideos
 
 @Dao
 interface PocketDao {
+
+    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("SELECT itemId, title, url FROM pocketarticle ORDER BY timeAdded DESC")
     fun getArticles(): PagingSource<Int, ArticleItem>
 
@@ -23,9 +27,10 @@ interface PocketDao {
 //    INNER JOIN pockettags AS tag
 //    ON art.itemId = tag.itemId
 //    ORDER BY art.timeAdded DESC
+    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, art.url,
-        GROUP_CONCAT(tag.tag) AS tags
+        GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
         GROUP BY art.itemId
@@ -36,6 +41,8 @@ interface PocketDao {
     @Query("SELECT * FROM pocketarticle WHERE itemId = :itemId")
     fun getArticleById(itemId: String): PocketArticle?
 
+    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
+    @RewriteQueriesToDropUnusedColumns
     @Query("SELECT * FROM pocketarticle WHERE itemId IN (:ids)")
     fun getArticlesByIds(ids: List<String>): List<ArticleItem>
 
@@ -64,7 +71,7 @@ interface PocketDao {
 
     @Upsert
     suspend fun insertDomainMetadata(item: DomainMetadata)
-
+    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("""
         SELECT pocketarticle.itemId, pocketarticle.title, pocketarticle.url FROM pocketarticle
         JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
@@ -72,6 +79,7 @@ interface PocketDao {
     """)
     suspend fun searchPockets(query: String): List<ArticleItem>
 
+    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("""
         SELECT pocketarticle.itemId, pocketarticle.title, pocketarticle.url, snippet(pocketarticle_fts) as snippet, matchinfo(pocketarticle_fts) as matchInfo FROM pocketarticle
         JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
@@ -109,7 +117,7 @@ interface PocketDao {
 
     @Query("""
         SELECT * FROM pocketarticle
-        WHERE text IS NOT NULL 
+        WHERE text IS NOT NULL
             AND text != ''
             AND itemId NOT IN (SELECT pocketId FROM modalarticletable)
         ORDER BY timeAdded DESC
