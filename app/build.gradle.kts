@@ -74,12 +74,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
         freeCompilerArgs = listOf("-Xcontext-receivers")
     }
 
@@ -104,12 +104,12 @@ android {
 }
 
 kotlin {
-    jvmToolchain(11)
+    jvmToolchain(17)
 }
 
 dependencies {
 
-    implementation(libs.androidx.hilt.work)
+//    implementation(libs.androidx.constraintlayout)
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -121,7 +121,7 @@ dependencies {
 
     // Hilt Dependency Injection
     implementation(libs.hilt.android)
-    kapt(libs.hilt.compiler)
+    ksp(libs.hilt.compiler)
     // Hilt and instrumented tests.
     androidTestImplementation(libs.hilt.android.testing)
     kaptAndroidTest(libs.hilt.android.compiler)
@@ -146,6 +146,7 @@ dependencies {
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
     ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.startup.runtime)
 
     // Compose
     implementation(libs.androidx.compose.ui)
@@ -160,8 +161,9 @@ dependencies {
 
     // WorkManager
     implementation(libs.bundles.work)
-    kapt(libs.androidx.hilt.hilt.compiler)
-    annotationProcessor(libs.androidx.hilt.hilt.compiler)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.hilt.compiler)
+//    annotationProcessor(libs.androidx.hilt.hilt.compiler)
     androidTestImplementation(libs.androidx.work.testing)
 
     // Retrofit
@@ -209,6 +211,13 @@ dependencies {
 
 //    shadowsPlus
     implementation(libs.shadows.plus)
+
+    //markdown-renderer
+    implementation(libs.markdown.renderer)
+    implementation(libs.markdown.renderer.m3)
+
+    //constraint-layout
+    implementation(libs.constraint.layout)
 
     // Local tests: jUnit, coroutines, Android runner
     testImplementation(libs.junit)

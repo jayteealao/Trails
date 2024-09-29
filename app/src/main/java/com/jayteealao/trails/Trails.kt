@@ -37,8 +37,9 @@ class Trails() : Application(), Configuration.Provider {
         Timber.plant(Timber.DebugTree())
     }
 
-    override fun getWorkManagerConfiguration() = Configuration.Builder()
-        .setWorkerFactory(workerFactory)
-        .setMinimumLoggingLevel(android.util.Log.INFO)
-        .build()
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .setMinimumLoggingLevel(android.util.Log.INFO)
+            .build()
 }
