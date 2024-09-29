@@ -25,6 +25,9 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.WAKE_LOCK"
+        tools:node="replace"/>
+<!--    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />-->
 
     <application
         android:usesCleartextTraffic="true"
@@ -55,6 +58,14 @@
             android:authorities="${applicationId}.androidx-startup"
             android:exported="false"
             tools:node="merge">
+<!--            <meta-data-->
+<!--                android:name="com.jayteealao.trails.DependencyGraphInitializer"-->
+<!--                android:value="androidx.startup"-->
+<!--                tools:node="merge" />-->
+<!--            <meta-data-->
+<!--                android:name="com.jayteealao.trails.WorkManagerInitializer"-->
+<!--                android:value="androidx.startup"-->
+<!--                tools:node="merge" />-->
             <meta-data
                 android:name="androidx.work.WorkManagerInitializer"
                 android:value="androidx.startup"

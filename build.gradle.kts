@@ -20,7 +20,7 @@ plugins {
     id("com.android.application") version "8.2.2" apply false
     id("org.jetbrains.kotlin.android") version "1.9.22" apply false
     id("org.jetbrains.kotlin.kapt") version "1.8.10" apply false
-    id("com.google.dagger.hilt.android") version "2.48" apply false
+    id("com.google.dagger.hilt.android") version libs.versions.hilt.get() apply false
     id("com.google.devtools.ksp") version "1.9.22-1.0.17" apply false
     id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
     id(libs.plugins.kotlin.serialization.get().pluginId) version libs.versions.kotlin.get() apply false
