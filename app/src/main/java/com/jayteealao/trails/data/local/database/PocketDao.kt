@@ -105,6 +105,15 @@ interface PocketDao {
     )
     fun getPocketsWithoutText(offset: Int): List<PocketArticle>
 
+    @Query(
+        """
+        SELECT timeUpdated FROM pocketarticle
+        ORDER BY timeUpdated DESC
+        LIMIT 1
+    """
+    )
+    fun getLastUpdatedArticleTime(): Long
+
     @Query("""
         SELECT * FROM modalarticletable
         WHERE pocketId = :pocketId

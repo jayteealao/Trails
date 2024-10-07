@@ -24,6 +24,7 @@ import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import javax.inject.Inject
@@ -42,20 +43,21 @@ class ArticleExtractorWorker @AssistedInject constructor(
     lateinit var pocketDao: PocketDao
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        var syncJob: Job? = null
-        setForeground(getForegroundInfo())
-        syncJob = launch {
-            val receiveArticle = producePocketArticleFromLocal()
-            repeat(5) {
-                retrieveTextForArticles(receiveArticle)
-            }
-        }
-        delay(1000)
-        while (syncJob.isActive) {
-            delay(1000)
-        }
-        Result.success()
 
+            setForeground(getForegroundInfo())
+
+            var syncJob: Job? = null
+            syncJob = launch(Dispatchers.IO) {
+                val receiveArticle = producePocketArticleFromLocal()
+                repeat(5) {
+                    retrieveTextForArticles(receiveArticle)
+                }
+            }
+            delay(1000)
+            while (syncJob.isActive) {
+                delay(1000)
+            }
+            Result.success()
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
@@ -72,7 +74,7 @@ class ArticleExtractorWorker @AssistedInject constructor(
                 Timber.d("No more articles to retrieve")
                 break
             }
-            offset += articles.size
+            offset += articles.size - 1
             send(articles)
             Timber.d("Sent ${articles.size} articles")
         }
@@ -108,40 +110,45 @@ class ArticleExtractorWorker @AssistedInject constructor(
             articles.forEach { article ->
                 deferredList.add(
                     async {
-                        try {
-                            //if the article already has text or is an empty string, skip
-                            if (article.text != null) {
-                                return@async
-                            }
-
-                            //if the article is a pdf, skip
-                            if (article.url?.endsWith(".pdf") == true) {
-                                return@async
-                            }
-
-                            //if the article has a url or givenUrl, retrieve the article text
-                            if(article.url?.isNotBlank() == true || article.givenUrl?.isNotBlank() == true){
-//                                Timber.d("URL: ${article.url} - GIVENURL: ${article.givenUrl}")
-//                                Timber.d(article.givenUrl)
-                                //convert the url to a HttpUrl object
-                                var url = article.url?.toHttpUrlOrNull() ?: article.givenUrl?.toHttpUrlOrNull()
-
-//                                article.text = articleExtractor.extractEssence(url)
-//                                    ?: articleExtractor.extractReadability(url)
-//                                            ?: articleExtractor.extractCrux(url)
-//                                            ?: ""
-                                article.text = articleExtractor(url) ?: ""
-                                url = null
-                            } else {
-                                article.text = ""
-                            }
-
-                            pocketDao.insertPocket(article)
-
-                        } catch (e: Exception) {
-                            Timber.d("Failed to insert ${article.itemId} url ${article.url} givenUrl ${article.givenUrl}")
-                            Timber.e(e)
+                        if (!isValidArticleForExtraction(article)) {
+                            return@async
                         }
+                        val result = extractArticleText(article)
+                        if (result != null) {
+                            pocketDao.insertPocket(result)
+                            return@async
+                        }
+                        return@async
+//                        try {
+//                            //if the article already has text or is an empty string, skip
+//                            if (article.text != null) {
+//                                return@async
+//                            }
+//
+//                            //if the article is a pdf, skip
+//                            if (article.url?.endsWith(".pdf") == true) {
+//                                return@async
+//                            }
+//
+//                            //if the article has a url or givenUrl, retrieve the article text
+//                            if(article.url?.isNotBlank() == true || article.givenUrl?.isNotBlank() == true){
+////                                Timber.d("URL: ${article.url} - GIVENURL: ${article.givenUrl}")
+////                                Timber.d(article.givenUrl)
+//                                //convert the url to a HttpUrl object
+//                                val url = article.url?.toHttpUrlOrNull() ?: article.givenUrl?.toHttpUrlOrNull()
+//
+//                                article.text = articleExtractor(url) ?: ""
+//                            } else {
+//                                article.text = ""
+//                            }
+//
+//                            pocketDao.insertPocket(article)
+//                            return@async
+//
+//                        } catch (e: Exception) {
+//                            Timber.d("Failed to insert ${article.itemId} url ${article.url} givenUrl ${article.givenUrl}")
+//                            Timber.e(e)
+//                        }
                     }
                 )
             }
@@ -149,6 +156,26 @@ class ArticleExtractorWorker @AssistedInject constructor(
             deferredList.clear()
             articles.clear()
         }
+    }
+
+    private suspend fun extractArticleText(article: PocketArticle): PocketArticle? {
+        val url: HttpUrl? = article.url?.toHttpUrlOrNull() ?: article.givenUrl?.toHttpUrlOrNull()
+        if (url == null) {
+            article.text = ""
+            return article
+        }
+
+        return try {
+            article.text = articleExtractor(url) ?: ""
+            article
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to extract text for article ${article.itemId} with URL: ${url}")
+            null
+        }
+    }
+
+    private fun isValidArticleForExtraction(article: PocketArticle): Boolean {
+        return article.text == null && article.url?.endsWith(".pdf") != true
     }
 
     internal companion object {
