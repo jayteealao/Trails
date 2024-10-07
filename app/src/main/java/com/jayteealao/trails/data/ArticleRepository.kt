@@ -56,6 +56,8 @@ interface ArticleRepository: Syncable {
 
     fun getArticleById(itemId: String): PocketArticle?
 
+    fun getLastUpdatedArticleTime(): Long
+
     val isSyncing: Flow<Boolean>
 
     suspend fun getTags(itemId: String): List<String>
@@ -113,6 +115,8 @@ class ArticleRepositoryImpl @Inject constructor(
     override fun getArticleById(itemId: String): PocketArticle? {
          return pocketDao.getArticleById(itemId)
     }
+
+    override fun getLastUpdatedArticleTime() = pocketDao.getLastUpdatedArticleTime()
 
     override suspend fun getTags(itemId: String): List<String> = pocketDao.getPocketTags(itemId)
 

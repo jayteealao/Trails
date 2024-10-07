@@ -59,27 +59,29 @@ class SyncWorker @AssistedInject constructor(
         val syncJob: Job?
 
         setForeground(getForegroundInfo())
-        appContext.awaitAccessPermission(getAccessTokenFromLocalUseCase)
-        syncJob = launch(Dispatchers.IO) {
-            producePocketArticles()
-                .let { receiveArticles ->
-                    repeat(10) { no ->
-                        articleSaver(no, receiveArticles)
+
+            appContext.awaitAccessPermission(getAccessTokenFromLocalUseCase)
+            syncJob = launch(Dispatchers.IO) {
+                producePocketArticles()
+                    .let { receiveArticles ->
+                        repeat(10) { no ->
+                            articleSaver(no, receiveArticles)
+                        }
                     }
-                }
-        }
+            }
 
-        delay(1000)
-        while (syncJob.isActive) {
-            setProgress(workDataOf(PROGRESS to 0))
             delay(1000)
-        }
+            while (syncJob.isActive) {
+                setProgress(workDataOf(PROGRESS to 0))
+                delay(1000)
+            }
 
-        setProgress(workDataOf(PROGRESS to 100))
-        if (syncJob.isCancelled) {
-            return@withContext Result.failure()
-        }
-        Result.success()
+            setProgress(workDataOf(PROGRESS to 100))
+            if (syncJob.isCancelled) {
+                return@withContext Result.failure()
+            }
+            Result.success()
+
     }
 
     internal companion object {
@@ -97,33 +99,30 @@ class SyncWorker @AssistedInject constructor(
     }
 
     /**
-     * A coroutine producer channel that retrieves articles from Pocket API in batches
-     * of 100 articles
-     * @return ReceiveChannel<Array<PocketData>>
-     *     a channel that emits an array of PocketData
-     *     each array contains 100 articles
-     *     the channel is closed when there are no more articles to retrieve
-     *     or when an error occurs
-     *     TODO: handle error
-     *     TODO: handle empty response
-     *     TODO: handle no more articles
-     *     TODO: handle rate limit
-     *     TODO: handle network error
+     * A coroutine producer channel that retrieves articles from the Pocket API in batches of [ARTICLE_LIMIT].
      *
+     * This function retrieves articles from the network data source, sending them in batches to the returned channel.
+     * It uses the `since` parameter to retrieve articles modified since the last update time, fetched from the `articleRepository`.
+     *
+     * @return A `ReceiveChannel<List<PocketData>>` that emits lists of PocketData.
+     *  * Each list contains a batch of articles (up to [ARTICLE_LIMIT]).
+     *  * The channel is closed when there are no more articles to retrieve.
+     *
+     * @throws [RuntimeException] if an error occurs during article retrieval. This is a temporary placeholder and should be replaced with more specific error handling.
      */
-    private fun CoroutineScope.producePocketArticles() = produce<MutableList<PocketData>> {
-        val since = getSinceFromLocalUseCase()
+    private fun CoroutineScope.producePocketArticles() = produce {
+//        val since = getSinceFromLocalUseCase()
+        val since = articleRepository.getLastUpdatedArticleTime()
         var offset = 0
         val next = true
         while (next) {
-            var articleList = mutableListOf<PocketData>()
-            articleList = networkDataSource(
+            val articleList: MutableList<PocketData> = networkDataSource(
                 since, ARTICLE_LIMIT, offset
             )
             if (articleList.isNotEmpty()) {
                 send(articleList)
                 Timber.d("Sent ${articleList.size} articles, offset: $offset")
-                offset += ARTICLE_LIMIT
+                offset += ARTICLE_LIMIT - 1
             } else {
 //                next = false
                 Timber.d("No more articles")
