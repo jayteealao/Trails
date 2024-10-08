@@ -1,11 +1,14 @@
 package com.jayteealao.trails.screens.articleList.components
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -15,32 +18,26 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gigamole.composeshadowsplus.common.ShadowsPlusType
 import com.gigamole.composeshadowsplus.common.shadowsPlus
+import kotlin.math.abs
 
+@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun TagItem(
     tag: String,
     modifier: Modifier = Modifier
 ) {
-    BoxWithConstraints(
-        modifier = modifier,
-        contentAlignment = Alignment.TopStart
-    ) {
-
         val tagShadowColor = getTagColor(tag)
-
-        val height = maxHeight
-        val width = maxWidth
-
-        Box(modifier = Modifier.size(width = width, height = height))
 
         Text(
             text = tag,
-            modifier = Modifier
-                .size(width = width-4.dp, height = height-4.dp)
+            modifier = modifier
+                .wrapContentWidth()
+                .wrapContentHeight()
                 .border(width = 1.dp, color = Color.Black)
-                .background(Color.Black)
+                .background(Color.White)
                 .shadowsPlus(
                     type = ShadowsPlusType.SoftLayer,
                     shape = RectangleShape,
@@ -49,8 +46,9 @@ fun TagItem(
                     radius = 0.dp,
                     isAlphaContentClip = true
                 )
+                .padding(4.dp, 1.dp),
+            fontSize = 12.sp
         )
-    }
 }
 
 fun getTagColor(
@@ -79,7 +77,7 @@ fun getTagColor(
         Color(0xFF800000),
 
     )
-    return colorsList[tag.hashCode() % colorsList.size]
+    return colorsList[abs(tag.hashCode()) % colorsList.size]
 }
 
 @Preview
