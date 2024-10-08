@@ -1,12 +1,16 @@
 package com.jayteealao.trails.screens.articleList.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +44,7 @@ fun ArticleListItem(
     Column(
         modifier = modifier
             .padding( start = 16.dp, end = 16.dp, top = 0.dp, bottom = 8.dp )
+            .background(Color.White)
             .clickable { onCLick() }
     ) {
         Text(
@@ -65,11 +70,19 @@ fun ArticleListItem(
             )
         }
         Spacer(modifier = Modifier.height(16.dp))
-        FlowRow {
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight(),
+            verticalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.Start
+        ) {
             article.tags.forEach { tag ->
                 TagItem(
                     tag = tag,
-                    modifier = Modifier.height(32.dp).wrapContentWidth()
+                    modifier = Modifier
+//                        .height(32.dp)
+                        .wrapContentWidth()
                 )
             }
         }
