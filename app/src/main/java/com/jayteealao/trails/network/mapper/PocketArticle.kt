@@ -1,12 +1,13 @@
 package com.jayteealao.trails.network.mapper
 
+import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.data.local.database.PocketArticle
 import com.jayteealao.trails.network.PocketArticleResponse
 import com.jayteealao.trails.network.PocketData
 
 
 fun PocketArticleResponse.toPocketArticleEntity() = PocketArticle(
-    itemId = this.itemId,
+    itemId = generateId(),
     title = this.title ?: "",
     excerpt = this.excerpt ?: "",
     url = this.url ?: "",
@@ -28,6 +29,7 @@ fun PocketArticleResponse.toPocketArticleEntity() = PocketArticle(
     timeFavorited = this.timeFavorited,
     hasAudio = this.hasAudio,
     listenDurationEstimate = this.listenDurationEstimate,
+    pocketId = this.itemId
     )
 
 fun PocketArticleResponse.toPocketData() = PocketData(

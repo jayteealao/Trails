@@ -51,7 +51,8 @@ data class PocketArticle(
     val timeToRead: Int,
     val listenDurationEstimate: Int,
     var text : String? = null,
-//    @ColumnInfo(defaultValue = "0") val modal: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val pocketId: String = "0",
+    @ColumnInfo(defaultValue = "0") val resolved: Boolean = false,
 )
 
 @Entity(tableName = "pocketarticle_fts")
