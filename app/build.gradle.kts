@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-@Suppress("DSL_SCOPE_VIOLATION") // Remove when fixed https://youtrack.jetbrains.com/issue/KTIJ-19369
+//@Suppress("DSL_SCOPE_VIOLATION") // Remove when fixed https://youtrack.jetbrains.com/issue/KTIJ-19369
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -22,6 +22,7 @@ plugins {
     alias(libs.plugins.hilt.gradle)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.compose)
 //    id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
 }
 
@@ -109,7 +110,10 @@ kotlin {
 
 dependencies {
 
-//    implementation(libs.androidx.constraintlayout)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui.graphics)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    //    implementation(libs.androidx.constraintlayout)
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -218,6 +222,12 @@ dependencies {
 
     //constraint-layout
     implementation(libs.constraint.layout)
+
+    //unfurl
+    implementation(libs.unfurl)
+
+    //nanoid
+    implementation(libs.nanoid)
 
     // Local tests: jUnit, coroutines, Android runner
     testImplementation(libs.junit)

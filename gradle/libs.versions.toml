@@ -12,7 +12,9 @@ androidxRoom = "2.6.1"
 androidxTest = "1.6.1"
 androidxTestExt = "1.2.1"
 androidxTestRunner = "1.6.2"
+nanoid = "1.0.1"
 startupRuntime = "1.2.0"
+unfurl = "2.2.0"
 weaviateClient = "4.5.1"
 constraintLayout="1.0.1"
 chromeCustomTabs = "1.8.0"
@@ -23,9 +25,9 @@ essence = "0.13.0"
 fonts = "1.7.2"
 hilt = "2.49"
 junit = "4.13.2"
-kotlin = "1.9.22"
+kotlin = "2.0.20"
 kapt = "1.8.10"
-ksp = "1.9.22-1.0.17"
+ksp = "2.0.20-1.0.25"
 librariesBom = "26.33.0"
 library = "4.0.0"
 libraryNoOp = "4.0.0"
@@ -87,6 +89,8 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 compose-icons-cssgg = { module = "br.com.devsrsouza.compose.icons:css-gg", version.ref = "composeIcons" }
 
 google-cloud-vertexai = { module = "com.google.cloud:google-cloud-vertexai" }
+nanoid = { module = "io.viascom.nanoid:nanoid", version.ref = "nanoid" }
+unfurl = { module = "me.saket.unfurl:unfurl", version.ref = "unfurl" }
 weaviate-client = { module = "io.weaviate:client", version.ref = "weaviateClient" }
 google-cloud-bom = { module = "com.google.cloud:libraries-bom", version.ref = "librariesBom" }
 
@@ -132,6 +136,7 @@ shadows-plus = { module = "com.github.GIGAMOLE:ComposeShadowsPlus", version.ref 
 
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdown-renderer"}
 markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer"}
+androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 #androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayoutVersion" }
 
 [bundles]
@@ -149,3 +154,4 @@ kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kapt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp"}
 hilt-gradle = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
