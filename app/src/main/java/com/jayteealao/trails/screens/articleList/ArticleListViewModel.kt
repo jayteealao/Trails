@@ -16,6 +16,7 @@
 
 package com.jayteealao.trails.screens.articleList
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.Pager
@@ -24,14 +25,14 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
+import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.PocketArticle
 import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
-import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleList.PocketUiState.Loading
-import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import com.jayteealao.trails.usecases.SynchronizePocketUseCase
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -50,7 +52,6 @@ class ArticleListViewModel @Inject constructor(
     private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
     private val synchronizePocketUseCase: SynchronizePocketUseCase,
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
-    private val modalClient: ModalClient,
     private val supabaseService: SupabaseService,
     private val pocketDao: PocketDao,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
@@ -110,26 +111,47 @@ class ArticleListViewModel @Inject constructor(
     }
     fun selectArticle(articleItem: ArticleItem) {
         _selectedArticle.value = articleItem
-        provideSummary(articleItem.itemId)
+//        provideSummary(articleItem.itemId)
     }
-    private fun provideSummary(articleId: String) {
+
+    fun insertArticle(article: PocketArticle) {
         viewModelScope.launch(ioDispatcher) {
-            if (articleId.isEmpty()) {
-                _selectedArticleSummary.value = PocketSummary(id = articleId, summary = "No Article Provided")
-                return@launch
-            }
-            val article: PocketArticle? = pocketRepository.getArticleById(articleId)
-            if (article != null) {
-                _selectedArticleSummary.value = pocketDao.getSummary(articleId)
-                    ?: supabaseService.getSummaryById(articleId).decodeAs()
-                    ?: PocketSummary(id = articleId, summary = "No Summary Provided")
-//                val summary: List<ArticleSummary> = modalClient.summarize(
-//                   listOf( ModalArticle(id = articleId, text = article.text ?: "No Article Provided"))
-//                ).getOrElse(emptyList())
-//                _selectedArticleSummary.value = summary.getOrElse(0
-//                ) { ArticleSummary(id = articleId, summary = "No Summary Provided") }
-            }
+            pocketDao.insertPocket(article)
         }
+    }
+
+    fun saveUrl(givenUrl: Uri, givenTitle: String?) {
+        val unfurler = Unfurler()
+        viewModelScope.launch(ioDispatcher) {
+
+            val result = unfurler.unfurl(givenUrl.toString())
+            val article = PocketArticle(
+                itemId = generateId(),
+                resolvedId = null,
+                title = result?.title ?: givenTitle ?: "",
+                givenTitle = givenTitle ?: "",
+                url = (result?.url ?: givenUrl.toString()).toString(),
+                givenUrl = givenUrl.toString(),
+                favorite = "0",
+                status = "", //check acceptable values
+                image = if (result?.thumbnail == null) null else result.thumbnail.toString(),
+                hasImage = result?.thumbnail != null,
+                hasVideo = false,
+                hasAudio = false,
+                listenDurationEstimate = 0,
+                wordCount = 0,
+                wordCountMessage = null,
+                sortId = 0,
+                excerpt = result?.description ?: "",
+                timeAdded = System.currentTimeMillis(),
+                timeUpdated = System.currentTimeMillis(),
+                timeRead = 0,
+                timeFavorited = 0,
+                timeToRead = 0,
+            )
+            insertArticle(article)
+        }
+
     }
 
 }
