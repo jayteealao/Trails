@@ -21,12 +21,6 @@ interface PocketDao {
     @Query("SELECT itemId, title, url FROM pocketarticle ORDER BY timeAdded DESC")
     fun getArticles(): PagingSource<Int, ArticleItem>
 
-
-//    SELECT art.itemId, art.title, art.url, tag.tag
-//    FROM pocketarticle AS art
-//    INNER JOIN pockettags AS tag
-//    ON art.itemId = tag.itemId
-//    ORDER BY art.timeAdded DESC
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, art.url,
@@ -89,6 +83,7 @@ interface PocketDao {
 
     @Query("""
         SELECT * FROM pocketarticle
+        WHERE pocketId != "0"
         ORDER BY timeAdded DESC
         LIMIT 1
     """
@@ -114,28 +109,6 @@ interface PocketDao {
     )
     fun getLastUpdatedArticleTime(): Long
 
-    @Query("""
-        SELECT * FROM modalarticletable
-        WHERE pocketId = :pocketId
-        """
-    )
-    fun getModalId(pocketId: String): ModalArticleTable?
-
-    @Upsert
-    fun insertModalId(modalArticles: List<ModalArticleTable>)
-
-    @Query("""
-        SELECT * FROM pocketarticle
-        WHERE text IS NOT NULL
-            AND text != ''
-            AND itemId NOT IN (SELECT pocketId FROM modalarticletable)
-        ORDER BY timeAdded DESC
-        LIMIT 20
-        OFFSET :offset
-    """
-    )
-    fun getPocketsWithModalFalse(offset: Int): List<PocketArticle>
-
     @Upsert
     suspend fun insertPocketSummary(pocketSummary: PocketSummary)
 
@@ -145,6 +118,4 @@ interface PocketDao {
     @Query("SELECT * FROM pocketsummary WHERE id = :itemId")
     suspend fun getSummary(itemId: String): PocketSummary?
 
-    @Query("DELETE FROM modalarticletable")
-    fun clearModalTable()
 }
