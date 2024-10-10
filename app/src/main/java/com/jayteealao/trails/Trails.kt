@@ -24,7 +24,7 @@ import timber.log.Timber
 import javax.inject.Inject
 
 @HiltAndroidApp
-class Trails() : Application(), Configuration.Provider {
+class Trails @Inject constructor() : Application(), Configuration.Provider {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
 

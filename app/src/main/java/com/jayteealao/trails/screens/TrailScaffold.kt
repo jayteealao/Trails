@@ -24,6 +24,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 
@@ -38,7 +39,7 @@ fun TrailScaffold(
 
     Scaffold(
         topBar = { topBar(menuState) },
-        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        containerColor = Color.White,
     ){ paddingValues ->
         content(paddingValues, transitionData)
     }
@@ -156,7 +157,7 @@ fun TrailsTopAppBar(
                 }
             },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                containerColor = Color.White,
             ),
             actions = {
                 if (iconImage != null) {
