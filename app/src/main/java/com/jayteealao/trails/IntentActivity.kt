@@ -31,9 +31,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.jayteealao.trails.common.Tassel_App_Icon
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+@AndroidEntryPoint
 class IntentActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,7 +46,6 @@ class IntentActivity : ComponentActivity() {
         val givenUrl: Uri? = intent?.data ?: Uri.parse(intent.getStringExtra(Intent.EXTRA_TEXT))
         val givenTitle: String? = intent.getStringExtra(Intent.EXTRA_TITLE)
 
-
         setContent {
             TrailsTheme {
                 val scope = rememberCoroutineScope()
@@ -52,11 +53,6 @@ class IntentActivity : ComponentActivity() {
                 val viewModel: ArticleListViewModel = hiltViewModel<ArticleListViewModel>()
 
                 LaunchedEffect(Unit) {
-//                    Timber.d("Given URL: $givenUrl, Given Title: $givenTitle")
-//                    val unfurler = Unfurler()
-//                    val result = unfurler.unfurl(givenUrl.toString())
-//                    Timber.d("Unfurler: ${result?.title}")
-                    // Timeout for auto-closing the dialog
                     if (givenUrl != null) {
                         viewModel.saveUrl(givenUrl, givenTitle)
                     }
@@ -99,8 +95,6 @@ class IntentActivity : ComponentActivity() {
                                    verticalAlignment = Alignment.CenterVertically
                                ) {
                                    Icon(imageVector = Tassel_App_Icon, contentDescription = "App Icon")
-//                                   AnimatedTasselIcon(modifier = Modifier.size(32.dp, 32.dp))
-
                                    Text(text = "Article Saved")
                                }
                             }
