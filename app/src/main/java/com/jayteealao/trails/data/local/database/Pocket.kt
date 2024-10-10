@@ -48,7 +48,7 @@ data class PocketArticle(
     val timeUpdated: Long,
     val timeRead: Long,
     val timeFavorited: Long,
-    val timeToRead: Int,
+    val timeToRead: Int? = 0,
     val listenDurationEstimate: Int,
     var text : String? = null,
     @ColumnInfo(defaultValue = "0") val pocketId: String = "0",
