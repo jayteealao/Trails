@@ -32,8 +32,6 @@ import com.jayteealao.trails.network.PocketData
 import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.initializers.SyncWorkName
-import com.jayteealao.trails.sync.workers.ArticleExtractorWorker
-import com.jayteealao.trails.sync.workers.SemanticModalWorker
 import com.jayteealao.trails.sync.workers.SyncWorker
 import com.skydoves.sandwich.getOrElse
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -237,8 +235,8 @@ class ArticleRepositoryImpl @Inject constructor(
     override fun synchronize() {
         WorkManager.getInstance(context)
             .beginUniqueWork(SyncWorkName, ExistingWorkPolicy.KEEP, SyncWorker.startUpSyncWork())
-            .then(ArticleExtractorWorker.startUpArticleExtractorWork())
-            .then(SemanticModalWorker.startUpSemanticModalWork())
+//            .then(ArticleExtractorWorker.startUpArticleExtractorWork())
+//            .then(SemanticModalWorker.startUpSemanticModalWork())
             .enqueue()
     }
 }
