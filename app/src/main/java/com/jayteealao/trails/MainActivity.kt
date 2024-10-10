@@ -19,6 +19,7 @@ package com.jayteealao.trails
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -28,9 +29,12 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import coil3.ImageLoader
+import coil3.compose.setSingletonImageLoaderFactory
+import coil3.request.crossfade
 import com.jayteealao.trails.screens.auth.AuthViewModel
-import dagger.hilt.android.AndroidEntryPoint
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -50,14 +54,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val splashScreen = installSplashScreen()
 
-        val uiState = authViewModel.uiState
+//        val uiState = authViewModel.uiState
 
         splashScreen.setKeepOnScreenCondition {
             !exitSplash
         }
 
+        enableEdgeToEdge()
+
         setContent {
             TrailsTheme {
+                setSingletonImageLoaderFactory { context ->
+                    ImageLoader.Builder(context)
+                        .crossfade(true)
+                        .build()
+                }
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
