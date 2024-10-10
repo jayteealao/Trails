@@ -52,14 +52,9 @@ android {
         getByName("release") {
             isMinifyEnabled = true
             this.isShrinkResources = true
-            isDebuggable = true
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
 //            isProfileable = true
-            signingConfig = signingConfigs.maybeCreate("release").apply {
-                storeFile = file("C:\\Users\\HP\\.android\\tasselsigningkey.jks")
-                storePassword = properties["KEYSTORE_PASSWORD"] as String
-                keyAlias = properties["SIGNING_KEY_ALIAS"] as String
-                keyPassword = properties["SIGNING_KEY_PASSWORD"] as String
-            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
 
@@ -219,6 +214,7 @@ dependencies {
     //markdown-renderer
     implementation(libs.markdown.renderer)
     implementation(libs.markdown.renderer.m3)
+    implementation(libs.markdown.renderer.coil3)
 
     //constraint-layout
     implementation(libs.constraint.layout)
@@ -228,6 +224,15 @@ dependencies {
 
     //nanoid
     implementation(libs.nanoid)
+
+    //landscapist
+//    implementation(libs.landscapist.coil)
+    implementation("io.coil-kt.coil3:coil-compose:3.0.0-rc01")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.0-rc01")
+    implementation("com.squareup.okio:okio:3.9.1")
+
+    //profileInstaller
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // Local tests: jUnit, coroutines, Android runner
     testImplementation(libs.junit)
