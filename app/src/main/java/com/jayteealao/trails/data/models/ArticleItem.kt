@@ -8,6 +8,7 @@ data class ArticleItem(
     val itemId: String,
     val title: String,
     val url: String,
+    val image: String? = null,
     val tagsString: String? = "",
     val snippet: String? = null,
 ) {
