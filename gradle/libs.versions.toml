@@ -12,6 +12,7 @@ androidxRoom = "2.6.1"
 androidxTest = "1.6.1"
 androidxTestExt = "1.2.1"
 androidxTestRunner = "1.6.2"
+landscapistCoil = "2.4.0"
 nanoid = "1.0.1"
 startupRuntime = "1.2.0"
 unfurl = "2.2.0"
@@ -44,6 +45,9 @@ shadowsPlus = "1.0.4"
 timber = "5.0.1"
 workManager = "2.9.1"
 ktorversion = "2.3.9"
+espressoCore = "3.6.1"
+uiautomator = "2.2.0"
+benchmarkMacroJunit4 = "1.2.0-beta01"
 #constraintlayoutVersion = "2.1.4"
 
 [libraries]
@@ -89,6 +93,7 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 compose-icons-cssgg = { module = "br.com.devsrsouza.compose.icons:css-gg", version.ref = "composeIcons" }
 
 google-cloud-vertexai = { module = "com.google.cloud:google-cloud-vertexai" }
+landscapist-coil = { module = "com.github.skydoves:landscapist-coil", version.ref = "landscapistCoil" }
 nanoid = { module = "io.viascom.nanoid:nanoid", version.ref = "nanoid" }
 unfurl = { module = "me.saket.unfurl:unfurl", version.ref = "unfurl" }
 weaviate-client = { module = "io.weaviate:client", version.ref = "weaviateClient" }
@@ -136,7 +141,11 @@ shadows-plus = { module = "com.github.GIGAMOLE:ComposeShadowsPlus", version.ref 
 
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdown-renderer"}
 markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer"}
+markdown-renderer-coil3 = { module = "com.mikepenz:multiplatform-markdown-renderer-coil3", version.ref = "markdown-renderer"}
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacroJunit4" }
 #androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayoutVersion" }
 
 [bundles]
@@ -155,3 +164,4 @@ ksp = { id = "com.google.devtools.ksp", version.ref = "ksp"}
 hilt-gradle = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+android-test = { id = "com.android.test", version.ref = "androidGradlePlugin" }
