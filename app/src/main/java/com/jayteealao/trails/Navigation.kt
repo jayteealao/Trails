@@ -30,13 +30,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -72,6 +73,7 @@ fun MainNavigation(
     val _isLoggedIn = authViewModel.isLoggedIn
     var isLoggedIn by remember { mutableStateOf(false) }
     val searchBarState by remember { mutableStateOf(SearchBarState(false)) }
+    val selectedArticle by articleDetailViewModel.article.collectAsState()
 
     LaunchedEffect(true) {
         _isLoggedIn.collect { value ->
@@ -81,7 +83,7 @@ fun MainNavigation(
 
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
-            articleListViewModel.sync()
+//            articleListViewModel.sync()
         }
     }
     TrailScaffold(
@@ -98,9 +100,10 @@ fun MainNavigation(
     ){ paddingValues, transitionData ->
         NavHost(
             modifier = Modifier
-                .padding(paddingValues),
+                .padding(paddingValues)
+                .background(Color.White),
             navController = navController,
-            startDestination = if (isLoggedIn) "main" else "login"
+            startDestination = "main"
         ) {
             composable("login") {
                 AuthScreen(
@@ -120,16 +123,13 @@ fun MainNavigation(
                             translationX = transitionData.offset * 100
                         }
                 ){
-                    val context = LocalContext.current
                     ArticleListScreen(
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.surface),
                         viewModel = articleListViewModel,
                         onSelectArticle = { article ->
                             navController.navigate("article/${article.itemId}")
-//                            OpenChromeCustomTab(context, "https://getpocket.com/read/${article.itemId}")
                         },
-                        searchBarState = searchBarState,
                     )
                 }
             }
@@ -140,9 +140,8 @@ fun MainNavigation(
                     return@composable
                 }
                 articleDetailViewModel.getArticle(articleId)
-                ArticleDetailScreen(
-                    articleId = articleId,
-                )
+
+                selectedArticle?.let { ArticleDetailScreen(article = it) }
             }
             composable("search") {
                 ArticleSearchScreen(searchBarState = searchBarState, viewModel = articleSearchViewModel) { article ->

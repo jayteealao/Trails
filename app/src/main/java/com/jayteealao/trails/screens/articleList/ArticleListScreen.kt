@@ -30,7 +30,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -41,7 +40,6 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
-import com.jayteealao.trails.SearchBarState
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.screens.articleList.components.ArticleDialog
@@ -53,15 +51,10 @@ fun ArticleListScreen(
     modifier: Modifier = Modifier,
     viewModel: ArticleListViewModel = hiltViewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
-    searchBarState: SearchBarState,
-    onClickSearchButton: () -> Unit = {},
 ) {
 
     val articles = viewModel.articles.collectAsLazyPagingItems()
     val isSyncing = viewModel.databaseSync.collectAsStateWithLifecycle()
-    val searchResults = viewModel.searchResults.collectAsStateWithLifecycle()
-    val searchBarContainerColor = searchBarState.searchBarContainerColor()
-    var showDialog by remember { mutableStateOf(false) }
     val article by remember { mutableStateOf<ArticleItem>(EMPTYARTICLEITEM) }
     val summary by viewModel.selectedArticleSummary.collectAsStateWithLifecycle()
     val selectedArticle by viewModel.selectedArticle.collectAsStateWithLifecycle()
@@ -69,39 +62,6 @@ fun ArticleListScreen(
     Column(
         modifier = modifier
     ) {
-//        Box(
-//            modifier = Modifier
-//                .semantics { isContainer = true }
-//                .zIndex(1f)
-//                .fillMaxWidth()
-//        ) {
-//            SearchBar(
-//                modifier = Modifier
-//                    .fillMaxWidth(),
-//                query = searchBarState.searchText,
-//                onQueryChange = { searchBarState.updateSearchText(it) },
-//                onSearch = { viewModel.search(searchBarState.searchText) },
-//                active = searchBarState.searchBarActive,
-//                onActiveChange = { searchBarState.searchBarActive = it },
-//                placeholder = { Text(text = "Search") },
-//                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-//                trailingIcon = { Icon(Icons.Default.MoreVert, contentDescription = null) },
-//                shape = RectangleShape,
-//                tonalElevation = 0.dp,
-//                colors = SearchBarDefaults.colors(
-//                    containerColor = searchBarContainerColor.value,
-//                    dividerColor = MaterialTheme.colorScheme.primary,
-//                )
-//            ) {
-//                LazyColumn {
-//                    items(searchResults.value) { article ->
-//                        ArticleListItem(
-//                            article = article,
-//                        ) { onSelectArticle(article) }
-//                    }
-//                }
-//            }
-//        }
             AnimatedVisibility(visible = isSyncing.value) {
                 LinearProgressIndicator(
                     modifier = Modifier
@@ -113,9 +73,6 @@ fun ArticleListScreen(
             PocketScreenContent(
                 lazyItems = articles,
                 onSelectArticle = {
-//                    article = it
-//                    showDialog = true
-//                    viewModel.selectArticle(it)
                     onSelectArticle(it)
 
                 }
@@ -141,8 +98,7 @@ internal fun PocketScreenContent(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.White)
-            .padding(vertical = 16.dp),
-//        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(vertical = 16.dp)
     ) {
         items(
             count = lazyItems.itemCount,
