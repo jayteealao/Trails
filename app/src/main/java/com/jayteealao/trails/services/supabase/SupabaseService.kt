@@ -1,24 +1,32 @@
 package com.jayteealao.trails.services.supabase
 
+import com.jayteealao.trails.common.di.dispatchers.Dispatcher
+import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
+import com.jayteealao.trails.common.generateDeterministicNanoId
 import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.data.models.PocketSummary
+import com.jayteealao.trails.network.PocketAuthors
+import com.jayteealao.trails.network.PocketData
+import com.jayteealao.trails.network.PocketImages
+import com.jayteealao.trails.network.PocketTags
+import com.jayteealao.trails.network.PocketVideos
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.PropertyConversionMethod
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.result.PostgrestResult
-import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.Realtime
-import io.github.jan.supabase.realtime.channel
-import io.github.jan.supabase.realtime.postgresChangeFlow
-import kotlinx.coroutines.flow.FlowCollector
-import timber.log.Timber
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class SupabaseService @Inject constructor() {
+class SupabaseService @Inject constructor(
+    @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
+) {
 
     private val supabaseClient: SupabaseClient by lazy {
         createSupabaseClient(
@@ -36,8 +44,58 @@ class SupabaseService @Inject constructor() {
         supabaseClient.channel("pocketSummaryChannel")
     }
 
-    val summaryChanges = summaryChannel.postgresChangeFlow<PostgresAction>(schema = "public") {
-            table = "pocketsummary"
+    suspend fun repopulateDatabase(count : Int = 0, saveData: suspend (List<PocketData>) -> Unit = {}) = withContext(ioDispatcher){
+            var OFFSET = 0L
+            if (count > 0) {
+                OFFSET = count.toLong()
+            }
+            while (true) {
+                val end = OFFSET + 9
+                val articles = supabaseClient.from("pocketarticle").select() {
+                    order("timeAdded", order = Order.DESCENDING)
+                    range(from = OFFSET, to = end)
+                }.decodeList<PocketArticle>()
+                if (articles.isEmpty()) break
+                //fetch pocketimages
+                saveData(
+                    articles.map {
+                        val images = supabaseClient.from("pocketimages").select() {
+                            filter {
+                                eq("item_id", it.itemId)
+                            }
+                        }.decodeList<PocketImages>()
+                        val videos = supabaseClient.from("pocketvideos").select() {
+                            filter {
+                                eq("item_id", it.itemId)
+                            }
+                        }.decodeList<PocketVideos>()
+                        val tags = supabaseClient.from("pockettags").select() {
+                            filter {
+                                eq("item_id", it.itemId)
+                            }
+                        }.decodeList<PocketTags>()
+                        val authors = supabaseClient.from("pocketauthors").select() {
+                            filter {
+                                eq("item_id", it.itemId)
+                            }
+                        }.decodeList<PocketAuthors>()
+                        PocketData(
+                            pocketArticle = it.copy(
+                                itemId = generateDeterministicNanoId(it.url ?: it.givenUrl ?: it.itemId),
+                                pocketId = it.itemId,
+                                resolved = true
+                            ),
+                            pocketImages = images,
+                            pocketVideos = videos,
+                            pocketTags = tags,
+                            pocketAuthors = authors,
+                            domainMetadata = null,
+                        )
+                    }
+                )
+//                if (OFFSET >= 40) break
+                OFFSET += 10
+            }
         }
 
     private fun provideSupabaseClient(): SupabaseClient = supabaseClient
@@ -65,11 +123,11 @@ class SupabaseService @Inject constructor() {
                     Timber.d("Inserted: ${it.record}")
                     collector.emit(listOf(PocketSummary(id = it.record["id"].toString(), summary = it.record["summary"].toString())))
                 }
-
-                is PostgresAction.Delete -> Timber.d("Deleted: ${it.oldRecord}")
-                is PostgresAction.Select -> Timber.d("Selected: ${it.record}")
-                is PostgresAction.Update -> Timber.d("Updated: ${it.oldRecord} with ${it.record}")
-            }
-        }
-    }
 }
+
+@Serializable
+data class PageSnapshot(
+    val item_id: String,
+    val markdown: String,
+    val length: Int
+)
