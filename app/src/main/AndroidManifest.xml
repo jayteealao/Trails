@@ -29,6 +29,10 @@
         android:theme="@style/Theme.Trails.Splash"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+        <profileable
+            android:shell="true"
+            tools:targetApi="29" />
+
         <activity
             android:name=".IntentActivity"
             android:documentLaunchMode="always"

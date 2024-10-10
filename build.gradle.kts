@@ -25,6 +25,7 @@ plugins {
     id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
     id(libs.plugins.kotlin.serialization.get().pluginId) version libs.versions.kotlin.get() apply false
     alias(libs.plugins.kotlin.compose) version libs.versions.kotlin.get() apply false
+    alias(libs.plugins.android.test) apply false
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>() {
