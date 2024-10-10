@@ -23,7 +23,7 @@ interface PocketDao {
 
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("""
-        SELECT art.itemId, art.title, art.url,
+        SELECT art.itemId, art.title, art.url, art.image,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
@@ -67,7 +67,8 @@ interface PocketDao {
     suspend fun insertDomainMetadata(item: DomainMetadata)
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("""
-        SELECT pocketarticle.itemId, pocketarticle.title, pocketarticle.url FROM pocketarticle
+        SELECT pocketarticle.itemId, pocketarticle.title, pocketarticle.url, pocketarticle.image
+        FROM pocketarticle
         JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
         WHERE pocketarticle_fts MATCH :query
     """)
@@ -103,11 +104,16 @@ interface PocketDao {
     @Query(
         """
         SELECT timeUpdated FROM pocketarticle
-        ORDER BY timeUpdated DESC
+        ORDER BY timeAdded DESC
         LIMIT 1
     """
     )
     fun getLastUpdatedArticleTime(): Long
+
+    @Query("""
+        SELECT COUNT(*) FROM pocketarticle
+        """)
+    fun countArticle(): Int
 
     @Upsert
     suspend fun insertPocketSummary(pocketSummary: PocketSummary)
