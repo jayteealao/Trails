@@ -21,7 +21,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.produce
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
@@ -48,15 +47,15 @@ class ArticleExtractorWorker @AssistedInject constructor(
 
             var syncJob: Job? = null
             syncJob = launch(Dispatchers.IO) {
-                val receiveArticle = producePocketArticleFromLocal()
-                repeat(5) {
-                    retrieveTextForArticles(receiveArticle)
-                }
+//                val receiveArticle = producePocketArticleFromLocal()
+//                repeat(5) {
+//                    retrieveTextForArticles(receiveArticle)
+//                }
             }
-            delay(1000)
-            while (syncJob.isActive) {
-                delay(1000)
-            }
+//            delay(1000)
+//            while (syncJob.isActive) {
+//                delay(1000)
+//            }
             Result.success()
     }
 
