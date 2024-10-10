@@ -25,6 +25,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
+import com.jayteealao.trails.common.generateDeterministicNanoId
 import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.PocketArticle
@@ -35,7 +36,6 @@ import com.jayteealao.trails.data.models.PocketSummary
 import com.jayteealao.trails.screens.articleList.PocketUiState.Loading
 import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
-import com.jayteealao.trails.usecases.SynchronizePocketUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,7 +50,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
     private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
-    private val synchronizePocketUseCase: SynchronizePocketUseCase,
+//    private val synchronizePocketUseCase: SynchronizePocketUseCase,
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
     private val supabaseService: SupabaseService,
     private val pocketDao: PocketDao,
@@ -58,10 +58,13 @@ class ArticleListViewModel @Inject constructor(
 ) : ViewModel() {
 
     init {
+        Timber.d(generateDeterministicNanoId("my_input"))
+        Timber.d(generateDeterministicNanoId("my_input"))
         viewModelScope.launch(ioDispatcher) {
-            supabaseService.observeChanges {
-                Timber.d("Supabase changes: $it")
-            }
+//            supabaseService.observeChanges {
+//                Timber.d("Supabase changes: $it")
+//            }
+            pocketRepository.synchronize()
         }
     }
 
@@ -84,7 +87,7 @@ class ArticleListViewModel @Inject constructor(
     fun sync() {
         viewModelScope.launch(ioDispatcher) {
 //            pocketDao.clearModalTable()
-            synchronizePocketUseCase()
+//            synchronizePocketUseCase()
         }
     }
 
@@ -93,7 +96,7 @@ class ArticleListViewModel @Inject constructor(
     private var _articles = MutableStateFlow(emptyList<PocketArticle>())
     val articles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(
-            pageSize = 10,
+            pageSize = 20,
         ),
         pagingSourceFactory = { getArticleWithTextUseCase() }
     ).flow
