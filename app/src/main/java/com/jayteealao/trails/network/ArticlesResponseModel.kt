@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.google.gson.annotations.SerializedName
 import com.jayteealao.trails.data.local.database.PocketArticle
+import kotlinx.serialization.SerialName
 
 data class ArticlesResponseModel(
     val status: Int,
@@ -46,10 +47,11 @@ data class PocketArticleResponse(
     @SerializedName("domain_metadata") val domainMetadata: DomainMetadata,
 )
 
+@kotlinx.serialization.Serializable()
 @Entity(primaryKeys = ["imageId", "itemId"])
 data class PocketImages(
-    @SerializedName("image_id") val imageId: String,
-    @SerializedName("item_id") val itemId: String,
+    @SerialName("image_id") val imageId: String,
+    @SerialName("item_id") val itemId: String,
     @SerializedName("src") val src: String,
     @SerializedName("width") val width: Int,
     @SerializedName("height") val height: Int,
@@ -57,29 +59,34 @@ data class PocketImages(
     @SerializedName("caption") val caption: String,
 )
 
+@kotlinx.serialization.Serializable()
 @Entity(primaryKeys = ["videoId", "itemId"])
 data class PocketVideos(
-    @SerializedName("video_id") val videoId: String,
-    @SerializedName("item_id") val itemId: String,
+    @SerialName("video_id") val videoId: String,
+    @SerialName("item_id") val itemId: String,
     @SerializedName("src") val src: String,
     @SerializedName("width") val width: Int,
     @SerializedName("height") val height: Int,
     @SerializedName("type") val type: String,
     @SerializedName("vid") val vid: String,
-    @SerializedName("duration") val duration: Int,
+    @SerializedName("duration") val duration: Int? = 0,
     @SerializedName("image") val image: String?,
 )
+
+@kotlinx.serialization.Serializable()
 @Entity(primaryKeys = ["itemId"])
 data class PocketTags(
-    @SerializedName("item_id") val itemId: String,
+    @SerialName("item_id") val itemId: String,
     @SerializedName("tag") val tag: String,
-    @SerializedName("sort_id") val sortId: Int?,
+    @SerialName("sort_id") val sortId: Int?,
     @SerializedName("type") val type: String?,
 )
+
+@kotlinx.serialization.Serializable()
 @Entity
 data class PocketAuthors(
-    @SerializedName("author_id") @PrimaryKey  val authorId: String,
-    @SerializedName("item_id")val itemId: String,
+    @SerialName("author_id") @PrimaryKey  val authorId: String,
+    @SerialName("item_id")val itemId: String,
     @SerializedName("name") val name: String,
     @SerializedName("url") val url: String,
     @SerializedName("domain") val domain: String?,
