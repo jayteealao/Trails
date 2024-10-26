@@ -152,7 +152,8 @@ class ArticleListViewModel @Inject constructor(
                 timeFavorited = 0,
                 timeToRead = 0,
             )
-            insertArticle(article)
+//            insertArticle(article)
+            pocketDao.upsertArticle(article)
         }
 
     }
