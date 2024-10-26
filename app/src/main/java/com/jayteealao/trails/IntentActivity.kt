@@ -68,7 +68,7 @@ class IntentActivity : ComponentActivity() {
 
                         Dialog( onDismissRequest = {
                             scope.launch {
-                                delay(2000)
+                                delay(800)
                                 finish()
                             }
                         },
