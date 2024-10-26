@@ -5,6 +5,7 @@ import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.RewriteQueriesToDropUnusedColumns
 import androidx.room.RoomWarnings
+import androidx.room.Transaction
 import androidx.room.Upsert
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.PocketSummary
@@ -39,6 +40,9 @@ interface PocketDao {
     @RewriteQueriesToDropUnusedColumns
     @Query("SELECT * FROM pocketarticle WHERE itemId IN (:ids)")
     fun getArticlesByIds(ids: List<String>): List<ArticleItem>
+
+    @Query("SELECT * FROM pocketarticle WHERE url = :url OR givenUrl = :url")
+    fun getArticleByUrl(url: String): PocketArticle?
 
     @Upsert
     suspend fun insertPocket(item: PocketArticle)
@@ -124,4 +128,35 @@ interface PocketDao {
     @Query("SELECT * FROM pocketsummary WHERE id = :itemId")
     suspend fun getSummary(itemId: String): PocketSummary?
 
+    /**
+     * Upserts an article into the database.
+     *
+     * This function attempts to find an existing article based on the `givenUrl` or `url` of the `newArticle`.
+     * If an existing article is found, it updates the `timeUpdated` field with the `timeAdded` value from the `newArticle`.
+     * If no existing article is found, the function does nothing.
+     *
+     * This operation is performed within a transaction to ensure data consistency.
+     *
+     * @param newArticle The new article data to upsert.
+     */
+    @Transaction
+    suspend fun upsertArticle(newArticle: PocketArticle) {
+        var existingArticle: PocketArticle? = null
+        if (newArticle.givenUrl != null) {
+            existingArticle = getArticleByUrl(newArticle.givenUrl)
+        }
+        if (existingArticle == null && newArticle.url != null) {
+            existingArticle = getArticleByUrl(newArticle.url)
+        }
+        if (existingArticle != null) {
+            insertPocket(
+                existingArticle.copy(
+                    timeUpdated = newArticle.timeAdded,
+                    timeAdded = newArticle.timeAdded
+                )
+            )
+        } else {
+            insertPocket(newArticle)
+        }
+    }
 }
