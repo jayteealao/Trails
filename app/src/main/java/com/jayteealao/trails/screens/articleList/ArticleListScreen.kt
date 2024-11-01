@@ -110,7 +110,7 @@ internal fun PocketScreenContent(
             if (article != null) {
                 ArticleListItem(
                     article,
-                    Modifier,
+                    Modifier.animateItem(),
                 ) { onSelectArticle(article) }
             }
         }
