@@ -16,12 +16,10 @@
 
 package com.jayteealao.trails.data.local.database
 
-import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.DeleteTable
 import androidx.room.RoomDatabase
 import androidx.room.migration.AutoMigrationSpec
-import com.jayteealao.trails.data.models.PocketSummary
 import com.jayteealao.trails.network.DomainMetadata
 import com.jayteealao.trails.network.PocketAuthors
 import com.jayteealao.trails.network.PocketImages
@@ -37,19 +35,11 @@ import com.jayteealao.trails.network.PocketVideos
         PocketImages::class,
         PocketVideos::class,
         DomainMetadata::class,
-        ModalArticleTable::class,
-        PocketSummary::class,
+//        ModalArticleTable::class,
+//        PocketSummary::class,
     ],
-    version = 7,
-    autoMigrations = [
-        AutoMigration(from = 1, to = 2, spec = AutoMigrationSpec_1_2::class),
-        AutoMigration(from = 2, to = 3),
-        AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5),
-        AutoMigration(from = 5, to = 6),
-        AutoMigration(from = 6, to = 7),
-//        AutoMigration(from = 7, to = 8)
-    ],
+    version = 1,
+    autoMigrations = [],
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
