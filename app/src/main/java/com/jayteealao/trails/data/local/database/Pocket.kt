@@ -46,13 +46,13 @@ data class PocketArticle(
     val sortId: Int,
     val timeAdded: Long,
     val timeUpdated: Long,
-    val timeRead: Long,
+    val timeRead: Long?,
     val timeFavorited: Long,
     val timeToRead: Int? = 0,
     val listenDurationEstimate: Int,
     var text : String? = null,
     @ColumnInfo(defaultValue = "0") val pocketId: String = "0",
-    @ColumnInfo(defaultValue = "0") val resolved: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val resolved: Int = 0, // 0 = not resolved, 1 = synced, 10 = resolved
 )
 
 @Entity(tableName = "pocketarticle_fts")
