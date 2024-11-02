@@ -60,12 +60,12 @@ android {
 
         getByName("debug") {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.maybeCreate("release").apply {
-                storeFile = file("C:\\Users\\HP\\.android\\tasselsigningkey.jks")
-                storePassword = properties["KEYSTORE_PASSWORD"] as String
-                keyAlias = properties["SIGNING_KEY_ALIAS"] as String
-                keyPassword = properties["SIGNING_KEY_PASSWORD"] as String
-            }
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("benchmark") {
+            initWith(buildTypes.getByName("release"))
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -200,6 +200,7 @@ dependencies {
     //supabase
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.realtime)
+    implementation(libs.supabase.gotrue)
     //ktor
     implementation(libs.ktor)
     //weaviate

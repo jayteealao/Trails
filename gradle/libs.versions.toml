@@ -39,12 +39,12 @@ readability4j = "1.0.8"
 retrofit = "2.9.0"
 robolectric = "4.8"
 splashscreen = "1.0.1"
-supabase = "2.2.3"
+supabase = "3.0.1"
 shadowsPlus = "1.0.4"
 
 timber = "5.0.1"
 workManager = "2.9.1"
-ktorversion = "2.3.9"
+ktorversion = "3.0.0"
 espressoCore = "3.6.1"
 uiautomator = "2.2.0"
 benchmarkMacroJunit4 = "1.2.0-beta01"
@@ -135,6 +135,7 @@ timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 
 supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "supabase" }
 supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt", version.ref = "supabase" }
+supabase-gotrue = { module = "io.github.jan-tennert.supabase:auth-kt", version.ref = "supabase" }
 ktor = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktorversion" }
 
 shadows-plus = { module = "com.github.GIGAMOLE:ComposeShadowsPlus", version.ref = "shadowsPlus"}
@@ -145,7 +146,7 @@ markdown-renderer-coil3 = { module = "com.mikepenz:multiplatform-markdown-render
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
-androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacroJunit4" }
+androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-juni t4", version.ref = "benchmarkMacroJunit4" }
 #androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayoutVersion" }
 
 [bundles]
