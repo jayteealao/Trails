@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
+import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.data.local.database.PocketArticle
 import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import com.jayteealao.trails.usecases.SaveWebArchiveUseCase
@@ -12,7 +13,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -29,29 +34,28 @@ class ArticleDetailViewModel @Inject constructor(
 
     fun getArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher){
-            _article.value = pocketRepository.getArticleById(itemId)
-        }
-    }
-
-    fun saveWebArchive(url: String) {
-        viewModelScope.launch {
-            saveWebArchiveUseCase(url)
-        }
-    }
-
-    fun test() {
-        viewModelScope.launch(ioDispatcher) {
-//            modalClient.deleteAll()
-            article.collect {
-                if (it != null) {
-//                    val result = modalClient.addArticle(
-//                        ModalArticle(it.itemId, it.text ?: "")
-//                    ).getOrElse { ResponseModel("Failed to return success") }
-//                    Timber.d(result.text)
-//                    val result = weaviateService.insertDataObject(it)
-//                    Timber.d(result.toString())
-                }
+            val modifier = UrlModifier()
+            var articleFetched = pocketRepository.getArticleById(itemId)
+            if (useFreediumFlow.value && articleFetched != null) {
+                articleFetched = articleFetched.copy(
+                    url = modifier.modifyUrl(articleFetched.url ?: articleFetched.givenUrl!!)
+                )
             }
+            _article.value = articleFetched
+
         }
     }
+
+    val useFreediumFlow = sharedPreferencesManager.preferenceChangesFlow()
+        .filter {
+            it == "USE_FREEDIUM"
+        }.map {
+            Timber.d("Preference changed: $it")
+            sharedPreferencesManager.getBoolean(it!!)
+        }.stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
+            initialValue = sharedPreferencesManager.getBoolean("USE_FREEDIUM")
+        )
+
 }
