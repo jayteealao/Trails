@@ -23,6 +23,7 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.common.generateDeterministicNanoId
@@ -34,18 +35,24 @@ import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
 import com.jayteealao.trails.screens.articleList.PocketUiState.Loading
+import com.jayteealao.trails.services.jina.JinaClient
+import com.jayteealao.trails.services.jina.ReaderResponse
 import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import me.saket.unfurl.UnfurlResult
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import javax.inject.Inject
+import kotlin.toString
 
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
@@ -54,6 +61,8 @@ class ArticleListViewModel @Inject constructor(
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
     private val supabaseService: SupabaseService,
     private val pocketDao: PocketDao,
+    private val jinaClient: JinaClient,
+    private val contentMetricsCalculator: ContentMetricsCalculator,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
@@ -123,39 +132,95 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
+    var shouldShow: MutableStateFlow<Boolean> = MutableStateFlow(false)
+
+    private val _intentUrl = MutableStateFlow("")
+    val intentUrl: StateFlow<String>
+        get() = _intentUrl
+
+    private val _intentTitle = MutableStateFlow("")
+    val intentTitle: StateFlow<String>
+        get() = _intentTitle
+
+    val unfurler = Unfurler()
+
     fun saveUrl(givenUrl: Uri, givenTitle: String?) {
-        val unfurler = Unfurler()
+        val (title, url) = if (givenTitle == null) {
+            extractTitleAndUrl(givenUrl.toString()) ?: Pair(givenTitle, givenUrl.toString()) // Handle parsing failure
+        } else {
+            Pair(givenTitle, givenUrl.toString())
+        }
+        _intentUrl.value = url
+        _intentTitle.value = title.toString()
+
         viewModelScope.launch(ioDispatcher) {
 
-            val result = unfurler.unfurl(givenUrl.toString())
+            val unfurlJob = async { unfurler.unfurl(url) }
+            val jinaJob = async { jinaClient.getReader(url) }
+
+            val (unfurlResult, jinaResult) = awaitAll(unfurlJob, jinaJob)
+            unfurlResult as UnfurlResult?
+            jinaResult as ReaderResponse?
+//            val result = unfurler.unfurl(url)
+
             val article = PocketArticle(
                 itemId = generateId(),
                 resolvedId = null,
-                title = result?.title ?: givenTitle ?: "",
-                givenTitle = givenTitle ?: "",
-                url = (result?.url ?: givenUrl.toString()).toString(),
-                givenUrl = givenUrl.toString(),
+                title = unfurlResult?.title ?: title ?: "",
+                givenTitle = title ?: "",
+                url = (unfurlResult?.url ?: url).toString(),
+                givenUrl = url,
                 favorite = "0",
                 status = "", //check acceptable values
-                image = if (result?.thumbnail == null) null else result.thumbnail.toString(),
-                hasImage = result?.thumbnail != null,
+                image = if (unfurlResult?.thumbnail == null) null else unfurlResult.thumbnail.toString(),
+                hasImage = unfurlResult?.thumbnail != null,
                 hasVideo = false,
                 hasAudio = false,
                 listenDurationEstimate = 0,
                 wordCount = 0,
                 wordCountMessage = null,
                 sortId = 0,
-                excerpt = result?.description ?: "",
+                excerpt = unfurlResult?.description ?: "",
                 timeAdded = System.currentTimeMillis(),
                 timeUpdated = System.currentTimeMillis(),
                 timeRead = 0,
                 timeFavorited = 0,
                 timeToRead = 0,
+                resolved = 0,
             )
-//            insertArticle(article)
-            pocketDao.upsertArticle(article)
+
+            val (_, metrics) = awaitAll(
+                async { pocketDao.upsertArticle(article) },
+                async { contentMetricsCalculator.calculateMetrics(jinaResult?.data?.content ?: "") }
+            )
+
+
+            launch(ioDispatcher) {
+                metrics as ContentMetricsCalculator.ContentMetrics
+//                val markdown = jinaClient.getReader(givenUrl.toString())
+                pocketDao.updateText(article.itemId, jinaResult?.data?.content)
+                pocketDao.updateArticleMetrics(article.itemId, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
+            }
+
+//            launch(ioDispatcher) {
+//                val markdown = jinaClient.getReader(givenUrl.toString())
+//            }
         }
 
+
+    }
+
+    fun extractTitleAndUrl(combinedString: String): Pair<String, String>? {
+        val urlRegex = "(https?://\\S+)".toRegex()
+        val urlMatch = urlRegex.find(combinedString)
+
+        return if (urlMatch != null) {
+            val url = urlMatch.value
+            val title = combinedString.substringBefore(url).trim()
+            Pair(title, url)
+        } else {
+            null
+        }
     }
 
 }

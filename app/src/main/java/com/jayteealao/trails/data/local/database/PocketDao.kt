@@ -8,7 +8,6 @@ import androidx.room.RoomWarnings
 import androidx.room.Transaction
 import androidx.room.Upsert
 import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.data.models.PocketSummary
 import com.jayteealao.trails.network.DomainMetadata
 import com.jayteealao.trails.network.PocketAuthors
 import com.jayteealao.trails.network.PocketImages
@@ -43,6 +42,20 @@ interface PocketDao {
 
     @Query("SELECT * FROM pocketarticle WHERE url = :url OR givenUrl = :url")
     fun getArticleByUrl(url: String): PocketArticle?
+
+    @Query("SELECT * FROM pocketarticle WHERE resolved = 0")
+    suspend fun getUnresolvedArticles(): List<PocketArticle>
+
+    @Query(
+        """
+        UPDATE pocketarticle
+        SET timeToRead = :timeToRead, listenDurationEstimate = :listenDurationEstimate, wordCount = :wordCount
+        WHERE itemId = :itemId
+    """)
+    suspend fun updateArticleMetrics(itemId: String, timeToRead: Int, listenDurationEstimate: Int, wordCount: Int)
+
+    @Query("UPDATE pocketarticle SET text = :text WHERE itemId = :itemId")
+    suspend fun updateText(itemId: String, text: String?)
 
     @Upsert
     suspend fun insertPocket(item: PocketArticle)
@@ -119,14 +132,14 @@ interface PocketDao {
         """)
     fun countArticle(): Int
 
-    @Upsert
-    suspend fun insertPocketSummary(pocketSummary: PocketSummary)
-
-    @Upsert
-    suspend fun insertPocketSummaries(pocketSummaries: List<PocketSummary>)
-
-    @Query("SELECT * FROM pocketsummary WHERE id = :itemId")
-    suspend fun getSummary(itemId: String): PocketSummary?
+//    @Upsert
+//    suspend fun insertPocketSummary(pocketSummary: PocketSummary)
+//
+//    @Upsert
+//    suspend fun insertPocketSummaries(pocketSummaries: List<PocketSummary>)
+//
+//    @Query("SELECT * FROM pocketsummary WHERE id = :itemId")
+//    suspend fun getSummary(itemId: String): PocketSummary?
 
     /**
      * Upserts an article into the database.

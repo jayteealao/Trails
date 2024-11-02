@@ -4,7 +4,9 @@ import android.content.Context
 import com.chuckerteam.chucker.api.ChuckerCollector
 import com.chuckerteam.chucker.api.ChuckerInterceptor
 import com.chuckerteam.chucker.api.RetentionManager
+import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.network.pocket.PocketService
+import com.jayteealao.trails.services.jina.JinaService
 import com.jayteealao.trails.services.semanticSearch.modal.ModalService
 import com.skydoves.sandwich.adapters.ApiResponseCallAdapterFactory
 import dagger.Module
@@ -70,6 +72,7 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(
         chuckerInterceptor: ChuckerInterceptor,
+        sharedPreferencesManager: SharedPreferencesManager
     ): OkHttpClient {
         return OkHttpClient.Builder()
             .followRedirects(true)
@@ -117,9 +120,25 @@ object NetworkModule {
             .build()
         return retrofit.create(ModalService::class.java)
     }
+
+    @Provides
+    @Singleton
+    fun provideJinaService(okHttpClient: OkHttpClient): JinaService {
+        val retrofit = Retrofit.Builder()
+            .client(okHttpClient)
+            .baseUrl("https://r.jina.ai")
+            .addConverterFactory(GsonConverterFactory.create())
+            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
+            .build()
+
+        return retrofit.create(JinaService::class.java)
+    }
+
 }
 
-internal class HttpRequestInterceptor : Interceptor {
+internal class HttpRequestInterceptor(
+    val token: String? = null
+) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
         val request = originalRequest
@@ -133,6 +152,9 @@ internal class HttpRequestInterceptor : Interceptor {
                 if (originalRequest.url.host.contains("modal.run")) {
                     addHeader("X-Accept", "application/json")
                     addHeader("Content-Type", "application/json")
+                }
+                if (originalRequest.url.host.contains("jina.ai") && token != null) {
+                    addHeader("Authorization", "Bearer $token")
                 }
             }.build()
 //        Timber.d(request.toString())
