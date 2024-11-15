@@ -55,8 +55,21 @@ interface PocketDao {
     suspend fun updateArticleMetrics(itemId: String, timeToRead: Int, listenDurationEstimate: Int, wordCount: Int)
 
     @Query("UPDATE pocketarticle SET text = :text WHERE itemId = :itemId")
+    @Query("SELECT * FROM pocketarticle WHERE resolved = 2 OR resolved = 0")
+    suspend fun getNonMetricsArticles(): List<PocketArticle>
+
     @Query("UPDATE pocketarticle SET text = :text, resolved = 2 WHERE itemId = :itemId")
     suspend fun updateText(itemId: String, text: String?)
+
+    @Query("UPDATE pocketarticle SET resolved = :resolved WHERE itemId IN (:itemIds)")
+    suspend fun updateResolved(itemIds: List<String>, resolved: Int)
+
+    @Query("""
+            UPDATE pocketarticle
+            SET title = :title, url = :url, image = :image, hasImage = :hasImage, excerpt = :excerpt, text = :text 
+            WHERE itemId = :itemId
+            """)
+    suspend fun updateUnfurledDetails(itemId: String, title: String, url: String, image: String?, hasImage: Boolean, excerpt: String, text: String)
 
     @Upsert
     suspend fun insertPocket(item: PocketArticle)
