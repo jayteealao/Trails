@@ -55,6 +55,7 @@ interface PocketDao {
     suspend fun updateArticleMetrics(itemId: String, timeToRead: Int, listenDurationEstimate: Int, wordCount: Int)
 
     @Query("UPDATE pocketarticle SET text = :text WHERE itemId = :itemId")
+    @Query("UPDATE pocketarticle SET text = :text, resolved = 2 WHERE itemId = :itemId")
     suspend fun updateText(itemId: String, text: String?)
 
     @Upsert
