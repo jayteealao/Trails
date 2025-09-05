@@ -83,16 +83,16 @@ class ArticleExtractorWorker @AssistedInject constructor(
     }
 
     /**
-     * A coroutine consumer channel that receives articles from a producer channel
-     * and retrieves the article text from the article url using a third party library
-     * @param receiveArticle ReceiveChannel<Array<PocketData>>
-     *     a channel that emits an array of PocketData
-     *     each array contains 100 articles
+     * Launches a coroutine that consumes article batches from a producer channel
+     * and retrieves the article text from each article's URL using a third party library.
+     *
+     * @param receiveArticle ReceiveChannel<MutableList<PocketArticle>>
+     *     channel that emits mutable lists of PocketArticle objects
+     *     each list contains up to 100 articles
      *     the channel is closed when there are no more articles to retrieve
      *     or when an error occurs
-     * @return ReceiveChannel<PocketData>
-     *     a channel that emits a PocketData with article text retrieved
-     *     the channel is closed when there are no more articles to retrieve
+     * @return Job
+     *     a Job that completes when all articles have been processed
      *
      * TODO: handle error
      *
