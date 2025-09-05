@@ -158,9 +158,10 @@ class ArticleListViewModel @Inject constructor(
             val unfurlJob = async { unfurler.unfurl(url) }
             val jinaJob = async { jinaClient.getReader(url) }
 
-            val (unfurlResult, jinaResult) = awaitAll(unfurlJob, jinaJob)
-            unfurlResult as UnfurlResult?
-            jinaResult as ReaderResponse?
+            val (unfurlAny, jinaAny) = awaitAll(unfurlJob, jinaJob)
+            val unfurlResult: UnfurlResult? = unfurlAny as? UnfurlResult
+            val jinaResult: ReaderResponse? = jinaAny as? ReaderResponse
+            val content = jinaResult?.data?.content
 //            val result = unfurler.unfurl(url)
 
             val article = PocketArticle(
@@ -189,17 +190,21 @@ class ArticleListViewModel @Inject constructor(
                 resolved = 0,
             )
 
-            val (_, metrics) = awaitAll(
+            val (_, metricsAny) = awaitAll(
                 async { pocketDao.upsertArticle(article) },
-                async { contentMetricsCalculator.calculateMetrics(jinaResult?.data?.content ?: "") }
+                async { contentMetricsCalculator.calculateMetrics(content ?: "") }
             )
 
 
             launch(ioDispatcher) {
-                metrics as ContentMetricsCalculator.ContentMetrics
-//                val markdown = jinaClient.getReader(givenUrl.toString())
-                pocketDao.updateText(article.itemId, jinaResult?.data?.content)
-                pocketDao.updateArticleMetrics(article.itemId, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
+                val metrics = metricsAny as ContentMetricsCalculator.ContentMetrics
+                pocketDao.updateText(article.itemId, content)
+                pocketDao.updateArticleMetrics(
+                    article.itemId,
+                    metrics.readingTimeMinutes,
+                    metrics.listeningTimeMinutes,
+                    metrics.wordCount
+                )
             }
 
 //            launch(ioDispatcher) {
