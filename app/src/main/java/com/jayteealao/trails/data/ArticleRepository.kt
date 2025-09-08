@@ -27,7 +27,6 @@ import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.local.database.PocketArticle
 import com.jayteealao.trails.data.local.database.PocketDao
 import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.network.ArticleExtractor
 import com.jayteealao.trails.network.PocketData
 import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import com.jayteealao.trails.sync.SyncStatusMonitor
@@ -93,7 +92,6 @@ interface Syncable {
 class ArticleRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val pocketDao: PocketDao,
-    private val articleExtractor: ArticleExtractor,
     private val syncStatusMonitor: SyncStatusMonitor,
     private val modalClient: ModalClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
