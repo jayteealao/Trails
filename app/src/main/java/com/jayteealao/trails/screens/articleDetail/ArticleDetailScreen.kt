@@ -45,7 +45,7 @@ import compose.icons.cssggicons.Pocket
 fun ArticleDetailScreen(
     article: PocketArticle
 ) {
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedTabIndex by remember { mutableIntStateOf(1) }
 
     ConstraintLayout(
         modifier = Modifier.padding(top = 20.dp)
@@ -71,6 +71,7 @@ fun ArticleDetailScreen(
                 end.linkTo(parent.end)
             },
             selectedTabIndex = selectedTabIndex,
+            shouldShowPocket = article.pocketId != "0",
             onTabSelected = {
                 selectedTabIndex = it
             }
@@ -82,7 +83,8 @@ fun ArticleDetailScreen(
 @Composable
 fun ArticleDetailTabRow(
     modifier: Modifier = Modifier,
-    selectedTabIndex: Int = 2,
+    selectedTabIndex: Int = 1,
+    shouldShowPocket: Boolean = false,
     onTabSelected: (Int) -> Unit = {}
 ) {
     PrimaryTabRow(
@@ -102,34 +104,42 @@ fun ArticleDetailTabRow(
             selected = selectedTabIndex == 1,
             onClick = { onTabSelected(1) },
             icon = {
-                Icon(CssGgIcons.Pocket, contentDescription = null)
-            }
-        )
-
-        Tab(
-            selected = selectedTabIndex == 2,
-            onClick = { onTabSelected(2) },
-            icon = {
                 Icon(CssGgIcons.Browser, contentDescription = null)
             }
         )
+
+        if (shouldShowPocket) {
+            Tab(
+                selected = selectedTabIndex == 2,
+                onClick = { onTabSelected(2) },
+                icon = {
+                    Icon(CssGgIcons.Pocket, contentDescription = null)
+                }
+            )
+        }
+
     }
 }
 
 @Composable
 fun ArticleDetails(
     modifier: Modifier = Modifier,
-    selectedTabIndex: Int = 0,
+    selectedTabIndex: Int = 1,
     article: PocketArticle
 ) {
+
+//    val modifiedUrl = remember(article.url) {
+//        val modifier = UrlModifier()
+//        modifier.modifyUrl(article.url ?: article.givenUrl!!)
+//    }
     AnimatedContent(
         targetState = selectedTabIndex,
         modifier = modifier
     ) { targetIndex ->
         when (targetIndex) {
             0 -> ArticleMarkdown(article.text ?: "No content")
-            1 -> ArticlePocketWebView(article.itemId)
-            2 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
+            1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
+            2 -> ArticlePocketWebView(article.itemId)
 
         }
     }
