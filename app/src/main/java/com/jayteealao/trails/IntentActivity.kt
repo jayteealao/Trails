@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.net.toUri
 import com.jayteealao.trails.common.DrawRoundedSquares
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
@@ -46,6 +47,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import timber.log.Timber
 
 @AndroidEntryPoint
 class IntentActivity : ComponentActivity() {
@@ -56,14 +58,15 @@ class IntentActivity : ComponentActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT)
 
-        val givenUrl: Uri? = intent?.data ?: Uri.parse(intent.getStringExtra(Intent.EXTRA_TEXT))
+        val givenUrl: Uri? = intent?.data ?: intent.getStringExtra(Intent.EXTRA_TEXT)?.toUri()
         val givenTitle: String? = intent.getStringExtra(Intent.EXTRA_TITLE)
 
 
-        if (givenUrl != null) { viewModel.saveUrl(givenUrl, givenTitle) }
-//        runBlocking() {
-//            delay(5000)
-//        }
+        if (givenUrl != null) {
+            Timber.d("save url called next in intent activity")
+            viewModel.saveUrl(givenUrl, givenTitle)
+            Timber.d("save call complete in intent activity")
+        }
 
         setContent {
             TrailsTheme {
@@ -71,12 +74,14 @@ class IntentActivity : ComponentActivity() {
                 val url by viewModel.intentUrl.collectAsState()
 
                 val scope = rememberCoroutineScope()
-//                val shouldShow = viewModel.shouldShow.collectAsState()
-
+                val shouldShow by viewModel.shouldShow.collectAsState()
 
                 LaunchedEffect(Unit) {
-                        delay(8000)
+//                    while(shouldShow) {
+//                        delay(3000)
 //                    }
+                    delay(8000)
+                    Timber.d("given url at intent: $url")
                     finish()
                 }
                     Surface(
@@ -85,13 +90,13 @@ class IntentActivity : ComponentActivity() {
                         color = Color.Transparent
 
                     ) {
-
-//                        if (shouldShow.value){
                             Dialog(
                                 onDismissRequest = {
                                     scope.launch {
-//                                        viewModel.shouldShow.value = false
-                                        delay(2000)
+                                        while (shouldShow) {
+                                            delay(1000)
+                                        }
+                                        delay(1000)
                                         finish()
                                     }
                                 },
@@ -132,11 +137,6 @@ class IntentActivity : ComponentActivity() {
                                         horizontalArrangement = Arrangement.Center,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-//                                        Icon(
-//                                            imageVector = Tassel_App_Icon,
-//                                            contentDescription = "App Icon"
-//                                        )
-//                                        Text(text = "Article Saved")
                                         Content(
                                             url = url,
                                             title = title
@@ -160,7 +160,7 @@ fun Content(
     Row(
         modifier = Modifier
             .wrapContentHeight(),
-        horizontalArrangement = Arrangement.SpaceAround,
+        horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
         DrawRoundedSquares(modifier = Modifier.size(64.dp))
