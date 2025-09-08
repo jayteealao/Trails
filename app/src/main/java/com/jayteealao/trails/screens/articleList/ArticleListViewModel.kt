@@ -26,7 +26,6 @@ import androidx.paging.cachedIn
 import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
-import com.jayteealao.trails.common.generateDeterministicNanoId
 import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.PocketArticle
@@ -34,25 +33,21 @@ import com.jayteealao.trails.data.local.database.PocketDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
-import com.jayteealao.trails.screens.articleList.PocketUiState.Loading
+import com.jayteealao.trails.services.archivebox.ArchiveBoxClient
 import com.jayteealao.trails.services.jina.JinaClient
-import com.jayteealao.trails.services.jina.ReaderResponse
 import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import me.saket.unfurl.UnfurlResult
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import javax.inject.Inject
-import kotlin.toString
 
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
@@ -63,23 +58,15 @@ class ArticleListViewModel @Inject constructor(
     private val pocketDao: PocketDao,
     private val jinaClient: JinaClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
+    private val archiveBoxClient: ArchiveBoxClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
     init {
-        Timber.d(generateDeterministicNanoId("my_input"))
-        Timber.d(generateDeterministicNanoId("my_input"))
         viewModelScope.launch(ioDispatcher) {
-//            supabaseService.observeChanges {
-//                Timber.d("Supabase changes: $it")
-//            }
-            pocketRepository.synchronize()
+            pocketRepository.synchronize() //TODO: remove to activity
         }
     }
-
-    private val _uiState = MutableStateFlow<PocketUiState>(Loading)
-    val uiState: StateFlow<PocketUiState>
-        get() = _uiState
 
     private val _selectedArticle = MutableStateFlow<ArticleItem>(EMPTYARTICLEITEM)
     val selectedArticle: StateFlow<ArticleItem>
@@ -132,7 +119,7 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
-    var shouldShow: MutableStateFlow<Boolean> = MutableStateFlow(false)
+    var shouldShow: MutableStateFlow<Boolean> = MutableStateFlow(true)
 
     private val _intentUrl = MutableStateFlow("")
     val intentUrl: StateFlow<String>
@@ -145,11 +132,45 @@ class ArticleListViewModel @Inject constructor(
     val unfurler = Unfurler()
 
     fun saveUrl(givenUrl: Uri, givenTitle: String?) {
+        var id = generateId()
+        var articleExists = false
+        Timber.d("id: $id")
+        Timber.d("givenUrl in saveUrl: $givenUrl")
+        Timber.d("givenTitle: $givenTitle")
         val (title, url) = if (givenTitle == null) {
             extractTitleAndUrl(givenUrl.toString()) ?: Pair(givenTitle, givenUrl.toString()) // Handle parsing failure
         } else {
             Pair(givenTitle, givenUrl.toString())
         }
+//        Timber.d("title: $title, url: $url")
+
+        viewModelScope.launch(ioDispatcher) {
+            val timeNow = System.currentTimeMillis()
+            Timber.d("timeNow: $timeNow")
+            if (url.isNotBlank()) {
+                Timber.d("url is not blank")
+                Timber.d("upserting article: $url")
+                val newId = pocketDao.upsertArticle(
+                    PocketArticle(
+                        itemId = id,
+                        resolvedId = null,
+                        title = "",
+                        givenTitle = title ?: "",
+                        url = null,
+                        givenUrl = url,
+                        timeAdded = timeNow,
+                        timeUpdated = timeNow,
+                    )
+                )
+                Timber.d("article should have been upserted here")
+                if (newId != id) {
+                    articleExists = true
+                    shouldShow.value = true // TODO: watch out for this: there be dragons
+                    id = newId
+                }
+            }
+        }
+
         _intentUrl.value = url
         _intentTitle.value = title.toString()
 
@@ -158,56 +179,33 @@ class ArticleListViewModel @Inject constructor(
             val unfurlJob = async { unfurler.unfurl(url) }
             val jinaJob = async { jinaClient.getReader(url) }
 
-            val (unfurlResult, jinaResult) = awaitAll(unfurlJob, jinaJob)
-            unfurlResult as UnfurlResult?
-            jinaResult as ReaderResponse?
-//            val result = unfurler.unfurl(url)
+            val unfurlResult = unfurlJob.await()
 
-            val article = PocketArticle(
-                itemId = generateId(),
-                resolvedId = null,
+            if (_intentTitle.value.isBlank()) {
+                _intentTitle.value = unfurlResult?.title ?: title ?: ""
+            }
+//            jinaResult as ReaderResponse?
+            pocketDao.updateUnfurledDetails(
+                itemId = id,
                 title = unfurlResult?.title ?: title ?: "",
-                givenTitle = title ?: "",
                 url = (unfurlResult?.url ?: url).toString(),
-                givenUrl = url,
-                favorite = "0",
-                status = "", //check acceptable values
                 image = if (unfurlResult?.thumbnail == null) null else unfurlResult.thumbnail.toString(),
                 hasImage = unfurlResult?.thumbnail != null,
-                hasVideo = false,
-                hasAudio = false,
-                listenDurationEstimate = 0,
-                wordCount = 0,
-                wordCountMessage = null,
-                sortId = 0,
                 excerpt = unfurlResult?.description ?: "",
-                timeAdded = System.currentTimeMillis(),
-                timeUpdated = System.currentTimeMillis(),
-                timeRead = 0,
-                timeFavorited = 0,
-                timeToRead = 0,
-                resolved = 0,
             )
+            val jinaResult = jinaJob.await()
 
-            val (_, metrics) = awaitAll(
-                async { pocketDao.upsertArticle(article) },
-                async { contentMetricsCalculator.calculateMetrics(jinaResult?.data?.content ?: "") }
-            )
-
-
-            launch(ioDispatcher) {
-                metrics as ContentMetricsCalculator.ContentMetrics
-//                val markdown = jinaClient.getReader(givenUrl.toString())
-                pocketDao.updateText(article.itemId, jinaResult?.data?.content)
-                pocketDao.updateArticleMetrics(article.itemId, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
+            if (!jinaResult?.data?.content.isNullOrBlank()) {
+                if (jinaResult != null) {
+                    pocketDao.updateText(id, jinaResult.data.content)
+                }
+                shouldShow.value = false
+                val metrics = contentMetricsCalculator.calculateMetrics(jinaResult?.data?.content ?: "")
+                pocketDao.updateArticleMetrics(id, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
+            } else {
+                shouldShow.value = false
             }
-
-//            launch(ioDispatcher) {
-//                val markdown = jinaClient.getReader(givenUrl.toString())
-//            }
         }
-
-
     }
 
     fun extractTitleAndUrl(combinedString: String): Pair<String, String>? {
