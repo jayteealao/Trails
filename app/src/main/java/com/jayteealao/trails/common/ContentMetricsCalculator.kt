@@ -23,6 +23,14 @@ class ContentMetricsCalculator @Inject constructor() {
     )
 
     fun calculateMetrics(markdownText: String): ContentMetrics {
+        if (markdownText.isBlank()) {
+            return ContentMetrics(
+                wordCount = 0,
+                characterCount = 0,
+                readingTimeMinutes = 0,
+                listeningTimeMinutes = 0
+            )
+        }
         // Remove markdown syntax
         val cleanText = removeMarkdownSyntax(markdownText)
 

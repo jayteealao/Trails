@@ -2,13 +2,12 @@ package com.jayteealao.trails.screens.articleDetail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jayteealao.trails.common.UrlModifier
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
-import com.jayteealao.trails.usecases.SaveWebArchiveUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,14 +22,24 @@ import javax.inject.Inject
 @HiltViewModel
 class ArticleDetailViewModel @Inject constructor(
     private val pocketRepository: ArticleRepository,
-    private val saveWebArchiveUseCase: SaveWebArchiveUseCase,
-    private val modalClient: ModalClient,
+    private val sharedPreferencesManager: SharedPreferencesManager,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel() {
 
     private var _article = MutableStateFlow<PocketArticle?>(null)
     val article: StateFlow<PocketArticle?>
         get() = _article
+
+    var _jinaToken = MutableStateFlow("")
+
+    val jinaToken: StateFlow<String>
+        get() = _jinaToken
+
+    fun updateJinaToken(token: String) {
+        _jinaToken.value = token
+    }
+
+    val jinaPlaceHolder = sharedPreferencesManager.getString("JINA_TOKEN") ?: "Insert Jina Token Here"
 
     fun getArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher){
