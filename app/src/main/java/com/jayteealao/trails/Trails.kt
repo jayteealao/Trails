@@ -19,12 +19,19 @@ package com.jayteealao.trails
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.Dispatchers
+import okio.Path.Companion.toOkioPath
 import timber.log.Timber
 import javax.inject.Inject
 
 @HiltAndroidApp
-class Trails @Inject constructor() : Application(), Configuration.Provider {
+class Trails @Inject constructor() : Application(), Configuration.Provider, SingletonImageLoader.Factory {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
@@ -42,4 +49,21 @@ class Trails @Inject constructor() : Application(), Configuration.Provider {
             .setWorkerFactory(workerFactory)
             .setMinimumLoggingLevel(android.util.Log.INFO)
             .build()
+
+    override fun newImageLoader(context: PlatformContext): ImageLoader {
+        return ImageLoader.Builder(context)
+            .diskCache {
+                DiskCache.Builder()
+                    .maxSizePercent(0.10) // Adjust as needed
+                    .directory(context.cacheDir.resolve("image_cache").toOkioPath())
+                    .build()
+            }
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizePercent(context, 0.25) // Adjust as needed
+                    .build()
+            }
+            .coroutineContext(Dispatchers.IO)
+            .build()
+    }
 }
