@@ -110,7 +110,9 @@ internal fun PocketScreenContent(
             if (article != null) {
                 ArticleListItem(
                     article,
-                    Modifier.animateItem(),
+                    Modifier.animateItem().then(
+                        if (index != 0) Modifier.padding(top = 8.dp) else Modifier.padding(top = 0.dp)
+                    ),
                 ) { onSelectArticle(article) }
             }
         }
