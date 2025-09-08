@@ -149,6 +149,13 @@ interface PocketDao {
         """)
     fun countArticle(): Int
 
+    @Query("""
+        UPDATE pocketarticle
+        SET timeAdded = :time, timeUpdated = :time
+        WHERE timeAdded = 0 AND timeUpdated = 0
+        """)
+    suspend fun backfillZeroTimestamps(time: Long)
+
 //    @Upsert
 //    suspend fun insertPocketSummary(pocketSummary: PocketSummary)
 //
