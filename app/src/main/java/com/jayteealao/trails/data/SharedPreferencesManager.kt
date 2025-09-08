@@ -3,6 +3,9 @@ package com.jayteealao.trails.data
 import android.content.Context
 import android.content.SharedPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -38,6 +41,27 @@ class SharedPreferencesManager @Inject constructor(
         val editor = sharedPreferences.edit()
         editor.putLong(key, value)
         editor.apply()
+    }
+
+    fun saveBoolean(key: String, value: Boolean) {
+        val editor = sharedPreferences.edit()
+        editor.putBoolean(key, value)
+        editor.apply()
+    }
+
+    fun getBoolean(key: String): Boolean {
+        return sharedPreferences.getBoolean(key, false)
+    }
+
+    fun preferenceChangesFlow(): Flow<String?> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+            trySend(key).isSuccess // Send the changed key
+        }
+        sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
+//        invokeOnClose {
+//            sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener)
+//        }
+        awaitClose { sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 }
 

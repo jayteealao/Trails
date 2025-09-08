@@ -93,9 +93,6 @@ fun SettingsScreen(
                 )
             }
         }
-
-//        DrawRoundedSquares(modifier = Modifier.size(64.dp))
-//        AnimatedRoundedBoxes( modifier = Modifier.size(1500.dp))
     }
 
 }
