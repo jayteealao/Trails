@@ -226,11 +226,15 @@ dependencies {
     //nanoid
     implementation(libs.nanoid)
 
+//    implementation(libs.postgrest)
     //landscapist
 //    implementation(libs.landscapist.coil)
     implementation("io.coil-kt.coil3:coil-compose:3.0.0-rc01")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.0-rc01")
     implementation("com.squareup.okio:okio:3.9.1")
+
+    // jetpack pallete
+    implementation("androidx.palette:palette-ktx:1.0.0")
 
     //profileInstaller
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")

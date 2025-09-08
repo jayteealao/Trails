@@ -27,6 +27,8 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven("https://jitpack.io")
+        // add jcenter bintray repository
+//        jcenter()
     }
 }
 
@@ -48,3 +50,4 @@ rootProject.name = "Trails"
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 include(":app")
+//include(":benchmark")
