@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import javax.inject.Inject
+import java.util.concurrent.TimeUnit
 
 
 /**
@@ -74,6 +75,9 @@ class SyncWorker @AssistedInject constructor(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO){
         val syncJob: Job?
         var hadErrors = false
+
+        val yesterday = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(1)
+        pocketDao.backfillZeroTimestamps(yesterday)
 
         setForeground(getForegroundInfo())
             syncJob = launch(Dispatchers.IO) {
