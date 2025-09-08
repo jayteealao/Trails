@@ -13,6 +13,7 @@ import com.jayteealao.trails.network.PocketAuthors
 import com.jayteealao.trails.network.PocketImages
 import com.jayteealao.trails.network.PocketTags
 import com.jayteealao.trails.network.PocketVideos
+import timber.log.Timber
 
 @Dao
 interface PocketDao {
@@ -43,20 +44,22 @@ interface PocketDao {
     @Query("SELECT * FROM pocketarticle WHERE url = :url OR givenUrl = :url")
     fun getArticleByUrl(url: String): PocketArticle?
 
-    @Query("SELECT * FROM pocketarticle WHERE resolved = 0")
+    @Query("SELECT * FROM pocketarticle WHERE resolved = 0 OR resolved = 3")
     suspend fun getUnresolvedArticles(): List<PocketArticle>
 
     @Query(
         """
         UPDATE pocketarticle
-        SET timeToRead = :timeToRead, listenDurationEstimate = :listenDurationEstimate, wordCount = :wordCount
+        SET timeToRead = :timeToRead, listenDurationEstimate = :listenDurationEstimate, wordCount = :wordCount, resolved = 3
         WHERE itemId = :itemId
     """)
     suspend fun updateArticleMetrics(itemId: String, timeToRead: Int, listenDurationEstimate: Int, wordCount: Int)
 
-    @Query("UPDATE pocketarticle SET text = :text WHERE itemId = :itemId")
-    @Query("SELECT * FROM pocketarticle WHERE resolved = 2 OR resolved = 0")
+    @Query("SELECT * FROM pocketarticle WHERE resolved = 2 OR resolved = 1")
     suspend fun getNonMetricsArticles(): List<PocketArticle>
+
+    @Query("SELECT * FROM pocketarticle WHERE text = '0' OR text = '1'")
+    suspend fun getTextEqualsZeroOrOne(): List<PocketArticle>
 
     @Query("UPDATE pocketarticle SET text = :text, resolved = 2 WHERE itemId = :itemId")
     suspend fun updateText(itemId: String, text: String?)
@@ -66,10 +69,10 @@ interface PocketDao {
 
     @Query("""
             UPDATE pocketarticle
-            SET title = :title, url = :url, image = :image, hasImage = :hasImage, excerpt = :excerpt, text = :text 
+            SET title = :title, url = :url, image = :image, hasImage = :hasImage, excerpt = :excerpt
             WHERE itemId = :itemId
             """)
-    suspend fun updateUnfurledDetails(itemId: String, title: String, url: String, image: String?, hasImage: Boolean, excerpt: String, text: String)
+    suspend fun updateUnfurledDetails(itemId: String, title: String, url: String, image: String?, hasImage: Boolean, excerpt: String)
 
     @Upsert
     suspend fun insertPocket(item: PocketArticle)
@@ -167,23 +170,57 @@ interface PocketDao {
      * @param newArticle The new article data to upsert.
      */
     @Transaction
-    suspend fun upsertArticle(newArticle: PocketArticle) {
+    suspend fun upsertArticle(newArticle: PocketArticle): String {
+        Timber.d("insert article: ${newArticle.itemId}")
         var existingArticle: PocketArticle? = null
         if (newArticle.givenUrl != null) {
+            Timber.d("givenUrl is not null, checking for existing article")
             existingArticle = getArticleByUrl(newArticle.givenUrl)
+            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
         }
         if (existingArticle == null && newArticle.url != null) {
+            Timber.d("url is not null and existing article is still null, checking for existing article")
             existingArticle = getArticleByUrl(newArticle.url)
+            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
         }
         if (existingArticle != null) {
+            Timber.d("existingArticle is not null, updating article")
             insertPocket(
-                existingArticle.copy(
+                newArticle.copy(
+                    itemId = existingArticle.itemId,
+                    pocketId = existingArticle.pocketId,
+                    resolvedId = existingArticle.resolvedId,
                     timeUpdated = newArticle.timeAdded,
-                    timeAdded = newArticle.timeAdded
+                    timeAdded = newArticle.timeAdded, //TODO: this is not right
+                    title = if (newArticle.title.isBlank()) existingArticle.title else newArticle.title,
+                    givenTitle = if (newArticle.givenTitle.isBlank()) existingArticle.givenTitle else newArticle.givenTitle,
+                    url = newArticle.url ?: existingArticle.url,
+                    givenUrl = newArticle.givenUrl ?: existingArticle.givenUrl,
+                    favorite = if (newArticle.favorite.isNullOrBlank()) existingArticle.favorite else newArticle.favorite,
+                    status = if (newArticle.status.isBlank()) existingArticle.status else newArticle.status,
+                    image = newArticle.image ?: existingArticle.image,
+                    hasImage = if (newArticle.hasImage == false) existingArticle.hasImage else newArticle.hasImage,
+                    hasVideo = if (newArticle.hasVideo == false) existingArticle.hasVideo else newArticle.hasVideo,
+                    hasAudio = if (newArticle.hasAudio == false) existingArticle.hasAudio else newArticle.hasAudio,
+                    listenDurationEstimate = if (newArticle.listenDurationEstimate == 0) existingArticle.listenDurationEstimate else newArticle.listenDurationEstimate,
+                    wordCount = if (newArticle.wordCount == 0) existingArticle.wordCount else newArticle.wordCount,
+                    wordCountMessage = if (newArticle.wordCountMessage.isNullOrBlank()) existingArticle.wordCountMessage else newArticle.wordCountMessage,
+                    sortId = if (newArticle.sortId == 0) existingArticle.sortId else newArticle.sortId,
+                    timeRead = if (newArticle.timeRead == null || newArticle.timeRead == 0L) existingArticle.timeRead else newArticle.timeRead,
+                    timeFavorited = if (newArticle.timeFavorited == 0L) existingArticle.timeFavorited else newArticle.timeFavorited,
+                    timeToRead = if (newArticle.timeToRead == 0) existingArticle.timeToRead else newArticle.timeToRead,
+                    text = if (newArticle.text.isNullOrBlank()) existingArticle.text else newArticle.text,
                 )
+//                existingArticle.copy(
+//                    timeUpdated = newArticle.timeAdded,
+//                    timeAdded = newArticle.timeAdded
+//                )
             )
+            return existingArticle.itemId
         } else {
+            Timber.d("existingArticle is null, inserting article")
             insertPocket(newArticle)
+            return newArticle.itemId
         }
     }
 }
