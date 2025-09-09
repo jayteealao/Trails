@@ -39,7 +39,6 @@ import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -133,7 +132,6 @@ class ArticleListViewModel @Inject constructor(
 
     fun saveUrl(givenUrl: Uri, givenTitle: String?) {
         var id = generateId()
-        var articleExists = false
         Timber.d("id: $id")
         Timber.d("givenUrl in saveUrl: $givenUrl")
         Timber.d("givenTitle: $givenTitle")
@@ -142,15 +140,14 @@ class ArticleListViewModel @Inject constructor(
         } else {
             Pair(givenTitle, givenUrl.toString())
         }
-//        Timber.d("title: $title, url: $url")
+
+        _intentUrl.value = url
+        _intentTitle.value = title.toString()
 
         viewModelScope.launch(ioDispatcher) {
             val timeNow = System.currentTimeMillis()
-            Timber.d("timeNow: $timeNow")
             if (url.isNotBlank()) {
-                Timber.d("url is not blank")
-                Timber.d("upserting article: $url")
-                val newId = pocketDao.upsertArticle(
+                id = pocketDao.upsertArticle(
                     PocketArticle(
                         itemId = id,
                         resolvedId = null,
@@ -162,49 +159,28 @@ class ArticleListViewModel @Inject constructor(
                         timeUpdated = timeNow,
                     )
                 )
-                Timber.d("article should have been upserted here")
-                if (newId != id) {
-                    articleExists = true
-                    shouldShow.value = true // TODO: watch out for this: there be dragons
-                    id = newId
+
+                val unfurlResult = unfurler.unfurl(url)
+                if (_intentTitle.value.isBlank()) {
+                    _intentTitle.value = unfurlResult?.title ?: title ?: ""
                 }
-            }
-        }
+                pocketDao.updateUnfurledDetails(
+                    itemId = id,
+                    title = unfurlResult?.title ?: title ?: "",
+                    url = (unfurlResult?.url ?: url).toString(),
+                    image = unfurlResult?.thumbnail?.toString(),
+                    hasImage = unfurlResult?.thumbnail != null,
+                    excerpt = unfurlResult?.description ?: "",
+                )
 
-        _intentUrl.value = url
-        _intentTitle.value = title.toString()
-
-        viewModelScope.launch(ioDispatcher) {
-
-            val unfurlJob = async { unfurler.unfurl(url) }
-            val jinaJob = async { jinaClient.getReader(url) }
-
-            val unfurlResult = unfurlJob.await()
-
-            if (_intentTitle.value.isBlank()) {
-                _intentTitle.value = unfurlResult?.title ?: title ?: ""
-            }
-//            jinaResult as ReaderResponse?
-            pocketDao.updateUnfurledDetails(
-                itemId = id,
-                title = unfurlResult?.title ?: title ?: "",
-                url = (unfurlResult?.url ?: url).toString(),
-                image = if (unfurlResult?.thumbnail == null) null else unfurlResult.thumbnail.toString(),
-                hasImage = unfurlResult?.thumbnail != null,
-                excerpt = unfurlResult?.description ?: "",
-            )
-            val jinaResult = jinaJob.await()
-
-            if (!jinaResult?.data?.content.isNullOrBlank()) {
-                if (jinaResult != null) {
+                val jinaResult = jinaClient.getReader(url)
+                if (!jinaResult?.data?.content.isNullOrBlank()) {
                     pocketDao.updateText(id, jinaResult.data.content)
+                    val metrics = contentMetricsCalculator.calculateMetrics(jinaResult.data.content)
+                    pocketDao.updateArticleMetrics(id, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
                 }
-                shouldShow.value = false
-                val metrics = contentMetricsCalculator.calculateMetrics(jinaResult?.data?.content ?: "")
-                pocketDao.updateArticleMetrics(id, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
-            } else {
-                shouldShow.value = false
             }
+            shouldShow.value = false
         }
     }
 
