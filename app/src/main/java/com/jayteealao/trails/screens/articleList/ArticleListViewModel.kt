@@ -44,6 +44,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlin.runCatching
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import javax.inject.Inject
@@ -142,45 +143,81 @@ class ArticleListViewModel @Inject constructor(
         }
 
         _intentUrl.value = url
-        _intentTitle.value = title.toString()
+        _intentTitle.value = title ?: ""
 
         viewModelScope.launch(ioDispatcher) {
             val timeNow = System.currentTimeMillis()
-            if (url.isNotBlank()) {
-                id = pocketDao.upsertArticle(
+            if (url.isBlank()) {
+                shouldShow.value = false
+                return@launch
+            }
+
+            var articleId = id
+            try {
+                articleId = pocketDao.upsertArticle(
                     PocketArticle(
                         itemId = id,
                         resolvedId = null,
                         title = "",
                         givenTitle = title ?: "",
-                        url = null,
+                        url = url,
                         givenUrl = url,
                         timeAdded = timeNow,
                         timeUpdated = timeNow,
                     )
                 )
 
-                val unfurlResult = unfurler.unfurl(url)
-                if (_intentTitle.value.isBlank()) {
-                    _intentTitle.value = unfurlResult?.title ?: title ?: ""
+                var resolvedTitle = title ?: ""
+                var resolvedUrl = url
+                var resolvedImage: String? = null
+                var hasImage = false
+                var resolvedExcerpt = ""
+
+                val unfurlResult = runCatching { unfurler.unfurl(url) }
+                    .onFailure { Timber.w(it, "Failed to unfurl url: %s", url) }
+                    .getOrNull()
+
+                if (unfurlResult != null) {
+                    resolvedTitle = unfurlResult.title ?: resolvedTitle
+                    resolvedUrl = (unfurlResult.url ?: resolvedUrl).toString()
+                    resolvedImage = unfurlResult.thumbnail?.toString()
+                    hasImage = unfurlResult.thumbnail != null
+                    resolvedExcerpt = unfurlResult.description ?: ""
                 }
+
+                if (_intentTitle.value.isBlank()) {
+                    _intentTitle.value = resolvedTitle
+                }
+
                 pocketDao.updateUnfurledDetails(
-                    itemId = id,
-                    title = unfurlResult?.title ?: title ?: "",
-                    url = (unfurlResult?.url ?: url).toString(),
-                    image = unfurlResult?.thumbnail?.toString(),
-                    hasImage = unfurlResult?.thumbnail != null,
-                    excerpt = unfurlResult?.description ?: "",
+                    itemId = articleId,
+                    title = resolvedTitle,
+                    url = resolvedUrl,
+                    image = resolvedImage,
+                    hasImage = hasImage,
+                    excerpt = resolvedExcerpt,
                 )
 
-                val jinaResult = jinaClient.getReader(url)
-                if (!jinaResult?.data?.content.isNullOrBlank()) {
-                    pocketDao.updateText(id, jinaResult.data.content)
-                    val metrics = contentMetricsCalculator.calculateMetrics(jinaResult.data.content)
-                    pocketDao.updateArticleMetrics(id, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
+                val jinaResult = runCatching { jinaClient.getReader(url) }
+                    .onFailure { Timber.w(it, "Failed to fetch reader content for %s", url) }
+                    .getOrNull()
+
+                val readerContent = jinaResult?.data?.content
+                if (!readerContent.isNullOrBlank()) {
+                    pocketDao.updateText(articleId, readerContent)
+                    val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
+                    pocketDao.updateArticleMetrics(
+                        articleId,
+                        metrics.readingTimeMinutes,
+                        metrics.listeningTimeMinutes,
+                        metrics.wordCount,
+                    )
                 }
+            } catch (error: Throwable) {
+                Timber.e(error, "Failed to save shared article.")
+            } finally {
+                shouldShow.value = false
             }
-            shouldShow.value = false
         }
     }
 
