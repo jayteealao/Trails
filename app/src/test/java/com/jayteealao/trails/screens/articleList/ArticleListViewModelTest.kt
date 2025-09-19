@@ -1,59 +1,130 @@
-/*
- * Copyright (C) 2022 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.jayteealao.trails.screens.articleList
 
-
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import android.net.Uri
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
+import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.data.ArticleRepository
+import com.jayteealao.trails.data.local.database.PocketArticle
+import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.services.archivebox.ArchiveBoxClient
+import com.jayteealao.trails.services.jina.JinaClient
+import com.jayteealao.trails.services.supabase.SupabaseService
+import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
+import io.mockk.MockKAnnotations
+import io.mockk.anyConstructed
+import io.mockk.clearAllMocks
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.impl.annotations.MockK
+import io.mockk.mockkConstructor
+import io.mockk.slot
+import io.mockk.unmockkConstructor
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import me.saket.unfurl.Unfurler
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
 
-/**
- * Example local unit test, which will execute on the development machine (host).
- *
- * See [testing documentation](http://d.android.com/tools/testing).
- */
-@OptIn(ExperimentalCoroutinesApi::class) // TODO: Remove when stable
+@OptIn(ExperimentalCoroutinesApi::class)
 class ArticleListViewModelTest {
-    @Test
-    fun uiState_initiallyLoading() = runTest {
-//        val viewModel = ArticleListViewModel(FakePocketRepository())
-//        assertEquals(viewModel.uiState.first(), PocketUiState.Loading)
+
+    @MockK private lateinit var articleRepository: ArticleRepository
+    @MockK private lateinit var getArticleWithTextUseCase: GetArticleWithTextUseCase
+    @MockK private lateinit var supabaseService: SupabaseService
+    @MockK private lateinit var pocketDao: PocketDao
+    @MockK private lateinit var jinaClient: JinaClient
+    @MockK private lateinit var archiveBoxClient: ArchiveBoxClient
+
+    private val contentMetricsCalculator = ContentMetricsCalculator()
+
+    @Before
+    fun setUp() {
+        MockKAnnotations.init(this)
+        every { articleRepository.synchronize() } returns Unit
+        every { articleRepository.isSyncing } returns flowOf(false)
+        every { articleRepository.pockets() } answers { TestPagingSource() }
+        coEvery { articleRepository.searchLocal(any()) } returns emptyList()
+        coEvery { articleRepository.searchHybrid(any()) } returns emptyList()
+        coEvery { articleRepository.getTags(any()) } returns emptyList()
+        every { articleRepository.getArticleById(any()) } returns null
+        every { articleRepository.getLastUpdatedArticleTime() } returns 0L
+        every { getArticleWithTextUseCase.invoke() } answers { TestPagingSource() }
+    }
+
+    @After
+    fun tearDown() {
+        clearAllMocks()
+        runCatching { unmockkConstructor(Unfurler::class) }
+        runCatching { Dispatchers.resetMain() }
     }
 
     @Test
-    fun uiState_onItemSaved_isDisplayed() = runTest {
-//        val viewModel = ArticleListViewModel(FakePocketRepository())
-//        assertEquals(viewModel.uiState.first(), PocketUiState.Loading)
+    fun saveUrl_whenMetadataFetchFails_usesSharedUrlAndTitleFallback() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+
+        mockkConstructor(Unfurler::class)
+        coEvery { anyConstructed<Unfurler>().unfurl(any()) } throws RuntimeException("unfurl failure")
+        val upsertSlot = slot<PocketArticle>()
+        coEvery { pocketDao.upsertArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
+
+        val updateItemId = slot<String>()
+        val updateTitle = slot<String>()
+        val updateUrl = slot<String>()
+        coEvery {
+            pocketDao.updateUnfurledDetails(
+                capture(updateItemId),
+                capture(updateTitle),
+                capture(updateUrl),
+                any(),
+                any(),
+                any(),
+            )
+        } returns Unit
+        coEvery { pocketDao.updateText(any(), any()) } returns Unit
+        coEvery { pocketDao.updateArticleMetrics(any(), any(), any(), any()) } returns Unit
+        coEvery { jinaClient.getReader(any()) } throws RuntimeException("reader failure")
+
+        val viewModel = ArticleListViewModel(
+            pocketRepository = articleRepository,
+            getArticleWithTextUseCase = getArticleWithTextUseCase,
+            supabaseService = supabaseService,
+            pocketDao = pocketDao,
+            jinaClient = jinaClient,
+            contentMetricsCalculator = contentMetricsCalculator,
+            archiveBoxClient = archiveBoxClient,
+            ioDispatcher = dispatcher,
+        )
+
+        val sharedUrl = "https://example.com/article"
+        viewModel.saveUrl(Uri.parse(sharedUrl), "Shared title")
+        advanceUntilIdle()
+
+        assertEquals(sharedUrl, upsertSlot.captured.url)
+        assertEquals(sharedUrl, upsertSlot.captured.givenUrl)
+        assertEquals(upsertSlot.captured.itemId, updateItemId.captured)
+        assertEquals("Shared title", updateTitle.captured)
+        assertEquals(sharedUrl, updateUrl.captured)
+        assertFalse(viewModel.shouldShow.value)
+        assertEquals("Shared title", viewModel.intentTitle.value)
+
+        coVerify(exactly = 1) { pocketDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any()) }
+    }
+
+    private class TestPagingSource : PagingSource<Int, ArticleItem>() {
+        override fun getRefreshKey(state: PagingState<Int, ArticleItem>): Int? = null
+
+        override suspend fun load(params: LoadParams<Int>): LoadResult<Int, ArticleItem> =
+            LoadResult.Page(emptyList(), prevKey = null, nextKey = null)
     }
 }
-//
-//private class FakePocketRepository : ArticleRepository {
-//
-//    private val data = mutableListOf<String>()
-//
-//    override val pockets: Flow<List<String>>
-//        get() = flow { emit(data.toList()) }
-//
-//    override suspend fun add(name: String) {
-//        data.add(0, name)
-//    }
-//}

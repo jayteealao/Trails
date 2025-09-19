@@ -24,7 +24,7 @@ interface PocketDao {
 
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("""
-        SELECT art.itemId, art.title, art.url, art.image,
+        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
