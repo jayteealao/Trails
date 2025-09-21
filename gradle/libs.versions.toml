@@ -1,53 +1,53 @@
 [versions]
-accompanistWebview = "0.30.1"
-androidGradlePlugin = "8.2.2"
-androidxCore = "1.13.1"
-androidxLifecycle = "2.8.6"
-androidxActivity = "1.9.2"
-androidxComposeBom = "2024.09.02"
+accompanistWebview = "0.36.0"
+androidGradlePlugin = "8.13.0"
+androidxCore = "1.17.0"
+androidxLifecycle = "2.9.4"
+androidxActivity = "1.11.0"
+androidxComposeBom = "2025.09.00"
 androidxComposeCompiler = "1.5.10"
-androidxHilt = "1.2.0"
-androidxNavigation = "2.8.1"
+androidxHilt = "1.3.0"
+androidxNavigation = "2.9.4"
 androidxRoom = "2.6.1"
-androidxTest = "1.6.1"
-androidxTestExt = "1.2.1"
-androidxTestRunner = "1.6.2"
-landscapistCoil = "2.4.0"
+androidxTest = "1.7.0"
+androidxTestExt = "1.3.0"
+androidxTestRunner = "1.7.0"
+landscapistCoil = "2.6.0"
 nanoid = "1.0.1"
 startupRuntime = "1.2.0"
 unfurl = "2.2.0"
-weaviateClient = "4.5.1"
-constraintLayout="1.0.1"
-chromeCustomTabs = "1.8.0"
-coroutines = "1.6.4"
-composeIcons = "1.1.0"
-crux = "3.12.0"
+weaviateClient = "5.4.0"
+constraintLayout="1.1.1"
+chromeCustomTabs = "1.9.0"
+coroutines = "1.10.2"
+composeIcons = "1.1.1"
+crux = "5.1.0"
 essence = "0.13.0"
-fonts = "1.7.2"
-hilt = "2.49"
+fonts = "1.9.1"
+hilt = "2.57.1"
 junit = "4.13.2"
-kotlin = "2.0.20"
-kapt = "1.8.10"
-ksp = "2.0.20-1.0.25"
-librariesBom = "26.33.0"
-library = "4.0.0"
-libraryNoOp = "4.0.0"
-markdown-renderer = "0.26.0"
-okhttp = "5.0.0-alpha.12"
-paging = "3.3.2"
+kotlin = "2.2.20"
+kapt = "2.2.20"
+ksp = "2.2.20-2.0.3"
+librariesBom = "26.68.0"
+library = "4.2.0"
+libraryNoOp = "4.2.0"
+markdown-renderer = "0.37.0"
+okhttp = "5.1.0"
+paging = "3.3.6"
 postgrest = "0.2.0"
 readability4j = "1.0.8"
-retrofit = "2.9.0"
+retrofit = "3.0.0"
 robolectric = "4.8"
 splashscreen = "1.0.1"
-supabase = "3.0.1"
+supabase = "3.2.3"
 shadowsPlus = "1.0.4"
 
 timber = "5.0.1"
-workManager = "2.9.1"
-ktorversion = "3.0.0"
-espressoCore = "3.6.1"
-uiautomator = "2.2.0"
+workManager = "2.10.4"
+ktorversion = "3.3.0"
+espressoCore = "3.7.0"
+uiautomator = "2.3.0"
 benchmarkMacroJunit4 = "1.2.0-beta01"
 
 #constraintlayoutVersion = "2.1.4"
@@ -76,7 +76,7 @@ androidx-lifecycle-viewmodel-ktx = { module = "androidx.lifecycle:lifecycle-view
 androidx-lifecycle-viewmodel-savedstate = { module = "androidx.lifecycle:lifecycle-viewmodel-savedstate", version.ref = "androidxLifecycle" }
 
 androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }
-androidx-paging-compose = { module = "androidx.paging:paging-compose", version = "3.3.2" }
+androidx-paging-compose = { module = "androidx.paging:paging-compose", version = "3.3.6" }
 
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "androidxRoom" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "androidxRoom" }
@@ -128,7 +128,7 @@ robolectric = { module = "org.robolectric:roboelectric", version.ref = "robolect
 
 retrofit-core = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit" }
 retrofit-gson = { module = "com.squareup.retrofit2:converter-gson", version.ref = "retrofit" }
-retrofit-sandwich = { module = "com.github.skydoves:sandwich", version = "1.3.5" }
+retrofit-sandwich = { module = "com.github.skydoves:sandwich", version = "2.1.3" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 
 splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
