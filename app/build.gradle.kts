@@ -28,11 +28,11 @@ plugins {
 
 android {
     namespace = "com.jayteealao.trails"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.jayteealao.trails"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 33
         versionCode = 1
         versionName = "1.0"

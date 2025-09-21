@@ -17,9 +17,9 @@
 // Root build.gradle.kts
 
 plugins {
-    id("com.android.application") version "8.2.2" apply false
+    id("com.android.application") version "8.13.0" apply false
     id("org.jetbrains.kotlin.android") version libs.versions.kotlin.get() apply false
-    id("org.jetbrains.kotlin.kapt") version "1.8.10" apply false
+    id("org.jetbrains.kotlin.kapt") version "2.2.20" apply false
     id("com.google.dagger.hilt.android") version libs.versions.hilt.get() apply false
     id("com.google.devtools.ksp") version libs.versions.ksp.get() apply false
     id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
