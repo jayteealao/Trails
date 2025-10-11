@@ -17,9 +17,9 @@
 package com.jayteealao.trails.data.local.database
 
 import androidx.room.Database
-import androidx.room.DeleteTable
 import androidx.room.RoomDatabase
-import androidx.room.migration.AutoMigrationSpec
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jayteealao.trails.network.DomainMetadata
 import com.jayteealao.trails.network.PocketAuthors
 import com.jayteealao.trails.network.PocketImages
@@ -38,7 +38,7 @@ import com.jayteealao.trails.network.PocketVideos
 //        ModalArticleTable::class,
 //        PocketSummary::class,
     ],
-    version = 1,
+    version = 2,
     autoMigrations = [],
     exportSchema = true
 )
@@ -46,7 +46,29 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun pocketDao(): PocketDao
 }
 
-@DeleteTable(
-    tableName = "ModalArticleTable")
-class AutoMigrationSpec_1_2 : AutoMigrationSpec
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `pockettags_new` (
+                `itemId` TEXT NOT NULL,
+                `tag` TEXT NOT NULL,
+                `sortId` INTEGER,
+                `type` TEXT,
+                PRIMARY KEY(`itemId`, `tag`)
+            )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO `pockettags_new` (`itemId`, `tag`, `sortId`, `type`)
+            SELECT `itemId`, `tag`, `sortId`, `type` FROM `pockettags`
+            """.trimIndent()
+        )
+
+        db.execSQL("DROP TABLE `pockettags`")
+        db.execSQL("ALTER TABLE `pockettags_new` RENAME TO `pockettags`")
+    }
+}
 
