@@ -27,20 +27,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Badge
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,14 +81,31 @@ import timber.log.Timber
 fun ArticleListItem(
     article: ArticleItem,
     modifier: Modifier = Modifier,
-    onCLick: () -> Unit
+    onClick: () -> Unit,
+    onFavoriteToggle: (Boolean) -> Unit = {},
+    onTagToggle: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
 
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
     var vibrantColor by remember { mutableStateOf(Color.Transparent) }
+
+    var isFavorite by remember(article.itemId) { mutableStateOf(article.favorite) }
+    LaunchedEffect(article.favorite) {
+        isFavorite = article.favorite
+    }
+
+    val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }
+    LaunchedEffect(article.tagsString) {
+        // Mark all known tags as absent until confirmed by the latest data snapshot
+        tagStates.keys.toList().forEach { key ->
+            tagStates[key] = false
+        }
+        article.tags.forEach { tag ->
+            tagStates[tag] = true
+        }
+    }
 
     // Animated gradient angle
     val infiniteTransition = rememberInfiniteTransition(label = "gradientTransition")
@@ -146,7 +168,7 @@ fun ArticleListItem(
                 .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)
                 .background(Color.White)
                 .heightIn(max = 150.dp)
-                .clickable { onCLick() },
+                .clickable { onClick() },
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
@@ -242,12 +264,27 @@ fun ArticleListItem(
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 18.sp
                     )
-                    if (article.favorite) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconToggleButton(
+                        modifier = Modifier.size(32.dp),
+                        checked = isFavorite,
+                        onCheckedChange = { checked ->
+                            isFavorite = checked
+                            onFavoriteToggle(checked)
+                        }
+                    ) {
                         Icon(
-                            imageVector = Icons.Filled.Star,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                            contentDescription = if (isFavorite) {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            },
+                            tint = if (isFavorite) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                     }
                 }
@@ -276,15 +313,23 @@ fun ArticleListItem(
                         verticalArrangement = Arrangement.Center,
                         horizontalArrangement = Arrangement.Start
                     ) {
-                        article.tags.forEach { tag ->
-                            Badge() {
-                                Text(text = tag)
-                            }
-//                    TagItem(
-//                        tag = tag,
-//                        modifier = Modifier
-//                            .wrapContentWidth()
-//                    )
+                        val tagsInDisplay = tagStates.keys.toList().sorted()
+                        tagsInDisplay.forEach { tag ->
+                            val selected = tagStates[tag] ?: false
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    val newSelected = !selected
+                                    tagStates[tag] = newSelected
+                                    onTagToggle(tag, newSelected)
+                                },
+                                label = { Text(text = tag) },
+                                modifier = Modifier.padding(end = 8.dp, bottom = 8.dp),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                                    selectedLabelColor = MaterialTheme.colorScheme.primary
+                                )
+                            )
                         }
                     }
                 }
