@@ -18,11 +18,8 @@ package com.jayteealao.trails.data.local.di
 
 import android.content.Context
 import androidx.room.Room
-import androidx.room.RoomDatabase
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.work.impl.Migration_7_8
 import com.jayteealao.trails.data.local.database.AppDatabase
+import com.jayteealao.trails.data.local.database.MIGRATION_1_2
 import com.jayteealao.trails.data.local.database.PocketDao
 import dagger.Module
 import dagger.Provides
@@ -48,7 +45,7 @@ class DatabaseModule {
             AppDatabase::class.java,
             "Pocket"
         )
-//            .addMigrations(MIGRATION_1_2, MIGRATION_5_6, MIGRATION_7_8)
+            .addMigrations(MIGRATION_1_2)
 //            .addCallback(
 //            object : RoomDatabase.Callback() {
 //                override fun onOpen(db: SupportSQLiteDatabase) {
@@ -57,7 +54,6 @@ class DatabaseModule {
 //                }
 //            }
 //        )
-            .fallbackToDestructiveMigration()
             .build()
     }
 }

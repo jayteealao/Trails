@@ -74,7 +74,7 @@ data class PocketVideos(
 )
 
 @kotlinx.serialization.Serializable()
-@Entity(primaryKeys = ["itemId"])
+@Entity(primaryKeys = ["itemId", "tag"])
 data class PocketTags(
     @SerialName("item_id") val itemId: String,
     @SerializedName("tag") val tag: String,
