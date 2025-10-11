@@ -105,6 +105,23 @@ interface PocketDao {
     @Upsert
     suspend fun insertPocketTags(items: List<PocketTags>)
 
+    @Query(
+        """
+        UPDATE pocketarticle
+        SET favorite = CASE WHEN :isFavorite THEN '1' ELSE '0' END,
+            timeFavorited = CASE WHEN :isFavorite THEN :timeFavorited ELSE 0 END
+        WHERE itemId = :itemId
+        """
+    )
+    suspend fun updateFavorite(itemId: String, isFavorite: Boolean, timeFavorited: Long)
+
+    @Query(
+        """
+        DELETE FROM pockettags WHERE itemId = :itemId AND tag = :tag
+        """
+    )
+    suspend fun deletePocketTag(itemId: String, tag: String)
+
     @Query("""
         SELECT tag FROM pockettags WHERE itemId = :itemId
     """)
