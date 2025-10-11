@@ -19,12 +19,20 @@ import timber.log.Timber
 interface PocketDao {
 
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
-    @Query("SELECT itemId, title, url FROM pocketarticle ORDER BY timeAdded DESC")
+    @Query(
+        """
+        SELECT itemId, title, COALESCE(url, givenUrl) AS url,
+        CASE WHEN favorite = '1' THEN 1 ELSE 0 END AS favorite
+        FROM pocketarticle
+        ORDER BY timeAdded DESC
+        """
+    )
     fun getArticles(): PagingSource<Int, ArticleItem>
 
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
+        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
@@ -38,7 +46,15 @@ interface PocketDao {
 
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @RewriteQueriesToDropUnusedColumns
-    @Query("SELECT * FROM pocketarticle WHERE itemId IN (:ids)")
+    @Query(
+        """
+        SELECT itemId, title, COALESCE(url, givenUrl) AS url, image,
+        CASE WHEN favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        excerpt AS snippet
+        FROM pocketarticle
+        WHERE itemId IN (:ids)
+        """
+    )
     fun getArticlesByIds(ids: List<String>): List<ArticleItem>
 
     @Query("SELECT * FROM pocketarticle WHERE url = :url OR givenUrl = :url")
@@ -100,20 +116,33 @@ interface PocketDao {
     @Upsert
     suspend fun insertDomainMetadata(item: DomainMetadata)
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
-    @Query("""
-        SELECT pocketarticle.itemId, pocketarticle.title, pocketarticle.url, pocketarticle.image
+    @Query(
+        """
+        SELECT pocketarticle.itemId, pocketarticle.title,
+        COALESCE(pocketarticle.url, pocketarticle.givenUrl) AS url,
+        pocketarticle.image,
+        CASE WHEN pocketarticle.favorite = '1' THEN 1 ELSE 0 END AS favorite
         FROM pocketarticle
         JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
         WHERE pocketarticle_fts MATCH :query
-    """)
+        """
+    )
     suspend fun searchPockets(query: String): List<ArticleItem>
 
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
-    @Query("""
-        SELECT pocketarticle.itemId, pocketarticle.title, pocketarticle.url, snippet(pocketarticle_fts) as snippet, matchinfo(pocketarticle_fts) as matchInfo FROM pocketarticle
+    @Query(
+        """
+        SELECT pocketarticle.itemId, pocketarticle.title,
+        COALESCE(pocketarticle.url, pocketarticle.givenUrl) AS url,
+        pocketarticle.image,
+        CASE WHEN pocketarticle.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        snippet(pocketarticle_fts) AS snippet,
+        matchinfo(pocketarticle_fts) AS matchInfo
+        FROM pocketarticle
         JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
         WHERE pocketarticle_fts MATCH :query
-    """)
+        """
+    )
     suspend fun searchPocketsWithMatchInfo(query: String): List<PocketWithMatchInfo>
 
     @Query("""

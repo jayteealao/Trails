@@ -9,6 +9,7 @@ data class ArticleItem(
     val title: String,
     val url: String,
     val image: String? = null,
+    val favorite: Boolean = false,
     val tagsString: String? = "",
     val snippet: String? = null,
 ) {
