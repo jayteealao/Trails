@@ -30,15 +30,19 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -97,6 +101,8 @@ fun ArticleListItem(
     }
 
     val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }
+    var showAddTagDialog by remember(article.itemId) { mutableStateOf(false) }
+    var newTagText by remember(article.itemId) { mutableStateOf("") }
     LaunchedEffect(article.tagsString) {
         // Mark all known tags as absent until confirmed by the latest data snapshot
         tagStates.keys.toList().forEach { key ->
@@ -105,6 +111,10 @@ fun ArticleListItem(
         article.tags.forEach { tag ->
             tagStates[tag] = true
         }
+    }
+    LaunchedEffect(article.itemId) {
+        showAddTagDialog = false
+        newTagText = ""
     }
 
     // Animated gradient angle
@@ -331,6 +341,18 @@ fun ArticleListItem(
                                 )
                             )
                         }
+                        FilterChip(
+                            selected = false,
+                            onClick = { showAddTagDialog = true },
+                            label = { Text(text = "Add tag") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Add,
+                                    contentDescription = "Add tag"
+                                )
+                            },
+                            modifier = Modifier.padding(end = 8.dp, bottom = 8.dp),
+                        )
                     }
                 }
 //        Spacer(modifier = Modifier.height(16.dp))
@@ -345,4 +367,50 @@ fun ArticleListItem(
             )
         }
 
+    if (showAddTagDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showAddTagDialog = false
+                newTagText = ""
+            },
+            title = { Text(text = "Add tag") },
+            text = {
+                OutlinedTextField(
+                    value = newTagText,
+                    onValueChange = { newValue -> newTagText = newValue },
+                    label = { Text(text = "Tag name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val normalizedTag = newTagText.trim().replace(Regex("\\s+"), " ")
+                        if (normalizedTag.isNotEmpty()) {
+                            val alreadyEnabled = tagStates[normalizedTag] == true
+                            tagStates[normalizedTag] = true
+                            if (!alreadyEnabled) {
+                                onTagToggle(normalizedTag, true)
+                            }
+                        }
+                        newTagText = ""
+                        showAddTagDialog = false
+                    }
+                ) {
+                    Text(text = "Add")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showAddTagDialog = false
+                        newTagText = ""
+                    }
+                ) {
+                    Text(text = "Cancel")
+                }
+            }
+        )
+    }
 }
