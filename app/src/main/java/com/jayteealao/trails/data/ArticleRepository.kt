@@ -28,6 +28,7 @@ import com.jayteealao.trails.data.local.database.PocketArticle
 import com.jayteealao.trails.data.local.database.PocketDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.network.PocketData
+import com.jayteealao.trails.network.PocketTags
 import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.initializers.SyncWorkName
@@ -48,6 +49,12 @@ interface ArticleRepository: Syncable {
     fun pockets(): PagingSource<Int, ArticleItem>
 
     suspend fun add(pocketData: List<PocketData>)
+
+    suspend fun setFavorite(itemId: String, isFavorite: Boolean)
+
+    suspend fun addTag(itemId: String, tag: String)
+
+    suspend fun removeTag(itemId: String, tag: String)
 
     override fun synchronize()
 
@@ -130,6 +137,30 @@ class ArticleRepositoryImpl @Inject constructor(
             pocketDao.insertPocketAuthors(pocketDatum.pocketAuthors)
             pocketDatum.domainMetadata?.let { pocketDao.insertDomainMetadata(it) }
         }
+    }
+
+    override suspend fun setFavorite(itemId: String, isFavorite: Boolean) {
+        val timestamp = if (isFavorite) System.currentTimeMillis() else 0L
+        pocketDao.updateFavorite(itemId, isFavorite, timestamp)
+    }
+
+    override suspend fun addTag(itemId: String, tag: String) {
+        if (tag.isBlank()) return
+        pocketDao.insertPocketTags(
+            listOf(
+                PocketTags(
+                    itemId = itemId,
+                    tag = tag,
+                    sortId = null,
+                    type = null,
+                )
+            )
+        )
+    }
+
+    override suspend fun removeTag(itemId: String, tag: String) {
+        if (tag.isBlank()) return
+        pocketDao.deletePocketTag(itemId, tag)
     }
 
     override suspend fun searchHybrid(query: String): List<ArticleItem> {

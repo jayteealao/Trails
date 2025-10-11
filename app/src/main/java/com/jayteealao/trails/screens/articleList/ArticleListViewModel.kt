@@ -108,6 +108,22 @@ class ArticleListViewModel @Inject constructor(
             _searchResults.value = pocketRepository.searchLocal(query)
         }
     }
+
+    fun setFavorite(itemId: String, isFavorite: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.setFavorite(itemId, isFavorite)
+        }
+    }
+
+    fun updateTag(itemId: String, tag: String, enabled: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            if (enabled) {
+                pocketRepository.addTag(itemId, tag)
+            } else {
+                pocketRepository.removeTag(itemId, tag)
+            }
+        }
+    }
     fun selectArticle(articleItem: ArticleItem) {
         _selectedArticle.value = articleItem
 //        provideSummary(articleItem.itemId)

@@ -34,6 +34,22 @@ class ArticleSearchViewModel @Inject constructor(
         searchLocal(query)
     }
 
+    fun setFavorite(itemId: String, isFavorite: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.setFavorite(itemId, isFavorite)
+        }
+    }
+
+    fun updateTag(itemId: String, tag: String, enabled: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            if (enabled) {
+                pocketRepository.addTag(itemId, tag)
+            } else {
+                pocketRepository.removeTag(itemId, tag)
+            }
+        }
+    }
+
     private fun searchLocal(query: String) {
         viewModelScope.launch(ioDispatcher) {
             _searchResultsLocal.value = pocketRepository.searchLocal(query)

@@ -70,7 +70,14 @@ fun ArticleSearchScreen(
                 ) { article ->
                     ArticleListItem(
                         article = article,
-                    ) { onSelectArticle(article) }
+                        onClick = { onSelectArticle(article) },
+                        onFavoriteToggle = { isFavorite ->
+                            viewModel.setFavorite(article.itemId, isFavorite)
+                        },
+                        onTagToggle = { tag, enabled ->
+                            viewModel.updateTag(article.itemId, tag, enabled)
+                        }
+                    )
                 }
 
 //                items(

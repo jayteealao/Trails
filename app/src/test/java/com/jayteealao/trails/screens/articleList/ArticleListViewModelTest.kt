@@ -56,6 +56,9 @@ class ArticleListViewModelTest {
         coEvery { articleRepository.searchLocal(any()) } returns emptyList()
         coEvery { articleRepository.searchHybrid(any()) } returns emptyList()
         coEvery { articleRepository.getTags(any()) } returns emptyList()
+        coEvery { articleRepository.setFavorite(any(), any()) } returns Unit
+        coEvery { articleRepository.addTag(any(), any()) } returns Unit
+        coEvery { articleRepository.removeTag(any(), any()) } returns Unit
         every { articleRepository.getArticleById(any()) } returns null
         every { articleRepository.getLastUpdatedArticleTime() } returns 0L
         every { getArticleWithTextUseCase.invoke() } answers { TestPagingSource() }

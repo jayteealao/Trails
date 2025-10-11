@@ -74,7 +74,12 @@ fun ArticleListScreen(
                 lazyItems = articles,
                 onSelectArticle = {
                     onSelectArticle(it)
-
+                },
+                onToggleFavorite = { article, isFavorite ->
+                    viewModel.setFavorite(article.itemId, isFavorite)
+                },
+                onToggleTag = { article, tag, enabled ->
+                    viewModel.updateTag(article.itemId, tag, enabled)
                 }
             )
             ArticleDialog(
@@ -93,6 +98,8 @@ fun ArticleListScreen(
 internal fun PocketScreenContent(
     lazyItems: LazyPagingItems<ArticleItem>,
     onSelectArticle: (ArticleItem) -> Unit,
+    onToggleFavorite: (ArticleItem, Boolean) -> Unit,
+    onToggleTag: (ArticleItem, String, Boolean) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -113,7 +120,14 @@ internal fun PocketScreenContent(
                     Modifier.animateItem().then(
                         if (index != 0) Modifier.padding(top = 8.dp) else Modifier.padding(top = 0.dp)
                     ),
-                ) { onSelectArticle(article) }
+                    onClick = { onSelectArticle(article) },
+                    onFavoriteToggle = { isFavorite ->
+                        onToggleFavorite(article, isFavorite)
+                    },
+                    onTagToggle = { tag, enabled ->
+                        onToggleTag(article, tag, enabled)
+                    }
+                )
             }
         }
     }
