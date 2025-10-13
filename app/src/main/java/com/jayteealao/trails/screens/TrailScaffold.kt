@@ -1,9 +1,12 @@
 package com.jayteealao.trails.screens
 
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.updateTransition
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
@@ -24,9 +27,13 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
+import com.jayteealao.trails.screens.theme.TrailsTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +49,57 @@ fun TrailScaffold(
         containerColor = Color.White,
     ){ paddingValues ->
         content(paddingValues, transitionData)
+    }
+}
+
+@Preview(name = "Scaffold • Menu Open", showBackground = true)
+@Composable
+private fun TrailScaffoldPreview() {
+    TrailsTheme {
+        val navController = rememberNavController()
+        val route = remember { mutableStateOf<NavBackStackEntry?>(null) }
+        TrailScaffold(
+            topBar = { menuState ->
+                TrailsTopAppBar(
+                    title = "Trails",
+                    navController = navController,
+                    route = route,
+                    menuState = menuState,
+                )
+            },
+        ) { paddingValues, _ ->
+            Column(Modifier.padding(paddingValues)) {
+                Text(text = "Preview Content")
+            }
+        }
+    }
+}
+
+@Preview(
+    name = "Scaffold • Menu Closed (Dark)",
+    showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun TrailScaffoldDarkPreview() {
+    TrailsTheme(darkTheme = true) {
+        val navController = rememberNavController()
+        val route = remember { mutableStateOf<NavBackStackEntry?>(null) }
+        TrailScaffold(
+            topBar = { menuState ->
+                menuState.value = MenuState.Closed
+                TrailsTopAppBar(
+                    title = "Trails",
+                    navController = navController,
+                    route = route,
+                    menuState = menuState,
+                )
+            },
+        ) { paddingValues, _ ->
+            Column(Modifier.padding(paddingValues)) {
+                Text(text = "Drawer collapsed for preview")
+            }
+        }
     }
 }
 
