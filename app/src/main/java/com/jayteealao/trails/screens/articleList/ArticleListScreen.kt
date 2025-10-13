@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -44,6 +46,8 @@ import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.screens.articleList.components.ArticleDialog
 import com.jayteealao.trails.screens.articleList.components.ArticleListItem
+import com.jayteealao.trails.screens.preview.rememberPreviewArticles
+import com.jayteealao.trails.screens.theme.TrailsTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,6 +90,32 @@ fun ArticleListScreen(
         }
     }
 
+}
+
+@Preview(name = "Articles • Light", showBackground = true)
+@Composable
+private fun ArticleListScreenPreview() {
+    TrailsTheme(darkTheme = false) {
+        PocketScreenContent(
+            lazyItems = rememberPreviewArticles(),
+            onSelectArticle = {},
+        )
+    }
+}
+
+@Preview(
+    name = "Articles • Dark",
+    showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ArticleListScreenDarkPreview() {
+    TrailsTheme(darkTheme = true) {
+        PocketScreenContent(
+            lazyItems = rememberPreviewArticles(),
+            onSelectArticle = {},
+        )
+    }
 }
 
 

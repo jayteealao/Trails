@@ -17,6 +17,7 @@
 package com.jayteealao.trails
 
 import android.content.Context
+import android.content.res.Configuration
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -38,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -45,18 +47,28 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.jayteealao.trails.screens.MenuState
 import com.jayteealao.trails.screens.TrailScaffold
 import com.jayteealao.trails.screens.TrailsTopAppBar
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailScreen
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailViewModel
 import com.jayteealao.trails.screens.articleList.ArticleListScreen
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import com.jayteealao.trails.screens.articleList.PocketScreenContent
+import com.jayteealao.trails.screens.articleSearch.ArticleSearchContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchViewModel
 import com.jayteealao.trails.screens.auth.AuthScreen
+import com.jayteealao.trails.screens.auth.AuthScreenContent
+import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
+import com.jayteealao.trails.screens.preview.PreviewFixtures
+import com.jayteealao.trails.screens.preview.previewSearchBarState
+import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.settings.SettingsScreen
+import com.jayteealao.trails.screens.settings.SettingsScreenContent
 import com.jayteealao.trails.screens.settings.SettingsViewModel
+import com.jayteealao.trails.screens.theme.TrailsTheme
 import timber.log.Timber
 
 @OptIn(ExperimentalAnimationApi::class)
@@ -159,6 +171,140 @@ fun MainNavigation(
                 )
             }
             // TODO: Add more destinations
+        }
+    }
+}
+
+@Preview(name = "Navigation • Main Flow", showBackground = true)
+@Composable
+private fun MainNavigationPreview() {
+    TrailsTheme {
+        val navController = rememberNavController()
+        val route = navController.currentBackStackEntryAsState()
+        val searchBarState = remember { previewSearchBarState() }
+        val previewArticles = rememberPreviewArticles()
+
+        TrailScaffold(
+            topBar = { menuState ->
+                searchBarState.rememberSearchBarTransition().AnimatedVisibility(visible = { !searchBarState.searchBarActive }) {
+                    TrailsTopAppBar(
+                        title = "Trails",
+                        navController = navController,
+                        route = route,
+                        menuState = menuState,
+                    )
+                }
+            }
+        ) { paddingValues, transitionData ->
+            NavHost(
+                modifier = Modifier
+                    .padding(paddingValues)
+                    .background(Color.White),
+                navController = navController,
+                startDestination = "main",
+            ) {
+                composable("login") {
+                    AuthScreenContent(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxSize(),
+                        uiState = AuthUiState.NeedAuth,
+                        onGetRequestToken = {},
+                        onAuthorize = {},
+                        onGetAccessToken = {},
+                        onNavigateToMain = {},
+                    )
+                }
+                composable("main") {
+                    Box(
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = transitionData.scale
+                            scaleY = transitionData.scale
+                            translationX = transitionData.offset * 100
+                        }
+                    ) {
+                        PocketScreenContent(
+                            lazyItems = previewArticles,
+                            onSelectArticle = { navController.navigate("article") },
+                        )
+                    }
+                }
+                composable("article") {
+                    ArticleDetailScreen(article = PreviewFixtures.pocketArticle)
+                }
+                composable("search") {
+                    ArticleSearchContent(
+                        modifier = Modifier.fillMaxSize(),
+                        searchBarState = searchBarState,
+                        searchResults = PreviewFixtures.articleList,
+                        onQueryChange = {},
+                        onSearch = {},
+                        onActiveChange = { searchBarState.searchBarActive = it },
+                        onSelectArticle = {},
+                    )
+                }
+                composable("settings") {
+                    SettingsScreenContent(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxSize(),
+                        useFreedium = true,
+                        jinaToken = PreviewFixtures.authAccessToken,
+                        jinaPlaceholder = "Insert Jina Token Here",
+                        onResetSemanticCache = {},
+                        onToggleFreedium = {},
+                        onJinaTokenChange = {},
+                        onSubmitJinaToken = {},
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Preview(
+    name = "Navigation • Dark",
+    showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun MainNavigationDarkPreview() {
+    TrailsTheme(darkTheme = true) {
+        val navController = rememberNavController()
+        val route = navController.currentBackStackEntryAsState()
+        val searchBarState = remember { previewSearchBarState(active = true) }
+        val previewArticles = rememberPreviewArticles()
+
+        TrailScaffold(
+            topBar = { menuState ->
+                menuState.value = MenuState.Closed
+                searchBarState.rememberSearchBarTransition().AnimatedVisibility(visible = { !searchBarState.searchBarActive }) {
+                    TrailsTopAppBar(
+                        title = "Trails",
+                        navController = navController,
+                        route = route,
+                        menuState = menuState,
+                    )
+                }
+            }
+        ) { paddingValues, _ ->
+            NavHost(
+                modifier = Modifier
+                    .padding(paddingValues)
+                    .background(Color.White),
+                navController = navController,
+                startDestination = "main",
+            ) {
+                composable("main") {
+                    PocketScreenContent(
+                        lazyItems = previewArticles,
+                        onSelectArticle = {},
+                    )
+                }
+                composable("article") {
+                    ArticleDetailScreen(article = PreviewFixtures.pocketArticle)
+                }
+            }
         }
     }
 }
