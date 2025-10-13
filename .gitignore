@@ -20,3 +20,6 @@ local.properties
 /ExtractorJs/build/
 /ExtractorCommon/build/
 /app/schemas/com.jayteealao.trails.data.local.database.AppDatabase/
+
+# Ignore Roborazzi snapshot artifacts
+app/src/test/snapshots/*.png
