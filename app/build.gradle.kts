@@ -97,6 +97,10 @@ android {
 //            excludes += "META-INF/DEPENDENCIES"
         }
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 kotlin {
@@ -157,6 +161,11 @@ dependencies {
     // Instrumented tests
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // Robolectric + Compose unit tests
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.navigation.testing)
 
     // WorkManager
     implementation(libs.bundles.work)
