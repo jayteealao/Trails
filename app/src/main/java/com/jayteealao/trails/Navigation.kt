@@ -226,6 +226,8 @@ private fun MainNavigationPreview() {
                         PocketScreenContent(
                             lazyItems = previewArticles,
                             onSelectArticle = { navController.navigate("article") },
+                            onToggleFavorite = { _, _ -> },
+                            onToggleTag = { _, _, _ -> },
                         )
                     }
                 }
@@ -299,6 +301,8 @@ private fun MainNavigationDarkPreview() {
                     PocketScreenContent(
                         lazyItems = previewArticles,
                         onSelectArticle = {},
+                        onToggleFavorite = { _, _ -> },
+                        onToggleTag = { _, _, _ -> },
                     )
                 }
                 composable("article") {
