@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.articleList
 
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -48,6 +49,22 @@ class ArticleListScreenTest {
         }
 
         composeRule.onNodeWithTag("syncIndicator").assertIsDisplayed()
+    }
+
+    @Test
+    fun articleListScreen_hidesSyncIndicatorWhenNotSyncing() {
+        val viewModel = createViewModel(syncing = false)
+
+        composeRule.setContent {
+            TrailsTheme {
+                ArticleListScreen(
+                    viewModel = viewModel,
+                    onSelectArticle = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("syncIndicator").assertDoesNotExist()
     }
 
     @Test

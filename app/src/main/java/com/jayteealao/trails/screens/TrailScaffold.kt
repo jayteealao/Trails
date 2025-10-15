@@ -24,7 +24,9 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 
@@ -105,6 +107,10 @@ fun TrailsTopAppBar(
         "main" -> Icons.Filled.Menu
         else -> Icons.AutoMirrored.Filled.ArrowBack
     }
+    val navContentDescription = when (destination) {
+        "main" -> "Toggle menu"
+        else -> "Navigate up"
+    }
     val titleText by remember(destination) {
         if (destination == "search") {
             mutableStateOf("Search")
@@ -140,6 +146,7 @@ fun TrailsTopAppBar(
             },
             navigationIcon = {
                 IconButton(
+                    modifier = Modifier.testTag("navigationIcon"),
                     onClick = {
                         if (destination != "main") {
                             navController.popBackStack()
@@ -152,7 +159,7 @@ fun TrailsTopAppBar(
                 ) {
                     Icon(
                         imageVector = icon,
-                        contentDescription = "Back"
+                        contentDescription = navContentDescription
                     )
                 }
             },
@@ -161,11 +168,17 @@ fun TrailsTopAppBar(
             ),
             actions = {
                 if (iconImage != null) {
-                    IconButton(onClick = actionOnClick) {
+                    IconButton(
+                        modifier = Modifier.testTag("searchAction"),
+                        onClick = actionOnClick
+                    ) {
                         Icon(imageVector = iconImage, contentDescription = contentDesc)
                     }
                 }
-                IconButton(onClick = { navController.navigate("settings") }) {
+                IconButton(
+                    modifier = Modifier.testTag("settingsAction"),
+                    onClick = { navController.navigate("settings") }
+                ) {
                     Icon(imageVector = Icons.Filled.Settings, contentDescription = "Settings")
                 }
             }

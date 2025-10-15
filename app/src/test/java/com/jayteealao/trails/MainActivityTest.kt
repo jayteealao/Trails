@@ -1,6 +1,10 @@
 package com.jayteealao.trails
 
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController
 import androidx.paging.PagingData
@@ -20,6 +24,7 @@ import io.mockk.firstArg
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,8 +37,78 @@ class MainActivityTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    private val article = ArticleItem(
+        itemId = "id-1",
+        title = "Sample Article",
+        url = "https://example.com/article",
+        snippet = "Snippet"
+    )
+
     @Test
     fun mainNavigationStartsAtMainDestination() {
+        val navController = launchMainNavigation(isLoggedIn = false)
+        assertEquals("main", navController.currentDestination?.route)
+    }
+
+    @Test
+    fun mainNavigation_navigatesToArticleDetails() {
+        val navController = launchMainNavigation(articles = listOf(article))
+
+        composeRule.onNodeWithTag("articleList").assertIsDisplayed()
+        composeRule.onNodeWithText(article.title).performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            navController.currentBackStackEntry?.destination?.route == "article/{articleId}"
+        }
+
+        val backStackEntry = navController.currentBackStackEntry
+        assertNotNull(backStackEntry)
+        assertEquals(article.itemId, backStackEntry?.arguments?.getString("articleId"))
+    }
+
+    @Test
+    fun mainNavigation_searchIconNavigatesToSearch() {
+        val navController = launchMainNavigation()
+
+        composeRule.onNodeWithTag("searchAction").performClick()
+
+        composeRule.waitForIdle()
+
+        assertEquals("search", navController.currentDestination?.route)
+    }
+
+    @Test
+    fun mainNavigation_settingsIconNavigatesToSettings() {
+        val navController = launchMainNavigation()
+
+        composeRule.onNodeWithTag("settingsAction").performClick()
+
+        composeRule.waitForIdle()
+
+        assertEquals("settings", navController.currentDestination?.route)
+    }
+
+    @Test
+    fun mainNavigation_backFromArticleReturnsToMain() {
+        val navController = launchMainNavigation(articles = listOf(article))
+
+        composeRule.onNodeWithText(article.title).performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            navController.currentBackStackEntry?.destination?.route == "article/{articleId}"
+        }
+
+        composeRule.onNodeWithTag("navigationIcon").performClick()
+
+        composeRule.waitForIdle()
+
+        assertEquals("main", navController.currentDestination?.route)
+    }
+
+    private fun launchMainNavigation(
+        isLoggedIn: Boolean = true,
+        articles: List<ArticleItem> = emptyList()
+    ): TestNavHostController {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
 
@@ -42,12 +117,13 @@ class MainActivityTest {
         }
 
         val authViewModel = mockk<AuthViewModel>()
-        every { authViewModel.isLoggedIn } returns MutableStateFlow(false)
+        every { authViewModel.isLoggedIn } returns MutableStateFlow(isLoggedIn)
 
         val articleListViewModel = mockk<ArticleListViewModel>()
-        every { articleListViewModel.articles } returns MutableStateFlow(PagingData.from(emptyList<ArticleItem>()))
+        every { articleListViewModel.articles } returns MutableStateFlow(PagingData.from(articles))
         every { articleListViewModel.databaseSync } returns MutableStateFlow(false)
-        every { articleListViewModel.selectedArticleSummary } returns MutableStateFlow(PocketSummary())
+        val summary = articles.firstOrNull()?.snippet ?: ""
+        every { articleListViewModel.selectedArticleSummary } returns MutableStateFlow(PocketSummary(summary = summary))
         val selectedArticleFlow = MutableStateFlow(EMPTYARTICLEITEM)
         every { articleListViewModel.selectedArticle } returns selectedArticleFlow
         every { articleListViewModel.selectArticle(any()) } answers {
@@ -55,7 +131,7 @@ class MainActivityTest {
             Unit
         }
 
-        val articleDetailViewModel = mockk<ArticleDetailViewModel>()
+        val articleDetailViewModel = mockk<ArticleDetailViewModel>(relaxed = true)
         every { articleDetailViewModel.article } returns MutableStateFlow<PocketArticle?>(null)
 
         val articleSearchViewModel = mockk<ArticleSearchViewModel>(relaxed = true)
@@ -81,7 +157,6 @@ class MainActivityTest {
         }
 
         composeRule.waitForIdle()
-
-        assertEquals("main", navController.currentDestination?.route)
+        return navController
     }
 }
