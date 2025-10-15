@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,7 +66,8 @@ fun ArticleListScreen(
             AnimatedVisibility(visible = isSyncing.value) {
                 LinearProgressIndicator(
                     modifier = Modifier
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .testTag("syncIndicator"),
                     strokeCap = StrokeCap.Square,
                 )
             }
@@ -99,6 +101,7 @@ internal fun PocketScreenContent(
             .fillMaxSize()
             .background(Color.White)
             .padding(vertical = 16.dp)
+            .testTag("articleList")
     ) {
         items(
             count = lazyItems.itemCount,

@@ -134,7 +134,8 @@ androidx-hilt-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler",
 
 hilt-gradle-plugin = { module = "com.google.dagger:hilt-android-gradle-plugin", version.ref = "hilt" }
 
-robolectric = { module = "org.robolectric:roboelectric", version.ref = "robolectric"}
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric"}
+androidx-navigation-testing = { module = "androidx.navigation:navigation-testing", version.ref = "androidxNavigation" }
 
 retrofit-core = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit" }
 retrofit-gson = { module = "com.squareup.retrofit2:converter-gson", version.ref = "retrofit" }
