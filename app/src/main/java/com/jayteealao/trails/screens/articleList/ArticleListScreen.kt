@@ -16,6 +16,7 @@
 
 package com.jayteealao.trails.screens.articleList
 
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -104,6 +105,8 @@ private fun ArticleListScreenPreview() {
         PocketScreenContent(
             lazyItems = rememberPreviewArticles(),
             onSelectArticle = {},
+            onToggleFavorite = { _, _ -> },
+            onToggleTag = { _, _, _ -> }
         )
     }
 }
@@ -119,6 +122,8 @@ private fun ArticleListScreenDarkPreview() {
         PocketScreenContent(
             lazyItems = rememberPreviewArticles(),
             onSelectArticle = {},
+            onToggleFavorite = { _, _ -> },
+            onToggleTag = { _, _, _ -> }
         )
     }
 }

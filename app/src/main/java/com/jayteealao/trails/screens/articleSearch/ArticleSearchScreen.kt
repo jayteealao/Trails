@@ -50,6 +50,12 @@ fun ArticleSearchScreen(
         onSearch = { viewModel.search(searchBarState.searchText) },
         onActiveChange = { searchBarState.searchBarActive = it },
         onSelectArticle = onSelectArticle,
+        setFavorite = { itemId, isFavorite ->
+            viewModel.setFavorite(itemId, isFavorite)
+        },
+        updateTag = { itemId, tag, enabled ->
+            viewModel.updateTag(itemId, tag, enabled)
+        }
     )
 }
 
@@ -63,6 +69,8 @@ internal fun ArticleSearchContent(
     onSearch: () -> Unit,
     onActiveChange: (Boolean) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
+    setFavorite: (String, Boolean) -> Unit = { _, _ -> },
+    updateTag: (String, String, Boolean) -> Unit = { _, _, _ -> },
 ) {
     val searchBarContainerColor = searchBarState.searchBarContainerColor()
 
