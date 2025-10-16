@@ -85,6 +85,12 @@ fun ArticleListScreen(
                 },
                 onToggleTag = { article, tag, enabled ->
                     viewModel.updateTag(article.itemId, tag, enabled)
+                },
+                onArchive = { article ->
+                    viewModel.archiveArticle(article.itemId)
+                },
+                onDelete = { article ->
+                    viewModel.deleteArticle(article.itemId)
                 }
             )
             ArticleDialog(
@@ -135,6 +141,8 @@ internal fun PocketScreenContent(
     onSelectArticle: (ArticleItem) -> Unit,
     onToggleFavorite: (ArticleItem, Boolean) -> Unit,
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
+    onArchive: (ArticleItem) -> Unit,
+    onDelete: (ArticleItem) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -161,7 +169,9 @@ internal fun PocketScreenContent(
                     },
                     onTagToggle = { tag, enabled ->
                         onToggleTag(article, tag, enabled)
-                    }
+                    },
+                    onArchive = { onArchive(article) },
+                    onDelete = { onDelete(article) }
                 )
             }
         }

@@ -38,7 +38,7 @@ import com.jayteealao.trails.network.PocketVideos
 //        ModalArticleTable::class,
 //        PocketSummary::class,
     ],
-    version = 2,
+    version = 3,
     autoMigrations = [],
     exportSchema = true
 )
@@ -72,3 +72,9 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `PocketArticle` ADD COLUMN `deleted_at` INTEGER")
+        db.execSQL("ALTER TABLE `PocketArticle` ADD COLUMN `archived_at` INTEGER")
+    }
+}
