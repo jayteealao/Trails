@@ -53,6 +53,8 @@ data class PocketArticle(
     var text : String? = null,
     @ColumnInfo(defaultValue = "0") val pocketId: String = "0",
     @ColumnInfo(defaultValue = "0") val resolved: Int = 0, // 0 = notResolved, 1 = synced, 2 = textadded, 3 = metrics, 10 = resolved
+    @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
+    @ColumnInfo(name = "archived_at") val archivedAt: Long? = null,
 )
 
 @Entity(tableName = "pocketarticle_fts")

@@ -12,6 +12,8 @@ data class ArticleItem(
     val favorite: Boolean = false,
     val tagsString: String? = "",
     val snippet: String? = null,
+    val deletedAt: Long? = null,
+    val archivedAt: Long? = null,
 ) {
     val domain: String by lazy {
         url.toHttpUrlOrNull()?.topPrivateDomain() ?: ""

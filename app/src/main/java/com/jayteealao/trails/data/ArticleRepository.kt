@@ -56,6 +56,10 @@ interface ArticleRepository: Syncable {
 
     suspend fun removeTag(itemId: String, tag: String)
 
+    suspend fun archive(itemId: String)
+
+    suspend fun delete(itemId: String)
+
     override fun synchronize()
 
     fun getArticleById(itemId: String): PocketArticle?
@@ -161,6 +165,14 @@ class ArticleRepositoryImpl @Inject constructor(
     override suspend fun removeTag(itemId: String, tag: String) {
         if (tag.isBlank()) return
         pocketDao.deletePocketTag(itemId, tag)
+    }
+
+    override suspend fun archive(itemId: String) {
+        pocketDao.updateArchived(itemId, System.currentTimeMillis())
+    }
+
+    override suspend fun delete(itemId: String) {
+        pocketDao.updateDeleted(itemId, System.currentTimeMillis())
     }
 
     override suspend fun searchHybrid(query: String): List<ArticleItem> {

@@ -20,6 +20,7 @@ import android.content.Context
 import androidx.room.Room
 import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.MIGRATION_1_2
+import com.jayteealao.trails.data.local.database.MIGRATION_2_3
 import com.jayteealao.trails.data.local.database.PocketDao
 import dagger.Module
 import dagger.Provides
@@ -45,7 +46,7 @@ class DatabaseModule {
             AppDatabase::class.java,
             "Pocket"
         )
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
 //            .addCallback(
 //            object : RoomDatabase.Callback() {
 //                override fun onOpen(db: SupportSQLiteDatabase) {
