@@ -124,6 +124,19 @@ class ArticleListViewModel @Inject constructor(
             }
         }
     }
+
+    fun archiveArticle(itemId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.archive(itemId)
+        }
+    }
+
+    fun deleteArticle(itemId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.delete(itemId)
+        }
+    }
+
     fun selectArticle(articleItem: ArticleItem) {
         _selectedArticle.value = articleItem
 //        provideSummary(articleItem.itemId)

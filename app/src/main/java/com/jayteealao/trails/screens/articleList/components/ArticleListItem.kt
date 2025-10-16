@@ -31,6 +31,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.AlertDialog
@@ -78,6 +81,8 @@ import com.gigamole.composeshadowsplus.common.shadowsPlus
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
 import kotlinx.coroutines.Dispatchers
+import me.saket.swipe.SwipeAction
+import me.saket.swipe.SwipeableActionsBox
 import timber.log.Timber
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -87,7 +92,9 @@ fun ArticleListItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onFavoriteToggle: (Boolean) -> Unit = {},
-    onTagToggle: (String, Boolean) -> Unit = { _, _ -> }
+    onTagToggle: (String, Boolean) -> Unit = { _, _ -> },
+    onArchive: () -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -171,20 +178,65 @@ fun ArticleListItem(
             HtmlCompat.FROM_HTML_MODE_LEGACY
         ).toSpannable().toAnnotatedString(Color.Black)
     } else { null }
+    val archive = SwipeAction(
+        onSwipe = onArchive,
+        icon = {
+            Icon(
+                Icons.Default.Archive,
+                contentDescription = "Archive",
+                modifier = Modifier.padding(16.dp),
+                tint = Color.White
+            )
+        },
+        background = Color.Green
+    )
 
-    Column(modifier = modifier) {
-        Row(
-            modifier = Modifier
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)
-                .background(Color.White)
-                .heightIn(max = 150.dp)
-                .clickable { onClick() },
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
-            Box(modifier = Modifier.wrapContentSize()
-                .shadowsPlus(
-                    type = ShadowsPlusType.SoftLayer,
+    val delete = SwipeAction(
+        onSwipe = onDelete,
+        icon = {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Delete",
+                modifier = Modifier.padding(16.dp),
+                tint = Color.White
+            )
+        },
+        background = Color.Red
+    )
+
+    val favorite = SwipeAction(
+        onSwipe = { onFavoriteToggle(!isFavorite) },
+        icon = {
+            Icon(
+                Icons.Default.Favorite,
+                contentDescription = "Favorite",
+                modifier = Modifier.padding(16.dp),
+                tint = Color.White
+            )
+        },
+        background = Color.Blue
+    )
+    SwipeableActionsBox(
+        startActions = listOf(favorite),
+        endActions = listOf(archive, delete),
+        swipeThreshold = 100.dp,
+        modifier = modifier
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)
+                    .background(Color.White)
+                    .heightIn(max = 150.dp)
+                    .clickable { onClick() },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Box(
+                    modifier = Modifier
+                        .wrapContentSize()
+                        .shadowsPlus(
+                            type = ShadowsPlusType.SoftLayer,
                     shape = RoundedCornerShape(16.dp),
                     color = vibrantColor.copy(alpha = 0.6f),
                     radius = 1.dp,
@@ -259,9 +311,7 @@ fun ArticleListItem(
             }
 
             Spacer(modifier = Modifier.width(16.dp))
-            Column(
-                modifier = Modifier
-            ) {
+            Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -412,5 +462,6 @@ fun ArticleListItem(
                 }
             }
         )
+    }
     }
 }
