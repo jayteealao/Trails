@@ -36,6 +36,7 @@ interface PocketDao {
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
+        WHERE art.archived_at IS NULL AND art.deleted_at IS NULL
         GROUP BY art.itemId
         ORDER BY art.timeAdded DESC
     """)
@@ -62,6 +63,24 @@ interface PocketDao {
 
     @Query("SELECT * FROM pocketarticle WHERE resolved = 0 OR resolved = 3")
     suspend fun getUnresolvedArticles(): List<PocketArticle>
+
+    @Query(
+        """
+        UPDATE pocketarticle
+        SET archived_at = :timeArchived
+        WHERE itemId = :itemId
+        """
+    )
+    suspend fun updateArchived(itemId: String, timeArchived: Long)
+
+    @Query(
+        """
+        UPDATE pocketarticle
+        SET deleted_at = :timeDeleted
+        WHERE itemId = :itemId
+        """
+    )
+    suspend fun updateDeleted(itemId: String, timeDeleted: Long)
 
     @Query(
         """

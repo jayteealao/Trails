@@ -236,6 +236,9 @@ dependencies {
     // jetpack pallete
     implementation(libs.androidx.palette.ktx)
 
+    //swipe-to-reveal
+    implementation("me.saket.swipe:swipe:1.2.0")
+
     //profileInstaller
     implementation(libs.androidx.profileinstaller)
 
