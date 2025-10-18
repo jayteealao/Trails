@@ -112,7 +112,9 @@ private fun ArticleListScreenPreview() {
             lazyItems = rememberPreviewArticles(),
             onSelectArticle = {},
             onToggleFavorite = { _, _ -> },
-            onToggleTag = { _, _, _ -> }
+            onToggleTag = { _, _, _ -> },
+            onArchive = {},
+            onDelete = {}
         )
     }
 }
@@ -129,7 +131,9 @@ private fun ArticleListScreenDarkPreview() {
             lazyItems = rememberPreviewArticles(),
             onSelectArticle = {},
             onToggleFavorite = { _, _ -> },
-            onToggleTag = { _, _, _ -> }
+            onToggleTag = { _, _, _ -> },
+            onArchive = {},
+            onDelete = {}
         )
     }
 }
