@@ -35,6 +35,7 @@ import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
 import com.jayteealao.trails.services.archivebox.ArchiveBoxClient
 import com.jayteealao.trails.services.jina.JinaClient
+import com.jayteealao.trails.services.postgrest.PostgrestClient
 import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -59,6 +60,7 @@ class ArticleListViewModel @Inject constructor(
     private val jinaClient: JinaClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
     private val archiveBoxClient: ArchiveBoxClient,
+    private val postgrestClient: PostgrestClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 

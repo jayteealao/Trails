@@ -17,6 +17,7 @@ import com.skydoves.sandwich.onError
 import com.skydoves.sandwich.onException
 import com.skydoves.sandwich.onFailure
 import com.skydoves.sandwich.onSuccess
+import com.skydoves.sandwich.retrofit.errorBody
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
