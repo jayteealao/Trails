@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
@@ -78,6 +79,7 @@ import coil3.request.crossfade
 import coil3.size.Scale
 import com.gigamole.composeshadowsplus.common.ShadowsPlusType
 import com.gigamole.composeshadowsplus.common.shadowsPlus
+import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
 import kotlinx.coroutines.Dispatchers
@@ -182,7 +184,7 @@ fun ArticleListItem(
         onSwipe = onArchive,
         icon = {
             Icon(
-                Icons.Default.Archive,
+                painter = painterResource(id = R.drawable.archive_icon_24),
                 contentDescription = "Archive",
                 modifier = Modifier.padding(16.dp),
                 tint = Color.White

@@ -24,12 +24,15 @@ interface PocketDao {
         SELECT itemId, title, COALESCE(url, givenUrl) AS url,
         CASE WHEN favorite = '1' THEN 1 ELSE 0 END AS favorite
         FROM pocketarticle
-        ORDER BY timeAdded DESC
+        ORDER BY timeUpdated DESC
         """
     )
     fun getArticles(): PagingSource<Int, ArticleItem>
 
-    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
+    @Query("SELECT * FROM pocketarticle ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
+    fun getPockets(offset: Int, limit: Int): List<PocketArticle>
+
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
         CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
@@ -45,7 +48,7 @@ interface PocketDao {
     @Query("SELECT * FROM pocketarticle WHERE itemId = :itemId")
     fun getArticleById(itemId: String): PocketArticle?
 
-    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @RewriteQueriesToDropUnusedColumns
     @Query(
         """
@@ -61,7 +64,7 @@ interface PocketDao {
     @Query("SELECT * FROM pocketarticle WHERE url = :url OR givenUrl = :url")
     fun getArticleByUrl(url: String): PocketArticle?
 
-    @Query("SELECT * FROM pocketarticle WHERE resolved = 0 OR resolved = 3")
+    @Query("SELECT * FROM pocketarticle WHERE resolved = 0 OR resolved = 1 OR resolved = 3 ORDER BY timeAdded ASC")
     suspend fun getUnresolvedArticles(): List<PocketArticle>
 
     @Query(
@@ -151,6 +154,7 @@ interface PocketDao {
 
     @Upsert
     suspend fun insertDomainMetadata(item: DomainMetadata)
+
     @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
     @Query(
         """
