@@ -80,30 +80,28 @@ fun getTagColor(
     return colorsList[abs(tag.hashCode()) % colorsList.size]
 }
 
-@Preview
+@Preview(name = "Tag chip – short")
 @Composable
-private fun TagPreview() {
+fun TagItemShortPreview() {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White),
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(width = 100.dp, height = 60.dp)
-                .border(width = 1.dp, color = Color.Black)
-                .background(Color.White)
-                .shadowsPlus(
-                    type = ShadowsPlusType.SoftLayer,
-                    shape = RectangleShape,
-                    color = Color.Black,
-                    offset = DpOffset(4.dp, 4.dp),
-                    radius = 0.dp,
-//                spread = 8.dp,
-                    isAlphaContentClip = true,
-                )
-        ) {
-            Text(text = "Test")
-        }
+        TagItem(tag = "AI")
+    }
+}
+
+@Preview(name = "Tag chip – long")
+@Composable
+fun TagItemLongPreview() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White),
+        contentAlignment = Alignment.Center
+    ) {
+        TagItem(tag = "Human Computer Interaction")
     }
 }

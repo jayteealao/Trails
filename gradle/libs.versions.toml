@@ -44,6 +44,7 @@ postgrest = "0.2.0"
 readability4j = "1.0.8"
 retrofit = "3.0.0"
 robolectric = "4.8"
+roborazzi = "1.19.0"
 splashscreen = "1.0.1"
 supabase = "3.2.3"
 shadowsPlus = "1.0.4"
@@ -135,6 +136,9 @@ androidx-hilt-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler",
 hilt-gradle-plugin = { module = "com.google.dagger:hilt-android-gradle-plugin", version.ref = "hilt" }
 
 robolectric = { module = "org.robolectric:roboelectric", version.ref = "robolectric"}
+roborazzi = { module = "com.github.takahirom.roborazzi:roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { module = "com.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
+roborazzi-preview = { module = "com.github.takahirom.roborazzi:roborazzi-compose-preview", version.ref = "roborazzi" }
 
 retrofit-core = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit" }
 retrofit-gson = { module = "com.squareup.retrofit2:converter-gson", version.ref = "retrofit" }
