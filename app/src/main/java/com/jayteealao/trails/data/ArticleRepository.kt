@@ -48,6 +48,12 @@ import javax.inject.Inject
 interface ArticleRepository: Syncable {
     fun pockets(): PagingSource<Int, ArticleItem>
 
+    fun favoritePockets(): PagingSource<Int, ArticleItem>
+
+    fun archivedPockets(): PagingSource<Int, ArticleItem>
+
+    fun pocketsByTag(tag: String): PagingSource<Int, ArticleItem>
+
     suspend fun add(pocketData: List<PocketData>)
 
     suspend fun setFavorite(itemId: String, isFavorite: Boolean)
@@ -69,6 +75,8 @@ interface ArticleRepository: Syncable {
     val isSyncing: Flow<Boolean>
 
     suspend fun getTags(itemId: String): List<String>
+
+    fun allTags(): Flow<List<String>>
 
 //    suspend fun search(query: String): List<ArticleItem>
     suspend fun searchLocal(query: String): List<ArticleItem>
@@ -113,6 +121,12 @@ class ArticleRepositoryImpl @Inject constructor(
 //    override fun pockets(): PagingSource<Int, ArticleItem> = pocketDao.getArticles()
     override fun pockets(): PagingSource<Int, ArticleItem> = pocketDao.getArticlesWithTags()
 
+    override fun favoritePockets(): PagingSource<Int, ArticleItem> = pocketDao.getFavoriteArticlesWithTags()
+
+    override fun archivedPockets(): PagingSource<Int, ArticleItem> = pocketDao.getArchivedArticlesWithTags()
+
+    override fun pocketsByTag(tag: String): PagingSource<Int, ArticleItem> = pocketDao.getArticlesWithTag(tag)
+
     /**
      * Get article by id
      * @param itemId String
@@ -126,6 +140,8 @@ class ArticleRepositoryImpl @Inject constructor(
     override fun getLastUpdatedArticleTime() = pocketDao.getLastUpdatedArticleTime()
 
     override suspend fun getTags(itemId: String): List<String> = pocketDao.getPocketTags(itemId)
+
+    override fun allTags(): Flow<List<String>> = pocketDao.getAllTags()
 
     /**
      * Saves PocketData to local database
