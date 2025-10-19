@@ -197,7 +197,7 @@ fun ArticleListItem(
         onSwipe = onDelete,
         icon = {
             Icon(
-                Icons.Default.Delete,
+                painter = painterResource(id = R.drawable.delete_24px),
                 contentDescription = "Delete",
                 modifier = Modifier.padding(16.dp),
                 tint = Color.White
@@ -210,7 +210,7 @@ fun ArticleListItem(
         onSwipe = { onFavoriteToggle(!isFavorite) },
         icon = {
             Icon(
-                Icons.Default.Favorite,
+                painter = painterResource(id = R.drawable.favorite_24px),
                 contentDescription = "Favorite",
                 modifier = Modifier.padding(16.dp),
                 tint = Color.White
@@ -227,9 +227,10 @@ fun ArticleListItem(
         Column {
             Row(
                 modifier = Modifier
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)
+                    .padding(start = 8.dp, end = 8.dp, top = 8.dp)
                     .background(Color.White)
-                    .heightIn(max = 150.dp)
+                    .wrapContentHeight()
+//                    .heightIn(max = 90.dp)
                     .clickable { onClick() },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
@@ -239,92 +240,74 @@ fun ArticleListItem(
                         .wrapContentSize()
                         .shadowsPlus(
                             type = ShadowsPlusType.SoftLayer,
-                    shape = RoundedCornerShape(16.dp),
-                    color = vibrantColor.copy(alpha = 0.6f),
-                    radius = 1.dp,
-                    spread = 0.dp,
-                    offset = DpOffset(0.dp, 0.dp),
-                    isAlphaContentClip = true
-                    )
-            ) {
+                            shape = RoundedCornerShape(16.dp),
+                            color = vibrantColor.copy(alpha = 0.6f),
+                            radius = 1.dp,
+                            spread = 0.dp,
+                            offset = DpOffset(0.dp, 0.dp),
+                            isAlphaContentClip = true
+                        )
+                        .align(Alignment.CenterVertically)
+                ) {
 
-                if (dominantColor != Color.Transparent && vibrantColor != Color.Transparent) {
-                    Box(
+                    if (dominantColor != Color.Transparent && vibrantColor != Color.Transparent) {
+                        Box(
+                            modifier = Modifier
+                                .height(80.dp)
+                                .aspectRatio(1f)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            dominantColor.copy(alpha = 0.6f),
+                                            vibrantColor.copy(alpha = 0.6f)
+                                        ),
+                                    )
+                                )
+                        )
+                    }
+
+                    AsyncImage(
                         modifier = Modifier
                             .height(80.dp)
                             .aspectRatio(1f)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        dominantColor.copy(alpha = 0.6f),
-                                        vibrantColor.copy(alpha = 0.6f)
-                                    ),
-//                                    start = Offset(
-//                                        x = cos(angle * PI.toFloat() / 180) * 100,
-//                                        y = sin(angle * PI.toFloat() / 180) * 100
-//                                    ),
-//                                    end = Offset(
-//                                        x = cos((angle + 180) * PI.toFloat() / 180) * 100,
-//                                        y = sin((angle + 180) * PI.toFloat() / 180) * 100
-//                                    )
-                                )
+                            .background(color = Color.Transparent),
+                        model = ImageRequest.Builder(context)
+                            .data(article.image)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCacheKey(article.itemId)
+                            .memoryCacheKey(article.itemId)
+                            .allowHardware(false)
+                            .crossfade(true)
+                            .coroutineContext(Dispatchers.IO)
+                            .size(80, 80)
+                            .scale(Scale.FILL)
+                            .listener(
+                                onSuccess = { _, result ->
+                                    Timber.d("Image Loaded")
+                                    extractPaletteFromBitmap(result.image.asDrawable(context.resources))
+                                }
                             )
-//                            .shadow(4.dp, RoundedCornerShape(16.dp), ambientColor = vibrantColor)
-//                            .shadowsPlus()
+                            .build(),
+                        contentDescription = null,
                     )
                 }
 
-                AsyncImage(
+                Spacer(modifier = Modifier.width(16.dp))
+                Column (
                     modifier = Modifier
-                        .height(80.dp)
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(color = Color.Transparent),
-                    model = ImageRequest.Builder(context)
-                        .data(article.image)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCacheKey(article.itemId)
-                        .memoryCacheKey(article.itemId)
-                        .allowHardware(false)
-                        .crossfade(true)
-                        .coroutineContext(Dispatchers.IO)
-                        .size(80, 80)
-                        .scale(Scale.FILL)
-                    .listener(
-                        onSuccess = { _, result ->
-                            Timber.d("Image Loaded")
-                            extractPaletteFromBitmap(result.image.asDrawable(context.resources))
-                        }
-                    )
-                        .build(),
-                    contentDescription = null,
-//                    onSuccess = { state ->
-//                    Timber.d("Image Loaded")
-//                        coroutineScope.launch(Dispatchers.IO) {
-//                            extractPaletteFromBitmap(state.result.image.asDrawable(context.resources))
-//
-//                        }
-//                        state.result
-//                    }
-//            }
-                )
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                        .weight(1f)
+                        .align(Alignment.CenterVertically)){
                     Text(
                         modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .wrapContentHeight()
+                            .padding(end = 8.dp),
                         text = article.title,
                         style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 18.sp
+                        fontSize = 16.sp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     IconToggleButton(
@@ -367,6 +350,58 @@ fun ArticleListItem(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            modifier = Modifier
+                                .padding(start = 0.dp)
+                                .align(Alignment.CenterVertically),
+                            text = article.domain,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 10.sp
+                        )
+                        IconToggleButton(
+                            modifier = Modifier.size(24.dp),
+                            checked = isFavorite,
+                            onCheckedChange = { checked ->
+                                isFavorite = checked
+                                onFavoriteToggle(checked)
+                            }
+                        ) {
+                            Icon(
+                                painter = if (isFavorite) filledStar else outlinedStar,
+                                contentDescription = if (isFavorite) {
+                                    "Remove from favorites"
+                                } else {
+                                    "Add to favorites"
+                                },
+                                tint = if (isFavorite) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            if (!parsedSnippet.isNullOrBlank()) {
+//                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    modifier = Modifier.padding(start = 8.dp, end = 8.dp),
+                    text = parsedSnippet,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 //            Spacer(modifier = Modifier.height(4.dp))
                     FlowRow(
                         modifier = Modifier
@@ -408,6 +443,67 @@ fun ArticleListItem(
                     }
                 }
 //        Spacer(modifier = Modifier.height(16.dp))
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight()
+                    .padding(start = 8.dp, end = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                val tagsInDisplay = tagStates.keys.toList().sorted()
+                tagsInDisplay.forEach { tag ->
+                    val selected = tagStates[tag] ?: false
+                    FilterChip(
+                        selected = selected,
+                        onClick = {
+                            val newSelected = !selected
+                            tagStates[tag] = newSelected
+                            onTagToggle(tag, newSelected)
+                        },
+                        label = {
+                            Text(modifier = Modifier, text = tag, style = MaterialTheme.typography.labelSmall)
+                                },
+                        modifier = Modifier
+                            .height(28.dp)
+                            .padding(bottom = 8.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
+                                alpha = 0.16f
+                            ),
+                            selectedLabelColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+                FilterChip(
+                    selected = false,
+                    onClick = { showAddTagDialog = true },
+                    label = { Text(text = "") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Add tag",
+                            modifier = Modifier
+                                .size(20.dp)
+                                .wrapContentHeight()
+                        )
+                    },
+                    modifier = Modifier.height(28.dp)
+                        .padding(bottom = 8.dp)
+                        .align(Alignment.Top),
+                    border = FilterChipDefaults.filterChipBorder(
+                        borderColor = Color.Transparent,
+                        selectedBorderColor = Color.Transparent,
+                        disabledBorderColor = Color.Transparent,
+                        disabledSelectedBorderColor = Color.Transparent,
+                        enabled = true,
+                        selected = false
+                    ),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color.Transparent,
+                        selectedLabelColor = Color.Transparent
+                    )
+                )
             }
             HorizontalDivider(
                 modifier = Modifier
@@ -419,51 +515,73 @@ fun ArticleListItem(
             )
         }
 
-    if (showAddTagDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showAddTagDialog = false
-                newTagText = ""
-            },
-            title = { Text(text = "Add tag") },
-            text = {
-                OutlinedTextField(
-                    value = newTagText,
-                    onValueChange = { newValue -> newTagText = newValue },
-                    label = { Text(text = "Tag name") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val normalizedTag = newTagText.trim().replace(Regex("\\s+"), " ")
-                        if (normalizedTag.isNotEmpty()) {
-                            val alreadyEnabled = tagStates[normalizedTag] == true
-                            tagStates[normalizedTag] = true
-                            if (!alreadyEnabled) {
-                                onTagToggle(normalizedTag, true)
+        if (showAddTagDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    showAddTagDialog = false
+                    newTagText = ""
+                },
+                title = { Text(text = "Add tag") },
+                text = {
+                    OutlinedTextField(
+                        value = newTagText,
+                        onValueChange = { newValue -> newTagText = newValue },
+                        label = { Text(text = "Tag name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val normalizedTag = newTagText.trim().replace(Regex("\\s+"), " ")
+                            if (normalizedTag.isNotEmpty()) {
+                                val alreadyEnabled = tagStates[normalizedTag] == true
+                                tagStates[normalizedTag] = true
+                                if (!alreadyEnabled) {
+                                    onTagToggle(normalizedTag, true)
+                                }
                             }
+                            newTagText = ""
+                            showAddTagDialog = false
                         }
-                        newTagText = ""
-                        showAddTagDialog = false
+                    ) {
+                        Text(text = "Add")
                     }
-                ) {
-                    Text(text = "Add")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showAddTagDialog = false
-                        newTagText = ""
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showAddTagDialog = false
+                            newTagText = ""
+                        }
+                    ) {
+                        Text(text = "Cancel")
                     }
-                ) {
-                    Text(text = "Cancel")
                 }
-            }
-        )
-    }
+            )
+        }
     }
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Preview
+@Composable
+fun ArticleListItemPreview() {
+    val article = ArticleItem(
+        itemId = "123",
+        title = "A long and interesting article title that might wrap to two lines",
+        url = "https://example.com/article",
+        image = "https://picsum.photos/80/80",
+        favorite = true,
+        tagsString = "android,jetpack,compose",
+        snippet = "This is a short snippet of the article content. It provides a brief overview of what the article is about. <b>Bold text</b> is also supported."
+    )
+    ArticleListItem(
+        article = article,
+        onClick = {},
+        onFavoriteToggle = {},
+        onTagToggle = { _, _ -> }
+    )
+}
+

@@ -33,6 +33,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.saket.unfurl.Unfurler
@@ -67,6 +68,8 @@ class SyncWorker @AssistedInject constructor(
     lateinit var contentMetricsCalculator: ContentMetricsCalculator
     @Inject
     lateinit var jinaClient: JinaClient
+    @Inject
+    lateinit var postgrestClient: PostgrestClient
 
     val unfurler = Unfurler()
 
@@ -76,8 +79,9 @@ class SyncWorker @AssistedInject constructor(
         val syncJob: Job?
         var hadErrors = false
 
-        val yesterday = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(1)
-        pocketDao.backfillZeroTimestamps(yesterday)
+
+//        val yesterday = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(1)
+//        pocketDao.backfillZeroTimestamps(yesterday)
 
         setForeground(getForegroundInfo())
             syncJob = launch(Dispatchers.IO) {
@@ -85,40 +89,100 @@ class SyncWorker @AssistedInject constructor(
                 try {
 //TODO: use channels
                 val repopulateJob = launch {
-                    val nonMetricsArticles = pocketDao.getNonMetricsArticles()
+                    val nonMetricsArticles = pocketDao.getNonMetricsArticles() //TODO: replace jina
                     if (nonMetricsArticles.isNotEmpty()) {
+                        Timber.d("Processing ${nonMetricsArticles.size} non-metrics articles")
 
-                        nonMetricsArticles.forEach {
+                        val jobs = nonMetricsArticles.map { article ->
                             launch(Dispatchers.IO) {
-                                if (it.title.isBlank()) {
-                                    val result = unfurler.unfurl(it.url ?: it.givenUrl!!)
-                                    pocketDao.updateUnfurledDetails(
-                                        itemId = it.itemId,
-                                        title = result?.title ?: it.title,
-                                        url = (result?.url ?: it.url).toString(),
-                                        image = if (result?.thumbnail == null) it.image else result.thumbnail.toString(),
-                                        hasImage = result?.thumbnail != null,
-                                        excerpt = if (it.excerpt.isNullOrBlank()) result?.description ?: "" else it.excerpt
-                                    )
-
-                                }
-                                if (it.text.isNullOrBlank()) {
-                                    val jinaReader = jinaClient.getReader(it.url ?: it.givenUrl!!)
-                                    val jinaResult = jinaReader?.data?.content
-                                    if (!jinaResult.isNullOrBlank()) {
-                                        pocketDao.updateText(it.itemId, jinaResult)
-                                        val metrics = contentMetricsCalculator.calculateMetrics(jinaResult)
-                                        pocketDao.updateArticleMetrics(it.itemId, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
+                                try {
+                                    if (article.title.isBlank()) {
+                                        val result = unfurler.unfurl(article.url ?: article.givenUrl!!)
+                                        pocketDao.updateUnfurledDetails(
+                                            itemId = article.itemId,
+                                            title = result?.title ?: article.title,
+                                            url = (result?.url ?: article.url).toString(),
+                                            image = if (result?.thumbnail == null) article.image else result.thumbnail.toString(),
+                                            hasImage = result?.thumbnail != null,
+                                            excerpt = if (article.excerpt.isNullOrBlank()) result?.description ?: "" else article.excerpt
+                                        )
                                     }
-                                } else {
-                                    val metrics = contentMetricsCalculator.calculateMetrics(it.text ?: "")
-                                    pocketDao.updateArticleMetrics(
-                                        it.itemId,
-                                        metrics.readingTimeMinutes,
-                                        metrics.listeningTimeMinutes,
-                                        metrics.wordCount
-                                    )
+                                    if (article.text.isNullOrBlank()) {
+                                        val jinaReader = jinaClient.getReader(article.url ?: article.givenUrl!!)
+                                        val jinaResult = jinaReader?.data?.content
+                                        if (!jinaResult.isNullOrBlank()) {
+                                            pocketDao.updateText(article.itemId, jinaResult)
+                                            val metrics = contentMetricsCalculator.calculateMetrics(jinaResult)
+                                            pocketDao.updateArticleMetrics(article.itemId, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
+                                        }
+                                    } else {
+                                        val metrics = contentMetricsCalculator.calculateMetrics(article.text ?: "")
+                                        pocketDao.updateArticleMetrics(
+                                            article.itemId,
+                                            metrics.readingTimeMinutes,
+                                            metrics.listeningTimeMinutes,
+                                            metrics.wordCount
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    Timber.e(e, "Failed to process article ${article.itemId}")
                                 }
+                            }
+                        }
+
+                        // Wait for all article processing to complete before moving to unresolved articles
+                        jobs.joinAll()
+                        Timber.d("Finished processing non-metrics articles")
+                    }
+
+/*                    var currentChunk: List<PocketArticle>
+                    var offset = 0
+                    val chunkSize = 50
+                    Timber.d("Starting repopulation")
+                    Timber.d("Total articles to repopulate: ${pocketDao.countArticle()}")
+                    do {
+                        currentChunk = pocketDao.getPockets(offset, chunkSize)
+                        //if foreground service is killed, the job is cancelled
+                        if (!currentCoroutineContext().isActive or foregroundInfoAsync.isCancelled) {
+                            Timber.d("Job cancelled, stopping repopulation")
+                            break
+                        }
+                        if (currentChunk.isNotEmpty()) {
+                            try {
+                                val response = postgrestClient.sendArticles(currentChunk)
+                                Timber.d("Response: $response")
+                            } catch (e: Exception) {
+                                Timber.e(e, "Failed to send articles")
+                            }
+                            offset += chunkSize
+                            Timber.d("Sent ${currentChunk.size} articles, offset: $offset")
+                        }
+                    } while (currentChunk.isNotEmpty())
+                    Timber.d("Repopulation done")*/
+
+                    val unresolved = pocketDao.getUnresolvedArticles()
+
+                    if (unresolved.isNotEmpty()) {
+                        Timber.d("Unresolved articles: ${unresolved.size}")
+                        for (chunk in unresolved.chunked(50)) {
+                            try {
+                                val response = postgrestClient.sendArticles(chunk)
+                                if (response) {
+                                    pocketDao.updateResolved(
+                                        chunk.map { it.itemId },
+                                         10,
+                                     )
+                                     Timber.d("Successfully updated resolved for ${chunk.size} articles")
+                                } else {
+                                    Timber.w("Failed to send ${chunk.size} articles (HTTP error), will retry in next sync")
+                                    break
+                                }
+                                // Add delay between chunks to avoid overwhelming the server
+                                delay(1000)
+                            } catch (e: Exception) {
+                                Timber.e(e, "Failed to send ${chunk.size} articles")
+                                break
+                                 // Don't let one failed chunk stop the entire sync
                             }
                         }
                     }

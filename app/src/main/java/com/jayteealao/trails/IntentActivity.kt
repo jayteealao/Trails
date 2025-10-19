@@ -63,9 +63,9 @@ class IntentActivity : ComponentActivity() {
 
 
         if (givenUrl != null) {
-            Timber.d("save url called next in intent activity")
+//            Timber.d("save url called next in intent activity")
             viewModel.saveUrl(givenUrl, givenTitle)
-            Timber.d("save call complete in intent activity")
+//            Timber.d("save call complete in intent activity")
         }
 
         setContent {
@@ -81,7 +81,7 @@ class IntentActivity : ComponentActivity() {
 //                        delay(3000)
 //                    }
                     delay(8000)
-                    Timber.d("given url at intent: $url")
+//                    Timber.d("given url at intent: $url")
                     finish()
                 }
                     Surface(

@@ -4,11 +4,15 @@ import android.content.Context
 import com.chuckerteam.chucker.api.ChuckerCollector
 import com.chuckerteam.chucker.api.ChuckerInterceptor
 import com.chuckerteam.chucker.api.RetentionManager
+// Add this import
+import com.google.gson.GsonBuilder
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.network.pocket.PocketService
+import com.jayteealao.trails.services.archivebox.ArchiveBoxService
 import com.jayteealao.trails.services.jina.JinaService
+import com.jayteealao.trails.services.postgrest.PostgrestService
 import com.jayteealao.trails.services.semanticSearch.modal.ModalService
-import com.skydoves.sandwich.adapters.ApiResponseCallAdapterFactory
+import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -98,10 +102,14 @@ object NetworkModule {
     @Provides
     @Singleton
     fun providePocketService(okHttpClient: OkHttpClient): PocketService {
+        // Configure Gson for PocketService if needed, or use a shared instance
+        val gson = GsonBuilder()
+            .serializeNulls() // Example: if PocketService also needs nulls serialized
+            .create()
         val retrofit = Retrofit.Builder()
             .client(okHttpClient)
             .baseUrl("https://getpocket.com/v3/")
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
             .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
             .build()
         return retrofit.create(PocketService::class.java)
@@ -110,12 +118,16 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideModalService(okHttpClient: OkHttpClient): ModalService {
+        // Configure Gson for ModalService if needed
+        val gson = GsonBuilder()
+            .serializeNulls() // Example: if ModalService also needs nulls serialized
+            .create()
         val retrofit = Retrofit.Builder()
             .client(okHttpClient)
 //            .baseUrl("https://jayteealao--example-get-started-app-dev.modal.run")
 //            .baseUrl("https://jayteealao--ollama-server-ollama-app-dev.modal.run")
             .baseUrl("https://jayteealao--trails-app-ollama-app-dev.modal.run")
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
             .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
             .build()
         return retrofit.create(ModalService::class.java)
@@ -124,16 +136,56 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideJinaService(okHttpClient: OkHttpClient): JinaService {
+        // Configure Gson for JinaService if needed
+        val gson = GsonBuilder()
+            .serializeNulls() // Example: if JinaService also needs nulls serialized
+            .create()
         val retrofit = Retrofit.Builder()
             .client(okHttpClient)
             .baseUrl("https://r.jina.ai")
-            .addConverterFactory(GsonConverterFactory.create())
+            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
             .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
             .build()
 
         return retrofit.create(JinaService::class.java)
     }
 
+    @Provides
+    @Singleton
+    fun provideArchiveBoxService(okHttpClient: OkHttpClient): ArchiveBoxService {
+        // Configure Gson for ArchiveBoxService if needed
+        val gson = GsonBuilder()
+            .serializeNulls() // Example: if ArchiveBoxService also needs nulls serialized
+            .create()
+        val BASE_URL = "https://graphitenerd.online"
+        val retrofit = Retrofit.Builder()
+            .client(okHttpClient)
+            .baseUrl(BASE_URL)
+            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
+            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
+            .build()
+        return retrofit.create(ArchiveBoxService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun providePostgrestService(okHttpClient: OkHttpClient): PostgrestService {
+        val BASE_URL: String = "https://postgres-pa.graphitenerd.online/"
+        
+        // Create a Gson instance configured to serialize nulls
+        val gson = GsonBuilder()
+            .serializeNulls()
+            .create()
+
+        val retrofit = Retrofit.Builder()
+            .client(okHttpClient)
+            .baseUrl(BASE_URL)
+            // Pass the configured Gson instance to the factory
+            .addConverterFactory(GsonConverterFactory.create(gson))
+            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
+            .build()
+        return retrofit.create(PostgrestService::class.java)
+    }
 }
 
 internal class HttpRequestInterceptor(

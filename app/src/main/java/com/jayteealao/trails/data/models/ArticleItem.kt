@@ -16,7 +16,12 @@ data class ArticleItem(
     val archivedAt: Long? = null,
 ) {
     val domain: String by lazy {
-        url.toHttpUrlOrNull()?.topPrivateDomain() ?: ""
+        try {
+            url.toHttpUrlOrNull()?.topPrivateDomain() ?: ""
+        } catch (e: IllegalStateException) {
+            // Fallback for preview mode where PublicSuffixDatabase is not available
+            url.toHttpUrlOrNull()?.host ?: ""
+        }
     }
 
     val tags: List<String> by lazy {

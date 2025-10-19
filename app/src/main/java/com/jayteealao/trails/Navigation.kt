@@ -228,6 +228,8 @@ private fun MainNavigationPreview() {
                             onSelectArticle = { navController.navigate("article") },
                             onToggleFavorite = { _, _ -> },
                             onToggleTag = { _, _, _ -> },
+                            onArchive = {},
+                            onDelete = {}
                         )
                     }
                 }
@@ -303,6 +305,8 @@ private fun MainNavigationDarkPreview() {
                         onSelectArticle = {},
                         onToggleFavorite = { _, _ -> },
                         onToggleTag = { _, _, _ -> },
+                        onArchive = {},
+                        onDelete = {}
                     )
                 }
                 composable("article") {

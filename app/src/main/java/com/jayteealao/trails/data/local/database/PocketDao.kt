@@ -247,37 +247,37 @@ interface PocketDao {
      */
     @Transaction
     suspend fun upsertArticle(newArticle: PocketArticle): String {
-        Timber.d("insert article: ${newArticle.itemId}")
+//        Timber.d("insert article: ${newArticle.itemId}")
         var existingArticle: PocketArticle? = null
         if (newArticle.givenUrl != null) {
-            Timber.d("givenUrl is not null, checking for existing article")
+//            Timber.d("givenUrl is not null, checking for existing article")
             existingArticle = getArticleByUrl(newArticle.givenUrl)
-            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
+//            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
         }
         if (existingArticle == null && newArticle.url != null) {
-            Timber.d("url is not null and existing article is still null, checking for existing article")
+//            Timber.d("url is not null and existing article is still null, checking for existing article")
             existingArticle = getArticleByUrl(newArticle.url)
-            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
+//            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
         }
         if (existingArticle != null) {
-            Timber.d("existingArticle is not null, updating article")
+//            Timber.d("existingArticle is not null, updating article")
             insertPocket(
                 newArticle.copy(
                     itemId = existingArticle.itemId,
                     pocketId = existingArticle.pocketId,
                     resolvedId = existingArticle.resolvedId,
                     timeUpdated = newArticle.timeAdded,
-                    timeAdded = newArticle.timeAdded, //TODO: this is not right
-                    title = if (newArticle.title.isBlank()) existingArticle.title else newArticle.title,
-                    givenTitle = if (newArticle.givenTitle.isBlank()) existingArticle.givenTitle else newArticle.givenTitle,
+                    timeAdded = existingArticle.timeAdded, //TODO: this is not right
+                    title = newArticle.title.ifBlank { existingArticle.title },
+                    givenTitle = newArticle.givenTitle.ifBlank { existingArticle.givenTitle },
                     url = newArticle.url ?: existingArticle.url,
                     givenUrl = newArticle.givenUrl ?: existingArticle.givenUrl,
                     favorite = if (newArticle.favorite.isNullOrBlank()) existingArticle.favorite else newArticle.favorite,
-                    status = if (newArticle.status.isBlank()) existingArticle.status else newArticle.status,
+                    status = newArticle.status.ifBlank { existingArticle.status },
                     image = newArticle.image ?: existingArticle.image,
-                    hasImage = if (newArticle.hasImage == false) existingArticle.hasImage else newArticle.hasImage,
-                    hasVideo = if (newArticle.hasVideo == false) existingArticle.hasVideo else newArticle.hasVideo,
-                    hasAudio = if (newArticle.hasAudio == false) existingArticle.hasAudio else newArticle.hasAudio,
+                    hasImage = if (!newArticle.hasImage) existingArticle.hasImage else newArticle.hasImage,
+                    hasVideo = if (!newArticle.hasVideo) existingArticle.hasVideo else newArticle.hasVideo,
+                    hasAudio = if (!newArticle.hasAudio) existingArticle.hasAudio else newArticle.hasAudio,
                     listenDurationEstimate = if (newArticle.listenDurationEstimate == 0) existingArticle.listenDurationEstimate else newArticle.listenDurationEstimate,
                     wordCount = if (newArticle.wordCount == 0) existingArticle.wordCount else newArticle.wordCount,
                     wordCountMessage = if (newArticle.wordCountMessage.isNullOrBlank()) existingArticle.wordCountMessage else newArticle.wordCountMessage,
@@ -294,7 +294,7 @@ interface PocketDao {
             )
             return existingArticle.itemId
         } else {
-            Timber.d("existingArticle is null, inserting article")
+//            Timber.d("existingArticle is null, inserting article")
             insertPocket(newArticle)
             return newArticle.itemId
         }
