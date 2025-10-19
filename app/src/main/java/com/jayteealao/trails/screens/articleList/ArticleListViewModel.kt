@@ -43,6 +43,9 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.runCatching
@@ -67,6 +70,15 @@ class ArticleListViewModel @Inject constructor(
     init {
         viewModelScope.launch(ioDispatcher) {
             pocketRepository.synchronize() //TODO: remove to activity
+        }
+
+        viewModelScope.launch {
+            tagsFlow.collectLatest { availableTags ->
+                val currentTag = _selectedTag.value
+                if (currentTag != null && currentTag !in availableTags) {
+                    _selectedTag.value = null
+                }
+            }
         }
     }
 
@@ -98,6 +110,41 @@ class ArticleListViewModel @Inject constructor(
         ),
         pagingSourceFactory = { getArticleWithTextUseCase() }
     ).flow
+        .cachedIn(viewModelScope)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
+
+    val favoriteArticles: StateFlow<PagingData<ArticleItem>> = Pager(
+        config = PagingConfig(pageSize = 20),
+        pagingSourceFactory = { pocketRepository.favoritePockets() }
+    ).flow
+        .cachedIn(viewModelScope)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
+
+    val archivedArticles: StateFlow<PagingData<ArticleItem>> = Pager(
+        config = PagingConfig(pageSize = 20),
+        pagingSourceFactory = { pocketRepository.archivedPockets() }
+    ).flow
+        .cachedIn(viewModelScope)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
+
+    private val _selectedTag = MutableStateFlow<String?>(null)
+    val selectedTag: StateFlow<String?> = _selectedTag
+
+    private val tagsFlow = pocketRepository.allTags()
+    val tags = tagsFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val taggedArticles: StateFlow<PagingData<ArticleItem>> = _selectedTag
+        .flatMapLatest { tag ->
+            if (tag.isNullOrBlank()) {
+                flowOf(PagingData.empty())
+            } else {
+                Pager(
+                    config = PagingConfig(pageSize = 20),
+                    pagingSourceFactory = { pocketRepository.pocketsByTag(tag) }
+                ).flow
+            }
+        }
         .cachedIn(viewModelScope)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
 
@@ -142,6 +189,10 @@ class ArticleListViewModel @Inject constructor(
     fun selectArticle(articleItem: ArticleItem) {
         _selectedArticle.value = articleItem
 //        provideSummary(articleItem.itemId)
+    }
+
+    fun selectTag(tag: String?) {
+        _selectedTag.value = tag
     }
 
     fun insertArticle(article: PocketArticle) {

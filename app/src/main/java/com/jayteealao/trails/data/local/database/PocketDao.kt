@@ -13,6 +13,7 @@ import com.jayteealao.trails.network.PocketAuthors
 import com.jayteealao.trails.network.PocketImages
 import com.jayteealao.trails.network.PocketTags
 import com.jayteealao.trails.network.PocketVideos
+import kotlinx.coroutines.flow.Flow
 import timber.log.Timber
 
 @Dao
@@ -44,6 +45,56 @@ interface PocketDao {
         ORDER BY art.timeAdded DESC
     """)
     fun getArticlesWithTags(): PagingSource<Int, ArticleItem>
+
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
+    @Query("""
+        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
+        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        GROUP_CONCAT(tag.tag) AS tagsString
+        FROM pocketarticle AS art
+        LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
+        WHERE art.favorite = '1' AND art.archived_at IS NULL AND art.deleted_at IS NULL
+        GROUP BY art.itemId
+        ORDER BY art.timeFavorited DESC, art.timeAdded DESC
+    """)
+    fun getFavoriteArticlesWithTags(): PagingSource<Int, ArticleItem>
+
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
+    @Query("""
+        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
+        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        GROUP_CONCAT(tag.tag) AS tagsString
+        FROM pocketarticle AS art
+        LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
+        WHERE art.archived_at IS NOT NULL AND art.deleted_at IS NULL
+        GROUP BY art.itemId
+        ORDER BY art.archived_at DESC, art.timeAdded DESC
+    """)
+    fun getArchivedArticlesWithTags(): PagingSource<Int, ArticleItem>
+
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
+    @Query("""
+        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
+        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        GROUP_CONCAT(allTags.tag) AS tagsString
+        FROM pocketarticle AS art
+        INNER JOIN pockettags AS selectedTag ON art.itemId = selectedTag.itemId AND selectedTag.tag = :tag
+        LEFT JOIN pockettags AS allTags ON art.itemId = allTags.itemId
+        WHERE art.deleted_at IS NULL
+        GROUP BY art.itemId
+        ORDER BY art.timeAdded DESC
+    """)
+    fun getArticlesWithTag(tag: String): PagingSource<Int, ArticleItem>
+
+    @Query(
+        """
+        SELECT tag
+        FROM pockettags
+        GROUP BY tag
+        ORDER BY LOWER(tag)
+    """
+    )
+    fun getAllTags(): Flow<List<String>>
 
     @Query("SELECT * FROM pocketarticle WHERE itemId = :itemId")
     fun getArticleById(itemId: String): PocketArticle?
