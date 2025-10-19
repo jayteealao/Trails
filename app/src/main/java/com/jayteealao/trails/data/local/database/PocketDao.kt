@@ -77,8 +77,11 @@ interface PocketDao {
         CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
         GROUP_CONCAT(allTags.tag) AS tagsString
         FROM pocketarticle AS art
-        INNER JOIN pockettags AS selectedTag ON art.itemId = selectedTag.itemId AND selectedTag.tag = :tag
-        LEFT JOIN pockettags AS allTags ON art.itemId = allTags.itemId
+        INNER JOIN pockettags AS selectedTag ON
+            (art.itemId = selectedTag.itemId OR art.resolvedId = selectedTag.itemId)
+            AND selectedTag.tag = :tag
+        LEFT JOIN pockettags AS allTags ON
+            art.itemId = allTags.itemId OR art.resolvedId = allTags.itemId
         WHERE art.deleted_at IS NULL
         GROUP BY art.itemId
         ORDER BY art.timeAdded DESC
