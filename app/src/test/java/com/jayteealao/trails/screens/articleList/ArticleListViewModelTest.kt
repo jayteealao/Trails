@@ -53,6 +53,10 @@ class ArticleListViewModelTest {
         every { articleRepository.synchronize() } returns Unit
         every { articleRepository.isSyncing } returns flowOf(false)
         every { articleRepository.pockets() } answers { TestPagingSource() }
+        every { articleRepository.favoritePockets() } answers { TestPagingSource() }
+        every { articleRepository.archivedPockets() } answers { TestPagingSource() }
+        every { articleRepository.pocketsByTag(any()) } answers { TestPagingSource() }
+        every { articleRepository.allTags() } returns flowOf(emptyList())
         coEvery { articleRepository.searchLocal(any()) } returns emptyList()
         coEvery { articleRepository.searchHybrid(any()) } returns emptyList()
         coEvery { articleRepository.getTags(any()) } returns emptyList()
