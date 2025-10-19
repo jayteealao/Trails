@@ -35,7 +35,6 @@ import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
 import com.jayteealao.trails.services.archivebox.ArchiveBoxClient
 import com.jayteealao.trails.services.jina.JinaClient
-import com.jayteealao.trails.services.postgrest.PostgrestClient
 import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -63,9 +62,15 @@ class ArticleListViewModel @Inject constructor(
     private val jinaClient: JinaClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
     private val archiveBoxClient: ArchiveBoxClient,
-    private val postgrestClient: PostgrestClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
+
+    private val _selectedTag = MutableStateFlow<String?>(null)
+    val selectedTag: StateFlow<String?> = _selectedTag
+
+    private val tagsFlow = pocketRepository.allTags()
+    val tags = tagsFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         viewModelScope.launch(ioDispatcher) {
@@ -73,7 +78,7 @@ class ArticleListViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            tagsFlow.collectLatest { availableTags ->
+            tags.collectLatest { availableTags ->
                 val currentTag = _selectedTag.value
                 if (currentTag != null && currentTag !in availableTags) {
                     _selectedTag.value = null
@@ -126,13 +131,6 @@ class ArticleListViewModel @Inject constructor(
     ).flow
         .cachedIn(viewModelScope)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
-
-    private val _selectedTag = MutableStateFlow<String?>(null)
-    val selectedTag: StateFlow<String?> = _selectedTag
-
-    private val tagsFlow = pocketRepository.allTags()
-    val tags = tagsFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val taggedArticles: StateFlow<PagingData<ArticleItem>> = _selectedTag
         .flatMapLatest { tag ->

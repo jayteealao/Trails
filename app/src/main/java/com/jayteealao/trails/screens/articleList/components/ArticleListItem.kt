@@ -22,20 +22,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -64,6 +58,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,6 +103,9 @@ fun ArticleListItem(
     LaunchedEffect(article.favorite) {
         isFavorite = article.favorite
     }
+
+    val filledStar = painterResource(id = R.drawable.star_filled_24px)
+    val outlinedStar = painterResource(id = R.drawable.star_24px)
 
     val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }
     var showAddTagDialog by remember(article.itemId) { mutableStateOf(false) }
@@ -301,7 +299,6 @@ fun ArticleListItem(
                         .weight(1f)
                         .align(Alignment.CenterVertically)){
                     Text(
-                        modifier = Modifier.weight(1f),
                         modifier = Modifier
                             .wrapContentHeight()
                             .padding(end = 8.dp),
@@ -309,47 +306,6 @@ fun ArticleListItem(
                         style = MaterialTheme.typography.titleMedium,
                         fontSize = 16.sp
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconToggleButton(
-                        modifier = Modifier.size(32.dp),
-                        checked = isFavorite,
-                        onCheckedChange = { checked ->
-                            isFavorite = checked
-                            onFavoriteToggle(checked)
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                            contentDescription = if (isFavorite) {
-                                "Remove from favorites"
-                            } else {
-                                "Add to favorites"
-                            },
-                            tint = if (isFavorite) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                }
-//            Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = article.domain,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontSize = 10.sp
-                )
-                    if (!parsedSnippet.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = parsedSnippet,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -403,46 +359,6 @@ fun ArticleListItem(
                 )
             }
 //            Spacer(modifier = Modifier.height(4.dp))
-                    FlowRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .wrapContentHeight(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalArrangement = Arrangement.Start
-                    ) {
-                        val tagsInDisplay = tagStates.keys.toList().sorted()
-                        tagsInDisplay.forEach { tag ->
-                            val selected = tagStates[tag] ?: false
-                            FilterChip(
-                                selected = selected,
-                                onClick = {
-                                    val newSelected = !selected
-                                    tagStates[tag] = newSelected
-                                    onTagToggle(tag, newSelected)
-                                },
-                                label = { Text(text = tag) },
-                                modifier = Modifier.padding(end = 8.dp, bottom = 8.dp),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                                    selectedLabelColor = MaterialTheme.colorScheme.primary
-                                )
-                            )
-                        }
-                        FilterChip(
-                            selected = false,
-                            onClick = { showAddTagDialog = true },
-                            label = { Text(text = "Add tag") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Filled.Add,
-                                    contentDescription = "Add tag"
-                                )
-                            },
-                            modifier = Modifier.padding(end = 8.dp, bottom = 8.dp),
-                        )
-                    }
-                }
-//        Spacer(modifier = Modifier.height(16.dp))
             FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -463,6 +379,7 @@ fun ArticleListItem(
                         },
                         label = {
                             Text(modifier = Modifier, text = tag, style = MaterialTheme.typography.labelSmall)
+//                            TagItem(tag = tag)
                                 },
                         modifier = Modifier
                             .height(28.dp)
