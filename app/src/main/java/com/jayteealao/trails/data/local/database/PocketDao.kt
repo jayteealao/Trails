@@ -14,12 +14,11 @@ import com.jayteealao.trails.network.PocketImages
 import com.jayteealao.trails.network.PocketTags
 import com.jayteealao.trails.network.PocketVideos
 import kotlinx.coroutines.flow.Flow
-import timber.log.Timber
 
 @Dao
 interface PocketDao {
 
-    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query(
         """
         SELECT itemId, title, COALESCE(url, givenUrl) AS url,
@@ -53,7 +52,7 @@ interface PocketDao {
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
-        WHERE art.favorite = '1' AND art.archived_at IS NULL AND art.deleted_at IS NULL
+        WHERE art.timeFavorited > 0 AND art.archived_at IS NULL AND art.deleted_at IS NULL
         GROUP BY art.itemId
         ORDER BY art.timeFavorited DESC, art.timeAdded DESC
     """)
@@ -206,7 +205,7 @@ interface PocketDao {
     @Upsert
     suspend fun insertDomainMetadata(item: DomainMetadata)
 
-    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query(
         """
         SELECT pocketarticle.itemId, pocketarticle.title,
@@ -220,7 +219,7 @@ interface PocketDao {
     )
     suspend fun searchPockets(query: String): List<ArticleItem>
 
-    @SuppressWarnings(RoomWarnings.CURSOR_MISMATCH)
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query(
         """
         SELECT pocketarticle.itemId, pocketarticle.title,
@@ -326,9 +325,9 @@ interface PocketDao {
                     favorite = if (newArticle.favorite.isNullOrBlank()) existingArticle.favorite else newArticle.favorite,
                     status = newArticle.status.ifBlank { existingArticle.status },
                     image = newArticle.image ?: existingArticle.image,
-                    hasImage = if (!newArticle.hasImage) existingArticle.hasImage else newArticle.hasImage,
-                    hasVideo = if (!newArticle.hasVideo) existingArticle.hasVideo else newArticle.hasVideo,
-                    hasAudio = if (!newArticle.hasAudio) existingArticle.hasAudio else newArticle.hasAudio,
+                    hasImage = if (!newArticle.hasImage) existingArticle.hasImage else true,
+                    hasVideo = if (!newArticle.hasVideo) existingArticle.hasVideo else true,
+                    hasAudio = if (!newArticle.hasAudio) existingArticle.hasAudio else true,
                     listenDurationEstimate = if (newArticle.listenDurationEstimate == 0) existingArticle.listenDurationEstimate else newArticle.listenDurationEstimate,
                     wordCount = if (newArticle.wordCount == 0) existingArticle.wordCount else newArticle.wordCount,
                     wordCountMessage = if (newArticle.wordCountMessage.isNullOrBlank()) existingArticle.wordCountMessage else newArticle.wordCountMessage,
