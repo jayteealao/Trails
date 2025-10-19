@@ -164,9 +164,9 @@ class ArticleListViewModel @Inject constructor(
 
     fun saveUrl(givenUrl: Uri, givenTitle: String?) {
         var id = generateId()
-        Timber.d("id: $id")
-        Timber.d("givenUrl in saveUrl: $givenUrl")
-        Timber.d("givenTitle: $givenTitle")
+//        Timber.d("id: $id")
+//        Timber.d("givenUrl in saveUrl: $givenUrl")
+//        Timber.d("givenTitle: $givenTitle")
         val (title, url) = if (givenTitle == null) {
             extractTitleAndUrl(givenUrl.toString()) ?: Pair(givenTitle, givenUrl.toString()) // Handle parsing failure
         } else {
@@ -233,7 +233,7 @@ class ArticleListViewModel @Inject constructor(
                     .onFailure { Timber.w(it, "Failed to fetch reader content for %s", url) }
                     .getOrNull()
 
-                val readerContent = jinaResult?.data?.content
+                val readerContent = jinaResult?.data?.content //TODO: replace jina with call to archiver/singlefile,
                 if (!readerContent.isNullOrBlank()) {
                     pocketDao.updateText(articleId, readerContent)
                     val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
