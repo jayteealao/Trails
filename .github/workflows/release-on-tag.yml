@@ -1,0 +1,105 @@
+name: Android Release on Tag
+
+on:
+  push:
+    tags:
+      - "v*"     # e.g., v1.4.0, v2.0.0-rc.1
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create releases & upload assets
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      # --- Optional: Decode keystore & expose signing to Gradle ---
+      - name: Decode keystore (optional)
+        if: ${{ secrets.SIGNING_STORE_FILE_B64 != '' }}
+        run: |
+          echo "$SIGNING_STORE_FILE_B64" | base64 -d > keystore.jks
+        env:
+          SIGNING_STORE_FILE_B64: ${{ secrets.SIGNING_STORE_FILE_B64 }}
+
+      - name: Write signing properties (optional)
+        if: ${{ secrets.SIGNING_STORE_PASSWORD != '' }}
+        run: |
+          {
+            echo "SIGNING_STORE_FILE=$(pwd)/keystore.jks"
+            echo "SIGNING_STORE_PASSWORD=${{ secrets.SIGNING_STORE_PASSWORD }}"
+            echo "SIGNING_KEY_ALIAS=${{ secrets.SIGNING_KEY_ALIAS }}"
+            echo "SIGNING_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}"
+          } >> $GITHUB_ENV
+
+      # --- Build (adjust module & tasks as needed) ---
+      # If you have flavors, e.g., prod, replace with assembleProdRelease/bundleProdRelease
+      - name: Build APK + AAB
+        run: |
+          ./gradlew --no-daemon clean assembleRelease bundleRelease
+
+      # Collect artifacts
+      - name: Find outputs
+        id: find_outputs
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          APK=$(find . -path "*/build/outputs/apk/*Release/*.apk" | head -n1)
+          AAB=$(find . -path "*/build/outputs/bundle/*Release/*.aab" | head -n1)
+          MAP=$(find . -path "*/build/outputs/mapping/*Release/mapping.txt" | head -n1 || true)
+
+          echo "apk=${APK}" >> "$GITHUB_OUTPUT"
+          echo "aab=${AAB}" >> "$GITHUB_OUTPUT"
+          echo "mapping=${MAP}" >> "$GITHUB_OUTPUT"
+
+      # --- Optional: pretty CHANGELOG from commits with git-cliff ---
+      - name: Generate changelog with git-cliff (optional)
+        id: cliff
+        uses: orhun/git-cliff-action@v3
+        with:
+          args: --tag ${{ steps.find_outputs.outputs.tag }} --verbose
+        env:
+          OUTPUT: CHANGELOG-${{ steps.find_outputs.outputs.tag }}.md
+
+      - name: Prepare release body
+        id: body
+        run: |
+          BODY_FILE="RELEASE_BODY.md"
+          {
+            echo "## Release ${{ steps.find_outputs.outputs.tag }}"
+            echo
+            if [ -f "CHANGELOG-${{ steps.find_outputs.outputs.tag }}.md" ]; then
+              echo "### Changelog"
+              echo
+              cat "CHANGELOG-${{ steps.find_outputs.outputs.tag }}.md"
+            else
+              echo "_Auto-generated notes will be used by GitHub._"
+            fi
+          } > "$BODY_FILE"
+          echo "file=${BODY_FILE}" >> "$GITHUB_OUTPUT"
+
+      # Create GitHub Release + upload assets
+      - name: Create release & upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.find_outputs.outputs.tag }}
+          name: ${{ steps.find_outputs.outputs.tag }}
+          body_path: ${{ steps.body.outputs.file }}
+          generate_release_notes: ${{ !hashFiles(format('CHANGELOG-{0}.md', steps.find_outputs.outputs.tag)) }}
+          files: |
+            ${{ steps.find_outputs.outputs.apk }}
+            ${{ steps.find_outputs.outputs.aab }}
+            ${{ steps.find_outputs.outputs.mapping }}
+            CHANGELOG-${{ steps.find_outputs.outputs.tag }}.md
