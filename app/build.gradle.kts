@@ -30,12 +30,34 @@ android {
     namespace = "com.jayteealao.trails"
     compileSdk = 36
 
+    signingConfigs {
+        create("release") {
+            val storeFilePath = System.getenv("SIGNING_STORE_FILE")
+            if (storeFilePath != null) {
+                storeFile = file(storeFilePath)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+                enableV3Signing = true
+                enableV4Signing = true
+            } else {
+//                get from gradle.properties for local testing
+                storeFile = file(project.property("KEYSTORE_FILE") as String)
+                storePassword = project.property("KEYSTORE_PASSWORD") as String
+                keyAlias = project.property("SIGNING_KEY_ALIAS") as String
+                keyPassword = project.property("SIGNING_KEY_PASSWORD") as String
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.jayteealao.trails"
         minSdk = 23
         targetSdk = 33
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 10206
+        versionName = "1.2.6"
 
         testInstrumentationRunner = "com.jayteealao.trails.HiltTestRunner"
         vectorDrawables {
@@ -51,9 +73,9 @@ android {
     buildTypes {
         getByName("release") {
             isMinifyEnabled = true
-            this.isShrinkResources = true
+            isShrinkResources = true
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
 //            isProfileable = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
