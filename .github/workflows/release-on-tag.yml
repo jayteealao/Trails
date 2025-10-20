@@ -27,14 +27,14 @@ jobs:
 
       # --- Optional: Decode keystore & expose signing to Gradle ---
       - name: Decode keystore (optional)
-        if: ${{ secrets.SIGNING_STORE_FILE_B64 != '' }}
+        if: ${{ vars.HAS_SIGNING_CONFIG == 'true' }}
         run: |
           echo "$SIGNING_STORE_FILE_B64" | base64 -d > keystore.jks
         env:
           SIGNING_STORE_FILE_B64: ${{ secrets.SIGNING_STORE_FILE_B64 }}
 
       - name: Write signing properties (optional)
-        if: ${{ secrets.SIGNING_STORE_PASSWORD != '' }}
+        if: ${{ vars.HAS_SIGNING_CONFIG == 'true' }}
         run: |
           {
             echo "SIGNING_STORE_FILE=$(pwd)/keystore.jks"
