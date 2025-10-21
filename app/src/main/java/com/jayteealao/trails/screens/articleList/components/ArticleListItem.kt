@@ -188,7 +188,6 @@ fun ArticleListItem(
     } else { null }
     val swipeState = rememberSwipeToDismissBoxState()
     var showTrailingActions by remember(article.itemId) { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(swipeState.currentValue) {
         when (swipeState.currentValue) {
@@ -212,6 +211,7 @@ fun ArticleListItem(
         state = swipeState,
         backgroundContent = {
             val direction = swipeState.dismissDirection
+            val scope = rememberCoroutineScope()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -254,7 +254,7 @@ fun ArticleListItem(
                                 .clickable {
                                     onArchive()
                                     showTrailingActions = false
-                                    coroutineScope.launch { swipeState.reset() }
+                                    scope.launch { swipeState.reset() }
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -273,7 +273,7 @@ fun ArticleListItem(
                                 .clickable {
                                     onDelete()
                                     showTrailingActions = false
-                                    coroutineScope.launch { swipeState.reset() }
+                                    scope.launch { swipeState.reset() }
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -366,7 +366,6 @@ fun ArticleListItem(
                         .align(Alignment.CenterVertically)){
                     Text(
                         modifier = Modifier
-//                            .align(Alignment.CenterVertically)
                             .wrapContentHeight()
                             .padding(end = 8.dp),
                         text = article.title,
@@ -412,8 +411,6 @@ fun ArticleListItem(
                         }
                     }
                 }
-//                Spacer(modifier = Modifier.width(8.dp))
-//            }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
