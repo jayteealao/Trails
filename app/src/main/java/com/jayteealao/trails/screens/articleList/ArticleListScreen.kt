@@ -48,7 +48,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -251,7 +250,7 @@ private fun TagsContent(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White),
+                    .background(MaterialTheme.colorScheme.surface),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -264,7 +263,7 @@ private fun TagsContent(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White)
+                    .background(MaterialTheme.colorScheme.surface)
             ) {
                 items(tags) { tag ->
                     Text(
@@ -283,7 +282,7 @@ private fun TagsContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White)
+                .background(MaterialTheme.colorScheme.surface)
         ) {
             Row(
                 modifier = Modifier
@@ -328,7 +327,7 @@ internal fun PocketScreenContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(MaterialTheme.colorScheme.surface)
             .padding(vertical = 16.dp)
     ) {
         items(

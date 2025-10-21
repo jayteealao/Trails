@@ -41,10 +41,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -178,11 +178,12 @@ fun ArticleListItem(
     }
 
 
+    val colorScheme = MaterialTheme.colorScheme
     val parsedSnippet: AnnotatedString? = if (!article.snippet.isNullOrBlank()) {
         HtmlCompat.fromHtml(
             article.snippet,
             HtmlCompat.FROM_HTML_MODE_LEGACY
-        ).toSpannable().toAnnotatedString(Color.Black)
+        ).toSpannable().toAnnotatedString(colorScheme.onSurface)
     } else { null }
     val swipeState = rememberSwipeToDismissBoxState()
     var showTrailingActions by remember(article.itemId) { mutableStateOf(false) }
@@ -290,7 +291,7 @@ fun ArticleListItem(
             Row(
                 modifier = Modifier
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp)
-                    .background(Color.White)
+                    .background(colorScheme.surface)
                     .wrapContentHeight()
 //                    .heightIn(max = 90.dp)
                     .clickable { onClick() },
@@ -488,11 +489,11 @@ fun ArticleListItem(
             }
             HorizontalDivider(
                 modifier = Modifier
-                    .background(Color.White)
+                    .background(colorScheme.surface)
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth(),
                 thickness = 1.dp,
-                color = Color.Black
+                color = colorScheme.outlineVariant
             )
         }
 
