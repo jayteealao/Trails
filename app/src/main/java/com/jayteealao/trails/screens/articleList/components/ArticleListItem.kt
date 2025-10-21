@@ -31,9 +31,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
@@ -222,17 +223,27 @@ fun ArticleListItem(
         swipeThreshold = 100.dp,
         modifier = modifier
     ) {
-        Column {
-            Row(
-                modifier = Modifier
-                    .padding(start = 8.dp, end = 8.dp, top = 8.dp)
-                    .background(Color.White)
-                    .wrapContentHeight()
-//                    .heightIn(max = 90.dp)
-                    .clickable { onClick() },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = 4.dp,
+                pressedElevation = 8.dp
+            ),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color.White
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
             ) {
+                Row(
+                    modifier = Modifier
+                        .wrapContentHeight()
+                        .clickable { onClick() },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
                 Box(
                     modifier = Modifier
                         .wrapContentSize()
@@ -347,23 +358,20 @@ fun ArticleListItem(
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             if (!parsedSnippet.isNullOrBlank()) {
-//                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    modifier = Modifier.padding(start = 8.dp, end = 8.dp),
                     text = parsedSnippet,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-//            Spacer(modifier = Modifier.height(4.dp))
             FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .wrapContentHeight()
-                    .padding(start = 8.dp, end = 4.dp),
+                    .padding(top = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -422,14 +430,7 @@ fun ArticleListItem(
                     )
                 )
             }
-            HorizontalDivider(
-                modifier = Modifier
-                    .background(Color.White)
-                    .padding(horizontal = 16.dp)
-                    .fillMaxWidth(),
-                thickness = 1.dp,
-                color = Color.Black
-            )
+            }
         }
 
         if (showAddTagDialog) {
