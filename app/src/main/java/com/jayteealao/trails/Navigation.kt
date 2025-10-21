@@ -54,6 +54,7 @@ import com.jayteealao.trails.screens.articleDetail.ArticleDetailScreen
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailViewModel
 import com.jayteealao.trails.screens.articleList.ArticleListScreen
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import com.jayteealao.trails.screens.articleList.ArticleSortOption
 import com.jayteealao.trails.screens.articleList.PocketScreenContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
@@ -225,6 +226,8 @@ private fun MainNavigationPreview() {
                     ) {
                         PocketScreenContent(
                             lazyItems = previewArticles,
+                            sortOption = ArticleSortOption.Newest,
+                            onSortSelected = {},
                             onSelectArticle = { navController.navigate("article") },
                             onToggleFavorite = { _, _ -> },
                             onToggleTag = { _, _, _ -> },
@@ -302,6 +305,8 @@ private fun MainNavigationDarkPreview() {
                 composable("main") {
                     PocketScreenContent(
                         lazyItems = previewArticles,
+                        sortOption = ArticleSortOption.Newest,
+                        onSortSelected = {},
                         onSelectArticle = {},
                         onToggleFavorite = { _, _ -> },
                         onToggleTag = { _, _, _ -> },

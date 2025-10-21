@@ -68,6 +68,9 @@ class ArticleListViewModel @Inject constructor(
     private val _selectedTag = MutableStateFlow<String?>(null)
     val selectedTag: StateFlow<String?> = _selectedTag
 
+    private val _sortOption = MutableStateFlow(ArticleSortOption.Newest)
+    val sortOption: StateFlow<ArticleSortOption> = _sortOption
+
     private val tagsFlow = pocketRepository.allTags()
     val tags = tagsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -191,6 +194,12 @@ class ArticleListViewModel @Inject constructor(
 
     fun selectTag(tag: String?) {
         _selectedTag.value = tag
+    }
+
+    fun setSortOption(option: ArticleSortOption) {
+        if (_sortOption.value != option) {
+            _sortOption.value = option
+        }
     }
 
     fun insertArticle(article: PocketArticle) {
