@@ -36,6 +36,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -84,6 +90,11 @@ private enum class ArticleListTab(val label: String, val icon: @Composable () ->
     TAGS(label = "Tags", icon = { Icon(painter = painterResource(id = R.drawable.tag_24px), contentDescription = "Tags")}),
 }
 
+enum class ArticleSortOption(val label: String) {
+    Newest("Newest"),
+    Popular("Popular"),
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArticleListScreen(
@@ -105,6 +116,7 @@ fun ArticleListScreen(
     val selectedArticle by viewModel.selectedArticle.collectAsStateWithLifecycle()
     val tags by viewModel.tags.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
+    val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
 
     LaunchedEffect(selectedTab) {
         if (selectedTab != ArticleListTab.TAGS) {
@@ -123,6 +135,9 @@ fun ArticleListScreen(
     }
     val onDelete: (ArticleItem) -> Unit = { articleItem ->
         viewModel.deleteArticle(articleItem.itemId)
+    }
+    val onSortOptionSelected: (ArticleSortOption) -> Unit = { option ->
+        viewModel.setSortOption(option)
     }
 
     Column(
@@ -147,6 +162,8 @@ fun ArticleListScreen(
             when (selectedTab) {
                 ArticleListTab.HOME -> PocketScreenContent(
                     lazyItems = articles,
+                    sortOption = sortOption,
+                    onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
@@ -158,6 +175,8 @@ fun ArticleListScreen(
 
                 ArticleListTab.FAVOURITES -> PocketScreenContent(
                     lazyItems = favoriteArticles,
+                    sortOption = sortOption,
+                    onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
@@ -169,6 +188,8 @@ fun ArticleListScreen(
 
                 ArticleListTab.ARCHIVE -> PocketScreenContent(
                     lazyItems = archivedArticles,
+                    sortOption = sortOption,
+                    onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
@@ -184,6 +205,8 @@ fun ArticleListScreen(
                     onSelectTag = { tag -> viewModel.selectTag(tag) },
                     onClearSelection = { viewModel.selectTag(null) },
                     lazyItems = taggedArticles,
+                    sortOption = sortOption,
+                    onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
@@ -226,6 +249,8 @@ private fun ArticleListScreenPreview() {
     TrailsTheme(darkTheme = false) {
         PocketScreenContent(
             lazyItems = rememberPreviewArticles(),
+            sortOption = ArticleSortOption.Newest,
+            onSortSelected = {},
             onSelectArticle = {},
             onToggleFavorite = { _, _ -> },
             onToggleTag = { _, _, _ -> },
@@ -247,6 +272,8 @@ private fun ArticleListScreenDarkPreview() {
     TrailsTheme(darkTheme = true) {
         PocketScreenContent(
             lazyItems = rememberPreviewArticles(),
+            sortOption = ArticleSortOption.Newest,
+            onSortSelected = {},
             onSelectArticle = {},
             onToggleFavorite = { _, _ -> },
             onToggleTag = { _, _, _ -> },
@@ -266,6 +293,8 @@ private fun TagsContent(
     onSelectTag: (String) -> Unit,
     onClearSelection: () -> Unit,
     lazyItems: LazyPagingItems<ArticleItem>,
+    sortOption: ArticleSortOption,
+    onSortSelected: (ArticleSortOption) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
     onToggleFavorite: (ArticleItem, Boolean) -> Unit,
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
@@ -332,6 +361,8 @@ private fun TagsContent(
             Box(modifier = Modifier.weight(1f)) {
                 PocketScreenContent(
                     lazyItems = lazyItems,
+                    sortOption = sortOption,
+                    onSortSelected = onSortSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
@@ -349,6 +380,8 @@ private fun TagsContent(
 @Composable
 internal fun PocketScreenContent(
     lazyItems: LazyPagingItems<ArticleItem>,
+    sortOption: ArticleSortOption,
+    onSortSelected: (ArticleSortOption) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
     onToggleFavorite: (ArticleItem, Boolean) -> Unit,
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
@@ -357,42 +390,149 @@ internal fun PocketScreenContent(
     useCardLayout: Boolean,
     availableTags: List<String>,
 ) {
-    LazyColumn(
+    val listState = rememberLazyListState()
+    var actionBarVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(listState) {
+        var previousIndex = listState.firstVisibleItemIndex
+        var previousScrollOffset = listState.firstVisibleItemScrollOffset
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .distinctUntilChanged()
+            .collectLatest { (index, offset) ->
+                val scrollingForward = when {
+                    index == previousIndex -> offset > previousScrollOffset
+                    else -> index > previousIndex
+                }
+                actionBarVisible = if (!listState.isScrollInProgress) {
+                    true
+                } else {
+                    !scrollingForward
+                }
+                previousIndex = index
+                previousScrollOffset = offset
+            }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface),
-        contentPadding = PaddingValues(
-            top = 16.dp,
-            bottom = 16.dp,
-            start = if (useCardLayout) 16.dp else 0.dp,
-            end = if (useCardLayout) 16.dp else 0.dp
-        )
+            .background(MaterialTheme.colorScheme.surface)
     ) {
-        items(
-            count = lazyItems.itemCount,
-            key = lazyItems.itemKey { it-> it.itemId },
-            contentType = lazyItems.itemContentType { "article" }
+        val actionBarHeight = 56.dp
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = actionBarHeight + 16.dp,
+                bottom = 16.dp,
+                start = if (useCardLayout) 16.dp else 0.dp,
+                end = if (useCardLayout) 16.dp else 0.dp
+            )
+        ) {
+            items(
+                count = lazyItems.itemCount,
+                key = lazyItems.itemKey { it-> it.itemId },
+                contentType = lazyItems.itemContentType { "article" }
+            ) { index ->
+                val article = lazyItems[index]
+                if (article != null) {
+                    ArticleListItem(
+                        article,
+                        Modifier.animateItem().then(
+                            if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier
+                        ),
+                        onClick = { onSelectArticle(article) },
+                        onFavoriteToggle = { isFavorite ->
+                            onToggleFavorite(article, isFavorite)
+                        },
+                        onTagToggle = { tag, enabled ->
+                            onToggleTag(article, tag, enabled)
+                        },
+                        onArchive = { onArchive(article) },
+                        onDelete = { onDelete(article) },
+                        useCardLayout = useCardLayout,
+                        availableTags = availableTags
+                    )
+                }
+            }
+        }
 
-        ) { index ->
-            val article = lazyItems[index]
-            if (article != null) {
-                ArticleListItem(
-                    article,
-                    Modifier.animateItem().then(
-                        if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier
-                    ),
-                    onClick = { onSelectArticle(article) },
-                    onFavoriteToggle = { isFavorite ->
-                        onToggleFavorite(article, isFavorite)
-                    },
-                    onTagToggle = { tag, enabled ->
-                        onToggleTag(article, tag, enabled)
-                    },
-                    onArchive = { onArchive(article) },
-                    onDelete = { onDelete(article) },
-                    useCardLayout = useCardLayout,
-                    availableTags = availableTags
-                )
+        AnimatedVisibility(
+            visible = actionBarVisible,
+            enter = slideInVertically(initialOffsetY = { -it / 2 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it / 2 }) + fadeOut(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            ArticleActionsBar(
+                modifier = Modifier.fillMaxWidth(),
+                sortOption = sortOption,
+                onSortSelected = onSortSelected
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArticleActionsBar(
+    modifier: Modifier = Modifier,
+    sortOption: ArticleSortOption,
+    onSortSelected: (ArticleSortOption) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Surface(
+        modifier = modifier,
+        tonalElevation = 3.dp,
+        shadowElevation = 2.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Actions",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Box {
+                OutlinedButton(onClick = { expanded = true }) {
+                    Icon(imageVector = Icons.Filled.Sort, contentDescription = "Sort")
+                    Text(
+                        text = sortOption.label,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    ArticleSortOption.values().forEach { option ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (option == sortOption) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.padding(end = 8.dp)
+                                        )
+                                    }
+                                    Text(text = option.label)
+                                }
+                            },
+                            onClick = {
+                                expanded = false
+                                onSortSelected(option)
+                            }
+                        )
+                    }
+                }
             }
         }
     }
