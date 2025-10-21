@@ -143,7 +143,8 @@ fun ArticleListScreen(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
-                    useCardLayout = useCardLayout
+                    useCardLayout = useCardLayout,
+                    availableTags = tags
                 )
 
                 ArticleListTab.FAVOURITES -> PocketScreenContent(
@@ -153,7 +154,8 @@ fun ArticleListScreen(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
-                    useCardLayout = useCardLayout
+                    useCardLayout = useCardLayout,
+                    availableTags = tags
                 )
 
                 ArticleListTab.ARCHIVE -> PocketScreenContent(
@@ -163,7 +165,8 @@ fun ArticleListScreen(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
-                    useCardLayout = useCardLayout
+                    useCardLayout = useCardLayout,
+                    availableTags = tags
                 )
 
                 ArticleListTab.TAGS -> TagsContent(
@@ -177,7 +180,8 @@ fun ArticleListScreen(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
-                    useCardLayout = useCardLayout
+                    useCardLayout = useCardLayout,
+                    availableTags = tags
                 )
             }
             ArticleDialog(
@@ -218,7 +222,8 @@ private fun ArticleListScreenPreview() {
             onToggleTag = { _, _, _ -> },
             onArchive = {},
             onDelete = {},
-            useCardLayout = true
+            useCardLayout = true,
+            availableTags = listOf("compose", "kotlin", "android")
         )
     }
 }
@@ -238,7 +243,8 @@ private fun ArticleListScreenDarkPreview() {
             onToggleTag = { _, _, _ -> },
             onArchive = {},
             onDelete = {},
-            useCardLayout = true
+            useCardLayout = true,
+            availableTags = listOf("compose", "kotlin", "android")
         )
     }
 }
@@ -257,6 +263,7 @@ private fun TagsContent(
     onArchive: (ArticleItem) -> Unit,
     onDelete: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
+    availableTags: List<String>,
 ) {
     if (selectedTag == null) {
         if (tags.isEmpty()) {
@@ -321,7 +328,8 @@ private fun TagsContent(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
-                    useCardLayout = useCardLayout
+                    useCardLayout = useCardLayout,
+                    availableTags = availableTags
                 )
             }
         }
@@ -338,6 +346,7 @@ internal fun PocketScreenContent(
     onArchive: (ArticleItem) -> Unit,
     onDelete: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
+    availableTags: List<String>,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -372,7 +381,8 @@ internal fun PocketScreenContent(
                     },
                     onArchive = { onArchive(article) },
                     onDelete = { onDelete(article) },
-                    useCardLayout = useCardLayout
+                    useCardLayout = useCardLayout,
+                    availableTags = availableTags
                 )
             }
         }
