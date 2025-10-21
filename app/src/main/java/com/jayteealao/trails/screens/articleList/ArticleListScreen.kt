@@ -328,8 +328,8 @@ internal fun PocketScreenContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White)
-            .padding(vertical = 16.dp)
+            .background(Color(0xFFF5F5F5))
+            .padding(horizontal = 16.dp, vertical = 16.dp)
     ) {
         items(
             count = lazyItems.itemCount,
@@ -342,7 +342,7 @@ internal fun PocketScreenContent(
                 ArticleListItem(
                     article,
                     Modifier.animateItem().then(
-                        if (index != 0) Modifier.padding(top = 8.dp) else Modifier.padding(top = 0.dp)
+                        if (index != 0) Modifier.padding(top = 12.dp) else Modifier.padding(top = 0.dp)
                     ),
                     onClick = { onSelectArticle(article) },
                     onFavoriteToggle = { isFavorite ->
