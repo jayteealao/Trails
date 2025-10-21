@@ -24,11 +24,11 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.network.PocketData
-import com.jayteealao.trails.network.PocketTags
+import com.jayteealao.trails.network.ArticleData
+import com.jayteealao.trails.network.ArticleTag
 import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.initializers.SyncWorkName
@@ -46,15 +46,15 @@ import java.nio.ByteOrder
 import javax.inject.Inject
 
 interface ArticleRepository: Syncable {
-    fun pockets(): PagingSource<Int, ArticleItem>
+    fun articles(): PagingSource<Int, ArticleItem>
 
-    fun favoritePockets(): PagingSource<Int, ArticleItem>
+    fun favoriteArticles(): PagingSource<Int, ArticleItem>
 
-    fun archivedPockets(): PagingSource<Int, ArticleItem>
+    fun archivedArticles(): PagingSource<Int, ArticleItem>
 
-    fun pocketsByTag(tag: String): PagingSource<Int, ArticleItem>
+    fun articlesByTag(tag: String): PagingSource<Int, ArticleItem>
 
-    suspend fun add(pocketData: List<PocketData>)
+    suspend fun add(articleData: List<ArticleData>)
 
     suspend fun setFavorite(itemId: String, isFavorite: Boolean)
 
@@ -68,7 +68,7 @@ interface ArticleRepository: Syncable {
 
     override fun synchronize()
 
-    fun getArticleById(itemId: String): PocketArticle?
+    fun getArticleById(itemId: String): Article?
 
     fun getLastUpdatedArticleTime(): Long
 
@@ -90,7 +90,7 @@ interface Syncable {
 
 /**
  * Default implementation of [ArticleRepository]
- * @param pocketDao PocketDao
+ * @param articleDao ArticleDao
  *    data access object
  * @param networkDataSource NetworkDataSource
  *    data source for network requests
@@ -110,7 +110,7 @@ interface Syncable {
  */
 class ArticleRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val pocketDao: PocketDao,
+    private val articleDao: ArticleDao,
     private val syncStatusMonitor: SyncStatusMonitor,
     private val modalClient: ModalClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
@@ -118,57 +118,57 @@ class ArticleRepositoryImpl @Inject constructor(
 
     private val coroutineScope = CoroutineScope(ioDispatcher)
 
-//    override fun pockets(): PagingSource<Int, ArticleItem> = pocketDao.getArticles()
-    override fun pockets(): PagingSource<Int, ArticleItem> = pocketDao.getArticlesWithTags()
+//    override fun articles(): PagingSource<Int, ArticleItem> = articleDao.getArticles()
+    override fun articles(): PagingSource<Int, ArticleItem> = articleDao.getArticlesWithTags()
 
-    override fun favoritePockets(): PagingSource<Int, ArticleItem> = pocketDao.getFavoriteArticlesWithTags()
+    override fun favoriteArticles(): PagingSource<Int, ArticleItem> = articleDao.getFavoriteArticlesWithTags()
 
-    override fun archivedPockets(): PagingSource<Int, ArticleItem> = pocketDao.getArchivedArticlesWithTags()
+    override fun archivedArticles(): PagingSource<Int, ArticleItem> = articleDao.getArchivedArticlesWithTags()
 
-    override fun pocketsByTag(tag: String): PagingSource<Int, ArticleItem> = pocketDao.getArticlesWithTag(tag)
+    override fun articlesByTag(tag: String): PagingSource<Int, ArticleItem> = articleDao.getArticlesWithTag(tag)
 
     /**
      * Get article by id
      * @param itemId String
-     * @return PocketArticle
-     *     a PocketArticle
+     * @return Article
+     *     a Article
      */
-    override fun getArticleById(itemId: String): PocketArticle? {
-         return pocketDao.getArticleById(itemId)
+    override fun getArticleById(itemId: String): Article? {
+         return articleDao.getArticleById(itemId)
     }
 
-    override fun getLastUpdatedArticleTime() = pocketDao.getLastUpdatedArticleTime()
+    override fun getLastUpdatedArticleTime() = articleDao.getLastUpdatedArticleTime()
 
-    override suspend fun getTags(itemId: String): List<String> = pocketDao.getPocketTags(itemId)
+    override suspend fun getTags(itemId: String): List<String> = articleDao.getArticleTags(itemId)
 
-    override fun allTags(): Flow<List<String>> = pocketDao.getAllTags()
+    override fun allTags(): Flow<List<String>> = articleDao.getAllTags()
 
     /**
-     * Saves PocketData to local database
-     * @param pocketData PocketData
+     * Saves ArticleData to local database
+     * @param articleData ArticleData
      *     data to be saved
      */
-    override suspend fun add(pocketData: List<PocketData>) {
-        pocketData.forEach { pocketDatum ->
-            pocketDao.insertPocket(pocketDatum.pocketArticle)
-            pocketDao.insertPocketImages(pocketDatum.pocketImages)
-            pocketDatum.pocketVideos.let { pocketDao.insertPocketVideos(it) }
-            pocketDao.insertPocketTags(pocketDatum.pocketTags)
-            pocketDao.insertPocketAuthors(pocketDatum.pocketAuthors)
-            pocketDatum.domainMetadata?.let { pocketDao.insertDomainMetadata(it) }
+    override suspend fun add(articleData: List<ArticleData>) {
+        articleData.forEach { articleDatum ->
+            articleDao.insertArticle(articleDatum.article)
+            articleDao.insertArticleImages(articleDatum.images)
+            articleDatum.videos.let { articleDao.insertArticleVideos(it) }
+            articleDao.insertArticleTags(articleDatum.tags)
+            articleDao.insertArticleAuthors(articleDatum.authors)
+            articleDatum.domainMetadata?.let { articleDao.insertDomainMetadata(it) }
         }
     }
 
     override suspend fun setFavorite(itemId: String, isFavorite: Boolean) {
         val timestamp = if (isFavorite) System.currentTimeMillis() else 0L
-        pocketDao.updateFavorite(itemId, isFavorite, timestamp)
+        articleDao.updateFavorite(itemId, isFavorite, timestamp)
     }
 
     override suspend fun addTag(itemId: String, tag: String) {
         if (tag.isBlank()) return
-        pocketDao.insertPocketTags(
+        articleDao.insertArticleTags(
             listOf(
-                PocketTags(
+                ArticleTag(
                     itemId = itemId,
                     tag = tag,
                     sortId = null,
@@ -180,15 +180,15 @@ class ArticleRepositoryImpl @Inject constructor(
 
     override suspend fun removeTag(itemId: String, tag: String) {
         if (tag.isBlank()) return
-        pocketDao.deletePocketTag(itemId, tag)
+        articleDao.deleteArticleTag(itemId, tag)
     }
 
     override suspend fun archive(itemId: String) {
-        pocketDao.updateArchived(itemId, System.currentTimeMillis())
+        articleDao.updateArchived(itemId, System.currentTimeMillis())
     }
 
     override suspend fun delete(itemId: String) {
-        pocketDao.updateDeleted(itemId, System.currentTimeMillis())
+        articleDao.updateDeleted(itemId, System.currentTimeMillis())
     }
 
     override suspend fun searchHybrid(query: String): List<ArticleItem> {
@@ -196,7 +196,7 @@ class ArticleRepositoryImpl @Inject constructor(
         val deferred = coroutineScope.async {
             val data = modalClient.searchHybrid(query).getOrElse(emptyList())
             val sortedData = data.sortedBy { it.distance }.map { it.id }
-            val searchHybridResult = pocketDao.getArticlesByIds(sortedData)
+            val searchHybridResult = articleDao.getArticlesByIds(sortedData)
                 .sortedBy { sortedData.indexOf(it.itemId) }
             searchResult.addAll(searchHybridResult)
             Timber.d("searchHybrid: $searchResult")
@@ -208,8 +208,8 @@ class ArticleRepositoryImpl @Inject constructor(
     /**
      * search for articles in local database uses fts4
      * @param query String
-     * @return List<PocketArticle>
-     *     a list of PocketArticle that matches the query
+     * @return List<Article>
+     *     a list of Article that matches the query
      */
     override suspend fun searchLocal(query: String): List<ArticleItem> {
 
@@ -219,8 +219,8 @@ class ArticleRepositoryImpl @Inject constructor(
     /**
      * search for articles in local database uses fts4
      * @param query String
-     * @return List<PocketArticle>
-     *     a list of PocketArticle that matches the query
+     * @return List<Article>
+     *     a list of Article that matches the query
      */
     private suspend fun searchWithScore(query: String): List<ArticleItem> {
         if (query.isEmpty()) {
@@ -228,13 +228,13 @@ class ArticleRepositoryImpl @Inject constructor(
         }
         val sanitizedQuery = sanitizeSearchQuery("*$query*")
         Timber.d("sanitized query $sanitizedQuery")
-        return pocketDao.searchPocketsWithMatchInfo(query).let { results ->
+        return articleDao.searchArticlesWithMatchInfo(query).let { results ->
             results
                 .sortedByDescending {
                     calculateScore(it.matchInfo)
                 }
                 .map { result ->
-                    result.pocket
+                    result.article
                 }
         }
     }
@@ -274,14 +274,14 @@ class ArticleRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Show sync status of synchronizing articles from Pocket API to local database
+     * Show sync status of synchronizing articles from the remote API to the local database
      */
     override val isSyncing: Flow<Boolean>
         get() = syncStatusMonitor.isSyncing
 
     /**
-     * Synchronize articles from Pocket API to local database
-     * @param accessToken Pocket API access token
+     * Synchronize articles from the remote API to the local database
+     * @param accessToken API access token
      * @return Job
      *
      * TODO: Refactor this function

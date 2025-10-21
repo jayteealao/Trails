@@ -3,19 +3,19 @@ package com.jayteealao.trails.network
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.google.gson.annotations.SerializedName
-import com.jayteealao.trails.data.local.database.PocketArticle
+import com.jayteealao.trails.data.local.database.Article
 import kotlinx.serialization.SerialName
 
 data class ArticlesResponseModel(
     val status: Int,
     val complete: Int,
-    val list: Map<String, PocketArticleResponse>,
+    val list: Map<String, ArticleResponse>,
     val error: String?,
     val since: Int
 )
 
 @Entity
-data class PocketArticleResponse(
+data class ArticleResponse(
     @SerializedName("item_id") val itemId: String,
     @SerializedName("resolved_id") val resolvedId: String,
     @SerializedName("resolved_title") val title: String,
@@ -27,15 +27,15 @@ data class PocketArticleResponse(
     @SerializedName("favorite") val favorite: String,
     @SerializedName("status") val status: String,
     @SerializedName("word_count_message") val wordCountMessage: String,
-    @SerializedName("image") val image: PocketImages?,
+    @SerializedName("image") val image: ArticleImage?,
     @SerializedName("top_image_url") val topImageUrl: String,
-    @SerializedName("images") val images: Map<String, PocketImages> = emptyMap(),
+    @SerializedName("images") val images: Map<String, ArticleImage> = emptyMap(),
     @SerializedName("has_image") val hasImage: Boolean,
-    @SerializedName("videos") val videos: Map<String, PocketVideos> = emptyMap(),
+    @SerializedName("videos") val videos: Map<String, ArticleVideo> = emptyMap(),
     @SerializedName("has_video") val hasVideo: Boolean,
     @SerializedName("has_audio") val hasAudio: Boolean,
-    @SerializedName("tags") val tags: Map<String, PocketTags> = emptyMap(),
-    @SerializedName("authors") val authors: Map<String, PocketAuthors> = emptyMap(),
+    @SerializedName("tags") val tags: Map<String, ArticleTag> = emptyMap(),
+    @SerializedName("authors") val authors: Map<String, ArticleAuthor> = emptyMap(),
     @SerializedName("list") val list: String,
     @SerializedName("sort_id") val sortId: Int,
     @SerializedName("time_added") val timeAdded: Long,
@@ -48,8 +48,8 @@ data class PocketArticleResponse(
 )
 
 @kotlinx.serialization.Serializable()
-@Entity(primaryKeys = ["imageId", "itemId"])
-data class PocketImages(
+@Entity(tableName = "article_image", primaryKeys = ["imageId", "itemId"])
+data class ArticleImage(
     @SerialName("image_id") val imageId: String,
     @SerialName("item_id") val itemId: String,
     @SerializedName("src") val src: String,
@@ -60,8 +60,8 @@ data class PocketImages(
 )
 
 @kotlinx.serialization.Serializable()
-@Entity(primaryKeys = ["videoId", "itemId"])
-data class PocketVideos(
+@Entity(tableName = "article_video", primaryKeys = ["videoId", "itemId"])
+data class ArticleVideo(
     @SerialName("video_id") val videoId: String,
     @SerialName("item_id") val itemId: String,
     @SerializedName("src") val src: String,
@@ -74,8 +74,8 @@ data class PocketVideos(
 )
 
 @kotlinx.serialization.Serializable()
-@Entity(primaryKeys = ["itemId", "tag"])
-data class PocketTags(
+@Entity(tableName = "article_tag", primaryKeys = ["itemId", "tag"])
+data class ArticleTag(
     @SerialName("item_id") val itemId: String,
     @SerializedName("tag") val tag: String,
     @SerialName("sort_id") val sortId: Int?,
@@ -83,8 +83,8 @@ data class PocketTags(
 )
 
 @kotlinx.serialization.Serializable()
-@Entity
-data class PocketAuthors(
+@Entity(tableName = "article_author")
+data class ArticleAuthor(
     @SerialName("author_id") @PrimaryKey  val authorId: String,
     @SerialName("item_id")val itemId: String,
     @SerializedName("name") val name: String,
@@ -102,11 +102,11 @@ data class DomainMetadata(
     @SerializedName("domain") val domain: String?,
 )
 
-data class PocketData(
-    val pocketArticle: PocketArticle,
-    val pocketImages: List<PocketImages>,
-    val pocketVideos: List<PocketVideos>,
-    val pocketTags: List<PocketTags>,
-    val pocketAuthors: List<PocketAuthors>,
+data class ArticleData(
+    val article: Article,
+    val images: List<ArticleImage>,
+    val videos: List<ArticleVideo>,
+    val tags: List<ArticleTag>,
+    val authors: List<ArticleAuthor>,
     val domainMetadata: DomainMetadata?,
 )

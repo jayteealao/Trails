@@ -6,7 +6,7 @@ import androidx.paging.PagingData
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.jayteealao.trails.SearchBarState
-import com.jayteealao.trails.data.local.database.PocketArticle
+import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.models.ArticleItem
 import kotlinx.coroutines.flow.flowOf
 
@@ -45,7 +45,7 @@ object PreviewFixtures {
         ),
     )
 
-    val pocketArticle: PocketArticle = PocketArticle(
+    val article: Article = Article(
         itemId = articleItem.itemId,
         resolvedId = articleItem.itemId,
         title = articleItem.title,
@@ -69,7 +69,7 @@ object PreviewFixtures {
         timeToRead = 6,
         listenDurationEstimate = 0,
         text = "# Trail Conditions\nLate season storms can leave unexpected snow on north facing slopes. Carry traction and be prepared to turn around.",
-        pocketId = "12345",
+        remoteId = "12345",
         resolved = 10,
     )
 

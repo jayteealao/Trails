@@ -3,12 +3,12 @@ package com.jayteealao.trails.services.supabase
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.common.generateDeterministicNanoId
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.network.PocketAuthors
-import com.jayteealao.trails.network.PocketData
-import com.jayteealao.trails.network.PocketImages
-import com.jayteealao.trails.network.PocketTags
-import com.jayteealao.trails.network.PocketVideos
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.network.ArticleAuthors
+import com.jayteealao.trails.network.ArticleData
+import com.jayteealao.trails.network.ArticleImages
+import com.jayteealao.trails.network.ArticleTags
+import com.jayteealao.trails.network.ArticleVideos
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
@@ -41,54 +41,54 @@ class SupabaseService @Inject constructor(
     }
 
     private val summaryChannel by lazy {
-        supabaseClient.channel("pocketSummaryChannel")
+        supabaseClient.channel("articleSummaryChannel")
     }
 
-    suspend fun repopulateDatabase(count : Int = 0, saveData: suspend (List<PocketData>) -> Unit = {}) = withContext(ioDispatcher){
+    suspend fun repopulateDatabase(count : Int = 0, saveData: suspend (List<ArticleData>) -> Unit = {}) = withContext(ioDispatcher){
             var OFFSET = 0L
             if (count > 0) {
                 OFFSET = count.toLong()
             }
             while (true) {
                 val end = OFFSET + 9
-                val articles = supabaseClient.from("pocketarticle").select() {
+                val articles = supabaseClient.from("article").select() {
                     order("timeAdded", order = Order.DESCENDING)
                     range(from = OFFSET, to = end)
-                }.decodeList<PocketArticle>()
+                }.decodeList<Article>()
                 if (articles.isEmpty()) break
-                //fetch pocketimages
+                //fetch related content
                 saveData(
                     articles.map {
-                        val images = supabaseClient.from("pocketimages").select() {
+                        val images = supabaseClient.from("article_image").select() {
                             filter {
                                 eq("item_id", it.itemId)
                             }
-                        }.decodeList<PocketImages>()
-                        val videos = supabaseClient.from("pocketvideos").select() {
+                        }.decodeList<ArticleImages>()
+                        val videos = supabaseClient.from("article_video").select() {
                             filter {
                                 eq("item_id", it.itemId)
                             }
-                        }.decodeList<PocketVideos>()
-                        val tags = supabaseClient.from("pockettags").select() {
+                        }.decodeList<ArticleVideos>()
+                        val tags = supabaseClient.from("article_tag").select() {
                             filter {
                                 eq("item_id", it.itemId)
                             }
-                        }.decodeList<PocketTags>()
-                        val authors = supabaseClient.from("pocketauthors").select() {
+                        }.decodeList<ArticleTags>()
+                        val authors = supabaseClient.from("article_author").select() {
                             filter {
                                 eq("item_id", it.itemId)
                             }
-                        }.decodeList<PocketAuthors>()
-                        PocketData(
-                            pocketArticle = it.copy(
+                        }.decodeList<ArticleAuthors>()
+                        ArticleData(
+                            article = it.copy(
                                 itemId = generateDeterministicNanoId(it.url ?: it.givenUrl ?: it.itemId),
-                                pocketId = it.itemId,
+                                remoteId = it.itemId,
                                 resolved = true
                             ),
-                            pocketImages = images,
-                            pocketVideos = videos,
-                            pocketTags = tags,
-                            pocketAuthors = authors,
+                            images = images,
+                            videos = videos,
+                            tags = tags,
+                            authors = authors,
                             domainMetadata = null,
                         )
                     }
@@ -100,28 +100,28 @@ class SupabaseService @Inject constructor(
 
     private fun provideSupabaseClient(): SupabaseClient = supabaseClient
 
-    suspend fun addArticle(article: PocketArticle): PostgrestResult {
-        return supabaseClient.from("pocketarticle").upsert(article)
+    suspend fun addArticle(article: Article): PostgrestResult {
+        return supabaseClient.from("article").upsert(article)
     }
 
-    suspend fun addArticles(articles: List<PocketArticle>): PostgrestResult {
-        return supabaseClient.from("pocketarticle").upsert(articles)
+    suspend fun addArticles(articles: List<Article>): PostgrestResult {
+        return supabaseClient.from("article").upsert(articles)
     }
 
     suspend fun getSummaryById(id: String): PostgrestResult {
-        return supabaseClient.from("pocketsummary").select() {
+        return supabaseClient.from("article_summary").select() {
             filter {
                 eq("id", id)
             }
         }
     }
 
-    suspend fun observeChanges(collector: FlowCollector<List<PocketSummary>>) {
+    suspend fun observeChanges(collector: FlowCollector<List<ArticleSummary>>) {
         return summaryChanges.collect {
             when (it) {
                 is PostgresAction.Insert -> {
                     Timber.d("Inserted: ${it.record}")
-                    collector.emit(listOf(PocketSummary(id = it.record["id"].toString(), summary = it.record["summary"].toString())))
+                    collector.emit(listOf(ArticleSummary(id = it.record["id"].toString(), summary = it.record["summary"].toString())))
                 }
 }
 

@@ -1,4 +1,4 @@
-package com.jayteealao.trails.network.pocket
+package com.jayteealao.trails.network.article
 
 import com.jayteealao.trails.network.ArticlesResponseModel
 import com.jayteealao.trails.network.AuthResponseModel
@@ -9,7 +9,7 @@ import retrofit2.http.FormUrlEncoded
 import retrofit2.http.POST
 
 
-interface PocketService {
+interface ArticleService {
 
     @POST("oauth/request")
     @FormUrlEncoded

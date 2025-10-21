@@ -131,7 +131,7 @@ fun ArticleListScreen(
                 .fillMaxWidth()
         ) {
             when (selectedTab) {
-                ArticleListTab.HOME -> PocketScreenContent(
+                ArticleListTab.HOME -> ArticleScreenContent(
                     lazyItems = articles,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
@@ -140,7 +140,7 @@ fun ArticleListScreen(
                     onDelete = onDelete
                 )
 
-                ArticleListTab.FAVOURITES -> PocketScreenContent(
+                ArticleListTab.FAVOURITES -> ArticleScreenContent(
                     lazyItems = favoriteArticles,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
@@ -149,7 +149,7 @@ fun ArticleListScreen(
                     onDelete = onDelete
                 )
 
-                ArticleListTab.ARCHIVE -> PocketScreenContent(
+                ArticleListTab.ARCHIVE -> ArticleScreenContent(
                     lazyItems = archivedArticles,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
@@ -202,7 +202,7 @@ fun ArticleListScreen(
 @Composable
 private fun ArticleListScreenPreview() {
     TrailsTheme(darkTheme = false) {
-        PocketScreenContent(
+        ArticleScreenContent(
             lazyItems = rememberPreviewArticles(),
             onSelectArticle = {},
             onToggleFavorite = { _, _ -> },
@@ -221,7 +221,7 @@ private fun ArticleListScreenPreview() {
 @Composable
 private fun ArticleListScreenDarkPreview() {
     TrailsTheme(darkTheme = true) {
-        PocketScreenContent(
+        ArticleScreenContent(
             lazyItems = rememberPreviewArticles(),
             onSelectArticle = {},
             onToggleFavorite = { _, _ -> },
@@ -302,7 +302,7 @@ private fun TagsContent(
                 }
             }
             Box(modifier = Modifier.weight(1f)) {
-                PocketScreenContent(
+                ArticleScreenContent(
                     lazyItems = lazyItems,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
@@ -317,7 +317,7 @@ private fun TagsContent(
 
 
 @Composable
-internal fun PocketScreenContent(
+internal fun ArticleScreenContent(
     lazyItems: LazyPagingItems<ArticleItem>,
     onSelectArticle: (ArticleItem) -> Unit,
     onToggleFavorite: (ArticleItem, Boolean) -> Unit,

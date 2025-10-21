@@ -16,7 +16,7 @@
 
 package com.jayteealao.trails.testdi
 
-//import com.jayteealao.trails.data.di.FakePocketRepository
+//import com.jayteealao.trails.data.di.FakeArticleRepository
 //
 //@Module
 //@TestInstallIn(
@@ -27,6 +27,6 @@ package com.jayteealao.trails.testdi
 
 //    @Binds
 //    abstract fun bindRepository(
-//        fakeRepository: FakePocketRepository
+//        fakeRepository: FakeArticleRepository
 //    ): ArticleRepository
 //}

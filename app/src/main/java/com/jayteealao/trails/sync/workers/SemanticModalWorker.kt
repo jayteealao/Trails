@@ -7,9 +7,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
 import com.jayteealao.trails.data.local.database.ModalArticleTable
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.data.local.database.PocketDao
-import com.jayteealao.trails.data.models.PocketSummary
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.data.models.ArticleSummary
 import com.jayteealao.trails.services.semanticSearch.modal.ModalArticle
 import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import com.jayteealao.trails.services.supabase.SupabaseService
@@ -37,7 +37,7 @@ class SemanticModalWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, workerParams) {
 
     @Inject
-    lateinit var pocketDao: PocketDao
+    lateinit var articleDao: ArticleDao
 
     @Inject
     lateinit var modalClient: ModalClient
@@ -53,9 +53,9 @@ class SemanticModalWorker @AssistedInject constructor(
     override suspend fun getForegroundInfo() = appContext.syncForegroundInfo()
 
     /**
-     * Executes the background work of synchronizing Pocket articles with Weaviate.
+     * Executes the background work of synchronizing Remote articles with Weaviate.
      *
-     * This function retrieves Pocket articles from the local database, processes them in batches,
+     * This function retrieves Remote articles from the local database, processes them in batches,
      * and adds them to the Weaviate database using semantic actions. The work is performed
      * in the background using coroutines and Dispatchers.IO for I/O operations.
      *
@@ -69,8 +69,8 @@ class SemanticModalWorker @AssistedInject constructor(
         setForeground(getForegroundInfo())
         
         launch {
-            producePocketArticleFromLocal { offset ->
-                pocketDao.getPocketsWithModalFalse(offset)
+            produceArticleFromLocal { offset ->
+                articleDao.getArticlesWithoutModal(offset)
             }.let { receiveArticle ->
                 //creates 10 channels to receive articles from the local database
                 repeat(10) {
@@ -91,11 +91,11 @@ class SemanticModalWorker @AssistedInject constructor(
      *
      * This function utilizes coroutines to execute these actions in parallel within an IO dispatcher.
      *
-     * @param receiveArticle A [ReceiveChannel] providing batches of [PocketArticle] objects.
+     * @param receiveArticle A [ReceiveChannel] providing batches of [Article] objects.
      * @return A [Job] representing the launched coroutine.
      */
     private fun CoroutineScope.batchSemanticActions(
-        receiveArticle: ReceiveChannel<List<PocketArticle>>
+        receiveArticle: ReceiveChannel<List<Article>>
     ) = launch(Dispatchers.IO) {
         for (articles in receiveArticle) {
             val modalArticles = articles.map {
@@ -114,11 +114,11 @@ class SemanticModalWorker @AssistedInject constructor(
     }
 
     /**
-     * Saves a list of articles to Weaviate database and stores the mapping between Pocket IDs and Modal IDs in the local database.
+     * Saves a list of articles to Weaviate database and stores the mapping between Remote IDs and Modal IDs in the local database.
      *
      * This function performs the following operations:
      * 1. Sends the articles to the Modal API for adding to Weaviate.
-     * 2. On successful response, inserts the mapping of Pocket IDs to Modal IDs into the `ModalArticleTable` in the local database.
+     * 2. On successful response, inserts the mapping of Remote IDs to Modal IDs into the `ModalArticleTable` in the local database.
      * 3. Logs any errors encountered during the process.
      *
      * @param articles The list of [ModalArticle] objects to be saved.
@@ -133,14 +133,14 @@ class SemanticModalWorker @AssistedInject constructor(
         response.suspendOnSuccess {
 //            Timber.d(data.data.toString())
             launch(Dispatchers.IO) {
-                pocketDao.insertModalId(
+                articleDao.insertModalId(
                     data.data
                         .entries.map {
                             ModalArticleTable(
-                                pocketId = it.value,
+                                articleId = it.value,
                                 modalId = it.key
                             )
-                        }.filterNot { it.modalId == "error" || it.pocketId == "error" }
+                        }.filterNot { it.modalId == "error" || it.articleId == "error" }
                 )
             }
             data.data.entries.filter { it.key == "error" }.distinctBy { it.value }
@@ -154,14 +154,14 @@ class SemanticModalWorker @AssistedInject constructor(
     /**
      * Saves a list of articles to the Supabase database.
      *
-     * This function retrieves articles from the local database (as implied by the `PocketArticle` type)
+     * This function retrieves articles from the local database (as implied by the `Article` type)
      * and sends them to the Supabase database using the `supabaseService`.
      * The operation is performed asynchronously within an IO coroutine.
      *
-     * @param articles The list of `PocketArticle` objects to be saved to Supabase.
+     * @param articles The list of `Article` objects to be saved to Supabase.
      */
     private fun CoroutineScope.saveArticlesToSupabase(
-        articles: List<PocketArticle>
+        articles: List<Article>
     ) = launch(Dispatchers.IO) {
         val response = supabaseService.addArticles(articles)
     }
@@ -172,7 +172,7 @@ class SemanticModalWorker @AssistedInject constructor(
      * This function launches a coroutine on the IO dispatcher to perform the following:
      * 1. Sends the articles to the `modalClient` for summarization.
      * 2. On successful summarization:
-     *    * Inserts the received summaries into the `pocketDao` on the IO dispatcher.
+     *    * Inserts the received summaries into the `articleDao` on the IO dispatcher.
      *    * Filters out and logs any errors encountered during summarization.
      * 3. Logs any errors (onError, onFailure, onException) that occur during the summarization process.
      *
@@ -184,9 +184,9 @@ class SemanticModalWorker @AssistedInject constructor(
     ) = launch(Dispatchers.IO) {
         modalClient.summarize(articles).suspendOnSuccess {
             launch(Dispatchers.IO) {
-                pocketDao.insertPocketSummaries(
+                articleDao.insertArticleSummaries(
                     data.map { summary ->
-                        PocketSummary(
+                        ArticleSummary(
                             id = summary.id,
                             summary = summary.summary
                         )

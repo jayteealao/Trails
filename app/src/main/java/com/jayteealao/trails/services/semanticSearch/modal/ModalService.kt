@@ -1,6 +1,6 @@
 package com.jayteealao.trails.services.semanticSearch.modal
 
-import com.jayteealao.trails.data.models.PocketSummary
+import com.jayteealao.trails.data.models.ArticleSummary
 import com.skydoves.sandwich.ApiResponse
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -30,7 +30,7 @@ interface ModalService {
     @POST("/create_summaries")
     suspend fun summarize(
         @Body article: List<ModalArticle>
-    ): ApiResponse<List<PocketSummary>>
+    ): ApiResponse<List<ArticleSummary>>
 }
 
 data class ModalArticle(

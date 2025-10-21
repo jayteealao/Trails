@@ -5,8 +5,8 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.data.ArticleRepository
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.local.database.ArticleArticle
+import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.services.archivebox.ArchiveBoxClient
 import com.jayteealao.trails.services.jina.JinaClient
@@ -41,7 +41,7 @@ class ArticleListViewModelTest {
     @MockK private lateinit var articleRepository: ArticleRepository
     @MockK private lateinit var getArticleWithTextUseCase: GetArticleWithTextUseCase
     @MockK private lateinit var supabaseService: SupabaseService
-    @MockK private lateinit var pocketDao: PocketDao
+    @MockK private lateinit var articleDao: ArticleDao
     @MockK private lateinit var jinaClient: JinaClient
     @MockK private lateinit var archiveBoxClient: ArchiveBoxClient
 
@@ -52,10 +52,10 @@ class ArticleListViewModelTest {
         MockKAnnotations.init(this)
         every { articleRepository.synchronize() } returns Unit
         every { articleRepository.isSyncing } returns flowOf(false)
-        every { articleRepository.pockets() } answers { TestPagingSource() }
-        every { articleRepository.favoritePockets() } answers { TestPagingSource() }
-        every { articleRepository.archivedPockets() } answers { TestPagingSource() }
-        every { articleRepository.pocketsByTag(any()) } answers { TestPagingSource() }
+        every { articleRepository.articles() } answers { TestPagingSource() }
+        every { articleRepository.favoriteArticles() } answers { TestPagingSource() }
+        every { articleRepository.archivedArticles() } answers { TestPagingSource() }
+        every { articleRepository.articlesByTag(any()) } answers { TestPagingSource() }
         every { articleRepository.allTags() } returns flowOf(emptyList())
         coEvery { articleRepository.searchLocal(any()) } returns emptyList()
         coEvery { articleRepository.searchHybrid(any()) } returns emptyList()
@@ -82,14 +82,14 @@ class ArticleListViewModelTest {
 
         mockkConstructor(Unfurler::class)
         coEvery { anyConstructed<Unfurler>().unfurl(any()) } throws RuntimeException("unfurl failure")
-        val upsertSlot = slot<PocketArticle>()
-        coEvery { pocketDao.upsertArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
+        val upsertSlot = slot<Article>()
+        coEvery { articleDao.upsertArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
 
         val updateItemId = slot<String>()
         val updateTitle = slot<String>()
         val updateUrl = slot<String>()
         coEvery {
-            pocketDao.updateUnfurledDetails(
+            articleDao.updateUnfurledDetails(
                 capture(updateItemId),
                 capture(updateTitle),
                 capture(updateUrl),
@@ -98,15 +98,15 @@ class ArticleListViewModelTest {
                 any(),
             )
         } returns Unit
-        coEvery { pocketDao.updateText(any(), any()) } returns Unit
-        coEvery { pocketDao.updateArticleMetrics(any(), any(), any(), any()) } returns Unit
+        coEvery { articleDao.updateText(any(), any()) } returns Unit
+        coEvery { articleDao.updateArticleMetrics(any(), any(), any(), any()) } returns Unit
         coEvery { jinaClient.getReader(any()) } throws RuntimeException("reader failure")
 
         val viewModel = ArticleListViewModel(
-            pocketRepository = articleRepository,
+            articleRepository = articleRepository,
             getArticleWithTextUseCase = getArticleWithTextUseCase,
             supabaseService = supabaseService,
-            pocketDao = pocketDao,
+            articleDao = articleDao,
             jinaClient = jinaClient,
             contentMetricsCalculator = contentMetricsCalculator,
             archiveBoxClient = archiveBoxClient,
@@ -125,7 +125,7 @@ class ArticleListViewModelTest {
         assertFalse(viewModel.shouldShow.value)
         assertEquals("Shared title", viewModel.intentTitle.value)
 
-        coVerify(exactly = 1) { pocketDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { articleDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any()) }
     }
 
     private class TestPagingSource : PagingSource<Int, ArticleItem>() {

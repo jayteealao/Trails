@@ -4,7 +4,7 @@ import com.jayteealao.trails.data.ArticleRepository
 import javax.inject.Inject
 
 class GetArticleWithTextUseCase @Inject constructor(
-    private val pocketRepository: ArticleRepository
+    private val articleRepository: ArticleRepository
 ) {
-    operator fun invoke() = pocketRepository.pockets()
+    operator fun invoke() = articleRepository.articles()
 }

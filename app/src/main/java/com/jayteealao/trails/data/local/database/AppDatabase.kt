@@ -20,37 +20,38 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.jayteealao.trails.network.ArticleAuthor
+import com.jayteealao.trails.network.ArticleImage
+import com.jayteealao.trails.network.ArticleTag
+import com.jayteealao.trails.network.ArticleVideo
+import com.jayteealao.trails.data.models.ArticleSummary
 import com.jayteealao.trails.network.DomainMetadata
-import com.jayteealao.trails.network.PocketAuthors
-import com.jayteealao.trails.network.PocketImages
-import com.jayteealao.trails.network.PocketTags
-import com.jayteealao.trails.network.PocketVideos
 
 @Database(
     entities = [
-        PocketArticle::class,
-        PocketArticleFts::class,
-        PocketTags::class,
-        PocketAuthors::class,
-        PocketImages::class,
-        PocketVideos::class,
+        Article::class,
+        ArticleFts::class,
+        ArticleTag::class,
+        ArticleAuthor::class,
+        ArticleImage::class,
+        ArticleVideo::class,
         DomainMetadata::class,
-//        ModalArticleTable::class,
-//        PocketSummary::class,
+        ModalArticleTable::class,
+        ArticleSummary::class,
     ],
-    version = 3,
+    version = 4,
     autoMigrations = [],
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun pocketDao(): PocketDao
+    abstract fun articleDao(): ArticleDao
 }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
             """
-            CREATE TABLE IF NOT EXISTS `pockettags_new` (
+            CREATE TABLE IF NOT EXISTS `article_tag` (
                 `itemId` TEXT NOT NULL,
                 `tag` TEXT NOT NULL,
                 `sortId` INTEGER,
@@ -60,21 +61,67 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
             """.trimIndent()
         )
 
-        db.execSQL(
-            """
-            INSERT OR IGNORE INTO `pockettags_new` (`itemId`, `tag`, `sortId`, `type`)
-            SELECT `itemId`, `tag`, `sortId`, `type` FROM `pockettags`
-            """.trimIndent()
-        )
-
-        db.execSQL("DROP TABLE `pockettags`")
-        db.execSQL("ALTER TABLE `pockettags_new` RENAME TO `pockettags`")
+        if (db.tableExists("pockettags")) {
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO `article_tag` (`itemId`, `tag`, `sortId`, `type`)
+                SELECT `itemId`, `tag`, `sortId`, `type` FROM `pockettags`
+                """.trimIndent()
+            )
+            db.execSQL("DROP TABLE `pockettags`")
+        }
     }
 }
 
 val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("ALTER TABLE `PocketArticle` ADD COLUMN `deleted_at` INTEGER")
-        db.execSQL("ALTER TABLE `PocketArticle` ADD COLUMN `archived_at` INTEGER")
+        db.execSQL("ALTER TABLE `Article` ADD COLUMN `deleted_at` INTEGER")
+        db.execSQL("ALTER TABLE `Article` ADD COLUMN `archived_at` INTEGER")
     }
+}
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (db.tableExists("Article")) {
+            db.execSQL("ALTER TABLE `Article` RENAME TO `article`")
+        }
+        if (db.tableExists("pocketarticle_fts")) {
+            db.execSQL("ALTER TABLE `pocketarticle_fts` RENAME TO `article_fts`")
+        }
+        if (db.tableExists("pockettags")) {
+            db.execSQL("ALTER TABLE `pockettags` RENAME TO `article_tag`")
+        }
+        if (db.tableExists("pocketauthors")) {
+            db.execSQL("ALTER TABLE `pocketauthors` RENAME TO `article_author`")
+        }
+        if (db.tableExists("pocketimages")) {
+            db.execSQL("ALTER TABLE `pocketimages` RENAME TO `article_image`")
+        }
+        if (db.tableExists("pocketvideos")) {
+            db.execSQL("ALTER TABLE `pocketvideos` RENAME TO `article_video`")
+        }
+        if (db.tableExists("article") && db.columnExists("article", "pocketId")) {
+            db.execSQL("ALTER TABLE `article` RENAME COLUMN `pocketId` TO `remote_id`")
+        }
+    }
+}
+
+private fun SupportSQLiteDatabase.tableExists(tableName: String): Boolean {
+    query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        arrayOf(tableName)
+    ).use { cursor ->
+        return cursor.moveToFirst()
+    }
+}
+
+private fun SupportSQLiteDatabase.columnExists(tableName: String, columnName: String): Boolean {
+    query("PRAGMA table_info(`$tableName`)").use { cursor ->
+        while (cursor.moveToNext()) {
+            if (cursor.getString(1) == columnName) {
+                return true
+            }
+        }
+    }
+    return false
 }

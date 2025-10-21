@@ -1,13 +1,13 @@
 package com.jayteealao.trails.sync.workers
 
-import com.jayteealao.trails.data.local.database.PocketArticle
+import com.jayteealao.trails.data.local.database.Article
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.produce
 import timber.log.Timber
 
 @OptIn(ExperimentalCoroutinesApi::class)
-fun CoroutineScope.producePocketArticleFromLocal(producer: (Int) -> List<PocketArticle>) = produce<List<PocketArticle>> {
+fun CoroutineScope.produceArticleFromLocal(producer: (Int) -> List<Article>) = produce<List<Article>> {
     var offset = 0
 //    while (true) {
         val articles = producer(offset)

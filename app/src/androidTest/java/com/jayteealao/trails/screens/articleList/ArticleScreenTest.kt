@@ -27,10 +27,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * UI tests for [PocketScreenContent].
+ * UI tests for [ArticleScreenContent].
  */
 @RunWith(AndroidJUnit4::class)
-class PocketScreenTest {
+class ArticleScreenTest {
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<ComponentActivity>()
@@ -38,7 +38,7 @@ class PocketScreenTest {
     @Before
     fun setup() {
         composeTestRule.setContent {
-//            PocketScreenContent(FAKE_DATA, onSave = {})
+//            ArticleScreenContent(FAKE_DATA, onSave = {})
         }
     }
 
