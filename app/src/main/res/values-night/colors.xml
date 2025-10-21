@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="trails_navy">#03045E</color>
+    <color name="trails_indigo">#023E8A</color>
+    <color name="trails_ocean">#0077B6</color>
+    <color name="trails_sky">#00B4D8</color>
+    <color name="trails_mist">#CAF0F8</color>
+    <color name="trails_cloud">#0B1D33</color>
+    <color name="trails_ink">#00111F</color>
+</resources>

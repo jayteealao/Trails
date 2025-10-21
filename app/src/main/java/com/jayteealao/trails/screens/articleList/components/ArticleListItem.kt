@@ -172,11 +172,12 @@ fun ArticleListItem(
     }
 
 
+    val colorScheme = MaterialTheme.colorScheme
     val parsedSnippet: AnnotatedString? = if (!article.snippet.isNullOrBlank()) {
         HtmlCompat.fromHtml(
             article.snippet,
             HtmlCompat.FROM_HTML_MODE_LEGACY
-        ).toSpannable().toAnnotatedString(Color.Black)
+        ).toSpannable().toAnnotatedString(colorScheme.onSurface)
     } else { null }
     val archive = SwipeAction(
         onSwipe = onArchive,
@@ -185,10 +186,10 @@ fun ArticleListItem(
                 painter = painterResource(id = R.drawable.archive_icon_24),
                 contentDescription = "Archive",
                 modifier = Modifier.padding(16.dp),
-                tint = Color.White
+                tint = colorScheme.onTertiary
             )
         },
-        background = Color.Green
+        background = colorScheme.tertiary
     )
 
     val delete = SwipeAction(
@@ -198,10 +199,10 @@ fun ArticleListItem(
                 painter = painterResource(id = R.drawable.delete_24px),
                 contentDescription = "Delete",
                 modifier = Modifier.padding(16.dp),
-                tint = Color.White
+                tint = colorScheme.onError
             )
         },
-        background = Color.Red
+        background = colorScheme.error
     )
 
     val favorite = SwipeAction(
@@ -211,10 +212,10 @@ fun ArticleListItem(
                 painter = painterResource(id = R.drawable.favorite_24px),
                 contentDescription = "Favorite",
                 modifier = Modifier.padding(16.dp),
-                tint = Color.White
+                tint = colorScheme.onSecondary
             )
         },
-        background = Color.Blue
+        background = colorScheme.secondary
     )
     SwipeableActionsBox(
         startActions = listOf(favorite),
@@ -226,7 +227,7 @@ fun ArticleListItem(
             Row(
                 modifier = Modifier
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp)
-                    .background(Color.White)
+                    .background(colorScheme.surface)
                     .wrapContentHeight()
 //                    .heightIn(max = 90.dp)
                     .clickable { onClick() },
@@ -424,11 +425,11 @@ fun ArticleListItem(
             }
             HorizontalDivider(
                 modifier = Modifier
-                    .background(Color.White)
+                    .background(colorScheme.surface)
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth(),
                 thickness = 1.dp,
-                color = Color.Black
+                color = colorScheme.outlineVariant
             )
         }
 

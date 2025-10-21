@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -112,21 +113,18 @@ class IntentActivity : ComponentActivity() {
                                         .wrapContentWidth()
                                         .widthIn(max = 400.dp)
                                         .wrapContentHeight(),
-                                    colors = CardDefaults.cardColors().copy(
-                                        containerColor = Color.White,
-                                        contentColor = Color.Black
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surface,
+                                        contentColor = MaterialTheme.colorScheme.onSurface
                                     ),
-                                    border = CardDefaults.outlinedCardBorder().copy(
+                                    border = BorderStroke(
+                                        width = 2.dp,
                                         brush = Brush.sweepGradient(
-                                            0.0f to Color(0xFF8D50F8),
-                                            0.20f to Color(0xFF673AB7),
-                                            0.35f to Color(0xFF492C78),
-                                            0.55f to Color(0xFF321D51),
-                                            0.85f to Color(0xFF673AB7),
-                                            1.0f to Color(0xFF8D50F8
-                                            ),
-                                        ),
-                                        width = 2.dp
+                                            0.0f to MaterialTheme.colorScheme.primary,
+                                            0.33f to MaterialTheme.colorScheme.primaryContainer,
+                                            0.66f to MaterialTheme.colorScheme.secondary,
+                                            1.0f to MaterialTheme.colorScheme.primary,
+                                        )
                                     )
                                 ) {
                                     Row(

@@ -24,15 +24,18 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.request.crossfade
 import com.jayteealao.trails.screens.auth.AuthViewModel
+import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
@@ -42,6 +45,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val authViewModel by viewModels<AuthViewModel>()
+    private val settingsViewModel by viewModels<SettingsViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         var exitSplash = false
@@ -63,7 +67,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            TrailsTheme {
+            val darkThemeEnabled by settingsViewModel.darkTheme.collectAsStateWithLifecycle()
+            TrailsTheme(darkTheme = darkThemeEnabled) {
                 setSingletonImageLoaderFactory { context ->
                     ImageLoader.Builder(context)
                         .crossfade(true)
@@ -75,6 +80,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainNavigation(
                         authViewModel = authViewModel,
+                        settingsViewModel = settingsViewModel,
                     )
                 }
             }
