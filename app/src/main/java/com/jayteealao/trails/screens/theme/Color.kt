@@ -1,27 +1,29 @@
-/*
- * Copyright (C) 2022 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.jayteealao.trails.screens.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// Brand palette
+val TrailsNavy = Color(0xFF03045E)
+val TrailsIndigo = Color(0xFF023E8A)
+val TrailsOcean = Color(0xFF0077B6)
+val TrailsSky = Color(0xFF00B4D8)
+val TrailsMist = Color(0xFFCAF0F8)
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// Supporting neutrals
+val TrailsIce = Color(0xFFE5F4FD)
+val TrailsCloud = Color(0xFFF5FBFF)
+val TrailsInk = Color(0xFF00111F)
+val TrailsMidnight = Color(0xFF001B33)
+val TrailsMidnightVariant = Color(0xFF0F2A45)
+val TrailsOutlineDark = Color(0xFF20374E)
+val TrailsOutline = Color(0xFF51708A)
+val TrailsOutlineBright = Color(0xFFB7CCE0)
+val TrailsCyanBright = Color(0xFF56C7E5)
+val TrailsAquaDeep = Color(0xFF005D85)
+val TrailsTealDeep = Color(0xFF004E6C)
+val TrailsSkySoft = Color(0xFF90E0EF)
+
+val TrailsError = Color(0xFFBA1A1A)
+val TrailsOnError = Color(0xFFFFFFFF)
+val TrailsErrorContainer = Color(0xFFF9DEDC)
+val TrailsOnErrorContainer = Color(0xFF410E0B)
