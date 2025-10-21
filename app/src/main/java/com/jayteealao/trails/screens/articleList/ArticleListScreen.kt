@@ -48,6 +48,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -328,7 +329,7 @@ internal fun PocketScreenContent(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(vertical = 16.dp)
+            .padding(horizontal = 16.dp, vertical = 16.dp)
     ) {
         items(
             count = lazyItems.itemCount,
@@ -341,7 +342,7 @@ internal fun PocketScreenContent(
                 ArticleListItem(
                     article,
                     Modifier.animateItem().then(
-                        if (index != 0) Modifier.padding(top = 8.dp) else Modifier.padding(top = 0.dp)
+                        if (index != 0) Modifier.padding(top = 12.dp) else Modifier.padding(top = 0.dp)
                     ),
                     onClick = { onSelectArticle(article) },
                     onFavoriteToggle = { isFavorite ->
