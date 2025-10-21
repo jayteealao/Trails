@@ -13,6 +13,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -39,15 +41,18 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val preferenceFlow = settingsViewModel.preferenceFlow.collectAsState()
     val jinaToken = settingsViewModel.jinaToken.collectAsState()
+    val darkTheme = settingsViewModel.darkTheme.collectAsState()
     SettingsScreenContent(
         modifier = modifier,
         useFreedium = preferenceFlow.value,
+        darkThemeEnabled = darkTheme.value,
         jinaToken = jinaToken.value,
         jinaPlaceholder = settingsViewModel.jinaPlaceHolder,
         onResetSemanticCache = {
             scope.launch { settingsViewModel.resetSemanticCache() }
         },
         onToggleFreedium = { settingsViewModel.updatePreference(it) },
+        onToggleDarkTheme = { settingsViewModel.updateDarkTheme(it) },
         onJinaTokenChange = { settingsViewModel.updateJinaToken(it) },
         onSubmitJinaToken = { settingsViewModel.updateJinaTokenPreferences() },
     )
@@ -58,10 +63,12 @@ fun SettingsScreen(
 internal fun SettingsScreenContent(
     modifier: Modifier = Modifier,
     useFreedium: Boolean,
+    darkThemeEnabled: Boolean,
     jinaToken: String,
     jinaPlaceholder: String,
     onResetSemanticCache: () -> Unit,
     onToggleFreedium: (Boolean) -> Unit,
+    onToggleDarkTheme: (Boolean) -> Unit,
     onJinaTokenChange: (String) -> Unit,
     onSubmitJinaToken: () -> Unit,
 ) {
@@ -72,6 +79,23 @@ internal fun SettingsScreenContent(
             onClick = onResetSemanticCache
         ) {
             Text(text = "Reset Semantic Cache")
+        }
+        HorizontalDivider()
+        Spacer(Modifier.height(8.dp))
+        Text("APPEARANCE", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = "Dark mode")
+            Switch(
+                checked = darkThemeEnabled,
+                onCheckedChange = onToggleDarkTheme
+            )
         }
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
@@ -127,10 +151,12 @@ private fun SettingsScreenPreview() {
     TrailsTheme {
         SettingsScreenContent(
             useFreedium = true,
+            darkThemeEnabled = false,
             jinaToken = PreviewFixtures.authAccessToken,
             jinaPlaceholder = "Insert Jina Token Here",
             onResetSemanticCache = {},
             onToggleFreedium = {},
+            onToggleDarkTheme = {},
             onJinaTokenChange = {},
             onSubmitJinaToken = {},
         )
@@ -147,10 +173,12 @@ private fun SettingsScreenDarkPreview() {
     TrailsTheme(darkTheme = true) {
         SettingsScreenContent(
             useFreedium = false,
+            darkThemeEnabled = true,
             jinaToken = "",
             jinaPlaceholder = "Insert Jina Token Here",
             onResetSemanticCache = {},
             onToggleFreedium = {},
+            onToggleDarkTheme = {},
             onJinaTokenChange = {},
             onSubmitJinaToken = {},
         )

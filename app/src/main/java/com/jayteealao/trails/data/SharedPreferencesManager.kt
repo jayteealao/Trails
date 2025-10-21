@@ -49,8 +49,8 @@ class SharedPreferencesManager @Inject constructor(
         editor.apply()
     }
 
-    fun getBoolean(key: String): Boolean {
-        return sharedPreferences.getBoolean(key, false)
+    fun getBoolean(key: String, defaultValue: Boolean = false): Boolean {
+        return sharedPreferences.getBoolean(key, defaultValue)
     }
 
     fun preferenceChangesFlow(): Flow<String?> = callbackFlow {
@@ -61,6 +61,17 @@ class SharedPreferencesManager @Inject constructor(
 //        invokeOnClose {
 //            sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener)
 //        }
+        awaitClose { sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    fun booleanFlow(key: String, defaultValue: Boolean = false): Flow<Boolean> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->
+            if (changedKey == key) {
+                trySend(getBoolean(key, defaultValue)).isSuccess
+            }
+        }
+        trySend(getBoolean(key, defaultValue)).isSuccess
+        sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
         awaitClose { sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 }
