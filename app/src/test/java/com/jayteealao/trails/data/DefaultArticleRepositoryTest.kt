@@ -27,25 +27,25 @@ import org.junit.Test
 class DefaultArticleRepositoryTest {
 
     @Test
-    fun pockets_newItemSaved_itemIsReturned() = runTest {
-//        val repository = DefaultArticleRepository(FakePocketDao())
+    fun articles_newItemSaved_itemIsReturned() = runTest {
+//        val repository = DefaultArticleRepository(FakeArticleDao())
 
 //        repository.add("Repository")
 
-//        assertEquals(repository.pockets.first().size, 1)
+//        assertEquals(repository.articles.first().size, 1)
     }
 
 }
 
-//private class FakePocketDao : PocketDao {
+//private class FakeArticleDao : ArticleDao {
 //
-//    private val data = mutableListOf<Pocket>()
+//    private val data = mutableListOf<Article>()
 //
-//    override fun getArticles(): Flow<List<Pocket>> = flow {
+//    override fun getArticles(): Flow<List<Article>> = flow {
 //        emit(data)
 //    }
 //
-//    override suspend fun insertPocket(item: Pocket) {
+//    override suspend fun insertArticle(item: Article) {
 //        data.add(0, item)
 //    }
 //}

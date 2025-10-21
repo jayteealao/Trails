@@ -17,7 +17,7 @@
 <resources>
     <string name="app_name">Trails</string>
     <string name="sync_notification_channel_name">Storage synchronization</string>
-    <string name="sync_notification_channel_description">Storage synchronization tasks for pocket articles</string>
+    <string name="sync_notification_channel_description">Storage synchronization tasks for saved articles</string>
     <string name="sync_notification_title">Syncing articles</string>
     <string name="sync_notification_cancel">cancel\n</string>
     <string name="title_activity_intent">IntentActivity</string>

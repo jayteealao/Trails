@@ -7,7 +7,7 @@ import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
-import com.jayteealao.trails.data.local.database.PocketArticle
+import com.jayteealao.trails.data.local.database.Article
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,13 +21,13 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ArticleDetailViewModel @Inject constructor(
-    private val pocketRepository: ArticleRepository,
+    private val articleRepository: ArticleRepository,
     private val sharedPreferencesManager: SharedPreferencesManager,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel() {
 
-    private var _article = MutableStateFlow<PocketArticle?>(null)
-    val article: StateFlow<PocketArticle?>
+    private var _article = MutableStateFlow<Article?>(null)
+    val article: StateFlow<Article?>
         get() = _article
 
     var _jinaToken = MutableStateFlow("")
@@ -44,7 +44,7 @@ class ArticleDetailViewModel @Inject constructor(
     fun getArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher){
             val modifier = UrlModifier()
-            var articleFetched = pocketRepository.getArticleById(itemId)
+            var articleFetched = articleRepository.getArticleById(itemId)
             if (useFreediumFlow.value && articleFetched != null) {
                 articleFetched = articleFetched.copy(
                     url = modifier.modifyUrl(articleFetched.url ?: articleFetched.givenUrl!!)

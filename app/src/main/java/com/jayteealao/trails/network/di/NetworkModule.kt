@@ -7,7 +7,8 @@ import com.chuckerteam.chucker.api.RetentionManager
 // Add this import
 import com.google.gson.GsonBuilder
 import com.jayteealao.trails.data.SharedPreferencesManager
-import com.jayteealao.trails.network.pocket.PocketService
+import com.jayteealao.trails.network.article.ArticleClient
+import com.jayteealao.trails.network.article.ArticleService
 import com.jayteealao.trails.services.archivebox.ArchiveBoxService
 import com.jayteealao.trails.services.jina.JinaService
 import com.jayteealao.trails.services.postgrest.PostgrestService
@@ -101,10 +102,10 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun providePocketService(okHttpClient: OkHttpClient): PocketService {
-        // Configure Gson for PocketService if needed, or use a shared instance
+    fun provideArticleService(okHttpClient: OkHttpClient): ArticleService {
+        // Configure Gson for ArticleService if needed, or use a shared instance
         val gson = GsonBuilder()
-            .serializeNulls() // Example: if PocketService also needs nulls serialized
+            .serializeNulls() // Example: if ArticleService also needs nulls serialized
             .create()
         val retrofit = Retrofit.Builder()
             .client(okHttpClient)
@@ -112,8 +113,13 @@ object NetworkModule {
             .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
             .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
             .build()
-        return retrofit.create(PocketService::class.java)
+        return retrofit.create(ArticleService::class.java)
     }
+
+    @Provides
+    @Singleton
+    fun provideArticleClient(articleService: ArticleService): ArticleClient =
+        ArticleClient(articleService)
 
     @Provides
     @Singleton

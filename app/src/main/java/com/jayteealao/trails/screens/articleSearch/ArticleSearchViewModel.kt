@@ -17,7 +17,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ArticleSearchViewModel @Inject constructor(
     private val modalClient: ModalClient,
-    private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
+    private val articleRepository: ArticleRepository,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 
 ): ViewModel() {
@@ -36,29 +36,29 @@ class ArticleSearchViewModel @Inject constructor(
 
     fun setFavorite(itemId: String, isFavorite: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.setFavorite(itemId, isFavorite)
+            articleRepository.setFavorite(itemId, isFavorite)
         }
     }
 
     fun updateTag(itemId: String, tag: String, enabled: Boolean) {
         viewModelScope.launch(ioDispatcher) {
             if (enabled) {
-                pocketRepository.addTag(itemId, tag)
+                articleRepository.addTag(itemId, tag)
             } else {
-                pocketRepository.removeTag(itemId, tag)
+                articleRepository.removeTag(itemId, tag)
             }
         }
     }
 
     private fun searchLocal(query: String) {
         viewModelScope.launch(ioDispatcher) {
-            _searchResultsLocal.value = pocketRepository.searchLocal(query)
+            _searchResultsLocal.value = articleRepository.searchLocal(query)
         }
     }
 
     private fun searchWeaviate(query: String) {
         viewModelScope.launch(ioDispatcher) {
-            _searchResultsHybrid.value = pocketRepository.searchHybrid(query)
+            _searchResultsHybrid.value = articleRepository.searchHybrid(query)
         }
     }
 

@@ -28,11 +28,11 @@ import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.data.ArticleRepository
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
-import com.jayteealao.trails.data.models.PocketSummary
+import com.jayteealao.trails.data.models.ArticleSummary
 import com.jayteealao.trails.services.archivebox.ArchiveBoxClient
 import com.jayteealao.trails.services.jina.JinaClient
 import com.jayteealao.trails.services.supabase.SupabaseService
@@ -54,11 +54,11 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
-    private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
-//    private val synchronizePocketUseCase: SynchronizePocketUseCase,
+    private val articleRepository: ArticleRepository,
+//    private val synchronizeArticlesUseCase: SynchronizeArticlesUseCase,
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
     private val supabaseService: SupabaseService,
-    private val pocketDao: PocketDao,
+    private val articleDao: ArticleDao,
     private val jinaClient: JinaClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
     private val archiveBoxClient: ArchiveBoxClient,
@@ -68,13 +68,13 @@ class ArticleListViewModel @Inject constructor(
     private val _selectedTag = MutableStateFlow<String?>(null)
     val selectedTag: StateFlow<String?> = _selectedTag
 
-    private val tagsFlow = pocketRepository.allTags()
+    private val tagsFlow = articleRepository.allTags()
     val tags = tagsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.synchronize() //TODO: remove to activity
+            articleRepository.synchronize() //TODO: remove to activity
         }
 
         viewModelScope.launch {
@@ -91,24 +91,24 @@ class ArticleListViewModel @Inject constructor(
     val selectedArticle: StateFlow<ArticleItem>
         get() = _selectedArticle
 
-    private val _selectedArticleSummary = MutableStateFlow(PocketSummary())
-    val selectedArticleSummary: StateFlow<PocketSummary>
+    private val _selectedArticleSummary = MutableStateFlow(ArticleSummary())
+    val selectedArticleSummary: StateFlow<ArticleSummary>
         get() = _selectedArticleSummary
 
 //    TODO: move to usecase
-    val databaseSync = pocketRepository.isSyncing
+    val databaseSync = articleRepository.isSyncing
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun sync() {
         viewModelScope.launch(ioDispatcher) {
-//            pocketDao.clearModalTable()
-//            synchronizePocketUseCase()
+//            articleDao.clearModalTable()
+//            synchronizeArticlesUseCase()
         }
     }
 
     val test = MutableStateFlow("")
 
-    private var _articles = MutableStateFlow(emptyList<PocketArticle>())
+    private var _articles = MutableStateFlow(emptyList<Article>())
     val articles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(
             pageSize = 20,
@@ -120,14 +120,14 @@ class ArticleListViewModel @Inject constructor(
 
     val favoriteArticles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(pageSize = 20),
-        pagingSourceFactory = { pocketRepository.favoritePockets() }
+        pagingSourceFactory = { articleRepository.favoriteArticles() }
     ).flow
         .cachedIn(viewModelScope)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
 
     val archivedArticles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(pageSize = 20),
-        pagingSourceFactory = { pocketRepository.archivedPockets() }
+        pagingSourceFactory = { articleRepository.archivedArticles() }
     ).flow
         .cachedIn(viewModelScope)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
@@ -139,7 +139,7 @@ class ArticleListViewModel @Inject constructor(
             } else {
                 Pager(
                     config = PagingConfig(pageSize = 20),
-                    pagingSourceFactory = { pocketRepository.pocketsByTag(tag) }
+                    pagingSourceFactory = { articleRepository.articlesByTag(tag) }
                 ).flow
             }
         }
@@ -152,35 +152,35 @@ class ArticleListViewModel @Inject constructor(
 
     fun search(query: String) {
         viewModelScope.launch(ioDispatcher) {
-            _searchResults.value = pocketRepository.searchLocal(query)
+            _searchResults.value = articleRepository.searchLocal(query)
         }
     }
 
     fun setFavorite(itemId: String, isFavorite: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.setFavorite(itemId, isFavorite)
+            articleRepository.setFavorite(itemId, isFavorite)
         }
     }
 
     fun updateTag(itemId: String, tag: String, enabled: Boolean) {
         viewModelScope.launch(ioDispatcher) {
             if (enabled) {
-                pocketRepository.addTag(itemId, tag)
+                articleRepository.addTag(itemId, tag)
             } else {
-                pocketRepository.removeTag(itemId, tag)
+                articleRepository.removeTag(itemId, tag)
             }
         }
     }
 
     fun archiveArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.archive(itemId)
+            articleRepository.archive(itemId)
         }
     }
 
     fun deleteArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.delete(itemId)
+            articleRepository.delete(itemId)
         }
     }
 
@@ -193,9 +193,9 @@ class ArticleListViewModel @Inject constructor(
         _selectedTag.value = tag
     }
 
-    fun insertArticle(article: PocketArticle) {
+    fun insertArticle(article: Article) {
         viewModelScope.launch(ioDispatcher) {
-            pocketDao.insertPocket(article)
+            articleDao.insertArticle(article)
         }
     }
 
@@ -234,8 +234,8 @@ class ArticleListViewModel @Inject constructor(
 
             var articleId = id
             try {
-                articleId = pocketDao.upsertArticle(
-                    PocketArticle(
+                articleId = articleDao.upsertArticle(
+                    Article(
                         itemId = id,
                         resolvedId = null,
                         title = "",
@@ -269,7 +269,7 @@ class ArticleListViewModel @Inject constructor(
                     _intentTitle.value = resolvedTitle
                 }
 
-                pocketDao.updateUnfurledDetails(
+                articleDao.updateUnfurledDetails(
                     itemId = articleId,
                     title = resolvedTitle,
                     url = resolvedUrl,
@@ -284,9 +284,9 @@ class ArticleListViewModel @Inject constructor(
 
                 val readerContent = jinaResult?.data?.content //TODO: replace jina with call to archiver/singlefile,
                 if (!readerContent.isNullOrBlank()) {
-                    pocketDao.updateText(articleId, readerContent)
+                    articleDao.updateText(articleId, readerContent)
                     val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
-                    pocketDao.updateArticleMetrics(
+                    articleDao.updateArticleMetrics(
                         articleId,
                         metrics.readingTimeMinutes,
                         metrics.listeningTimeMinutes,
@@ -317,9 +317,9 @@ class ArticleListViewModel @Inject constructor(
 }
 
 
-sealed interface PocketUiState {
-    data object Loading : PocketUiState
-    data class Error(val throwable: Throwable) : PocketUiState
-    data class Success(val data: List<String>) : PocketUiState
+sealed interface ArticleUiState {
+    data object Loading : ArticleUiState
+    data class Error(val throwable: Throwable) : ArticleUiState
+    data class Success(val data: List<String>) : ArticleUiState
 
 }

@@ -15,6 +15,6 @@ class AuthorizeTokenUseCase @Inject constructor() {
             data = Uri.parse(authorizationUrl)
         }
 
-        return Intent.createChooser(authIntent, "Authorize Pocket")
+        return Intent.createChooser(authIntent, "Authorize account")
     }
 }

@@ -16,7 +16,7 @@
 
 package com.jayteealao.trails.screens
 
-//import com.jayteealao.trails.data.di.fakePockets
+//import com.jayteealao.trails.data.di.fakeArticles
 //
 //@HiltAndroidTest
 //class NavigationTest {
@@ -30,7 +30,7 @@ package com.jayteealao.trails.screens
 //    @Test
 //    fun test1() {
 //        // TODO: Add navigation tests
-////        composeTestRule.onNodeWithText(fakePockets.first(), substring = true).assertExists()
+////        composeTestRule.onNodeWithText(fakeArticles.first(), substring = true).assertExists()
 //    }
 //}
 

@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 @Entity
-data class PocketSummary(
+data class ArticleSummary(
     @PrimaryKey val id: String = "",
-    val summary: String = ""
+    val summary: String = "",
 )

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -21,7 +23,6 @@ import androidx.compose.ui.window.Dialog
 import com.jayteealao.trails.data.models.ArticleItem
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.Menu
-import compose.icons.cssggicons.Pocket
 import compose.icons.cssggicons.Share
 import compose.icons.cssggicons.Website
 
@@ -67,8 +68,8 @@ fun ArticleDialog(
                     ) {
                         IconButton(onClick = { /*TODO*/ }) {
                             Icon(
-                                imageVector = CssGgIcons.Pocket,
-                                contentDescription = "Save to Pocket"
+                                imageVector = Icons.Filled.Bookmark,
+                                contentDescription = "Save article"
                             )
                         }
                         IconButton(onClick = { /*TODO*/ }) {

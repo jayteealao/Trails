@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import android.content.res.Configuration
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -31,7 +33,7 @@ import com.google.accompanist.web.AccompanistWebViewClient
 import com.google.accompanist.web.LoadingState
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
-import com.jayteealao.trails.data.local.database.PocketArticle
+import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
@@ -42,12 +44,11 @@ import com.mikepenz.markdown.model.markdownPadding
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.AlignMiddle
 import compose.icons.cssggicons.Browser
-import compose.icons.cssggicons.Pocket
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ArticleDetailScreen(
-    article: PocketArticle
+    article: Article
 ) {
     var selectedTabIndex by remember { mutableIntStateOf(1) }
 
@@ -75,7 +76,7 @@ fun ArticleDetailScreen(
                 end.linkTo(parent.end)
             },
             selectedTabIndex = selectedTabIndex,
-            shouldShowPocket = article.pocketId != "0",
+            shouldShowSource = article.remoteId != "0",
             onTabSelected = {
                 selectedTabIndex = it
             }
@@ -88,7 +89,7 @@ fun ArticleDetailScreen(
 @Composable
 private fun ArticleDetailScreenReaderPreview() {
     TrailsTheme(darkTheme = false) {
-        ArticleDetailScreen(article = PreviewFixtures.pocketArticle)
+        ArticleDetailScreen(article = PreviewFixtures.article)
     }
 }
 
@@ -98,22 +99,22 @@ private fun ArticleDetailMarkdownPreview() {
     TrailsTheme(darkTheme = false) {
         ArticleDetails(
             selectedTabIndex = 0,
-            article = PreviewFixtures.pocketArticle,
+            article = PreviewFixtures.article,
         )
     }
 }
 
 @Preview(
-    name = "Article Detail • Pocket",
+    name = "Article Detail • Source",
     showBackground = true,
     uiMode = Configuration.UI_MODE_NIGHT_YES,
 )
 @Composable
-private fun ArticleDetailPocketPreview() {
+private fun ArticleDetailSourcePreview() {
     TrailsTheme(darkTheme = true) {
         ArticleDetails(
             selectedTabIndex = 2,
-            article = PreviewFixtures.pocketArticle,
+            article = PreviewFixtures.article,
         )
     }
 }
@@ -122,7 +123,7 @@ private fun ArticleDetailPocketPreview() {
 fun ArticleDetailTabRow(
     modifier: Modifier = Modifier,
     selectedTabIndex: Int = 1,
-    shouldShowPocket: Boolean = false,
+    shouldShowSource: Boolean = false,
     onTabSelected: (Int) -> Unit = {}
 ) {
     PrimaryTabRow(
@@ -146,12 +147,12 @@ fun ArticleDetailTabRow(
             }
         )
 
-        if (shouldShowPocket) {
+        if (shouldShowSource) {
             Tab(
                 selected = selectedTabIndex == 2,
                 onClick = { onTabSelected(2) },
                 icon = {
-                    Icon(CssGgIcons.Pocket, contentDescription = null)
+                Icon(Icons.Filled.Bookmark, contentDescription = null)
                 }
             )
         }
@@ -163,7 +164,7 @@ fun ArticleDetailTabRow(
 fun ArticleDetails(
     modifier: Modifier = Modifier,
     selectedTabIndex: Int = 1,
-    article: PocketArticle
+    article: Article
 ) {
 
 //    val modifiedUrl = remember(article.url) {
@@ -177,7 +178,7 @@ fun ArticleDetails(
         when (targetIndex) {
             0 -> ArticleMarkdown(article.text ?: "No content")
             1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
-            2 -> ArticlePocketWebView(article.itemId)
+            2 -> ArticleSourceWebView(article.itemId)
 
         }
     }
@@ -210,7 +211,7 @@ fun ArticleWebView(
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun ArticlePocketWebView(
+fun ArticleSourceWebView(
     articleId: String
 ) {
     val webViewState = rememberWebViewState(url = "https://getpocket.com/read/${articleId}" ?: "https://www.google.com/")

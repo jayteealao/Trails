@@ -38,7 +38,7 @@
 
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 #-keep class com.jayteealao.trails.network.** { *; }
-#-keep interface com.jayteealao.trails.network.pocket.PocketService {
+#-keep interface com.jayteealao.trails.network.article.ArticleService {
 #  *;
 #}
 #keep rules for the Retrofit 2.0 implementation

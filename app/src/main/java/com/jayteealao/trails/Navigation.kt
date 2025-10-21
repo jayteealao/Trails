@@ -54,7 +54,7 @@ import com.jayteealao.trails.screens.articleDetail.ArticleDetailScreen
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailViewModel
 import com.jayteealao.trails.screens.articleList.ArticleListScreen
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
-import com.jayteealao.trails.screens.articleList.PocketScreenContent
+import com.jayteealao.trails.screens.articleList.ArticleScreenContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchViewModel
@@ -223,7 +223,7 @@ private fun MainNavigationPreview() {
                             translationX = transitionData.offset * 100
                         }
                     ) {
-                        PocketScreenContent(
+                        ArticleScreenContent(
                             lazyItems = previewArticles,
                             onSelectArticle = { navController.navigate("article") },
                             onToggleFavorite = { _, _ -> },
@@ -234,7 +234,7 @@ private fun MainNavigationPreview() {
                     }
                 }
                 composable("article") {
-                    ArticleDetailScreen(article = PreviewFixtures.pocketArticle)
+                    ArticleDetailScreen(article = PreviewFixtures.article)
                 }
                 composable("search") {
                     ArticleSearchContent(
@@ -300,7 +300,7 @@ private fun MainNavigationDarkPreview() {
                 startDestination = "main",
             ) {
                 composable("main") {
-                    PocketScreenContent(
+                    ArticleScreenContent(
                         lazyItems = previewArticles,
                         onSelectArticle = {},
                         onToggleFavorite = { _, _ -> },
@@ -310,7 +310,7 @@ private fun MainNavigationDarkPreview() {
                     )
                 }
                 composable("article") {
-                    ArticleDetailScreen(article = PreviewFixtures.pocketArticle)
+                    ArticleDetailScreen(article = PreviewFixtures.article)
                 }
             }
         }
