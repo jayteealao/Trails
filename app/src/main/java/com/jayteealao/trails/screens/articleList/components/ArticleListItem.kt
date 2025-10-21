@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -31,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -40,6 +43,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,11 +85,10 @@ import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
 import kotlinx.coroutines.Dispatchers
-import me.saket.swipe.SwipeAction
-import me.saket.swipe.SwipeableActionsBox
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ArticleListItem(
     article: ArticleItem,
@@ -178,49 +184,107 @@ fun ArticleListItem(
             HtmlCompat.FROM_HTML_MODE_LEGACY
         ).toSpannable().toAnnotatedString(Color.Black)
     } else { null }
-    val archive = SwipeAction(
-        onSwipe = onArchive,
-        icon = {
-            Icon(
-                painter = painterResource(id = R.drawable.archive_icon_24),
-                contentDescription = "Archive",
-                modifier = Modifier.padding(16.dp),
-                tint = Color.White
-            )
-        },
-        background = Color.Green
-    )
+    val swipeState = rememberSwipeToDismissBoxState()
+    var showTrailingActions by remember(article.itemId) { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
-    val delete = SwipeAction(
-        onSwipe = onDelete,
-        icon = {
-            Icon(
-                painter = painterResource(id = R.drawable.delete_24px),
-                contentDescription = "Delete",
-                modifier = Modifier.padding(16.dp),
-                tint = Color.White
-            )
-        },
-        background = Color.Red
-    )
+    LaunchedEffect(swipeState.currentValue) {
+        when (swipeState.currentValue) {
+            SwipeToDismissBoxValue.StartToEnd -> {
+                val newFavorite = !isFavorite
+                isFavorite = newFavorite
+                onFavoriteToggle(newFavorite)
+                swipeState.reset()
+            }
+            SwipeToDismissBoxValue.EndToStart -> {
+                showTrailingActions = true
+            }
+            SwipeToDismissBoxValue.Settled -> {
+                showTrailingActions = false
+            }
+        }
+    }
 
-    val favorite = SwipeAction(
-        onSwipe = { onFavoriteToggle(!isFavorite) },
-        icon = {
-            Icon(
-                painter = painterResource(id = R.drawable.favorite_24px),
-                contentDescription = "Favorite",
-                modifier = Modifier.padding(16.dp),
-                tint = Color.White
-            )
-        },
-        background = Color.Blue
-    )
-    SwipeableActionsBox(
-        startActions = listOf(favorite),
-        endActions = listOf(archive, delete),
-        swipeThreshold = 100.dp,
-        modifier = modifier
+    SwipeToDismissBox(
+        modifier = modifier,
+        state = swipeState,
+        backgroundContent = {
+            val direction = swipeState.dismissDirection
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+            ) {
+                if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .align(Alignment.CenterStart)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Blue)
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.favorite_24px),
+                            contentDescription = "Favorite",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                if (showTrailingActions) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .align(Alignment.CenterEnd)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Green)
+                                .clickable {
+                                    onArchive()
+                                    showTrailingActions = false
+                                    coroutineScope.launch { swipeState.reset() }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.archive_icon_24),
+                                contentDescription = "Archive",
+                                tint = Color.White
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color.Red)
+                                .clickable {
+                                    onDelete()
+                                    showTrailingActions = false
+                                    coroutineScope.launch { swipeState.reset() }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.delete_24px),
+                                contentDescription = "Delete",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
     ) {
         Column {
             Row(
