@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,9 +29,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -186,7 +185,9 @@ fun ArticleListItem(
             article.snippet,
             HtmlCompat.FROM_HTML_MODE_LEGACY
         ).toSpannable().toAnnotatedString(colorScheme.onSurface)
-    } else { null }
+    } else {
+        null
+    }
     val swipeState = rememberSwipeToDismissBoxState()
 
     LaunchedEffect(swipeState.currentValue) {
@@ -197,6 +198,7 @@ fun ArticleListItem(
                 onFavoriteToggle(newFavorite)
                 swipeState.reset()
             }
+
             SwipeToDismissBoxValue.EndToStart -> {
                 // Auto-reset after 5 seconds
                 launch {
@@ -204,6 +206,7 @@ fun ArticleListItem(
                     swipeState.reset()
                 }
             }
+
             SwipeToDismissBoxValue.Settled -> {}
         }
     }
@@ -247,7 +250,10 @@ fun ArticleListItem(
                             modifier = Modifier
                                 .align(Alignment.Center)
                                 .padding(horizontal = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                            horizontalArrangement = Arrangement.spacedBy(
+                                12.dp,
+                                Alignment.CenterHorizontally
+                            ),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -291,264 +297,275 @@ fun ArticleListItem(
             }
         }
     ) {
-        Column(
-            modifier = Modifier
-                .background(colorScheme.surface)
-                .clip(RoundedCornerShape(16.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = 4.dp,
+                pressedElevation = 8.dp
+            ),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color.White
+            )
         ) {
-            Row(
-                modifier = Modifier
-                    .padding(start = 8.dp, end = 8.dp, top = 8.dp)
-                    .wrapContentHeight()
-//                    .heightIn(max = 90.dp)
-                    .clickable { onClick() },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+            Column(
+                modifier = Modifier.padding(12.dp)
             ) {
-                Box(
+                Row(
                     modifier = Modifier
-                        .wrapContentSize()
-                        .shadowsPlus(
-                            type = ShadowsPlusType.SoftLayer,
-                            shape = RoundedCornerShape(16.dp),
-                            color = vibrantColor.copy(alpha = 0.6f),
-                            radius = 1.dp,
-                            spread = 0.dp,
-                            offset = DpOffset(0.dp, 0.dp),
-                            isAlphaContentClip = true
-                        )
-                        .align(Alignment.CenterVertically)
+                        .wrapContentHeight()
+                        .clickable { onClick() },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .wrapContentSize()
+                            .shadowsPlus(
+                                type = ShadowsPlusType.SoftLayer,
+                                shape = RoundedCornerShape(16.dp),
+                                color = vibrantColor.copy(alpha = 0.6f),
+                                radius = 1.dp,
+                                spread = 0.dp,
+                                offset = DpOffset(0.dp, 0.dp),
+                                isAlphaContentClip = true
+                            )
+                            .align(Alignment.CenterVertically)
+                    ) {
 
-                    if (dominantColor != Color.Transparent && vibrantColor != Color.Transparent) {
-                        Box(
+                        if (dominantColor != Color.Transparent && vibrantColor != Color.Transparent) {
+                            Box(
+                                modifier = Modifier
+                                    .height(80.dp)
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                dominantColor.copy(alpha = 0.6f),
+                                                vibrantColor.copy(alpha = 0.6f)
+                                            ),
+                                        )
+                                    )
+                            )
+                        }
+
+                        AsyncImage(
                             modifier = Modifier
                                 .height(80.dp)
                                 .aspectRatio(1f)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            dominantColor.copy(alpha = 0.6f),
-                                            vibrantColor.copy(alpha = 0.6f)
-                                        ),
-                                    )
+                                .background(color = Color.Transparent),
+                            model = ImageRequest.Builder(context)
+                                .data(article.image)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCacheKey(article.itemId)
+                                .memoryCacheKey(article.itemId)
+                                .allowHardware(false)
+                                .crossfade(true)
+                                .coroutineContext(Dispatchers.IO)
+                                .size(80, 80)
+                                .scale(Scale.FILL)
+                                .listener(
+                                    onSuccess = { _, result ->
+                                        Timber.d("Image Loaded")
+                                        extractPaletteFromBitmap(result.image.asDrawable(context.resources))
+                                    }
                                 )
+                                .build(),
+                            contentDescription = null,
                         )
                     }
 
-                    AsyncImage(
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(
                         modifier = Modifier
-                            .height(80.dp)
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(color = Color.Transparent),
-                        model = ImageRequest.Builder(context)
-                            .data(article.image)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCacheKey(article.itemId)
-                            .memoryCacheKey(article.itemId)
-                            .allowHardware(false)
-                            .crossfade(true)
-                            .coroutineContext(Dispatchers.IO)
-                            .size(80, 80)
-                            .scale(Scale.FILL)
-                            .listener(
-                                onSuccess = { _, result ->
-                                    Timber.d("Image Loaded")
-                                    extractPaletteFromBitmap(result.image.asDrawable(context.resources))
-                                }
-                            )
-                            .build(),
-                        contentDescription = null,
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-                Column (
-                    modifier = Modifier
-                        .weight(1f)
-                        .align(Alignment.CenterVertically)){
-                    Text(
-                        modifier = Modifier
-                            .wrapContentHeight()
-                            .padding(end = 8.dp),
-                        text = article.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontSize = 16.sp
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .weight(1f)
+                            .align(Alignment.CenterVertically)
                     ) {
                         Text(
                             modifier = Modifier
-                                .padding(start = 0.dp)
-                                .align(Alignment.CenterVertically),
-                            text = article.domain,
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = 10.sp
+                                .wrapContentHeight()
+                                .padding(end = 8.dp),
+                            text = article.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontSize = 16.sp
                         )
-                        IconToggleButton(
-                            modifier = Modifier.size(24.dp),
-                            checked = isFavorite,
-                            onCheckedChange = { checked ->
-                                isFavorite = checked
-                                onFavoriteToggle(checked)
-                            }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                painter = if (isFavorite) filledStar else outlinedStar,
-                                contentDescription = if (isFavorite) {
-                                    "Remove from favorites"
-                                } else {
-                                    "Add to favorites"
-                                },
-                                tint = if (isFavorite) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
+                            Text(
+                                modifier = Modifier
+                                    .padding(start = 0.dp)
+                                    .align(Alignment.CenterVertically),
+                                text = article.domain,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 10.sp
                             )
+                            IconToggleButton(
+                                modifier = Modifier.size(24.dp),
+                                checked = isFavorite,
+                                onCheckedChange = { checked ->
+                                    isFavorite = checked
+                                    onFavoriteToggle(checked)
+                                }
+                            ) {
+                                Icon(
+                                    painter = if (isFavorite) filledStar else outlinedStar,
+                                    contentDescription = if (isFavorite) {
+                                        "Remove from favorites"
+                                    } else {
+                                        "Add to favorites"
+                                    },
+                                    tint = if (isFavorite) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(4.dp))
-            if (!parsedSnippet.isNullOrBlank()) {
-//                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    modifier = Modifier.padding(start = 8.dp, end = 8.dp),
-                    text = parsedSnippet,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-//            Spacer(modifier = Modifier.height(4.dp))
-            FlowRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight()
-                    .background(colorScheme.surface)
-                    .padding(start = 8.dp, end = 4.dp, bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                val tagsInDisplay = tagStates.keys.toList().sorted()
-                tagsInDisplay.forEach { tag ->
-                    val selected = tagStates[tag] ?: false
-                    FilterChip(
-                        selected = selected,
-                        onClick = {
-                            val newSelected = !selected
-                            tagStates[tag] = newSelected
-                            onTagToggle(tag, newSelected)
-                        },
-                        label = {
-                            Text(modifier = Modifier, text = tag, style = MaterialTheme.typography.labelSmall)
+                Spacer(modifier = Modifier.height(4.dp))
+                if (!parsedSnippet.isNullOrBlank()) {
+                    Text(
+                        modifier = Modifier.padding(start = 8.dp, end = 8.dp),
+                        text = parsedSnippet,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                        .background(colorScheme.surface)
+                        .padding(start = 8.dp, end = 4.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    val tagsInDisplay = tagStates.keys.toList().sorted()
+                    tagsInDisplay.forEach { tag ->
+                        val selected = tagStates[tag] ?: false
+                        FilterChip(
+                            selected = selected,
+                            onClick = {
+                                val newSelected = !selected
+                                tagStates[tag] = newSelected
+                                onTagToggle(tag, newSelected)
+                            },
+                            label = {
+                                Text(
+                                    modifier = Modifier,
+                                    text = tag,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
 //                            TagItem(tag = tag)
-                                },
+                            },
+                            modifier = Modifier
+                                .height(28.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
+                                    alpha = 0.16f
+                                ),
+                                selectedLabelColor = MaterialTheme.colorScheme.primary
+                            )
+                        )
+                    }
+                    FilterChip(
+                        selected = false,
+                        onClick = { showAddTagDialog = true },
+                        label = { Text(text = "") },
+                        leadingIcon = {
+                            Icon(
+                                painter = painterResource(id = R.drawable.add_24px),
+                                contentDescription = "Add tag",
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .wrapContentHeight()
+                            )
+                        },
                         modifier = Modifier
-                            .height(28.dp),
+                            .height(28.dp)
+                            .align(Alignment.Top),
+                        border = FilterChipDefaults.filterChipBorder(
+                            borderColor = Color.Transparent,
+                            selectedBorderColor = Color.Transparent,
+                            disabledBorderColor = Color.Transparent,
+                            disabledSelectedBorderColor = Color.Transparent,
+                            enabled = true,
+                            selected = false
+                        ),
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
-                                alpha = 0.16f
-                            ),
-                            selectedLabelColor = MaterialTheme.colorScheme.primary
+                            selectedContainerColor = Color.Transparent,
+                            selectedLabelColor = Color.Transparent
                         )
                     )
                 }
-                FilterChip(
-                    selected = false,
-                    onClick = { showAddTagDialog = true },
-                    label = { Text(text = "") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "Add tag",
-                            modifier = Modifier
-                                .size(20.dp)
-                                .wrapContentHeight()
+                HorizontalDivider(
+                    modifier = Modifier
+                        .background(colorScheme.surface)
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth(),
+                    thickness = 1.dp,
+                    color = colorScheme.outlineVariant
+                )
+            }
+
+            if (showAddTagDialog) {
+                AlertDialog(
+                    onDismissRequest = {
+                        showAddTagDialog = false
+                        newTagText = ""
+                    },
+                    title = { Text(text = "Add tag") },
+                    text = {
+                        OutlinedTextField(
+                            value = newTagText,
+                            onValueChange = { newValue -> newTagText = newValue },
+                            label = { Text(text = "Tag name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
                         )
                     },
-                    modifier = Modifier
-                        .height(28.dp)
-                        .align(Alignment.Top),
-                    border = FilterChipDefaults.filterChipBorder(
-                        borderColor = Color.Transparent,
-                        selectedBorderColor = Color.Transparent,
-                        disabledBorderColor = Color.Transparent,
-                        disabledSelectedBorderColor = Color.Transparent,
-                        enabled = true,
-                        selected = false
-                    ),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color.Transparent,
-                        selectedLabelColor = Color.Transparent
-                    )
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                val normalizedTag = newTagText.trim().replace(Regex("\\s+"), " ")
+                                if (normalizedTag.isNotEmpty()) {
+                                    val alreadyEnabled = tagStates[normalizedTag] == true
+                                    tagStates[normalizedTag] = true
+                                    if (!alreadyEnabled) {
+                                        onTagToggle(normalizedTag, true)
+                                    }
+                                }
+                                newTagText = ""
+                                showAddTagDialog = false
+                            }
+                        ) {
+                            Text(text = "Add")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                showAddTagDialog = false
+                                newTagText = ""
+                            }
+                        ) {
+                            Text(text = "Cancel")
+                        }
+                    }
                 )
             }
-            HorizontalDivider(
-                modifier = Modifier
-                    .background(colorScheme.surface)
-                    .padding(horizontal = 16.dp)
-                    .fillMaxWidth(),
-                thickness = 1.dp,
-                color = colorScheme.outlineVariant
-            )
-        }
-
-        if (showAddTagDialog) {
-            AlertDialog(
-                onDismissRequest = {
-                    showAddTagDialog = false
-                    newTagText = ""
-                },
-                title = { Text(text = "Add tag") },
-                text = {
-                    OutlinedTextField(
-                        value = newTagText,
-                        onValueChange = { newValue -> newTagText = newValue },
-                        label = { Text(text = "Tag name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val normalizedTag = newTagText.trim().replace(Regex("\\s+"), " ")
-                            if (normalizedTag.isNotEmpty()) {
-                                val alreadyEnabled = tagStates[normalizedTag] == true
-                                tagStates[normalizedTag] = true
-                                if (!alreadyEnabled) {
-                                    onTagToggle(normalizedTag, true)
-                                }
-                            }
-                            newTagText = ""
-                            showAddTagDialog = false
-                        }
-                    ) {
-                        Text(text = "Add")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showAddTagDialog = false
-                            newTagText = ""
-                        }
-                    ) {
-                        Text(text = "Cancel")
-                    }
-                }
-            )
         }
     }
 }

@@ -1,13 +1,14 @@
 package com.jayteealao.trails.screens.articleSearch
 
 import android.content.res.Configuration
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -19,6 +20,7 @@ import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -97,13 +99,19 @@ internal fun ArticleSearchContent(
                 dividerColor = MaterialTheme.colorScheme.primary,
             )
         ) {
-            LazyColumn {
-                items(
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFF5F5F5))
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+            ) {
+                itemsIndexed(
                     items = searchResults,
-                    key = { article -> article.itemId }
-                ) { article ->
+                    key = { _, article -> article.itemId }
+                ) { index, article ->
                     ArticleListItem(
                         article = article,
+                        modifier = if (index != 0) Modifier.padding(top = 12.dp) else Modifier,
                         onClick = { onSelectArticle(article) },
                         onFavoriteToggle = { isFavorite ->
                             setFavorite(article.itemId, isFavorite)
