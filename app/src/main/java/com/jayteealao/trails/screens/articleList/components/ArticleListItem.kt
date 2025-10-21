@@ -30,16 +30,18 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -82,7 +84,7 @@ import me.saket.swipe.SwipeAction
 import me.saket.swipe.SwipeableActionsBox
 import timber.log.Timber
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ArticleListItem(
     article: ArticleItem,
@@ -91,7 +93,8 @@ fun ArticleListItem(
     onFavoriteToggle: (Boolean) -> Unit = {},
     onTagToggle: (String, Boolean) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
-    onDelete: () -> Unit = {}
+    onDelete: () -> Unit = {},
+    availableTags: List<String> = emptyList(),
 ) {
     val context = LocalContext.current
 
@@ -108,7 +111,7 @@ fun ArticleListItem(
     val outlinedStar = painterResource(id = R.drawable.star_24px)
 
     val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }
-    var showAddTagDialog by remember(article.itemId) { mutableStateOf(false) }
+    var showTagSheet by remember(article.itemId) { mutableStateOf(false) }
     var newTagText by remember(article.itemId) { mutableStateOf("") }
     LaunchedEffect(article.tagsString) {
         // Mark all known tags as absent until confirmed by the latest data snapshot
@@ -119,10 +122,19 @@ fun ArticleListItem(
             tagStates[tag] = true
         }
     }
+    LaunchedEffect(article.itemId, availableTags) {
+        availableTags.forEach { tag ->
+            if (!tagStates.containsKey(tag)) {
+                tagStates[tag] = false
+            }
+        }
+    }
     LaunchedEffect(article.itemId) {
-        showAddTagDialog = false
+        showTagSheet = false
         newTagText = ""
     }
+
+    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Animated gradient angle
     val infiniteTransition = rememberInfiniteTransition(label = "gradientTransition")
@@ -367,7 +379,11 @@ fun ArticleListItem(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                val tagsInDisplay = tagStates.keys.toList().sorted()
+                val tagsInDisplay = tagStates
+                    .filterValues { it }
+                    .keys
+                    .toList()
+                    .sorted()
                 tagsInDisplay.forEach { tag ->
                     val selected = tagStates[tag] ?: false
                     FilterChip(
@@ -394,7 +410,7 @@ fun ArticleListItem(
                 }
                 FilterChip(
                     selected = false,
-                    onClick = { showAddTagDialog = true },
+                    onClick = { showTagSheet = true },
                     label = { Text(text = "") },
                     leadingIcon = {
                         Icon(
@@ -431,52 +447,87 @@ fun ArticleListItem(
                 color = Color.Black
             )
         }
-
-        if (showAddTagDialog) {
-            AlertDialog(
+        if (showTagSheet) {
+            ModalBottomSheet(
                 onDismissRequest = {
-                    showAddTagDialog = false
+                    showTagSheet = false
                     newTagText = ""
                 },
-                title = { Text(text = "Add tag") },
-                text = {
-                    OutlinedTextField(
-                        value = newTagText,
-                        onValueChange = { newValue -> newTagText = newValue },
-                        label = { Text(text = "Tag name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
+                sheetState = bottomSheetState
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Manage tags",
+                        style = MaterialTheme.typography.titleMedium
                     )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val normalizedTag = newTagText.trim().replace(Regex("\\s+"), " ")
-                            if (normalizedTag.isNotEmpty()) {
-                                val alreadyEnabled = tagStates[normalizedTag] == true
-                                tagStates[normalizedTag] = true
-                                if (!alreadyEnabled) {
-                                    onTagToggle(normalizedTag, true)
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val sheetTags = (tagStates.keys + availableTags)
+                            .toSet()
+                            .toList()
+                            .sorted()
+                        sheetTags.forEach { tag ->
+                            val selected = tagStates[tag] == true
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    val newSelected = !selected
+                                    tagStates[tag] = newSelected
+                                    onTagToggle(tag, newSelected)
+                                },
+                                label = {
+                                    Text(
+                                        text = tag,
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
                                 }
-                            }
-                            newTagText = ""
-                            showAddTagDialog = false
+                            )
                         }
-                    ) {
-                        Text(text = "Add")
                     }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showAddTagDialog = false
-                            newTagText = ""
-                        }
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(text = "Cancel")
+                        OutlinedTextField(
+                            value = newTagText,
+                            onValueChange = { newValue -> newTagText = newValue },
+                            label = { Text(text = "New tag") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    val normalizedTag = newTagText
+                                        .trim()
+                                        .replace(Regex("\\s+"), " ")
+                                    if (normalizedTag.isNotEmpty()) {
+                                        val wasSelected = tagStates[normalizedTag] == true
+                                        tagStates[normalizedTag] = true
+                                        if (!wasSelected) {
+                                            onTagToggle(normalizedTag, true)
+                                        }
+                                        newTagText = ""
+                                    }
+                                }
+                            ) {
+                                Text(text = "Add tag")
+                            }
+                        }
                     }
                 }
-            )
+            }
         }
     }
 }
@@ -498,7 +549,8 @@ fun ArticleListItemPreview() {
         article = article,
         onClick = {},
         onFavoriteToggle = {},
-        onTagToggle = { _, _ -> }
+        onTagToggle = { _, _ -> },
+        availableTags = listOf("compose", "android", "kotlin")
     )
 }
 
