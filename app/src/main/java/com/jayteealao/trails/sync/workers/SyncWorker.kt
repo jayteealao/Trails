@@ -16,7 +16,8 @@ import com.jayteealao.trails.data.datasource.NetworkDataSource
 import com.jayteealao.trails.data.local.database.PocketDao
 import com.jayteealao.trails.network.PocketData
 import com.jayteealao.trails.services.jina.JinaClient
-import com.jayteealao.trails.services.supabase.SupabaseService
+import com.jayteealao.trails.services.postgrest.PostgrestClient
+//import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.sync.initializers.syncForegroundInfo
 import com.jayteealao.trails.sync.workers.SyncWorker.Companion.ARTICLE_LIMIT
 import com.jayteealao.trails.usecases.GetAccessTokenFromLocalUseCase
@@ -60,8 +61,8 @@ class SyncWorker @AssistedInject constructor(
     lateinit var getSinceFromLocalUseCase: GetSinceFromLocalUseCase
     @Inject
     lateinit var networkDataSource: NetworkDataSource
-    @Inject
-    lateinit var supabaseService: SupabaseService
+//    @Inject
+//    lateinit var supabaseService: SupabaseService
     @Inject
     lateinit var pocketDao: PocketDao
     @Inject
