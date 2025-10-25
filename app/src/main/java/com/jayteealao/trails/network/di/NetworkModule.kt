@@ -4,11 +4,9 @@ import android.content.Context
 import com.chuckerteam.chucker.api.ChuckerCollector
 import com.chuckerteam.chucker.api.ChuckerInterceptor
 import com.chuckerteam.chucker.api.RetentionManager
-// Add this import
 import com.google.gson.GsonBuilder
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.network.pocket.PocketService
-import com.jayteealao.trails.services.archivebox.ArchiveBoxService
 import com.jayteealao.trails.services.jina.JinaService
 import com.jayteealao.trails.services.postgrest.PostgrestService
 import com.jayteealao.trails.services.semanticSearch.modal.ModalService
@@ -150,22 +148,22 @@ object NetworkModule {
         return retrofit.create(JinaService::class.java)
     }
 
-    @Provides
-    @Singleton
-    fun provideArchiveBoxService(okHttpClient: OkHttpClient): ArchiveBoxService {
-        // Configure Gson for ArchiveBoxService if needed
-        val gson = GsonBuilder()
-            .serializeNulls() // Example: if ArchiveBoxService also needs nulls serialized
-            .create()
-        val BASE_URL = "https://graphitenerd.online"
-        val retrofit = Retrofit.Builder()
-            .client(okHttpClient)
-            .baseUrl(BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
-            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
-            .build()
-        return retrofit.create(ArchiveBoxService::class.java)
-    }
+//    @Provides
+//    @Singleton
+//    fun provideArchiveBoxService(okHttpClient: OkHttpClient): ArchiveBoxService {
+//        // Configure Gson for ArchiveBoxService if needed
+//        val gson = GsonBuilder()
+//            .serializeNulls() // Example: if ArchiveBoxService also needs nulls serialized
+//            .create()
+//        val BASE_URL = "https://graphitenerd.online"
+//        val retrofit = Retrofit.Builder()
+//            .client(okHttpClient)
+//            .baseUrl(BASE_URL)
+//            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
+//            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
+//            .build()
+//        return retrofit.create(ArchiveBoxService::class.java)
+//    }
 
     @Provides
     @Singleton
