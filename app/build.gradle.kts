@@ -32,23 +32,38 @@ android {
 
     signingConfigs {
         create("release") {
-            val storeFilePath = System.getenv("SIGNING_STORE_FILE")
-            if (storeFilePath != null) {
-                storeFile = file(storeFilePath)
+            val storeFilePath = System.getenv("SIGNING_STORE_FILE").orEmpty()
+            val hasEnvKeystore = storeFilePath.isNotBlank() && project.file(storeFilePath).exists()
+
+            if (hasEnvKeystore) {
+                // Use environment variables (CI/CD)
+                storeFile = project.file(storeFilePath)
                 storePassword = System.getenv("SIGNING_STORE_PASSWORD")
                 keyAlias = System.getenv("SIGNING_KEY_ALIAS")
                 keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
-                enableV3Signing = true
-                enableV4Signing = true
+            } else if (project.hasProperty("KEYSTORE_FILE")) {
+                // Get from gradle.properties for local testing
+                val keystorePath = project.property("KEYSTORE_FILE") as String
+                val keystoreFile = file(keystorePath)
+
+                if (keystoreFile.exists()) {
+                    storeFile = keystoreFile
+                    storePassword = project.property("KEYSTORE_PASSWORD") as String
+                    keyAlias = project.property("SIGNING_KEY_ALIAS") as String
+                    keyPassword = project.property("SIGNING_KEY_PASSWORD") as String
+                } else {
+                    // Keystore file doesn't exist - use debug signing
+                    println("WARNING: Release keystore not found at $keystorePath. Using debug signing.")
+                    storeFile = null
+                }
             } else {
-//                get from gradle.properties for local testing
-                storeFile = file(project.property("KEYSTORE_FILE") as String)
-                storePassword = project.property("KEYSTORE_PASSWORD") as String
-                keyAlias = project.property("SIGNING_KEY_ALIAS") as String
-                keyPassword = project.property("SIGNING_KEY_PASSWORD") as String
-                enableV3Signing = true
-                enableV4Signing = true
+                // No signing configuration available - will use debug signing
+                println("WARNING: No release signing configuration found. Using debug signing.")
+                storeFile = null
             }
+
+            enableV3Signing = true
+            enableV4Signing = true
         }
     }
 
@@ -75,9 +90,22 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             isDebuggable = false
-            signingConfig = signingConfigs.findByName("release")
 //            isProfileable = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            // Use release signing if available, otherwise fall back to debug signing
+            val releaseSigningConfig = signingConfigs.findByName("release")
+            if (releaseSigningConfig?.storeFile != null) {
+                signingConfig = releaseSigningConfig
+                println("Using release signing configuration")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+                println("WARNING: Using debug signing for release build")
+            }
+
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
 
         getByName("debug") {
