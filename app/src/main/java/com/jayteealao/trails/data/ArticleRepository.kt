@@ -29,11 +29,9 @@ import com.jayteealao.trails.data.local.database.PocketDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.network.PocketData
 import com.jayteealao.trails.network.PocketTags
-import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.initializers.SyncWorkName
 import com.jayteealao.trails.sync.workers.SyncWorker
-import com.skydoves.sandwich.getOrElse
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -112,7 +110,7 @@ class ArticleRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val pocketDao: PocketDao,
     private val syncStatusMonitor: SyncStatusMonitor,
-    private val modalClient: ModalClient,
+//    private val modalClient: ModalClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ArticleRepository {
 
@@ -194,11 +192,11 @@ class ArticleRepositoryImpl @Inject constructor(
     override suspend fun searchHybrid(query: String): List<ArticleItem> {
         val searchResult: LinkedHashSet<ArticleItem> = linkedSetOf()
         val deferred = coroutineScope.async {
-            val data = modalClient.searchHybrid(query).getOrElse(emptyList())
-            val sortedData = data.sortedBy { it.distance }.map { it.id }
-            val searchHybridResult = pocketDao.getArticlesByIds(sortedData)
-                .sortedBy { sortedData.indexOf(it.itemId) }
-            searchResult.addAll(searchHybridResult)
+//            val data = modalClient.searchHybrid(query).getOrElse(emptyList())
+//            val sortedData = data.sortedBy { Language.it.distance }.map { Language.it.id }
+//            val searchHybridResult = pocketDao.getArticlesByIds(sortedData)
+//                .sortedBy { sortedData.indexOf(it.itemId) }
+//            searchResult.addAll(searchHybridResult)
             Timber.d("searchHybrid: $searchResult")
         }
         deferred.await()

@@ -33,9 +33,7 @@ import com.jayteealao.trails.data.local.database.PocketDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
-import com.jayteealao.trails.services.archivebox.ArchiveBoxClient
 import com.jayteealao.trails.services.jina.JinaClient
-import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -47,7 +45,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlin.runCatching
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import javax.inject.Inject
@@ -57,11 +54,11 @@ class ArticleListViewModel @Inject constructor(
     private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
 //    private val synchronizePocketUseCase: SynchronizePocketUseCase,
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
-    private val supabaseService: SupabaseService,
+//    private val supabaseService: SupabaseService,
     private val pocketDao: PocketDao,
     private val jinaClient: JinaClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
-    private val archiveBoxClient: ArchiveBoxClient,
+//    private val archiveBoxClient: ArchiveBoxClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
