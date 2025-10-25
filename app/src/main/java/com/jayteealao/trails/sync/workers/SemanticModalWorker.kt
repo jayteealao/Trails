@@ -6,13 +6,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
-import com.jayteealao.trails.data.local.database.ModalArticleTable
 import com.jayteealao.trails.data.local.database.PocketArticle
 import com.jayteealao.trails.data.local.database.PocketDao
-import com.jayteealao.trails.data.models.PocketSummary
 import com.jayteealao.trails.services.semanticSearch.modal.ModalArticle
 import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
-import com.jayteealao.trails.services.supabase.SupabaseService
 import com.jayteealao.trails.sync.initializers.syncForegroundInfo
 import com.skydoves.sandwich.message
 import com.skydoves.sandwich.onError
@@ -42,8 +39,8 @@ class SemanticModalWorker @AssistedInject constructor(
     @Inject
     lateinit var modalClient: ModalClient
 
-    @Inject
-    lateinit var supabaseService: SupabaseService
+//    @Inject
+//    lateinit var supabaseService: SupabaseService
 
     /**
      * Retrieves foreground information from the application context.
@@ -69,15 +66,15 @@ class SemanticModalWorker @AssistedInject constructor(
         setForeground(getForegroundInfo())
         
         launch {
-            producePocketArticleFromLocal { offset ->
-                pocketDao.getPocketsWithModalFalse(offset)
-            }.let { receiveArticle ->
+//            producePocketArticleFromLocal { offset ->
+//                pocketDao.getPocketsWithModalFalse(offset)
+//            }.let { receiveArticle ->
                 //creates 10 channels to receive articles from the local database
-                repeat(10) {
+//                repeat(10) {
                     //Adds the articles to the weaviate database
-                    batchSemanticActions(receiveArticle)
-                }
-            }
+//                    batchSemanticActions(receiveArticle)
+//                }
+//            }
         }
         Result.success()
     }
@@ -133,15 +130,15 @@ class SemanticModalWorker @AssistedInject constructor(
         response.suspendOnSuccess {
 //            Timber.d(data.data.toString())
             launch(Dispatchers.IO) {
-                pocketDao.insertModalId(
-                    data.data
-                        .entries.map {
-                            ModalArticleTable(
-                                pocketId = it.value,
-                                modalId = it.key
-                            )
-                        }.filterNot { it.modalId == "error" || it.pocketId == "error" }
-                )
+//                pocketDao.insertModalId(
+//                    data.data
+//                        .entries.map {
+//                            ModalArticleTable(
+//                                pocketId = it.value,
+//                                modalId = it.key
+//                            )
+//                        }.filterNot { it.modalId == "error" || it.pocketId == "error" }
+//                )
             }
             data.data.entries.filter { it.key == "error" }.distinctBy { it.value }
                 .also { if (it.isNotEmpty()) Timber.e("Errors: $it") }
@@ -163,7 +160,7 @@ class SemanticModalWorker @AssistedInject constructor(
     private fun CoroutineScope.saveArticlesToSupabase(
         articles: List<PocketArticle>
     ) = launch(Dispatchers.IO) {
-        val response = supabaseService.addArticles(articles)
+//        val response = supabaseService.addArticles(articles)
     }
 
     /**
@@ -184,14 +181,14 @@ class SemanticModalWorker @AssistedInject constructor(
     ) = launch(Dispatchers.IO) {
         modalClient.summarize(articles).suspendOnSuccess {
             launch(Dispatchers.IO) {
-                pocketDao.insertPocketSummaries(
-                    data.map { summary ->
-                        PocketSummary(
-                            id = summary.id,
-                            summary = summary.summary
-                        )
-                    }.filterNot { it.id == "error" }
-                )
+//                pocketDao.insertPocketSummaries(
+//                    data.map { summary ->
+//                        PocketSummary(
+//                            id = summary.id,
+//                            summary = summary.summary
+//                        )
+//                    }.filterNot { it.id == "error" }
+//                )
             }
             data.filter { it.id == "error" }.distinctBy { it.summary }
                 .also { if (it.isNotEmpty()) Timber.e("Errors: $it") }
