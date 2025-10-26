@@ -235,7 +235,8 @@ private fun MainNavigationPreview() {
                             onToggleTag = { _, _, _ -> },
                             onArchive = {},
                             onDelete = {},
-                            useCardLayout = true
+                            useCardLayout = true,
+                            availableTags = emptyList()
                         )
                     }
                 }
@@ -318,7 +319,8 @@ private fun MainNavigationDarkPreview() {
                         onToggleTag = { _, _, _ -> },
                         onArchive = {},
                         onDelete = {},
-                        useCardLayout = true
+                        useCardLayout = true,
+                        availableTags = emptyList()
                     )
                 }
                 composable("article") {
