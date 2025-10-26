@@ -671,7 +671,7 @@ private fun TagSection(
             label = { Text(text = "") },
             leadingIcon = {
                 Icon(
-                    painter = painterResource(),
+                    painter = painterResource(id = R.drawable.add_24px),
                     contentDescription = "Add tag",
                     modifier = Modifier
                         .size(20.dp)
