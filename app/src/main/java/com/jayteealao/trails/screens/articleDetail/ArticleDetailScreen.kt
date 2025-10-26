@@ -52,7 +52,7 @@ fun ArticleDetailScreen(
     var selectedTabIndex by remember { mutableIntStateOf(1) }
 
     ConstraintLayout(
-        modifier = Modifier.padding(top = 20.dp)
+        modifier = Modifier.padding(top = 2.dp).fillMaxHeight()
     ) {
         val (tabRow, detailView) = createRefs()
 
