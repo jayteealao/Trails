@@ -751,11 +751,7 @@ private fun TagSection(
             val selected = tagStates[tag] ?: false
             FilterChip(
                 selected = selected,
-                onClick = {
-                    val newSelected = !selected
-                    tagStates[tag] = newSelected
-                    onTagToggle(tag, newSelected)
-                },
+                onClick = onAddTag,
                 label = {
                     Text(text = tag, style = MaterialTheme.typography.labelSmall)
                 },
