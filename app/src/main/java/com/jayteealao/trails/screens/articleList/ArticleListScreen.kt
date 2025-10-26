@@ -23,6 +23,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -80,7 +81,7 @@ fun ArticleListScreen(
     modifier: Modifier = Modifier,
     viewModel: ArticleListViewModel = hiltViewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
-    useCardLayout: Boolean = true,
+    useCardLayout: Boolean = false,
 ) {
 
     var selectedTab by rememberSaveable { mutableStateOf(ArticleListTab.HOME) }
@@ -118,10 +119,14 @@ fun ArticleListScreen(
     Column(
         modifier = modifier.fillMaxSize()
     ) {
-        AnimatedVisibility(visible = isSyncing.value) {
+        AnimatedVisibility(
+            visible = isSyncing.value,
+            modifier = Modifier.padding(0.dp)
+            ) {
             LinearProgressIndicator(
                 modifier = Modifier
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(0.dp),
                 strokeCap = StrokeCap.Square,
             )
         }
@@ -337,11 +342,13 @@ internal fun PocketScreenContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(
-                vertical = 16.dp,
-                horizontal = if (useCardLayout) 16.dp else 0.dp
-            )
+            .background(MaterialTheme.colorScheme.surface),
+        contentPadding = PaddingValues(
+            top = 16.dp,
+            bottom = 16.dp,
+            start = if (useCardLayout) 16.dp else 0.dp,
+            end = if (useCardLayout) 16.dp else 0.dp
+        )
     ) {
         items(
             count = lazyItems.itemCount,
