@@ -179,10 +179,10 @@ fun ArticleListScreen(
         }
         NavigationBar(
             modifier = Modifier
-                .wrapContentHeight(Alignment.Bottom)
-                .height(64.dp)
                 .wrapContentHeight(Alignment.Bottom),
             windowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+//                .height(64.dp)
         ) {
             ArticleListTab.values().forEach { tab ->
                 NavigationBarItem(
