@@ -7,12 +7,6 @@ import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -28,10 +22,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import com.jayteealao.trails.R
 import com.jayteealao.trails.screens.theme.TrailsTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -159,8 +155,8 @@ fun TrailsTopAppBar(
 ) {
     val destination = route.value?.destination?.route
     val icon = when (destination) {
-        "main" -> Icons.Filled.Menu
-        else -> Icons.AutoMirrored.Filled.ArrowBack
+        "main" -> painterResource(R.drawable.menu_24px)
+        else -> painterResource(R.drawable.arrow_back_24px)
     }
     val titleText by remember(destination) {
         if (destination == "search") {
@@ -177,8 +173,8 @@ fun TrailsTopAppBar(
     }
 
     val iconImage = when (destination) {
-        "main" -> Icons.Filled.Search
-        "search" -> Icons.Filled.MoreVert
+        "main" -> painterResource(R.drawable.search_24px)
+        "search" -> painterResource(R.drawable.more_vert_24px)
         else -> null
     }
 
@@ -208,7 +204,7 @@ fun TrailsTopAppBar(
                     }
                 ) {
                     Icon(
-                        imageVector = icon,
+                        painter = icon,
                         contentDescription = "Back"
                     )
                 }
@@ -222,11 +218,11 @@ fun TrailsTopAppBar(
             actions = {
                 if (iconImage != null) {
                     IconButton(onClick = actionOnClick) {
-                        Icon(imageVector = iconImage, contentDescription = contentDesc)
+                        Icon(painter = iconImage, contentDescription = contentDesc)
                     }
                 }
                 IconButton(onClick = { navController.navigate("settings") }) {
-                    Icon(imageVector = Icons.Filled.Settings, contentDescription = "Settings")
+                    Icon(painter = painterResource(R.drawable.settings_24px), contentDescription = "Settings")
                 }
             }
         )
