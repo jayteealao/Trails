@@ -84,6 +84,7 @@ import com.gigamole.composeshadowsplus.common.shadowsPlus
 import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.theme.TrailsTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -365,6 +366,7 @@ fun ArticleListItem(
                         .align(Alignment.CenterVertically)){
                     Text(
                         modifier = Modifier
+//                            .align(Alignment.CenterVertically)
                             .wrapContentHeight()
                             .padding(end = 8.dp),
                         text = article.title,
@@ -410,6 +412,8 @@ fun ArticleListItem(
                         }
                     }
                 }
+//                Spacer(modifier = Modifier.width(8.dp))
+//            }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -470,7 +474,8 @@ fun ArticleListItem(
                                 .wrapContentHeight()
                         )
                     },
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier
+                        .height(28.dp)
                         .padding(bottom = 8.dp)
                         .align(Alignment.Top),
                     border = FilterChipDefaults.filterChipBorder(
@@ -559,11 +564,13 @@ fun ArticleListItemPreview() {
         tagsString = "android,jetpack,compose",
         snippet = "This is a short snippet of the article content. It provides a brief overview of what the article is about. <b>Bold text</b> is also supported."
     )
-    ArticleListItem(
-        article = article,
-        onClick = {},
-        onFavoriteToggle = {},
-        onTagToggle = { _, _ -> }
-    )
+    TrailsTheme {
+        ArticleListItem(
+            article = article,
+            onClick = {},
+            onFavoriteToggle = {},
+            onTagToggle = { _, _ -> }
+        )
+    }
 }
 
