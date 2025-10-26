@@ -42,10 +42,12 @@ fun SettingsScreen(
     val preferenceFlow = settingsViewModel.preferenceFlow.collectAsState()
     val jinaToken = settingsViewModel.jinaToken.collectAsState()
     val darkTheme = settingsViewModel.darkTheme.collectAsState()
+    val useCardLayout = settingsViewModel.useCardLayout.collectAsState()
     SettingsScreenContent(
         modifier = modifier,
         useFreedium = preferenceFlow.value,
         darkThemeEnabled = darkTheme.value,
+        useCardLayout = useCardLayout.value,
         jinaToken = jinaToken.value,
         jinaPlaceholder = settingsViewModel.jinaPlaceHolder,
         onResetSemanticCache = {
@@ -53,6 +55,7 @@ fun SettingsScreen(
         },
         onToggleFreedium = { settingsViewModel.updatePreference(it) },
         onToggleDarkTheme = { settingsViewModel.updateDarkTheme(it) },
+        onToggleCardLayout = { settingsViewModel.updateCardLayout(it) },
         onJinaTokenChange = { settingsViewModel.updateJinaToken(it) },
         onSubmitJinaToken = { settingsViewModel.updateJinaTokenPreferences() },
     )
@@ -64,11 +67,13 @@ internal fun SettingsScreenContent(
     modifier: Modifier = Modifier,
     useFreedium: Boolean,
     darkThemeEnabled: Boolean,
+    useCardLayout: Boolean,
     jinaToken: String,
     jinaPlaceholder: String,
     onResetSemanticCache: () -> Unit,
     onToggleFreedium: (Boolean) -> Unit,
     onToggleDarkTheme: (Boolean) -> Unit,
+    onToggleCardLayout: (Boolean) -> Unit,
     onJinaTokenChange: (String) -> Unit,
     onSubmitJinaToken: () -> Unit,
 ) {
@@ -95,6 +100,19 @@ internal fun SettingsScreenContent(
             Switch(
                 checked = darkThemeEnabled,
                 onCheckedChange = onToggleDarkTheme
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = "Card layout")
+            Switch(
+                checked = useCardLayout,
+                onCheckedChange = onToggleCardLayout
             )
         }
         HorizontalDivider()
@@ -152,11 +170,13 @@ private fun SettingsScreenPreview() {
         SettingsScreenContent(
             useFreedium = true,
             darkThemeEnabled = false,
+            useCardLayout = true,
             jinaToken = PreviewFixtures.authAccessToken,
             jinaPlaceholder = "Insert Jina Token Here",
             onResetSemanticCache = {},
             onToggleFreedium = {},
             onToggleDarkTheme = {},
+            onToggleCardLayout = {},
             onJinaTokenChange = {},
             onSubmitJinaToken = {},
         )
@@ -174,11 +194,13 @@ private fun SettingsScreenDarkPreview() {
         SettingsScreenContent(
             useFreedium = false,
             darkThemeEnabled = true,
+            useCardLayout = true,
             jinaToken = "",
             jinaPlaceholder = "Insert Jina Token Here",
             onResetSemanticCache = {},
             onToggleFreedium = {},
             onToggleDarkTheme = {},
+            onToggleCardLayout = {},
             onJinaTokenChange = {},
             onSubmitJinaToken = {},
         )
