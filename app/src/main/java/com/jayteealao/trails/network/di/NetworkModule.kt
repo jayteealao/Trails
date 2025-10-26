@@ -169,7 +169,7 @@ object NetworkModule {
     @Singleton
     fun providePostgrestService(okHttpClient: OkHttpClient): PostgrestService {
         val BASE_URL: String = "https://postgres-pa.graphitenerd.online/"
-        
+
         // Create a Gson instance configured to serialize nulls
         val gson = GsonBuilder()
             .serializeNulls()

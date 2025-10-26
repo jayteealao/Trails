@@ -48,7 +48,6 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import timber.log.Timber
 
 @AndroidEntryPoint
 class IntentActivity : ComponentActivity() {
