@@ -1,0 +1,22 @@
+{
+  "pull_request": {
+    "number": 1,
+    "head": {
+      "ref": "test-branch",
+      "sha": "test-commit-sha"
+    },
+    "base": {
+      "ref": "main"
+    },
+    "title": "Test PR for local act testing",
+    "body": "This is a test pull request for local testing with act"
+  },
+  "repository": {
+    "name": "Trails",
+    "owner": {
+      "login": "jayteealao"
+    },
+    "full_name": "jayteealao/Trails"
+  },
+  "action": "opened"
+}
