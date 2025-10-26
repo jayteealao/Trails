@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 /*
  * Copyright (C) 2022 The Android Open Source Project
  *
@@ -71,8 +73,8 @@ android {
         applicationId = "com.jayteealao.trails"
         minSdk = 23
         targetSdk = 33
-        versionCode = 10401
-        versionName = "1.4.1"
+        versionCode = 10506
+        versionName = "1.5.6"
 
         testInstrumentationRunner = "com.jayteealao.trails.HiltTestRunner"
         vectorDrawables {
@@ -124,9 +126,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs = listOf("-Xcontext-receivers")
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+            freeCompilerArgs.add("-Xcontext-receivers")
+        }
     }
 
     buildFeatures {
