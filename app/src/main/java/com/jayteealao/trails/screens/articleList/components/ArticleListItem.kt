@@ -27,10 +27,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -368,77 +367,134 @@ fun ArticleListItem(
                     showTagSheet = false
                     newTagText = ""
                 },
-                sheetState = bottomSheetState
+                sheetState = bottomSheetState,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
                         text = "Manage tags",
-                        style = MaterialTheme.typography.titleMedium
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    // Input field at the top
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newTagText,
+                            onValueChange = { newValue -> newTagText = newValue },
+                            label = { Text(text = "New tag") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                        TextButton(
+                            onClick = {
+                                val normalizedTag = newTagText
+                                    .trim()
+                                    .replace(Regex("\\s+"), " ")
+                                if (normalizedTag.isNotEmpty()) {
+                                    val wasSelected = tagStates[normalizedTag] == true
+                                    tagStates[normalizedTag] = true
+                                    if (!wasSelected) {
+                                        onTagToggle(normalizedTag, true)
+                                    }
+                                    newTagText = ""
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = "Add",
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // Selected tags section
+                    val selectedTags = tagStates.filterValues { it }.keys.toList().sorted()
+                    if (selectedTags.isNotEmpty()) {
+                        Text(
+                            text = "Selected tags",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            selectedTags.forEach { tag ->
+                                FilterChip(
+                                    selected = true,
+                                    onClick = {
+                                        tagStates[tag] = false
+                                        onTagToggle(tag, false)
+                                    },
+                                    label = {
+                                        Text(
+                                            text = tag,
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Available tags section (scrollable)
+                    Text(
+                        text = "Available tags",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     FlowRow(
-                        modifier = Modifier
-                            .fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val sheetTags = (tagStates.keys + availableTags)
+                        val availableUnselectedTags = (tagStates.keys + availableTags)
                             .toSet()
-                            .toList()
+                            .filter { tagStates[it] != true }
                             .sorted()
-                        sheetTags.forEach { tag ->
-                            val selected = tagStates[tag] == true
+                        availableUnselectedTags.forEach { tag ->
                             FilterChip(
-                                selected = selected,
+                                selected = false,
                                 onClick = {
-                                    val newSelected = !selected
-                                    tagStates[tag] = newSelected
-                                    onTagToggle(tag, newSelected)
+                                    tagStates[tag] = true
+                                    onTagToggle(tag, true)
                                 },
                                 label = {
                                     Text(
                                         text = tag,
                                         style = MaterialTheme.typography.labelMedium
                                     )
-                                }
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             )
-                        }
-                    }
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = newTagText,
-                            onValueChange = { newValue -> newTagText = newValue },
-                            label = { Text(text = "New tag") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            TextButton(
-                                onClick = {
-                                    val normalizedTag = newTagText
-                                        .trim()
-                                        .replace(Regex("\\s+"), " ")
-                                    if (normalizedTag.isNotEmpty()) {
-                                        val wasSelected = tagStates[normalizedTag] == true
-                                        tagStates[normalizedTag] = true
-                                        if (!wasSelected) {
-                                            onTagToggle(normalizedTag, true)
-                                        }
-                                        newTagText = ""
-                                    }
-                                }
-                            ) {
-                                Text(text = "Add tag")
-                            }
                         }
                     }
                 }
@@ -690,7 +746,7 @@ private fun TagSection(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        val tagsInDisplay = tagStates.keys.toList().sorted()
+        val tagsInDisplay = tagStates.filterValues { it }.keys.toList().sorted()
         tagsInDisplay.forEach { tag ->
             val selected = tagStates[tag] ?: false
             FilterChip(
