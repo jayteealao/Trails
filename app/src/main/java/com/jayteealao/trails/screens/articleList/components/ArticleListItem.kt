@@ -188,7 +188,6 @@ fun ArticleListItem(
         ).toSpannable().toAnnotatedString(colorScheme.onSurface)
     } else { null }
     val swipeState = rememberSwipeToDismissBoxState()
-    var showTrailingActions by remember(article.itemId) { mutableStateOf(false) }
 
     LaunchedEffect(swipeState.currentValue) {
         when (swipeState.currentValue) {
@@ -199,19 +198,13 @@ fun ArticleListItem(
                 swipeState.reset()
             }
             SwipeToDismissBoxValue.EndToStart -> {
-                showTrailingActions = true
                 // Auto-reset after 5 seconds
                 launch {
                     delay(5000)
-                    if (showTrailingActions) {
-                        showTrailingActions = false
-                        swipeState.reset()
-                    }
+                    swipeState.reset()
                 }
             }
-            SwipeToDismissBoxValue.Settled -> {
-                showTrailingActions = false
-            }
+            SwipeToDismissBoxValue.Settled -> {}
         }
     }
 
@@ -229,11 +222,9 @@ fun ArticleListItem(
                 if (direction == SwipeToDismissBoxValue.StartToEnd) {
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .align(Alignment.CenterStart)
+                            .fillMaxSize()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .padding(horizontal = 16.dp),
+                            .background(MaterialTheme.colorScheme.secondaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -244,64 +235,70 @@ fun ArticleListItem(
                     }
                 }
 
-                if (showTrailingActions) {
-                    Row(
+                if (direction == SwipeToDismissBoxValue.EndToStart) {
+                    Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .align(Alignment.Center)
+                            .align(Alignment.CenterEnd)
                             .clip(RoundedCornerShape(16.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface)
-                                .clickable {
-                                    onArchive()
-                                    showTrailingActions = false
-                                    scope.launch { swipeState.reset() }
-                                },
-                            contentAlignment = Alignment.Center
+                                .align(Alignment.Center)
+                                .padding(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.archive_icon_24),
-                                contentDescription = "Archive",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .clickable {
+                                        onArchive()
+                                        scope.launch { swipeState.reset() }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.archive_icon_24),
+                                    contentDescription = "Archive",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
 
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surface)
-                                .clickable {
-                                    onDelete()
-                                    showTrailingActions = false
-                                    scope.launch { swipeState.reset() }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.delete_24px),
-                                contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .clickable {
+                                        onDelete()
+                                        scope.launch { swipeState.reset() }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.delete_24px),
+                                    contentDescription = "Delete",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     ) {
-        Column {
+        Column(
+            modifier = Modifier
+                .background(colorScheme.surface)
+                .clip(RoundedCornerShape(16.dp))
+        ) {
             Row(
                 modifier = Modifier
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp)
-                    .background(colorScheme.surface)
                     .wrapContentHeight()
 //                    .heightIn(max = 90.dp)
                     .clickable { onClick() },
@@ -438,7 +435,8 @@ fun ArticleListItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .wrapContentHeight()
-                    .padding(start = 8.dp, end = 4.dp),
+                    .background(colorScheme.surface)
+                    .padding(start = 8.dp, end = 4.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -457,8 +455,7 @@ fun ArticleListItem(
 //                            TagItem(tag = tag)
                                 },
                         modifier = Modifier
-                            .height(28.dp)
-                            .padding(bottom = 8.dp),
+                            .height(28.dp),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
                                 alpha = 0.16f
@@ -482,7 +479,6 @@ fun ArticleListItem(
                     },
                     modifier = Modifier
                         .height(28.dp)
-                        .padding(bottom = 8.dp)
                         .align(Alignment.Top),
                     border = FilterChipDefaults.filterChipBorder(
                         borderColor = Color.Transparent,
