@@ -232,14 +232,14 @@ fun ArticleListItem(
                             .fillMaxHeight()
                             .align(Alignment.CenterStart)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color.Blue)
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
                             .padding(horizontal = 16.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.favorite_24px),
                             contentDescription = "Favorite",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
                 }
@@ -259,7 +259,7 @@ fun ArticleListItem(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                .background(MaterialTheme.colorScheme.surface)
                                 .clickable {
                                     onArchive()
                                     showTrailingActions = false
@@ -270,7 +270,7 @@ fun ArticleListItem(
                             Icon(
                                 painter = painterResource(id = R.drawable.archive_icon_24),
                                 contentDescription = "Archive",
-                                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 
@@ -278,7 +278,7 @@ fun ArticleListItem(
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.errorContainer)
+                                .background(MaterialTheme.colorScheme.surface)
                                 .clickable {
                                     onDelete()
                                     showTrailingActions = false
@@ -289,7 +289,7 @@ fun ArticleListItem(
                             Icon(
                                 painter = painterResource(id = R.drawable.delete_24px),
                                 contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.onErrorContainer
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
