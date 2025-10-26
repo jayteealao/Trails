@@ -317,7 +317,8 @@ private fun MainNavigationDarkPreview() {
                         onToggleFavorite = { _, _ -> },
                         onToggleTag = { _, _, _ -> },
                         onArchive = {},
-                        onDelete = {}
+                        onDelete = {},
+                        useCardLayout = true
                     )
                 }
                 composable("article") {
