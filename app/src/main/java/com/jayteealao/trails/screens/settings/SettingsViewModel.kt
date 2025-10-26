@@ -68,12 +68,12 @@ class SettingsViewModel @Inject constructor(
 
     val useCardLayout = sharedPreferencesManager.booleanFlow(
         key = SettingsPreferenceKeys.USE_CARD_LAYOUT,
-        defaultValue = true
+        defaultValue = false
     )
         .stateIn(
             scope = viewModelScope,
             started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
-            initialValue = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_CARD_LAYOUT, true)
+            initialValue = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_CARD_LAYOUT, false)
         )
 
     fun updateCardLayout(enabled: Boolean) {

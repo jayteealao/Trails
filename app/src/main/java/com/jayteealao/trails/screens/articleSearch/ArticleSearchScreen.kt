@@ -38,7 +38,7 @@ fun ArticleSearchScreen(
     searchBarState: SearchBarState,
     viewModel: ArticleSearchViewModel = hiltViewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
-    useCardLayout: Boolean = true,
+    useCardLayout: Boolean = false,
 ) {
     val searchResultsLocal = viewModel.searchResultsLocal.collectAsStateWithLifecycle()
     val searchResultsHybrid = viewModel.searchResultsHybrid.collectAsStateWithLifecycle()
@@ -72,7 +72,7 @@ internal fun ArticleSearchContent(
     onSearch: () -> Unit,
     onActiveChange: (Boolean) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
-    useCardLayout: Boolean = true,
+    useCardLayout: Boolean = false,
     setFavorite: (String, Boolean) -> Unit = { _, _ -> },
     updateTag: (String, String, Boolean) -> Unit = { _, _, _ -> },
 ) {

@@ -1,6 +1,5 @@
 package com.jayteealao.trails.screens.articleList.components
 
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -69,6 +68,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.createBitmap
 import androidx.core.text.HtmlCompat
 import androidx.core.text.toSpannable
 import androidx.palette.graphics.Palette
@@ -100,7 +100,7 @@ fun ArticleListItem(
     onTagToggle: (String, Boolean) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
     onDelete: () -> Unit = {},
-    useCardLayout: Boolean = true,
+    useCardLayout: Boolean = false,
 ) {
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
@@ -152,7 +152,7 @@ fun ArticleListItem(
             else -> {
                 val width = drawable.intrinsicWidth
                 val height = drawable.intrinsicHeight
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val bitmap = createBitmap(width, height)
                 val canvas = Canvas(bitmap)
                 drawable.setBounds(0, 0, canvas.width, canvas.height)
                 drawable.draw(canvas)
@@ -306,7 +306,7 @@ fun ArticleListItem(
                 ),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
                 ArticleCardContent(
