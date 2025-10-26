@@ -106,12 +106,19 @@ class ArticleListViewModel @Inject constructor(
     val test = MutableStateFlow("")
 
     private var _articles = MutableStateFlow(emptyList<PocketArticle>())
-    val articles: StateFlow<PagingData<ArticleItem>> = Pager(
-        config = PagingConfig(
-            pageSize = 20,
-        ),
-        pagingSourceFactory = { getArticleWithTextUseCase() }
-    ).flow
+    val articles: StateFlow<PagingData<ArticleItem>> = _sortOption
+        .flatMapLatest { sortOption ->
+            Pager(
+                config = PagingConfig(
+                    pageSize = 20,
+                ),
+                pagingSourceFactory = {
+                    // For Newest: ORDER BY time_added DESC
+                    // For Oldest: ORDER BY time_added ASC
+                    getArticleWithTextUseCase(sortOption)
+                }
+            ).flow
+        }
         .cachedIn(viewModelScope)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
 

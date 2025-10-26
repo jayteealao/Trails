@@ -78,7 +78,7 @@ private enum class ArticleListTab(val label: String, val icon: @Composable () ->
 
 enum class ArticleSortOption(val label: String) {
     Newest("Newest"),
-    Popular("Popular"),
+    Oldest("Oldest"),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -52,6 +52,19 @@ interface PocketDao {
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
+        WHERE art.archived_at IS NULL AND art.deleted_at IS NULL
+        GROUP BY art.itemId
+        ORDER BY art.timeAdded ASC
+    """)
+    fun getArticlesWithTagsOldest(): PagingSource<Int, ArticleItem>
+
+    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
+    @Query("""
+        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
+        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        GROUP_CONCAT(tag.tag) AS tagsString
+        FROM pocketarticle AS art
+        LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
         WHERE art.timeFavorited > 0 AND art.archived_at IS NULL AND art.deleted_at IS NULL
         GROUP BY art.itemId
         ORDER BY art.timeFavorited DESC, art.timeAdded DESC

@@ -46,6 +46,8 @@ import javax.inject.Inject
 interface ArticleRepository: Syncable {
     fun pockets(): PagingSource<Int, ArticleItem>
 
+    fun pocketsOldest(): PagingSource<Int, ArticleItem>
+
     fun favoritePockets(): PagingSource<Int, ArticleItem>
 
     fun archivedPockets(): PagingSource<Int, ArticleItem>
@@ -118,6 +120,8 @@ class ArticleRepositoryImpl @Inject constructor(
 
 //    override fun pockets(): PagingSource<Int, ArticleItem> = pocketDao.getArticles()
     override fun pockets(): PagingSource<Int, ArticleItem> = pocketDao.getArticlesWithTags()
+
+    override fun pocketsOldest(): PagingSource<Int, ArticleItem> = pocketDao.getArticlesWithTagsOldest()
 
     override fun favoritePockets(): PagingSource<Int, ArticleItem> = pocketDao.getFavoriteArticlesWithTags()
 
