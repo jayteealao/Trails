@@ -2,13 +2,14 @@ package com.jayteealao.trails.usecases
 
 import com.jayteealao.trails.common.CONSUMERKEY
 import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.network.pocket.PocketClient
 import com.jayteealao.trails.network.mapper.toPocketArticleEntity
+import com.jayteealao.trails.network.pocket.PocketClient
 import com.skydoves.sandwich.message
 import com.skydoves.sandwich.onError
 import com.skydoves.sandwich.onException
 import com.skydoves.sandwich.onFailure
 import com.skydoves.sandwich.onSuccess
+import com.skydoves.sandwich.retrofit.errorBody
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
 import javax.inject.Inject
