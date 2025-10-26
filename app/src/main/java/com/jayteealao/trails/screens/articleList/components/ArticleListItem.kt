@@ -359,7 +359,7 @@ fun ArticleListItem(
                 vibrantColor = vibrantColor,
                 extractPaletteFromBitmap = ::extractPaletteFromBitmap,
                 onTagToggle = onTagToggle,
-                openAddTagDialog = { showAddTagDialog = true },
+                openAddTagDialog = { showTagSheet = true },
             )
         }
         if (showTagSheet) {
