@@ -2,6 +2,7 @@ package com.jayteealao.trails.usecases
 
 import com.jayteealao.trails.network.pocket.PocketClient
 import com.skydoves.sandwich.messageOrNull
+import com.skydoves.sandwich.retrofit.errorBody
 import com.skydoves.sandwich.suspendOnError
 import com.skydoves.sandwich.suspendOnSuccess
 import timber.log.Timber
@@ -22,7 +23,7 @@ class GetAccessTokenFromNetworkUseCase @Inject constructor(
                 result = Result.success(accessToken)
             }
         }.suspendOnError {
-            Timber.d(response.errorBody()?.string())
+            Timber.d(errorBody?.string())
             result = Result.failure(Throwable(messageOrNull))
         }
         return result

@@ -6,15 +6,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.graphics.Color
@@ -114,40 +110,17 @@ private fun rememberTagColor(tag: String): Color {
             Color(0xFFA52A2A),
             Color(0xFF800000),
         )
-    }
     return remember(tag, colorsList) { colorsList[abs(tag.hashCode()) % colorsList.size] }
 }
 
 @Preview
 @Composable
 private fun TagPreview() {
+
     TrailsTheme {
         FlowRow(
             modifier = Modifier
                 .padding(4.dp)
         ) { TagItem(tag = "Sample") }
     }
-//    Box(
-//        modifier = Modifier.fillMaxSize(),
-//        contentAlignment = Alignment.Center
-//    ) {
-//        Box(
-//            contentAlignment = Alignment.Center,
-//            modifier = Modifier
-////                .size(width = 100.dp, height = 60.dp)
-//                .border(width = 1.dp, color = Color.Black)
-//                .background(Color.White)
-//                .shadowsPlus(
-//                    type = ShadowsPlusType.SoftLayer,
-//                    shape = RectangleShape,
-//                    color = Color.Black,
-//                    offset = DpOffset(4.dp, 4.dp),
-//                    radius = 0.dp,
-////                spread = 8.dp,
-//                    isAlphaContentClip = true,
-//                )
-//        ) {
-//            Text(text = "Test")
-//        }
-//    }
 }
