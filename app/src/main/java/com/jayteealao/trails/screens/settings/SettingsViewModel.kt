@@ -20,10 +20,6 @@ class SettingsViewModel @Inject constructor(
     private val sharedPreferencesManager: SharedPreferencesManager,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel() {
-    companion object {
-        private const val KEY_USE_FREEDIUM = "USE_FREEDIUM"
-        private const val KEY_DARK_MODE = "DARK_MODE_ENABLED"
-    }
     fun resetSemanticCache() {
         viewModelScope.launch(ioDispatcher) {
 //            pocketDao.clearModalTable()
@@ -44,29 +40,45 @@ class SettingsViewModel @Inject constructor(
         sharedPreferencesManager.saveString("JINA_TOKEN", jinaToken.value)
     }
 
-    val preferenceFlow = sharedPreferencesManager.booleanFlow(KEY_USE_FREEDIUM)
+    val preferenceFlow = sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_FREEDIUM)
         .stateIn(
             scope = viewModelScope,
             started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
-            initialValue = sharedPreferencesManager.getBoolean(KEY_USE_FREEDIUM)
+            initialValue = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_FREEDIUM)
         )
 
     fun updatePreference(value: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            sharedPreferencesManager.saveBoolean(KEY_USE_FREEDIUM, value)
+            sharedPreferencesManager.saveBoolean(SettingsPreferenceKeys.USE_FREEDIUM, value)
         }
     }
 
-    val darkTheme = sharedPreferencesManager.booleanFlow(KEY_DARK_MODE)
+    val darkTheme = sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.DARK_MODE_ENABLED)
         .stateIn(
             scope = viewModelScope,
             started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
-            initialValue = sharedPreferencesManager.getBoolean(KEY_DARK_MODE)
+            initialValue = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.DARK_MODE_ENABLED)
         )
 
     fun updateDarkTheme(enabled: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            sharedPreferencesManager.saveBoolean(KEY_DARK_MODE, enabled)
+            sharedPreferencesManager.saveBoolean(SettingsPreferenceKeys.DARK_MODE_ENABLED, enabled)
+        }
+    }
+
+    val useCardLayout = sharedPreferencesManager.booleanFlow(
+        key = SettingsPreferenceKeys.USE_CARD_LAYOUT,
+        defaultValue = true
+    )
+        .stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
+            initialValue = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_CARD_LAYOUT, true)
+        )
+
+    fun updateCardLayout(enabled: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            sharedPreferencesManager.saveBoolean(SettingsPreferenceKeys.USE_CARD_LAYOUT, enabled)
         }
     }
 }

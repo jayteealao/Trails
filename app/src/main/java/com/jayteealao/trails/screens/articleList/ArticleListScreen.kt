@@ -80,6 +80,7 @@ fun ArticleListScreen(
     modifier: Modifier = Modifier,
     viewModel: ArticleListViewModel = hiltViewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
+    useCardLayout: Boolean = true,
 ) {
 
     var selectedTab by rememberSaveable { mutableStateOf(ArticleListTab.HOME) }
@@ -136,7 +137,8 @@ fun ArticleListScreen(
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    useCardLayout = useCardLayout
                 )
 
                 ArticleListTab.FAVOURITES -> PocketScreenContent(
@@ -145,7 +147,8 @@ fun ArticleListScreen(
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    useCardLayout = useCardLayout
                 )
 
                 ArticleListTab.ARCHIVE -> PocketScreenContent(
@@ -154,7 +157,8 @@ fun ArticleListScreen(
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    useCardLayout = useCardLayout
                 )
 
                 ArticleListTab.TAGS -> TagsContent(
@@ -167,7 +171,8 @@ fun ArticleListScreen(
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    useCardLayout = useCardLayout
                 )
             }
             ArticleDialog(
@@ -207,7 +212,8 @@ private fun ArticleListScreenPreview() {
             onToggleFavorite = { _, _ -> },
             onToggleTag = { _, _, _ -> },
             onArchive = {},
-            onDelete = {}
+            onDelete = {},
+            useCardLayout = true
         )
     }
 }
@@ -226,7 +232,8 @@ private fun ArticleListScreenDarkPreview() {
             onToggleFavorite = { _, _ -> },
             onToggleTag = { _, _, _ -> },
             onArchive = {},
-            onDelete = {}
+            onDelete = {},
+            useCardLayout = true
         )
     }
 }
@@ -244,6 +251,7 @@ private fun TagsContent(
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
     onArchive: (ArticleItem) -> Unit,
     onDelete: (ArticleItem) -> Unit,
+    useCardLayout: Boolean,
 ) {
     if (selectedTag == null) {
         if (tags.isEmpty()) {
@@ -307,7 +315,8 @@ private fun TagsContent(
                     onToggleFavorite = onToggleFavorite,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    useCardLayout = useCardLayout
                 )
             }
         }
@@ -322,13 +331,17 @@ internal fun PocketScreenContent(
     onToggleFavorite: (ArticleItem, Boolean) -> Unit,
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
     onArchive: (ArticleItem) -> Unit,
-    onDelete: (ArticleItem) -> Unit
+    onDelete: (ArticleItem) -> Unit,
+    useCardLayout: Boolean,
 ) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(vertical = 16.dp, horizontal = 16.dp)
+            .padding(
+                vertical = 16.dp,
+                horizontal = if (useCardLayout) 16.dp else 0.dp
+            )
     ) {
         items(
             count = lazyItems.itemCount,
@@ -341,7 +354,7 @@ internal fun PocketScreenContent(
                 ArticleListItem(
                     article,
                     Modifier.animateItem().then(
-                        if (index != 0) Modifier.padding(top = 12.dp) else Modifier.padding(top = 0.dp)
+                        if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier
                     ),
                     onClick = { onSelectArticle(article) },
                     onFavoriteToggle = { isFavorite ->
@@ -351,7 +364,8 @@ internal fun PocketScreenContent(
                         onToggleTag(article, tag, enabled)
                     },
                     onArchive = { onArchive(article) },
-                    onDelete = { onDelete(article) }
+                    onDelete = { onDelete(article) },
+                    useCardLayout = useCardLayout
                 )
             }
         }

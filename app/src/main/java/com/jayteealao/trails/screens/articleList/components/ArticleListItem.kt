@@ -54,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -93,10 +94,9 @@ fun ArticleListItem(
     onFavoriteToggle: (Boolean) -> Unit = {},
     onTagToggle: (String, Boolean) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
-    onDelete: () -> Unit = {}
+    onDelete: () -> Unit = {},
+    useCardLayout: Boolean = true,
 ) {
-    val context = LocalContext.current
-
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
     var vibrantColor by remember { mutableStateOf(Color.Transparent) }
@@ -225,224 +225,55 @@ fun ArticleListItem(
         swipeThreshold = 100.dp,
         modifier = modifier
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(
-                defaultElevation = 4.dp,
-                pressedElevation = 8.dp
-            ),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.White
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .wrapContentHeight()
-                        .clickable { onClick() },
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
-                ) {
-                Box(
-                    modifier = Modifier
-                        .wrapContentSize()
-                        .shadowsPlus(
-                            type = ShadowsPlusType.SoftLayer,
-                            shape = RoundedCornerShape(16.dp),
-                            color = vibrantColor.copy(alpha = 0.6f),
-                            radius = 1.dp,
-                            spread = 0.dp,
-                            offset = DpOffset(0.dp, 0.dp),
-                            isAlphaContentClip = true
-                        )
-                        .align(Alignment.CenterVertically)
-                ) {
-
-                    if (dominantColor != Color.Transparent && vibrantColor != Color.Transparent) {
-                        Box(
-                            modifier = Modifier
-                                .height(80.dp)
-                                .aspectRatio(1f)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            dominantColor.copy(alpha = 0.6f),
-                                            vibrantColor.copy(alpha = 0.6f)
-                                        ),
-                                    )
-                                )
-                        )
-                    }
-
-                    AsyncImage(
-                        modifier = Modifier
-                            .height(80.dp)
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(color = Color.Transparent),
-                        model = ImageRequest.Builder(context)
-                            .data(article.image)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCacheKey(article.itemId)
-                            .memoryCacheKey(article.itemId)
-                            .allowHardware(false)
-                            .crossfade(true)
-                            .coroutineContext(Dispatchers.IO)
-                            .size(80, 80)
-                            .scale(Scale.FILL)
-                            .listener(
-                                onSuccess = { _, result ->
-                                    Timber.d("Image Loaded")
-                                    extractPaletteFromBitmap(result.image.asDrawable(context.resources))
-                                }
-                            )
-                            .build(),
-                        contentDescription = null,
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-                Column (
-                    modifier = Modifier
-                        .weight(1f)
-                        .align(Alignment.CenterVertically)){
-                    Text(
-                        modifier = Modifier
-//                            .align(Alignment.CenterVertically)
-                            .wrapContentHeight()
-                            .padding(end = 8.dp),
-                        text = article.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontSize = 16.sp
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            modifier = Modifier
-                                .padding(start = 0.dp)
-                                .align(Alignment.CenterVertically),
-                            text = article.domain,
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = 10.sp
-                        )
-                        IconToggleButton(
-                            modifier = Modifier.size(24.dp),
-                            checked = isFavorite,
-                            onCheckedChange = { checked ->
-                                isFavorite = checked
-                                onFavoriteToggle(checked)
-                            }
-                        ) {
-                            Icon(
-                                painter = if (isFavorite) filledStar else outlinedStar,
-                                contentDescription = if (isFavorite) {
-                                    "Remove from favorites"
-                                } else {
-                                    "Add to favorites"
-                                },
-                                tint = if (isFavorite) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                    }
-                }
-//                Spacer(modifier = Modifier.width(8.dp))
-//            }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            if (!parsedSnippet.isNullOrBlank()) {
-                Text(
-                    text = parsedSnippet,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
+        if (useCardLayout) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = 4.dp,
+                    pressedElevation = 8.dp
+                ),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
-            }
-            FlowRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight()
-                    .padding(top = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                val tagsInDisplay = tagStates.keys.toList().sorted()
-                tagsInDisplay.forEach { tag ->
-                    val selected = tagStates[tag] ?: false
-                    FilterChip(
-                        selected = selected,
-                        onClick = {
-                            val newSelected = !selected
-                            tagStates[tag] = newSelected
-                            onTagToggle(tag, newSelected)
-                        },
-                        label = {
-                            Text(modifier = Modifier, text = tag, style = MaterialTheme.typography.labelSmall)
-//                            TagItem(tag = tag)
-                                },
-                        modifier = Modifier
-                            .height(28.dp)
-                            .padding(bottom = 8.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
-                                alpha = 0.16f
-                            ),
-                            selectedLabelColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
-                }
-                FilterChip(
-                    selected = false,
-                    onClick = { showAddTagDialog = true },
-                    label = { Text(text = "") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "Add tag",
-                            modifier = Modifier
-                                .size(20.dp)
-                                .wrapContentHeight()
-                        )
+                ArticleCardContent(
+                    article = article,
+                    parsedSnippet = parsedSnippet,
+                    tagStates = tagStates,
+                    onClick = onClick,
+                    onFavoriteToggle = { checked ->
+                        isFavorite = checked
+                        onFavoriteToggle(checked)
                     },
-                    modifier = Modifier
-                        .height(28.dp)
-                        .padding(bottom = 8.dp)
-                        .align(Alignment.Top),
-                    border = FilterChipDefaults.filterChipBorder(
-                        borderColor = Color.Transparent,
-                        selectedBorderColor = Color.Transparent,
-                        disabledBorderColor = Color.Transparent,
-                        disabledSelectedBorderColor = Color.Transparent,
-                        enabled = true,
-                        selected = false
-                    ),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color.Transparent,
-                        selectedLabelColor = Color.Transparent
-                    )
+                    isFavorite = isFavorite,
+                    filledStar = filledStar,
+                    outlinedStar = outlinedStar,
+                    dominantColor = dominantColor,
+                    vibrantColor = vibrantColor,
+                    extractPaletteFromBitmap = ::extractPaletteFromBitmap,
+                    onTagToggle = onTagToggle,
+                    showAddTagDialog = { showAddTagDialog = true },
                 )
             }
-            HorizontalDivider(
-                modifier = Modifier
-                    .background(colorScheme.surface)
-                    .padding(horizontal = 16.dp)
-                    .fillMaxWidth(),
-                thickness = 1.dp,
-                color = colorScheme.outlineVariant
+        } else {
+            LegacyListContent(
+                article = article,
+                parsedSnippet = parsedSnippet,
+                tagStates = tagStates,
+                onClick = onClick,
+                onFavoriteToggle = { checked ->
+                    isFavorite = checked
+                    onFavoriteToggle(checked)
+                },
+                isFavorite = isFavorite,
+                filledStar = filledStar,
+                outlinedStar = outlinedStar,
+                dominantColor = dominantColor,
+                vibrantColor = vibrantColor,
+                extractPaletteFromBitmap = ::extractPaletteFromBitmap,
+                onTagToggle = onTagToggle,
+                openAddTagDialog = { showAddTagDialog = true },
             )
         }
 
@@ -492,6 +323,374 @@ fun ArticleListItem(
                 }
             )
         }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ArticleCardContent(
+    article: ArticleItem,
+    parsedSnippet: AnnotatedString?,
+    tagStates: MutableMap<String, Boolean>,
+    onClick: () -> Unit,
+    onFavoriteToggle: (Boolean) -> Unit,
+    isFavorite: Boolean,
+    filledStar: Painter,
+    outlinedStar: Painter,
+    dominantColor: Color,
+    vibrantColor: Color,
+    extractPaletteFromBitmap: (Drawable) -> Unit,
+    onTagToggle: (String, Boolean) -> Unit,
+    showAddTagDialog: () -> Unit,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier.padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .wrapContentHeight()
+                .clickable { onClick() },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            ArticleThumbnail(
+                article = article,
+                dominantColor = dominantColor,
+                vibrantColor = vibrantColor,
+                extractPaletteFromBitmap = extractPaletteFromBitmap,
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .align(Alignment.CenterVertically)
+            ) {
+                Text(
+                    modifier = Modifier
+                        .wrapContentHeight()
+                        .padding(end = 8.dp),
+                    text = article.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 16.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                        text = article.domain,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 10.sp
+                    )
+                    IconToggleButton(
+                        modifier = Modifier.size(24.dp),
+                        checked = isFavorite,
+                        onCheckedChange = onFavoriteToggle
+                    ) {
+                        Icon(
+                            painter = if (isFavorite) filledStar else outlinedStar,
+                            contentDescription = if (isFavorite) {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            },
+                            tint = if (isFavorite) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        if (!parsedSnippet.isNullOrBlank()) {
+            Text(
+                text = parsedSnippet,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        TagSection(
+            tagStates = tagStates,
+            onTagToggle = onTagToggle,
+            onAddTag = showAddTagDialog,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp)
+        )
+        HorizontalDivider(
+            modifier = Modifier
+                .background(colorScheme.surface)
+                .padding(horizontal = 16.dp)
+                .fillMaxWidth(),
+            thickness = 1.dp,
+            color = colorScheme.outlineVariant
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LegacyListContent(
+    article: ArticleItem,
+    parsedSnippet: AnnotatedString?,
+    tagStates: MutableMap<String, Boolean>,
+    onClick: () -> Unit,
+    onFavoriteToggle: (Boolean) -> Unit,
+    isFavorite: Boolean,
+    filledStar: Painter,
+    outlinedStar: Painter,
+    dominantColor: Color,
+    vibrantColor: Color,
+    extractPaletteFromBitmap: (Drawable) -> Unit,
+    onTagToggle: (String, Boolean) -> Unit,
+    openAddTagDialog: () -> Unit,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    Column {
+        Row(
+            modifier = Modifier
+                .padding(start = 8.dp, end = 8.dp, top = 8.dp)
+                .background(colorScheme.surface)
+                .wrapContentHeight()
+                .clickable { onClick() },
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            ArticleThumbnail(
+                article = article,
+                dominantColor = dominantColor,
+                vibrantColor = vibrantColor,
+                extractPaletteFromBitmap = extractPaletteFromBitmap,
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .align(Alignment.CenterVertically)
+            ) {
+                Text(
+                    modifier = Modifier
+                        .wrapContentHeight()
+                        .padding(end = 8.dp),
+                    text = article.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 16.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        modifier = Modifier.align(Alignment.CenterVertically),
+                        text = article.domain,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 10.sp
+                    )
+                    IconToggleButton(
+                        modifier = Modifier.size(24.dp),
+                        checked = isFavorite,
+                        onCheckedChange = onFavoriteToggle
+                    ) {
+                        Icon(
+                            painter = if (isFavorite) filledStar else outlinedStar,
+                            contentDescription = if (isFavorite) {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            },
+                            tint = if (isFavorite) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        if (!parsedSnippet.isNullOrBlank()) {
+            Text(
+                modifier = Modifier.padding(start = 8.dp, end = 8.dp),
+                text = parsedSnippet,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        TagSection(
+            tagStates = tagStates,
+            onTagToggle = onTagToggle,
+            onAddTag = openAddTagDialog,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 8.dp, end = 4.dp)
+        )
+        HorizontalDivider(
+            modifier = Modifier
+                .background(colorScheme.surface)
+                .padding(horizontal = 16.dp)
+                .fillMaxWidth(),
+            thickness = 1.dp,
+            color = colorScheme.outlineVariant
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TagSection(
+    tagStates: MutableMap<String, Boolean>,
+    onTagToggle: (String, Boolean) -> Unit,
+    onAddTag: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    FlowRow(
+        modifier = modifier
+            .wrapContentHeight(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        val tagsInDisplay = tagStates.keys.toList().sorted()
+        tagsInDisplay.forEach { tag ->
+            val selected = tagStates[tag] ?: false
+            FilterChip(
+                selected = selected,
+                onClick = {
+                    val newSelected = !selected
+                    tagStates[tag] = newSelected
+                    onTagToggle(tag, newSelected)
+                },
+                label = {
+                    Text(text = tag, style = MaterialTheme.typography.labelSmall)
+                },
+                modifier = Modifier
+                    .height(28.dp)
+                    .padding(bottom = 8.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
+                        alpha = 0.16f
+                    ),
+                    selectedLabelColor = MaterialTheme.colorScheme.primary
+                )
+            )
+        }
+        FilterChip(
+            selected = false,
+            onClick = onAddTag,
+            label = { Text(text = "") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Add tag",
+                    modifier = Modifier
+                        .size(20.dp)
+                        .wrapContentHeight()
+                )
+            },
+            modifier = Modifier
+                .height(28.dp)
+                .padding(bottom = 8.dp)
+                .align(Alignment.Top),
+            border = FilterChipDefaults.filterChipBorder(
+                borderColor = Color.Transparent,
+                selectedBorderColor = Color.Transparent,
+                disabledBorderColor = Color.Transparent,
+                disabledSelectedBorderColor = Color.Transparent,
+                enabled = true,
+                selected = false
+            ),
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = Color.Transparent,
+                selectedLabelColor = Color.Transparent
+            )
+        )
+    }
+}
+
+@Composable
+private fun ArticleThumbnail(
+    article: ArticleItem,
+    dominantColor: Color,
+    vibrantColor: Color,
+    extractPaletteFromBitmap: (Drawable) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    Box(
+        modifier = modifier
+            .wrapContentSize()
+            .shadowsPlus(
+                type = ShadowsPlusType.SoftLayer,
+                shape = RoundedCornerShape(16.dp),
+                color = vibrantColor.copy(alpha = 0.6f),
+                radius = 1.dp,
+                spread = 0.dp,
+                offset = DpOffset(0.dp, 0.dp),
+                isAlphaContentClip = true
+            )
+    ) {
+        if (dominantColor != Color.Transparent && vibrantColor != Color.Transparent) {
+            Box(
+                modifier = Modifier
+                    .height(80.dp)
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                dominantColor.copy(alpha = 0.6f),
+                                vibrantColor.copy(alpha = 0.6f)
+                            ),
+                        )
+                    )
+            )
+        }
+
+        AsyncImage(
+            modifier = Modifier
+                .height(80.dp)
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(color = Color.Transparent),
+            model = ImageRequest.Builder(context)
+                .data(article.image)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCacheKey(article.itemId)
+                .memoryCacheKey(article.itemId)
+                .allowHardware(false)
+                .crossfade(true)
+                .coroutineContext(Dispatchers.IO)
+                .size(80, 80)
+                .scale(Scale.FILL)
+                .listener(
+                    onSuccess = { _, result ->
+                        Timber.d("Image Loaded")
+                        extractPaletteFromBitmap(result.image.asDrawable(context.resources))
+                    }
+                )
+                .build(),
+            contentDescription = null,
+        )
     }
 }
 

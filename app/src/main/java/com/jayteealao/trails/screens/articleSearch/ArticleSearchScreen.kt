@@ -38,7 +38,8 @@ import com.jayteealao.trails.screens.theme.TrailsTheme
 fun ArticleSearchScreen(
     searchBarState: SearchBarState,
     viewModel: ArticleSearchViewModel = hiltViewModel(),
-    onSelectArticle: (ArticleItem) -> Unit
+    onSelectArticle: (ArticleItem) -> Unit,
+    useCardLayout: Boolean = true,
 ) {
     val searchResultsLocal = viewModel.searchResultsLocal.collectAsStateWithLifecycle()
     val searchResultsHybrid = viewModel.searchResultsHybrid.collectAsStateWithLifecycle()
@@ -52,6 +53,7 @@ fun ArticleSearchScreen(
         onSearch = { viewModel.search(searchBarState.searchText) },
         onActiveChange = { searchBarState.searchBarActive = it },
         onSelectArticle = onSelectArticle,
+        useCardLayout = useCardLayout,
         setFavorite = { itemId, isFavorite ->
             viewModel.setFavorite(itemId, isFavorite)
         },
@@ -71,6 +73,7 @@ internal fun ArticleSearchContent(
     onSearch: () -> Unit,
     onActiveChange: (Boolean) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
+    useCardLayout: Boolean = true,
     setFavorite: (String, Boolean) -> Unit = { _, _ -> },
     updateTag: (String, String, Boolean) -> Unit = { _, _, _ -> },
 ) {
@@ -111,14 +114,15 @@ internal fun ArticleSearchContent(
                 ) { index, article ->
                     ArticleListItem(
                         article = article,
-                        modifier = if (index != 0) Modifier.padding(top = 12.dp) else Modifier,
+                        modifier = if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier,
                         onClick = { onSelectArticle(article) },
                         onFavoriteToggle = { isFavorite ->
                             setFavorite(article.itemId, isFavorite)
                         },
                         onTagToggle = { tag, enabled ->
                             updateTag(article.itemId, tag, enabled)
-                        }
+                        },
+                        useCardLayout = useCardLayout
                     )
                 }
             }
@@ -138,6 +142,7 @@ private fun ArticleSearchPreview() {
             onSearch = {},
             onActiveChange = {},
             onSelectArticle = {},
+            useCardLayout = true,
         )
     }
 }
@@ -158,6 +163,7 @@ private fun ArticleSearchEmptyPreview() {
             onSearch = {},
             onActiveChange = {},
             onSelectArticle = {},
+            useCardLayout = true,
         )
     }
 }

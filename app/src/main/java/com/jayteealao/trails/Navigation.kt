@@ -85,6 +85,7 @@ fun MainNavigation(
     var isLoggedIn by remember { mutableStateOf(false) }
     val searchBarState by remember { mutableStateOf(SearchBarState(false)) }
     val selectedArticle by articleDetailViewModel.article.collectAsState()
+    val useCardLayout by settingsViewModel.useCardLayout.collectAsState()
 
     LaunchedEffect(true) {
         _isLoggedIn.collect { value ->
@@ -141,6 +142,7 @@ fun MainNavigation(
                         onSelectArticle = { article ->
                             navController.navigate("article/${article.itemId}")
                         },
+                        useCardLayout = useCardLayout
                     )
                 }
             }
@@ -155,10 +157,14 @@ fun MainNavigation(
                 selectedArticle?.let { ArticleDetailScreen(article = it) }
             }
             composable("search") {
-                ArticleSearchScreen(searchBarState = searchBarState, viewModel = articleSearchViewModel) { article ->
-                    navController.navigate("article/${article.itemId}")
-
-                }
+                ArticleSearchScreen(
+                    searchBarState = searchBarState,
+                    viewModel = articleSearchViewModel,
+                    onSelectArticle = { article ->
+                        navController.navigate("article/${article.itemId}")
+                    },
+                    useCardLayout = useCardLayout
+                )
             }
 
             composable("settings") {
@@ -228,7 +234,8 @@ private fun MainNavigationPreview() {
                             onToggleFavorite = { _, _ -> },
                             onToggleTag = { _, _, _ -> },
                             onArchive = {},
-                            onDelete = {}
+                            onDelete = {},
+                            useCardLayout = true
                         )
                     }
                 }
@@ -244,6 +251,7 @@ private fun MainNavigationPreview() {
                         onSearch = {},
                         onActiveChange = { searchBarState.searchBarActive = it },
                         onSelectArticle = {},
+                        useCardLayout = true,
                     )
                 }
                 composable("settings") {
@@ -253,11 +261,13 @@ private fun MainNavigationPreview() {
                             .fillMaxSize(),
                         useFreedium = true,
                         darkThemeEnabled = false,
+                        useCardLayout = true,
                         jinaToken = PreviewFixtures.authAccessToken,
                         jinaPlaceholder = "Insert Jina Token Here",
                         onResetSemanticCache = {},
                         onToggleFreedium = {},
                         onToggleDarkTheme = {},
+                        onToggleCardLayout = {},
                         onJinaTokenChange = {},
                         onSubmitJinaToken = {},
                     )
