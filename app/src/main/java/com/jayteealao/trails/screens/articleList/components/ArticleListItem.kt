@@ -78,6 +78,7 @@ import com.gigamole.composeshadowsplus.common.shadowsPlus
 import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.theme.TrailsTheme
 import kotlinx.coroutines.Dispatchers
 import me.saket.swipe.SwipeAction
 import me.saket.swipe.SwipeableActionsBox
@@ -173,11 +174,12 @@ fun ArticleListItem(
     }
 
 
+    val colorScheme = MaterialTheme.colorScheme
     val parsedSnippet: AnnotatedString? = if (!article.snippet.isNullOrBlank()) {
         HtmlCompat.fromHtml(
             article.snippet,
             HtmlCompat.FROM_HTML_MODE_LEGACY
-        ).toSpannable().toAnnotatedString(Color.Black)
+        ).toSpannable().toAnnotatedString(colorScheme.onSurface)
     } else { null }
     val archive = SwipeAction(
         onSwipe = onArchive,
@@ -186,10 +188,10 @@ fun ArticleListItem(
                 painter = painterResource(id = R.drawable.archive_icon_24),
                 contentDescription = "Archive",
                 modifier = Modifier.padding(16.dp),
-                tint = Color.White
+                tint = colorScheme.onTertiary
             )
         },
-        background = Color.Green
+        background = colorScheme.tertiary
     )
 
     val delete = SwipeAction(
@@ -199,10 +201,10 @@ fun ArticleListItem(
                 painter = painterResource(id = R.drawable.delete_24px),
                 contentDescription = "Delete",
                 modifier = Modifier.padding(16.dp),
-                tint = Color.White
+                tint = colorScheme.onError
             )
         },
-        background = Color.Red
+        background = colorScheme.error
     )
 
     val favorite = SwipeAction(
@@ -212,10 +214,10 @@ fun ArticleListItem(
                 painter = painterResource(id = R.drawable.favorite_24px),
                 contentDescription = "Favorite",
                 modifier = Modifier.padding(16.dp),
-                tint = Color.White
+                tint = colorScheme.onSecondary
             )
         },
-        background = Color.Blue
+        background = colorScheme.secondary
     )
     SwipeableActionsBox(
         startActions = listOf(favorite),
@@ -311,6 +313,7 @@ fun ArticleListItem(
                         .align(Alignment.CenterVertically)){
                     Text(
                         modifier = Modifier
+//                            .align(Alignment.CenterVertically)
                             .wrapContentHeight()
                             .padding(end = 8.dp),
                         text = article.title,
@@ -356,6 +359,8 @@ fun ArticleListItem(
                         }
                     }
                 }
+//                Spacer(modifier = Modifier.width(8.dp))
+//            }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -413,7 +418,8 @@ fun ArticleListItem(
                                 .wrapContentHeight()
                         )
                     },
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier
+                        .height(28.dp)
                         .padding(bottom = 8.dp)
                         .align(Alignment.Top),
                     border = FilterChipDefaults.filterChipBorder(
@@ -430,7 +436,14 @@ fun ArticleListItem(
                     )
                 )
             }
-            }
+            HorizontalDivider(
+                modifier = Modifier
+                    .background(colorScheme.surface)
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth(),
+                thickness = 1.dp,
+                color = colorScheme.outlineVariant
+            )
         }
 
         if (showAddTagDialog) {
@@ -495,11 +508,13 @@ fun ArticleListItemPreview() {
         tagsString = "android,jetpack,compose",
         snippet = "This is a short snippet of the article content. It provides a brief overview of what the article is about. <b>Bold text</b> is also supported."
     )
-    ArticleListItem(
-        article = article,
-        onClick = {},
-        onFavoriteToggle = {},
-        onTagToggle = { _, _ -> }
-    )
+    TrailsTheme {
+        ArticleListItem(
+            article = article,
+            onClick = {},
+            onFavoriteToggle = {},
+            onTagToggle = { _, _ -> }
+        )
+    }
 }
 

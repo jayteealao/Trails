@@ -27,6 +27,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFontFamilyResolver
@@ -35,25 +36,67 @@ import androidx.compose.ui.text.font.createFontFamilyResolver
 import androidx.core.view.ViewCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = TrailsSky,
+    onPrimary = TrailsNavy,
+    primaryContainer = TrailsAquaDeep,
+    onPrimaryContainer = TrailsMist,
+    secondary = TrailsCyanBright,
+    onSecondary = TrailsNavy,
+    secondaryContainer = TrailsTealDeep,
+    onSecondaryContainer = TrailsMist,
+    tertiary = TrailsSkySoft,
+    onTertiary = TrailsNavy,
+    tertiaryContainer = TrailsOcean,
+    onTertiaryContainer = TrailsMist,
+    background = TrailsInk,
+    onBackground = TrailsMist,
+    surface = TrailsMidnight,
+    onSurface = TrailsMist,
+    surfaceVariant = TrailsMidnightVariant,
+    onSurfaceVariant = TrailsOutlineBright,
+    outline = TrailsOutline,
+    outlineVariant = TrailsOutlineDark,
+    inverseSurface = TrailsMist,
+    inverseOnSurface = TrailsInk,
+    inversePrimary = TrailsIndigo,
+    surfaceTint = TrailsSky,
+    scrim = Color(0xCC000000),
+    error = TrailsError,
+    onError = TrailsOnError,
+    errorContainer = TrailsErrorContainer,
+    onErrorContainer = TrailsOnErrorContainer,
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
+    primary = TrailsIndigo,
     onPrimary = Color.White,
-    onSecondary = Color.White,
+    primaryContainer = TrailsMist,
+    onPrimaryContainer = TrailsNavy,
+    secondary = TrailsSky,
+    onSecondary = TrailsInk,
+    secondaryContainer = TrailsSkySoft,
+    onSecondaryContainer = TrailsNavy,
+    tertiary = TrailsOcean,
     onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    tertiaryContainer = TrailsSkySoft,
+    onTertiaryContainer = TrailsNavy,
+    background = TrailsCloud,
+    onBackground = TrailsInk,
+    surface = Color.White,
+    onSurface = TrailsInk,
+    surfaceVariant = TrailsIce,
+    onSurfaceVariant = TrailsOutline,
+    outline = TrailsOutline,
+    outlineVariant = TrailsOutlineBright,
+    inverseSurface = TrailsInk,
+    inverseOnSurface = TrailsMist,
+    inversePrimary = TrailsSky,
+    surfaceTint = TrailsIndigo,
+    scrim = Color(0x66000000),
+    error = TrailsError,
+    onError = TrailsOnError,
+    errorContainer = TrailsErrorContainer,
+    onErrorContainer = TrailsOnErrorContainer,
 )
 
 @Composable
@@ -74,8 +117,10 @@ fun TrailsTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            (view.context as Activity).window.statusBarColor = colorScheme.primary.toArgb()
-            ViewCompat.getWindowInsetsController(view)?.isAppearanceLightStatusBars = darkTheme
+            (view.context as Activity).window.statusBarColor = Color.Transparent.toArgb()
+            (view.context as Activity).window.navigationBarColor = Color.Transparent.toArgb()
+            ViewCompat.getWindowInsetsController(view)?.isAppearanceLightStatusBars = !darkTheme
+            ViewCompat.getWindowInsetsController(view)?.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 

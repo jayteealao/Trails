@@ -10,11 +10,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -23,6 +20,10 @@ class SettingsViewModel @Inject constructor(
     private val sharedPreferencesManager: SharedPreferencesManager,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel() {
+    companion object {
+        private const val KEY_USE_FREEDIUM = "USE_FREEDIUM"
+        private const val KEY_DARK_MODE = "DARK_MODE_ENABLED"
+    }
     fun resetSemanticCache() {
         viewModelScope.launch(ioDispatcher) {
 //            pocketDao.clearModalTable()
@@ -43,21 +44,29 @@ class SettingsViewModel @Inject constructor(
         sharedPreferencesManager.saveString("JINA_TOKEN", jinaToken.value)
     }
 
-    val preferenceFlow = sharedPreferencesManager.preferenceChangesFlow()
-        .filter {
-            it == "USE_FREEDIUM"
-        }.map {
-            Timber.d("Preference changed: $it")
-            sharedPreferencesManager.getBoolean(it!!)
-        }.stateIn(
+    val preferenceFlow = sharedPreferencesManager.booleanFlow(KEY_USE_FREEDIUM)
+        .stateIn(
             scope = viewModelScope,
             started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
-            initialValue = sharedPreferencesManager.getBoolean("USE_FREEDIUM")
+            initialValue = sharedPreferencesManager.getBoolean(KEY_USE_FREEDIUM)
         )
 
     fun updatePreference(value: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            sharedPreferencesManager.saveBoolean("USE_FREEDIUM", value)
+            sharedPreferencesManager.saveBoolean(KEY_USE_FREEDIUM, value)
+        }
+    }
+
+    val darkTheme = sharedPreferencesManager.booleanFlow(KEY_DARK_MODE)
+        .stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
+            initialValue = sharedPreferencesManager.getBoolean(KEY_DARK_MODE)
+        )
+
+    fun updateDarkTheme(enabled: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            sharedPreferencesManager.saveBoolean(KEY_DARK_MODE, enabled)
         }
     }
 }

@@ -20,3 +20,13 @@ local.properties
 /ExtractorJs/build/
 /ExtractorCommon/build/
 /app/schemas/com.jayteealao.trails.data.local.database.AppDatabase/
+/.github/workflows/my.variables
+**/*.log
+*.backup
+/.github/workflows/my.secrets
+**/*.apk
+**/*.aab
+*.keystore
+*.jks
+mapping.txt
+*.zip

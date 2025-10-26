@@ -37,7 +37,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -113,7 +112,7 @@ fun MainNavigation(
         NavHost(
             modifier = Modifier
                 .padding(paddingValues)
-                .background(Color.White),
+                .background(MaterialTheme.colorScheme.background),
             navController = navController,
             startDestination = "main"
         ) {
@@ -199,7 +198,7 @@ private fun MainNavigationPreview() {
             NavHost(
                 modifier = Modifier
                     .padding(paddingValues)
-                    .background(Color.White),
+                    .background(MaterialTheme.colorScheme.background),
                 navController = navController,
                 startDestination = "main",
             ) {
@@ -253,10 +252,12 @@ private fun MainNavigationPreview() {
                             .padding(16.dp)
                             .fillMaxSize(),
                         useFreedium = true,
+                        darkThemeEnabled = false,
                         jinaToken = PreviewFixtures.authAccessToken,
                         jinaPlaceholder = "Insert Jina Token Here",
                         onResetSemanticCache = {},
                         onToggleFreedium = {},
+                        onToggleDarkTheme = {},
                         onJinaTokenChange = {},
                         onSubmitJinaToken = {},
                     )
@@ -295,7 +296,7 @@ private fun MainNavigationDarkPreview() {
             NavHost(
                 modifier = Modifier
                     .padding(paddingValues)
-                    .background(Color.White),
+                    .background(MaterialTheme.colorScheme.background),
                 navController = navController,
                 startDestination = "main",
             ) {
