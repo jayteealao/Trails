@@ -52,13 +52,10 @@ import javax.inject.Inject
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
     private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
-//    private val synchronizePocketUseCase: SynchronizePocketUseCase,
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
-//    private val supabaseService: SupabaseService,
     private val pocketDao: PocketDao,
     private val jinaClient: JinaClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
-//    private val archiveBoxClient: ArchiveBoxClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
 
