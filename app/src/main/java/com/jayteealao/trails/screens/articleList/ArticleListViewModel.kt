@@ -197,14 +197,12 @@ class ArticleListViewModel @Inject constructor(
         if (hasValidSuggestions && existing?.requestSignature == signature) return
 
         _tagSuggestions.update { current ->
-            val next = current.toMutableMap()
-            val snapshot = existing ?: TagSuggestionUiState()
-            next[articleItem.itemId] = snapshot.copy(
+            val snapshot = existing ?: current[articleItem.itemId] ?: TagSuggestionUiState()
+            current + (articleItem.itemId to snapshot.copy(
                 isLoading = true,
                 errorMessage = null,
                 requestSignature = signature
-            )
-            next
+            ))
         }
 
         viewModelScope.launch {
@@ -218,7 +216,6 @@ class ArticleListViewModel @Inject constructor(
                 )
             )
             _tagSuggestions.update { current ->
-                val next = current.toMutableMap()
                 val baseline = current[articleItem.itemId] ?: TagSuggestionUiState()
                 val updated = when (result) {
                     is SuggestTagsUseCase.Result.Success -> baseline.copy(
@@ -238,8 +235,7 @@ class ArticleListViewModel @Inject constructor(
                         requestSignature = signature
                     )
                 }
-                next[articleItem.itemId] = updated
-                next
+                current + (articleItem.itemId to updated)
             }
         }
     }
@@ -248,9 +244,7 @@ class ArticleListViewModel @Inject constructor(
         _tagSuggestions.update { current ->
             val existing = current[articleId] ?: return@update current
             if (existing.errorMessage == null) return@update current
-            val next = current.toMutableMap()
-            next[articleId] = existing.copy(errorMessage = null)
-            next
+            current + (articleId to existing.copy(errorMessage = null))
         }
     }
 
