@@ -105,6 +105,9 @@ fun ArticleListItem(
     onDelete: () -> Unit = {},
     useCardLayout: Boolean = false,
     availableTags: List<String> = emptyList(),
+    bulkSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onSelectionToggle: () -> Unit = {}
 ) {
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
@@ -143,6 +146,9 @@ fun ArticleListItem(
     }
 
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Update onClick behavior based on bulk selection mode
+    val itemClick = if (bulkSelectionMode) onSelectionToggle else onClick
 
     // Animated gradient angle
     val infiniteTransition = rememberInfiniteTransition(label = "gradientTransition")
@@ -224,10 +230,11 @@ fun ArticleListItem(
         }
     }
 
-    SwipeToDismissBox(
-        modifier = modifier,
-        state = swipeState,
-        backgroundContent = {
+    Box(modifier = modifier) {
+        SwipeToDismissBox(
+            modifier = Modifier,
+            state = swipeState,
+            backgroundContent = {
             val direction = swipeState.dismissDirection
             val scope = rememberCoroutineScope()
             Box(
@@ -326,7 +333,7 @@ fun ArticleListItem(
                     article = article,
                     parsedSnippet = parsedSnippet,
                     tagStates = tagStates,
-                    onClick = onClick,
+                    onClick = itemClick,
                     onFavoriteToggle = { checked ->
                         isFavorite = checked
                         onFavoriteToggle(checked)
@@ -498,6 +505,33 @@ fun ArticleListItem(
                         }
                     }
                 }
+            }
+        }
+        }
+
+        // Selection overlay
+        if (bulkSelectionMode) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        if (isSelected)
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
+                        else
+                            Color.Transparent
+                    )
+            )
+
+            if (isSelected) {
+                Icon(
+                    painter = painterResource(R.drawable.check_24px),
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp)
+                        .size(24.dp)
+                )
             }
         }
     }

@@ -202,7 +202,10 @@ fun ArticleListScreen(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = tags
+                    availableTags = tags,
+                    bulkSelectionMode = bulkSelectionMode,
+                    selectedArticleIds = selectedArticleIds,
+                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) }
                 )
 
                 ArticleListTab.FAVOURITES -> PocketScreenContent(
@@ -215,7 +218,10 @@ fun ArticleListScreen(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = tags
+                    availableTags = tags,
+                    bulkSelectionMode = bulkSelectionMode,
+                    selectedArticleIds = selectedArticleIds,
+                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) }
                 )
 
                 ArticleListTab.ARCHIVE -> PocketScreenContent(
@@ -228,7 +234,10 @@ fun ArticleListScreen(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = tags
+                    availableTags = tags,
+                    bulkSelectionMode = bulkSelectionMode,
+                    selectedArticleIds = selectedArticleIds,
+                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) }
                 )
 
                 ArticleListTab.TAGS -> TagsContent(
@@ -245,7 +254,10 @@ fun ArticleListScreen(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = tags
+                    availableTags = tags,
+                    bulkSelectionMode = bulkSelectionMode,
+                    selectedArticleIds = selectedArticleIds,
+                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) }
                 )
             }
             ArticleDialog(
@@ -369,6 +381,9 @@ private fun TagsContent(
     onDelete: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
     availableTags: List<String>,
+    bulkSelectionMode: Boolean = false,
+    selectedArticleIds: Set<String> = emptySet(),
+    onArticleSelectionToggle: (String) -> Unit = {}
 ) {
     if (selectedTag == null) {
         if (tags.isEmpty()) {
@@ -436,7 +451,10 @@ private fun TagsContent(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = availableTags
+                    availableTags = availableTags,
+                    bulkSelectionMode = bulkSelectionMode,
+                    selectedArticleIds = selectedArticleIds,
+                    onArticleSelectionToggle = onArticleSelectionToggle
                 )
             }
         }
@@ -456,6 +474,9 @@ internal fun PocketScreenContent(
     onDelete: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
     availableTags: List<String>,
+    bulkSelectionMode: Boolean = false,
+    selectedArticleIds: Set<String> = emptySet(),
+    onArticleSelectionToggle: (String) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
@@ -492,7 +513,10 @@ internal fun PocketScreenContent(
                     onArchive = { onArchive(article) },
                     onDelete = { onDelete(article) },
                     useCardLayout = useCardLayout,
-                    availableTags = availableTags
+                    availableTags = availableTags,
+                    bulkSelectionMode = bulkSelectionMode,
+                    isSelected = selectedArticleIds.contains(article.itemId),
+                    onSelectionToggle = { onArticleSelectionToggle(article.itemId) }
                 )
             }
         }
