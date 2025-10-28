@@ -65,6 +65,23 @@ class ArticleListViewModel @Inject constructor(
     private val _sortOption = MutableStateFlow(ArticleSortOption.Newest)
     val sortOption: StateFlow<ArticleSortOption> = _sortOption
 
+    // Read filter state
+    enum class ReadFilter { ALL, READ_ONLY, UNREAD_ONLY }
+
+    private val _readFilterState = MutableStateFlow(ReadFilter.ALL)
+    val readFilterState: StateFlow<ReadFilter> = _readFilterState
+
+    // Bulk selection state
+    private val _bulkSelectionMode = MutableStateFlow(false)
+    val bulkSelectionMode: StateFlow<Boolean> = _bulkSelectionMode
+
+    private val _selectedArticleIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedArticleIds: StateFlow<Set<String>> = _selectedArticleIds
+
+    // Search state
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
+
     private val tagsFlow = pocketRepository.allTags()
     val tags = tagsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -200,6 +217,54 @@ class ArticleListViewModel @Inject constructor(
     fun setSortOption(option: ArticleSortOption) {
         if (_sortOption.value != option) {
             _sortOption.value = option
+        }
+    }
+
+    fun setReadFilter(filter: ReadFilter) {
+        _readFilterState.value = filter
+    }
+
+    fun toggleBulkSelectionMode() {
+        _bulkSelectionMode.value = !_bulkSelectionMode.value
+        if (!_bulkSelectionMode.value) {
+            // Exit bulk mode, clear selection
+            _selectedArticleIds.value = emptySet()
+        }
+    }
+
+    fun toggleArticleSelection(articleId: String) {
+        _selectedArticleIds.value = if (_selectedArticleIds.value.contains(articleId)) {
+            _selectedArticleIds.value - articleId
+        } else {
+            _selectedArticleIds.value + articleId
+        }
+    }
+
+    fun clearSelection() {
+        _selectedArticleIds.value = emptySet()
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun bulkArchive(articleIds: Set<String>) {
+        viewModelScope.launch(ioDispatcher) {
+            articleIds.forEach { itemId ->
+                pocketRepository.archive(itemId)
+            }
+            clearSelection()
+            toggleBulkSelectionMode()
+        }
+    }
+
+    fun bulkDelete(articleIds: Set<String>) {
+        viewModelScope.launch(ioDispatcher) {
+            articleIds.forEach { itemId ->
+                pocketRepository.delete(itemId)
+            }
+            clearSelection()
+            toggleBulkSelectionMode()
         }
     }
 
