@@ -31,7 +31,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -87,6 +90,7 @@ import com.gigamole.composeshadowsplus.common.shadowsPlus
 import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.TagSuggestionUiState
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -105,6 +109,9 @@ fun ArticleListItem(
     onDelete: () -> Unit = {},
     useCardLayout: Boolean = false,
     availableTags: List<String> = emptyList(),
+    tagSuggestionState: TagSuggestionUiState = TagSuggestionUiState(),
+    onRequestTagSuggestions: () -> Unit = {},
+    onClearSuggestionError: () -> Unit = {},
 ) {
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
@@ -137,9 +144,22 @@ fun ArticleListItem(
             }
         }
     }
+    LaunchedEffect(tagSuggestionState.tags) {
+        tagSuggestionState.tags.forEach { tag ->
+            if (!tagStates.containsKey(tag)) {
+                tagStates[tag] = false
+            }
+        }
+    }
     LaunchedEffect(article.itemId) {
         showTagSheet = false
         newTagText = ""
+        onClearSuggestionError()
+    }
+    val openTagSheet: () -> Unit = {
+        onClearSuggestionError()
+        showTagSheet = true
+        onRequestTagSuggestions()
     }
 
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -338,7 +358,7 @@ fun ArticleListItem(
                     vibrantColor = vibrantColor,
                     extractPaletteFromBitmap = ::extractPaletteFromBitmap,
                     onTagToggle = onTagToggle,
-                    showAddTagDialog = { showTagSheet = true },
+                    showAddTagDialog = openTagSheet,
                 )
             }
         } else {
@@ -358,7 +378,7 @@ fun ArticleListItem(
                 vibrantColor = vibrantColor,
                 extractPaletteFromBitmap = ::extractPaletteFromBitmap,
                 onTagToggle = onTagToggle,
-                openAddTagDialog = { showTagSheet = true },
+                openAddTagDialog = openTagSheet,
             )
         }
         if (showTagSheet) {
@@ -366,6 +386,7 @@ fun ArticleListItem(
                 onDismissRequest = {
                     showTagSheet = false
                     newTagText = ""
+                    onClearSuggestionError()
                 },
                 sheetState = bottomSheetState,
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -424,6 +445,204 @@ fun ArticleListItem(
                                 text = "Add",
                                 color = MaterialTheme.colorScheme.primary
                             )
+                    }
+                    }
+
+                    val hasSuggestionContent =
+                        tagSuggestionState.tags.isNotEmpty() ||
+                            !tagSuggestionState.summary.isNullOrBlank() ||
+                            !tagSuggestionState.lede.isNullOrBlank() ||
+                            tagSuggestionState.faviconUrl != null ||
+                            tagSuggestionState.imageUrls.isNotEmpty() ||
+                            tagSuggestionState.videoUrls.isNotEmpty()
+
+                    if (tagSuggestionState.isLoading && !hasSuggestionContent) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Text(
+                                text = "Fetching tag suggestions…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val requestButtonLabel = if (tagSuggestionState.errorMessage != null) {
+                                "Retry suggestions"
+                            } else {
+                                "Refresh suggestions"
+                            }
+                            Button(
+                                onClick = onRequestTagSuggestions,
+                                enabled = !tagSuggestionState.isLoading
+                            ) {
+                                Text(text = requestButtonLabel)
+                            }
+                            if (tagSuggestionState.isLoading) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Text(
+                                        text = "Refreshing…",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    tagSuggestionState.errorMessage?.let { message ->
+                        Text(
+                            text = message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    if (!tagSuggestionState.summary.isNullOrBlank()) {
+                        Text(
+                            text = "Editorial summary",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = tagSuggestionState.summary!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (!tagSuggestionState.lede.isNullOrBlank()) {
+                        Text(
+                            text = "Lede",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = tagSuggestionState.lede!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (tagSuggestionState.faviconUrl != null) {
+                        Text(
+                            text = "Favicon",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = tagSuggestionState.faviconUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (tagSuggestionState.imageUrls.isNotEmpty()) {
+                        Text(
+                            text = "Images",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            tagSuggestionState.imageUrls.forEach { url ->
+                                AssistChip(
+                                    onClick = {},
+                                    enabled = false,
+                                    label = {
+                                        Text(
+                                            text = url,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (tagSuggestionState.videoUrls.isNotEmpty()) {
+                        Text(
+                            text = "Videos",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            tagSuggestionState.videoUrls.forEach { url ->
+                                AssistChip(
+                                    onClick = {},
+                                    enabled = false,
+                                    label = {
+                                        Text(
+                                            text = url,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (tagSuggestionState.tags.isNotEmpty()) {
+                        Text(
+                            text = "Suggested tags",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            tagSuggestionState.tags.forEach { suggestion ->
+                                val isSelected = tagStates[suggestion] == true
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        val newValue = !isSelected
+                                        tagStates[suggestion] = newValue
+                                        onTagToggle(suggestion, newValue)
+                                    },
+                                    label = {
+                                        Text(
+                                            text = suggestion,
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                )
+                            }
                         }
                     }
 

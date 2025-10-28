@@ -239,7 +239,10 @@ private fun MainNavigationPreview() {
                             onArchive = {},
                             onDelete = {},
                             useCardLayout = true,
-                            availableTags = emptyList()
+                            availableTags = emptyList(),
+                            tagSuggestionStates = emptyMap(),
+                            onRequestTagSuggestions = {},
+                            onClearSuggestionError = {}
                         )
                     }
                 }
@@ -325,7 +328,10 @@ private fun MainNavigationDarkPreview() {
                         onArchive = {},
                         onDelete = {},
                         useCardLayout = true,
-                        availableTags = emptyList()
+                        availableTags = emptyList(),
+                        tagSuggestionStates = emptyMap(),
+                        onRequestTagSuggestions = {},
+                        onClearSuggestionError = {}
                     )
                 }
                 composable("article") {
