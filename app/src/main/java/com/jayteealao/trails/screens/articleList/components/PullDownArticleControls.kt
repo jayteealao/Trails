@@ -10,9 +10,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.FilterChip
+import androidx.compose.ui.res.painterResource
+import com.jayteealao.trails.R
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -23,9 +23,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.jayteealao.trails.R
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel.ReadFilter
 import com.jayteealao.trails.screens.articleList.ArticleSortOption
 
@@ -74,7 +72,7 @@ fun PullDownArticleControls(
 
                     IconButton(onClick = onDismiss) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            painter = painterResource(com.jayteealao.trails.R.drawable.close_24px),
                             contentDescription = "Close controls"
                         )
                     }
@@ -100,9 +98,9 @@ fun PullDownArticleControls(
                                 Icon(
                                     painter = painterResource(
                                         if (sortOption == ArticleSortOption.Newest)
-                                            R.drawable.arrow_downward_24px
+                                            com.jayteealao.trails.R.drawable.arrow_downward_24px
                                         else
-                                            R.drawable.arrow_upward_24px
+                                            com.jayteealao.trails.R.drawable.arrow_upward_24px
                                     ),
                                     contentDescription = null
                                 )

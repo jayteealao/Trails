@@ -34,15 +34,20 @@ import androidx.lifecycle.repeatOnLifecycle
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.request.crossfade
+import com.jayteealao.trails.data.local.preferences.UserPreferencesRepository
 import com.jayteealao.trails.screens.auth.AuthViewModel
 import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var preferencesRepository: UserPreferencesRepository
 
     private val authViewModel by viewModels<AuthViewModel>()
     private val settingsViewModel by viewModels<SettingsViewModel>()
@@ -81,6 +86,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainNavigation(
                         authViewModel = authViewModel,
+                        preferencesRepository = preferencesRepository,
                         settingsViewModel = settingsViewModel,
                     )
                 }

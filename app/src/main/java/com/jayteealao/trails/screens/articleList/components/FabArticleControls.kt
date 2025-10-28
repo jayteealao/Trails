@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.articleList.components
 
+import android.R.attr.contentDescription
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -11,10 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.FloatingActionButton
@@ -107,7 +104,7 @@ fun FabArticleControls(
                     MiniFabWithLabel(
                         icon = {
                             Icon(
-                                imageVector = Icons.Default.FilterList,
+                                painter = painterResource(R.drawable.filter_list_24px),
                                 contentDescription = "Filter ${readFilter.name}"
                             )
                         },
@@ -143,7 +140,7 @@ fun FabArticleControls(
                     MiniFabWithLabel(
                         icon = {
                             Icon(
-                                imageVector = Icons.Default.Search,
+                                painter = painterResource(R.drawable.search_24px),
                                 contentDescription = "Search"
                             )
                         },
@@ -173,7 +170,8 @@ fun FabArticleControls(
                     modifier = Modifier.rotate(rotation)
                 ) {
                     Icon(
-                        imageVector = if (expanded) Icons.Default.Close else Icons.Default.FilterList,
+                        painter = if (expanded) painterResource(R.drawable.close_24px) else painterResource(
+                            R.drawable.filter_list_24px),
                         contentDescription = if (expanded) "Close controls" else "Open controls"
                     )
                 }

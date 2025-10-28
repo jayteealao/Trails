@@ -78,6 +78,7 @@ fun MainNavigation(
     articleListViewModel: ArticleListViewModel = hiltViewModel(),
     articleDetailViewModel: ArticleDetailViewModel = hiltViewModel(),
     articleSearchViewModel: ArticleSearchViewModel = hiltViewModel(),
+    preferencesRepository: com.jayteealao.trails.data.local.preferences.UserPreferencesRepository,
     settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val navController = rememberNavController()
@@ -140,6 +141,7 @@ fun MainNavigation(
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.surface),
                         viewModel = articleListViewModel,
+                        preferencesRepository = preferencesRepository,
                         onSelectArticle = { article ->
                             navController.navigate("article/${article.itemId}")
                         },
@@ -266,12 +268,14 @@ private fun MainNavigationPreview() {
                         useFreedium = true,
                         darkThemeEnabled = false,
                         useCardLayout = true,
+                        controlDisplayMethod = com.jayteealao.trails.data.local.preferences.ControlDisplayMethod.MENU,
                         jinaToken = PreviewFixtures.authAccessToken,
                         jinaPlaceholder = "Insert Jina Token Here",
                         onResetSemanticCache = {},
                         onToggleFreedium = {},
                         onToggleDarkTheme = {},
                         onToggleCardLayout = {},
+                        onControlDisplayMethodSelected = {},
                         onJinaTokenChange = {},
                         onSubmitJinaToken = {},
                     )

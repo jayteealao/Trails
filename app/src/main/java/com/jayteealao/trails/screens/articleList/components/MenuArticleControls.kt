@@ -1,9 +1,8 @@
 package com.jayteealao.trails.screens.articleList.components
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Badge
+import androidx.compose.ui.res.painterResource
+import com.jayteealao.trails.R
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +48,7 @@ fun MenuArticleControls(
     ) {
         IconButton(onClick = { expanded = true }) {
             Icon(
-                imageVector = Icons.Default.MoreVert,
+                painter = painterResource(R.drawable.more_vert_24px),
                 contentDescription = "Article controls menu"
             )
         }
@@ -82,7 +81,7 @@ fun MenuArticleControls(
                     },
                     leadingIcon = {
                         if (option == sortOption) {
-                            Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                            Icon(painter = painterResource(R.drawable.check_24px), contentDescription = null)
                         }
                     }
                 )
@@ -120,7 +119,7 @@ fun MenuArticleControls(
                     },
                     leadingIcon = {
                         if (filter == readFilter) {
-                            Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                            Icon(painter = painterResource(R.drawable.check_24px), contentDescription = null)
                         }
                     }
                 )
@@ -136,7 +135,7 @@ fun MenuArticleControls(
             },
             leadingIcon = {
                 if (bulkSelectionMode) {
-                    Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                    Icon(painter = painterResource(R.drawable.check_24px), contentDescription = null)
                 }
             }
         )
