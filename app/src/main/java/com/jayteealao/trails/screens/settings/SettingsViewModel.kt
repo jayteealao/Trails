@@ -6,6 +6,8 @@ import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.local.preferences.ControlDisplayMethod
+import com.jayteealao.trails.data.local.preferences.UserPreferencesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +20,7 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val pocketDao: PocketDao,
     private val sharedPreferencesManager: SharedPreferencesManager,
+    private val userPreferencesRepository: UserPreferencesRepository,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel() {
     fun resetSemanticCache() {
@@ -79,6 +82,19 @@ class SettingsViewModel @Inject constructor(
     fun updateCardLayout(enabled: Boolean) {
         viewModelScope.launch(ioDispatcher) {
             sharedPreferencesManager.saveBoolean(SettingsPreferenceKeys.USE_CARD_LAYOUT, enabled)
+        }
+    }
+
+    val controlDisplayMethod = userPreferencesRepository.controlDisplayMethod
+        .stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
+            initialValue = userPreferencesRepository.getControlDisplayMethod()
+        )
+
+    fun updateControlDisplayMethod(method: ControlDisplayMethod) {
+        viewModelScope.launch(ioDispatcher) {
+            userPreferencesRepository.setControlDisplayMethod(method)
         }
     }
 }
