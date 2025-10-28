@@ -102,7 +102,8 @@ fun TagSuggestionsContent(
             )
         }
 
-        tagSuggestionState.summary?.takeIf { it.isNotBlank() }?.let { summary ->
+        val summary = tagSuggestionState.summary
+        if (!summary.isNullOrBlank()) {
             Text(
                 text = "Editorial summary",
                 style = MaterialTheme.typography.titleSmall,
@@ -115,7 +116,8 @@ fun TagSuggestionsContent(
             )
         }
 
-        tagSuggestionState.lede?.takeIf { it.isNotBlank() }?.let { lede ->
+        val lede = tagSuggestionState.lede
+        if (!lede.isNullOrBlank()) {
             Text(
                 text = "Lede",
                 style = MaterialTheme.typography.titleSmall,
