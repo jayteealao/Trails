@@ -31,9 +31,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -206,7 +208,12 @@ fun ArticleListScreen(
                     availableTags = tags,
                     bulkSelectionMode = bulkSelectionMode,
                     selectedArticleIds = selectedArticleIds,
-                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) }
+                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) },
+                    onPullDown = {
+                        if (controlDisplayMethod == ControlDisplayMethod.PULL_DOWN) {
+                            pullDownVisible = true
+                        }
+                    }
                 )
 
                 ArticleListTab.FAVOURITES -> PocketScreenContent(
@@ -222,7 +229,12 @@ fun ArticleListScreen(
                     availableTags = tags,
                     bulkSelectionMode = bulkSelectionMode,
                     selectedArticleIds = selectedArticleIds,
-                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) }
+                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) },
+                    onPullDown = {
+                        if (controlDisplayMethod == ControlDisplayMethod.PULL_DOWN) {
+                            pullDownVisible = true
+                        }
+                    }
                 )
 
                 ArticleListTab.ARCHIVE -> PocketScreenContent(
@@ -238,7 +250,12 @@ fun ArticleListScreen(
                     availableTags = tags,
                     bulkSelectionMode = bulkSelectionMode,
                     selectedArticleIds = selectedArticleIds,
-                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) }
+                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) },
+                    onPullDown = {
+                        if (controlDisplayMethod == ControlDisplayMethod.PULL_DOWN) {
+                            pullDownVisible = true
+                        }
+                    }
                 )
 
                 ArticleListTab.TAGS -> TagsContent(
@@ -258,7 +275,12 @@ fun ArticleListScreen(
                     availableTags = tags,
                     bulkSelectionMode = bulkSelectionMode,
                     selectedArticleIds = selectedArticleIds,
-                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) }
+                    onArticleSelectionToggle = { viewModel.toggleArticleSelection(it) },
+                    onPullDown = {
+                        if (controlDisplayMethod == ControlDisplayMethod.PULL_DOWN) {
+                            pullDownVisible = true
+                        }
+                    }
                 )
             }
             ArticleDialog(
@@ -392,7 +414,8 @@ private fun TagsContent(
     availableTags: List<String>,
     bulkSelectionMode: Boolean = false,
     selectedArticleIds: Set<String> = emptySet(),
-    onArticleSelectionToggle: (String) -> Unit = {}
+    onArticleSelectionToggle: (String) -> Unit = {},
+    onPullDown: () -> Unit = {}
 ) {
     if (selectedTag == null) {
         if (tags.isEmpty()) {
@@ -463,7 +486,8 @@ private fun TagsContent(
                     availableTags = availableTags,
                     bulkSelectionMode = bulkSelectionMode,
                     selectedArticleIds = selectedArticleIds,
-                    onArticleSelectionToggle = onArticleSelectionToggle
+                    onArticleSelectionToggle = onArticleSelectionToggle,
+                    onPullDown = onPullDown
                 )
             }
         }
@@ -485,14 +509,25 @@ internal fun PocketScreenContent(
     availableTags: List<String>,
     bulkSelectionMode: Boolean = false,
     selectedArticleIds: Set<String> = emptySet(),
-    onArticleSelectionToggle: (String) -> Unit = {}
+    onArticleSelectionToggle: (String) -> Unit = {},
+    onPullDown: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
     LazyColumn(
         state = listState,
         modifier = Modifier
-            .fillMaxSize(),
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { _, dragAmount ->
+                    // Detect pull-down when at top of list
+                    if (listState.firstVisibleItemIndex == 0 &&
+                        listState.firstVisibleItemScrollOffset == 0 &&
+                        dragAmount > 50) {
+                        onPullDown()
+                    }
+                }
+            },
         contentPadding = PaddingValues(
             top = 16.dp,
             bottom = 16.dp,
