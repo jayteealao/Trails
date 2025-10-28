@@ -31,8 +31,15 @@ class SuggestTagsUseCase @Inject constructor(
 
     sealed class Result {
         data class Success(val suggestion: Suggestion) : Result()
-        data class Error(val message: String, val cause: Throwable? = null) : Result()
-        data class MissingCredentials(val message: String) : Result()
+
+        sealed class Failure(open val message: String) : Result()
+
+        data class Error(
+            override val message: String,
+            val cause: Throwable? = null,
+        ) : Failure(message)
+
+        data class MissingCredentials(override val message: String) : Failure(message)
     }
 
     suspend operator fun invoke(request: Request): Result = withContext(ioDispatcher) {

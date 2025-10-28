@@ -232,12 +232,7 @@ class ArticleListViewModel @Inject constructor(
                         errorMessage = null,
                         requestSignature = signature
                     )
-                    is SuggestTagsUseCase.Result.MissingCredentials -> baseline.copy(
-                        isLoading = false,
-                        errorMessage = result.message,
-                        requestSignature = signature
-                    )
-                    is SuggestTagsUseCase.Result.Error -> baseline.copy(
+                    is SuggestTagsUseCase.Result.Failure -> baseline.copy(
                         isLoading = false,
                         errorMessage = result.message,
                         requestSignature = signature
