@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.firebase.ai.GenerativeModel
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Content
 import com.google.firebase.ai.type.GenerativeBackend
@@ -36,25 +37,18 @@ class GeminiService @Inject constructor(
     }
 
     private val appMutex = Mutex()
+    private val modelMutex = Mutex()
+    private val cachedModels = mutableMapOf<ModelKey, GenerativeModel>()
+    private val backend = GenerativeBackend.googleAI()
+    private val systemInstruction: Content by lazy { buildSystemInstruction() }
 
     suspend fun fetchTagSuggestions(request: TagSuggestionRequest): GeminiTagSuggestion {
         val app = ensureFirebaseApp() ?: throw MissingFirebaseCredentialsException()
 
+        val useUrlContext = !request.url.isNullOrBlank()
+
         return runCatching {
-            val backend = GenerativeBackend.googleAI()
-            val systemInstruction = buildSystemInstruction()
-            val model = Firebase.ai(app, backend).generativeModel(
-                modelName = MODEL_NAME,
-                generationConfig = generationConfig {
-                    temperature = 0.35f
-                    topK = 32
-                    topP = 0.85f
-                    maxOutputTokens = 768
-                    responseMimeType = "application/json"
-                },
-                tools = buildTools(request),
-                systemInstruction = systemInstruction,
-            )
+            val model = getGenerativeModel(app, useUrlContext)
 
             val response = model.generateContent(
                 content {
@@ -106,12 +100,34 @@ class GeminiService @Inject constructor(
     }
 
     @OptIn(PublicPreviewAPI::class)
-    private fun buildTools(request: TagSuggestionRequest): List<Tool> {
-        return if (request.url.isNullOrBlank()) {
-            emptyList()
-        } else {
+    private suspend fun getGenerativeModel(
+        app: FirebaseApp,
+        useUrlContext: Boolean,
+    ): GenerativeModel = modelMutex.withLock {
+        val key = ModelKey(useUrlContext)
+        cachedModels[key]?.let { return it }
+
+        val tools = if (useUrlContext) {
             listOf(Tool.urlContext())
+        } else {
+            emptyList()
         }
+
+        val model = Firebase.ai(app, backend).generativeModel(
+            modelName = MODEL_NAME,
+            generationConfig = generationConfig {
+                temperature = 0.35f
+                topK = 32
+                topP = 0.85f
+                maxOutputTokens = 768
+                responseMimeType = "application/json"
+            },
+            tools = tools,
+            systemInstruction = systemInstruction,
+        )
+
+        cachedModels[key] = model
+        return model
     }
 
     private fun buildUserPrompt(request: TagSuggestionRequest): String {
@@ -256,5 +272,7 @@ class GeminiService @Inject constructor(
             '{'
         )
     }
+
+    private data class ModelKey(val useUrlContext: Boolean)
 }
 
