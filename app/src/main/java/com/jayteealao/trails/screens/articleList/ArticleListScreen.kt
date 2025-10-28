@@ -67,6 +67,7 @@ import com.jayteealao.trails.data.local.preferences.ControlDisplayMethod
 import com.jayteealao.trails.data.local.preferences.UserPreferencesRepository
 import com.jayteealao.trails.screens.articleList.components.ArticleDialog
 import com.jayteealao.trails.screens.articleList.components.ArticleListItem
+import com.jayteealao.trails.screens.articleList.components.BulkActionBar
 import com.jayteealao.trails.screens.articleList.components.FabArticleControls
 import com.jayteealao.trails.screens.articleList.components.MenuArticleControls
 import com.jayteealao.trails.screens.articleList.components.PullDownArticleControls
@@ -302,6 +303,14 @@ fun ArticleListScreen(
             }
 
         }
+
+        BulkActionBar(
+            visible = bulkSelectionMode,
+            selectedCount = selectedArticleIds.size,
+            onArchive = { viewModel.bulkArchive(selectedArticleIds) },
+            onDelete = { viewModel.bulkDelete(selectedArticleIds) }
+        )
+
         NavigationBar(
             modifier = Modifier
                 .wrapContentHeight(Alignment.Bottom),
