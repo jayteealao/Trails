@@ -63,10 +63,16 @@ import androidx.paging.compose.itemKey
 import com.jayteealao.trails.R
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
+import com.jayteealao.trails.data.local.preferences.ControlDisplayMethod
+import com.jayteealao.trails.data.local.preferences.UserPreferencesRepository
 import com.jayteealao.trails.screens.articleList.components.ArticleDialog
 import com.jayteealao.trails.screens.articleList.components.ArticleListItem
+import com.jayteealao.trails.screens.articleList.components.FabArticleControls
+import com.jayteealao.trails.screens.articleList.components.MenuArticleControls
+import com.jayteealao.trails.screens.articleList.components.PullDownArticleControls
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import javax.inject.Inject
 
 
 private enum class ArticleListTab(val label: String, val icon: @Composable () -> Unit = {}) {
@@ -86,6 +92,7 @@ enum class ArticleSortOption(val label: String) {
 fun ArticleListScreen(
     modifier: Modifier = Modifier,
     viewModel: ArticleListViewModel = hiltViewModel(),
+    preferencesRepository: UserPreferencesRepository,
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
 ) {
@@ -103,6 +110,19 @@ fun ArticleListScreen(
     val tags by viewModel.tags.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
     val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
+
+    // Control display preference
+    val controlDisplayMethod by preferencesRepository.controlDisplayMethod.collectAsStateWithLifecycle(
+        initialValue = ControlDisplayMethod.MENU
+    )
+
+    // New state for filters and bulk selection
+    val readFilter by viewModel.readFilterState.collectAsStateWithLifecycle()
+    val bulkSelectionMode by viewModel.bulkSelectionMode.collectAsStateWithLifecycle()
+    val selectedArticleIds by viewModel.selectedArticleIds.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+
+    var pullDownVisible by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(selectedTab) {
         if (selectedTab != ArticleListTab.TAGS) {
@@ -124,6 +144,32 @@ fun ArticleListScreen(
     }
     val onSortOptionSelected: (ArticleSortOption) -> Unit = { option ->
         viewModel.setSortOption(option)
+    }
+
+    // Control action helpers
+    val onSortToggle: () -> Unit = {
+        val newSort = if (sortOption == ArticleSortOption.Newest)
+            ArticleSortOption.Oldest
+        else
+            ArticleSortOption.Newest
+        viewModel.setSortOption(newSort)
+    }
+
+    val onReadFilterCycle: () -> Unit = {
+        val newFilter = when (readFilter) {
+            ArticleListViewModel.ReadFilter.ALL -> ArticleListViewModel.ReadFilter.UNREAD_ONLY
+            ArticleListViewModel.ReadFilter.UNREAD_ONLY -> ArticleListViewModel.ReadFilter.READ_ONLY
+            ArticleListViewModel.ReadFilter.READ_ONLY -> ArticleListViewModel.ReadFilter.ALL
+        }
+        viewModel.setReadFilter(newFilter)
+    }
+
+    val onBulkSelectToggle: () -> Unit = {
+        viewModel.toggleBulkSelectionMode()
+    }
+
+    val onSearchQueryChange: (String) -> Unit = { query ->
+        viewModel.setSearchQuery(query)
     }
 
     Column(
@@ -207,6 +253,41 @@ fun ArticleListScreen(
                 showDialog = selectedArticle != EMPTYARTICLEITEM,
                 onDismissRequest = { viewModel.selectArticle(EMPTYARTICLEITEM) }
             )
+
+            // Render control components based on preference
+            when (controlDisplayMethod) {
+                ControlDisplayMethod.FAB -> {
+                    FabArticleControls(
+                        modifier = Modifier.align(Alignment.BottomEnd),
+                        sortOption = sortOption,
+                        readFilter = readFilter,
+                        bulkSelectionMode = bulkSelectionMode,
+                        selectedCount = selectedArticleIds.size,
+                        onSortToggle = onSortToggle,
+                        onReadFilterCycle = onReadFilterCycle,
+                        onBulkSelectToggle = onBulkSelectToggle,
+                        onSearchClick = { pullDownVisible = true }
+                    )
+                }
+                ControlDisplayMethod.MENU -> {
+                    // Menu renders in top bar - would need TopAppBar integration
+                    // For now, just show FAB as fallback
+                }
+                ControlDisplayMethod.PULL_DOWN -> {
+                    PullDownArticleControls(
+                        visible = pullDownVisible,
+                        searchQuery = searchQuery,
+                        sortOption = sortOption,
+                        readFilter = readFilter,
+                        bulkSelectionMode = bulkSelectionMode,
+                        onSearchQueryChange = onSearchQueryChange,
+                        onSortToggle = onSortToggle,
+                        onReadFilterCycle = onReadFilterCycle,
+                        onBulkSelectToggle = onBulkSelectToggle,
+                        onDismiss = { pullDownVisible = false }
+                    )
+                }
+            }
 
         }
         NavigationBar(
