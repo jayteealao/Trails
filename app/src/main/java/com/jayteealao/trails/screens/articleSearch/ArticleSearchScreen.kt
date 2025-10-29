@@ -56,6 +56,9 @@ fun ArticleSearchScreen(
         setFavorite = { itemId, isFavorite ->
             viewModel.setFavorite(itemId, isFavorite)
         },
+        setReadStatus = { itemId, isRead ->
+            viewModel.setReadStatus(itemId, isRead)
+        },
         updateTag = { itemId, tag, enabled ->
             viewModel.updateTag(itemId, tag, enabled)
         }
@@ -74,6 +77,7 @@ internal fun ArticleSearchContent(
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
     setFavorite: (String, Boolean) -> Unit = { _, _ -> },
+    setReadStatus: (String, Boolean) -> Unit = { _, _ -> },
     updateTag: (String, String, Boolean) -> Unit = { _, _, _ -> },
 ) {
     val searchBarContainerColor = searchBarState.searchBarContainerColor()
@@ -118,6 +122,9 @@ internal fun ArticleSearchContent(
                         onFavoriteToggle = { isFavorite ->
                             setFavorite(article.itemId, isFavorite)
                         },
+                        onReadToggle = { isRead ->
+                            setReadStatus(article.itemId, isRead)
+                        },
                         onTagToggle = { tag, enabled ->
                             updateTag(article.itemId, tag, enabled)
                         },
@@ -142,6 +149,7 @@ private fun ArticleSearchPreview() {
             onActiveChange = {},
             onSelectArticle = {},
             useCardLayout = true,
+            setReadStatus = { _, _ -> },
         )
     }
 }
@@ -163,6 +171,7 @@ private fun ArticleSearchEmptyPreview() {
             onActiveChange = {},
             onSelectArticle = {},
             useCardLayout = true,
+            setReadStatus = { _, _ -> },
         )
     }
 }

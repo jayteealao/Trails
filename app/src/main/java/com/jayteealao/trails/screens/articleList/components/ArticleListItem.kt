@@ -59,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
@@ -100,6 +101,7 @@ fun ArticleListItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onFavoriteToggle: (Boolean) -> Unit = {},
+    onReadToggle: (Boolean) -> Unit = {},
     onTagToggle: (String, Boolean) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
     onDelete: () -> Unit = {},
@@ -115,8 +117,15 @@ fun ArticleListItem(
         isFavorite = article.favorite
     }
 
+    var isRead by remember(article.itemId) { mutableStateOf(article.isRead) }
+    LaunchedEffect(article.isRead) {
+        isRead = article.isRead
+    }
+
     val filledStar = painterResource(id = R.drawable.star_filled_24px)
     val outlinedStar = painterResource(id = R.drawable.star_24px)
+    val markReadIcon = painterResource(id = R.drawable.check_24px)
+    val markUnreadIcon = painterResource(id = R.drawable.close_24px)
 
     val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }
     var showTagSheet by remember(article.itemId) { mutableStateOf(false) }
@@ -275,6 +284,30 @@ fun ArticleListItem(
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surface)
                                     .clickable {
+                                        val newReadState = !isRead
+                                        isRead = newReadState
+                                        onReadToggle(newReadState)
+                                        scope.launch { swipeState.reset() }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = if (isRead) markUnreadIcon else markReadIcon,
+                                    contentDescription = if (isRead) {
+                                        "Mark as unread"
+                                    } else {
+                                        "Mark as read"
+                                    },
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .clickable {
                                         onArchive()
                                         scope.launch { swipeState.reset() }
                                     },
@@ -332,6 +365,7 @@ fun ArticleListItem(
                         onFavoriteToggle(checked)
                     },
                     isFavorite = isFavorite,
+                    isRead = isRead,
                     filledStar = filledStar,
                     outlinedStar = outlinedStar,
                     dominantColor = dominantColor,
@@ -342,21 +376,22 @@ fun ArticleListItem(
                 )
             }
         } else {
-            LegacyListContent(
-                article = article,
-                parsedSnippet = parsedSnippet,
-                tagStates = tagStates,
-                onClick = onClick,
-                onFavoriteToggle = { checked ->
-                    isFavorite = checked
-                    onFavoriteToggle(checked)
-                },
-                isFavorite = isFavorite,
-                filledStar = filledStar,
-                outlinedStar = outlinedStar,
-                dominantColor = dominantColor,
-                vibrantColor = vibrantColor,
-                extractPaletteFromBitmap = ::extractPaletteFromBitmap,
+                LegacyListContent(
+                    article = article,
+                    parsedSnippet = parsedSnippet,
+                    tagStates = tagStates,
+                    onClick = onClick,
+                    onFavoriteToggle = { checked ->
+                        isFavorite = checked
+                        onFavoriteToggle(checked)
+                    },
+                    isFavorite = isFavorite,
+                    isRead = isRead,
+                    filledStar = filledStar,
+                    outlinedStar = outlinedStar,
+                    dominantColor = dominantColor,
+                    vibrantColor = vibrantColor,
+                    extractPaletteFromBitmap = ::extractPaletteFromBitmap,
                 onTagToggle = onTagToggle,
                 openAddTagDialog = { showTagSheet = true },
             )
@@ -512,6 +547,7 @@ private fun ArticleCardContent(
     onClick: () -> Unit,
     onFavoriteToggle: (Boolean) -> Unit,
     isFavorite: Boolean,
+    isRead: Boolean,
     filledStar: Painter,
     outlinedStar: Painter,
     dominantColor: Color,
@@ -521,6 +557,22 @@ private fun ArticleCardContent(
     showAddTagDialog: () -> Unit,
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val titleColor = if (isRead) {
+        colorScheme.onSurface.copy(alpha = 0.7f)
+    } else {
+        colorScheme.onSurface
+    }
+    val domainColor = if (isRead) {
+        colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    } else {
+        colorScheme.onSurfaceVariant
+    }
+    val snippetColor = if (isRead) {
+        colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    } else {
+        colorScheme.onSurfaceVariant
+    }
+    val thumbnailAlpha = if (isRead) 0.5f else 1f
     Column(
         modifier = Modifier.padding(12.dp)
     ) {
@@ -536,7 +588,9 @@ private fun ArticleCardContent(
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
                 extractPaletteFromBitmap = extractPaletteFromBitmap,
-                modifier = Modifier.align(Alignment.CenterVertically)
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .alpha(thumbnailAlpha)
             )
 
             Spacer(modifier = Modifier.width(16.dp))
@@ -551,7 +605,8 @@ private fun ArticleCardContent(
                         .padding(end = 8.dp),
                     text = article.title,
                     style = MaterialTheme.typography.titleMedium,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    color = titleColor
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -564,7 +619,8 @@ private fun ArticleCardContent(
                         style = MaterialTheme.typography.titleSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        fontSize = 10.sp
+                        fontSize = 10.sp,
+                        color = domainColor
                     )
                     IconToggleButton(
                         modifier = Modifier.size(24.dp),
@@ -595,7 +651,8 @@ private fun ArticleCardContent(
                 text = parsedSnippet,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 3,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                color = snippetColor
             )
         }
         TagSection(
@@ -626,6 +683,7 @@ private fun LegacyListContent(
     onClick: () -> Unit,
     onFavoriteToggle: (Boolean) -> Unit,
     isFavorite: Boolean,
+    isRead: Boolean,
     filledStar: Painter,
     outlinedStar: Painter,
     dominantColor: Color,
@@ -635,6 +693,22 @@ private fun LegacyListContent(
     openAddTagDialog: () -> Unit,
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val titleColor = if (isRead) {
+        colorScheme.onSurface.copy(alpha = 0.7f)
+    } else {
+        colorScheme.onSurface
+    }
+    val domainColor = if (isRead) {
+        colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    } else {
+        colorScheme.onSurfaceVariant
+    }
+    val snippetColor = if (isRead) {
+        colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    } else {
+        colorScheme.onSurfaceVariant
+    }
+    val thumbnailAlpha = if (isRead) 0.5f else 1f
     Column {
         Row(
             modifier = Modifier
@@ -650,7 +724,9 @@ private fun LegacyListContent(
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
                 extractPaletteFromBitmap = extractPaletteFromBitmap,
-                modifier = Modifier.align(Alignment.CenterVertically)
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .alpha(thumbnailAlpha)
             )
 
             Spacer(modifier = Modifier.width(16.dp))
@@ -665,7 +741,8 @@ private fun LegacyListContent(
                         .padding(end = 8.dp),
                     text = article.title,
                     style = MaterialTheme.typography.titleMedium,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    color = titleColor
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -678,7 +755,8 @@ private fun LegacyListContent(
                         style = MaterialTheme.typography.titleSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        fontSize = 10.sp
+                        fontSize = 10.sp,
+                        color = domainColor
                     )
                     IconToggleButton(
                         modifier = Modifier.size(24.dp),
@@ -710,7 +788,8 @@ private fun LegacyListContent(
                 text = parsedSnippet,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 3,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                color = snippetColor
             )
         }
         TagSection(
@@ -877,6 +956,7 @@ fun ArticleListItemPreview() {
         url = "https://example.com/article",
         image = "https://picsum.photos/80/80",
         favorite = true,
+        isRead = true,
         tagsString = "android,jetpack,compose",
         snippet = "This is a short snippet of the article content. It provides a brief overview of what the article is about. <b>Bold text</b> is also supported."
     )

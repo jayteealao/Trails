@@ -22,7 +22,8 @@ interface PocketDao {
     @Query(
         """
         SELECT itemId, title, COALESCE(url, givenUrl) AS url,
-        CASE WHEN favorite = '1' THEN 1 ELSE 0 END AS favorite
+        CASE WHEN favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN timeRead IS NOT NULL AND timeRead > 0 THEN 1 ELSE 0 END AS isRead
         FROM pocketarticle
         ORDER BY timeUpdated DESC
         """
@@ -36,6 +37,7 @@ interface PocketDao {
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
         CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
@@ -49,6 +51,7 @@ interface PocketDao {
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
         CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
@@ -62,6 +65,7 @@ interface PocketDao {
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
         CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
@@ -75,6 +79,7 @@ interface PocketDao {
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
         CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         GROUP_CONCAT(allTags.tag) AS tagsString
         FROM pocketarticle AS art
         INNER JOIN pockettags AS selectedTag ON
@@ -107,6 +112,7 @@ interface PocketDao {
         """
         SELECT itemId, title, COALESCE(url, givenUrl) AS url, image,
         CASE WHEN favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN timeRead IS NOT NULL AND timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         excerpt AS snippet
         FROM pocketarticle
         WHERE itemId IN (:ids)
@@ -214,7 +220,8 @@ interface PocketDao {
         SELECT pocketarticle.itemId, pocketarticle.title,
         COALESCE(pocketarticle.url, pocketarticle.givenUrl) AS url,
         pocketarticle.image,
-        CASE WHEN pocketarticle.favorite = '1' THEN 1 ELSE 0 END AS favorite
+        CASE WHEN pocketarticle.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN pocketarticle.timeRead IS NOT NULL AND pocketarticle.timeRead > 0 THEN 1 ELSE 0 END AS isRead
         FROM pocketarticle
         JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
         WHERE pocketarticle_fts MATCH :query
@@ -229,6 +236,7 @@ interface PocketDao {
         COALESCE(pocketarticle.url, pocketarticle.givenUrl) AS url,
         pocketarticle.image,
         CASE WHEN pocketarticle.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN pocketarticle.timeRead IS NOT NULL AND pocketarticle.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         snippet(pocketarticle_fts) AS snippet,
         matchinfo(pocketarticle_fts) AS matchInfo
         FROM pocketarticle
@@ -237,6 +245,15 @@ interface PocketDao {
         """
     )
     suspend fun searchPocketsWithMatchInfo(query: String): List<PocketWithMatchInfo>
+
+    @Query(
+        """
+        UPDATE pocketarticle
+        SET timeRead = CASE WHEN :isRead THEN :timestamp ELSE NULL END
+        WHERE itemId = :itemId
+        """
+    )
+    suspend fun updateReadStatus(itemId: String, isRead: Boolean, timestamp: Long?)
 
     @Query("""
         SELECT * FROM pocketarticle
