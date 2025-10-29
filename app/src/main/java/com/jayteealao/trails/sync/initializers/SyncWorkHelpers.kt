@@ -18,7 +18,7 @@ import com.jayteealao.trails.R
  * Foreground information for sync on lower API levels when sync workers are being run with a
  * foreground service.
  */
-context(CoroutineWorker)
+context(coroutineWorker: CoroutineWorker)
 fun Context.syncForegroundInfo() = ForegroundInfo(
     SyncNotificationId,
     syncWorkNotification()
@@ -29,10 +29,10 @@ fun Context.syncForegroundInfo() = ForegroundInfo(
  * Notification displayed on lower API levels when sync workers are being run with a foreground
  * service.
  */
-context(CoroutineWorker)
+context(coroutineWorker: CoroutineWorker)
 private fun Context.syncWorkNotification(): Notification {
     val cancelIntent = WorkManager.getInstance(this)
-        .createCancelPendingIntent(id)
+        .createCancelPendingIntent(coroutineWorker.id)
     val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
     launchIntent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     val launchPendingIntent = PendingIntent.getActivity(

@@ -305,11 +305,20 @@ fun ArticleListScreen(
                     )
                 }
                 ControlDisplayMethod.MENU -> {
-                    // Menu renders in top bar - would need TopAppBar integration
-                    // For now, just show FAB as fallback
+                    MenuArticleControls(
+                        modifier = Modifier.align(Alignment.TopEnd),
+                        sortOption = sortOption,
+                        readFilter = readFilter,
+                        bulkSelectionMode = bulkSelectionMode,
+                        onSortSelected = onSortOptionSelected,
+                        onReadFilterSelected = { viewModel.setReadFilter(it) },
+                        onBulkSelectToggle = onBulkSelectToggle,
+                        onSettingsClick = { /* TODO: Navigate to settings */ }
+                    )
                 }
                 ControlDisplayMethod.PULL_DOWN -> {
                     PullDownArticleControls(
+                        modifier = Modifier.align(Alignment.TopCenter),
                         visible = pullDownVisible,
                         searchQuery = searchQuery,
                         sortOption = sortOption,
