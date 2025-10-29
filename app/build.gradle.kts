@@ -287,6 +287,8 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.okio)
+    implementation(libs.firebase.ai)
+    implementation(libs.kotlinx.serialization.json)
 
     // jetpack pallete
     implementation(libs.androidx.palette.ktx)

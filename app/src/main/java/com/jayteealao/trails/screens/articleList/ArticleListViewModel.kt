@@ -33,17 +33,21 @@ import com.jayteealao.trails.data.local.database.PocketDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
+import com.jayteealao.trails.screens.articleList.TagSuggestionUiState
 import com.jayteealao.trails.services.jina.JinaClient
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
+import com.jayteealao.trails.usecases.SuggestTagsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
@@ -55,6 +59,7 @@ class ArticleListViewModel @Inject constructor(
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
     private val pocketDao: PocketDao,
     private val jinaClient: JinaClient,
+    private val suggestTagsUseCase: SuggestTagsUseCase,
     private val contentMetricsCalculator: ContentMetricsCalculator,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
@@ -62,9 +67,15 @@ class ArticleListViewModel @Inject constructor(
     private val _selectedTag = MutableStateFlow<String?>(null)
     val selectedTag: StateFlow<String?> = _selectedTag
 
+    private val _sortOption = MutableStateFlow(ArticleSortOption.Newest)
+    val sortOption: StateFlow<ArticleSortOption> = _sortOption
+
     private val tagsFlow = pocketRepository.allTags()
     val tags = tagsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _tagSuggestions = MutableStateFlow<Map<String, TagSuggestionUiState>>(emptyMap())
+    val tagSuggestions: StateFlow<Map<String, TagSuggestionUiState>> = _tagSuggestions.asStateFlow()
 
     init {
         viewModelScope.launch(ioDispatcher) {
@@ -178,6 +189,73 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
+    fun requestTagSuggestions(articleItem: ArticleItem) {
+        val signature = buildTagSuggestionSignature(articleItem)
+        val existing = _tagSuggestions.value[articleItem.itemId]
+        val hasValidSuggestions = existing?.errorMessage == null && existing?.tags?.isNotEmpty() == true
+        if (existing?.isLoading == true) return
+        if (hasValidSuggestions && existing?.requestSignature == signature) return
+
+        _tagSuggestions.update { current ->
+            val snapshot = existing ?: current[articleItem.itemId] ?: TagSuggestionUiState()
+            current + (articleItem.itemId to snapshot.copy(
+                isLoading = true,
+                errorMessage = null,
+                requestSignature = signature
+            ))
+        }
+
+        viewModelScope.launch {
+            val result = suggestTagsUseCase(
+                SuggestTagsUseCase.Request(
+                    articleId = articleItem.itemId,
+                    title = articleItem.title,
+                    description = articleItem.snippet,
+                    url = articleItem.url,
+                    availableTags = tags.value
+                )
+            )
+            _tagSuggestions.update { current ->
+                val baseline = current[articleItem.itemId] ?: TagSuggestionUiState()
+                val updated = when (result) {
+                    is SuggestTagsUseCase.Result.Success -> baseline.copy(
+                        isLoading = false,
+                        tags = result.suggestion.tags,
+                        summary = result.suggestion.summary.ifBlank { null },
+                        lede = result.suggestion.lede.ifBlank { null },
+                        faviconUrl = result.suggestion.faviconUrl,
+                        imageUrls = result.suggestion.imageUrls,
+                        videoUrls = result.suggestion.videoUrls,
+                        errorMessage = null,
+                        requestSignature = signature
+                    )
+                    is SuggestTagsUseCase.Result.Failure -> baseline.copy(
+                        isLoading = false,
+                        errorMessage = result.message,
+                        requestSignature = signature
+                    )
+                }
+                current + (articleItem.itemId to updated)
+            }
+        }
+    }
+
+    fun clearTagSuggestionError(articleId: String) {
+        _tagSuggestions.update { current ->
+            val existing = current[articleId] ?: return@update current
+            if (existing.errorMessage == null) return@update current
+            current + (articleId to existing.copy(errorMessage = null))
+        }
+    }
+
+    private fun buildTagSuggestionSignature(articleItem: ArticleItem): String {
+        return listOf(
+            articleItem.title,
+            articleItem.snippet.orEmpty(),
+            articleItem.url
+        ).joinToString(separator = "|") { it.trim() }
+    }
+
     fun selectArticle(articleItem: ArticleItem) {
         _selectedArticle.value = articleItem
 //        provideSummary(articleItem.itemId)
@@ -185,6 +263,12 @@ class ArticleListViewModel @Inject constructor(
 
     fun selectTag(tag: String?) {
         _selectedTag.value = tag
+    }
+
+    fun setSortOption(option: ArticleSortOption) {
+        if (_sortOption.value != option) {
+            _sortOption.value = option
+        }
     }
 
     fun insertArticle(article: PocketArticle) {

@@ -87,6 +87,7 @@ import com.gigamole.composeshadowsplus.common.shadowsPlus
 import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.TagSuggestionUiState
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -105,6 +106,9 @@ fun ArticleListItem(
     onDelete: () -> Unit = {},
     useCardLayout: Boolean = false,
     availableTags: List<String> = emptyList(),
+    tagSuggestionState: TagSuggestionUiState = TagSuggestionUiState(),
+    onRequestTagSuggestions: () -> Unit = {},
+    onClearSuggestionError: () -> Unit = {},
 ) {
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
@@ -137,9 +141,22 @@ fun ArticleListItem(
             }
         }
     }
+    LaunchedEffect(tagSuggestionState.tags) {
+        tagSuggestionState.tags.forEach { tag ->
+            if (!tagStates.containsKey(tag)) {
+                tagStates[tag] = false
+            }
+        }
+    }
     LaunchedEffect(article.itemId) {
         showTagSheet = false
         newTagText = ""
+        onClearSuggestionError()
+    }
+    val openTagSheet: () -> Unit = {
+        onClearSuggestionError()
+        showTagSheet = true
+        onRequestTagSuggestions()
     }
 
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -338,7 +355,7 @@ fun ArticleListItem(
                     vibrantColor = vibrantColor,
                     extractPaletteFromBitmap = ::extractPaletteFromBitmap,
                     onTagToggle = onTagToggle,
-                    showAddTagDialog = { showTagSheet = true },
+                    showAddTagDialog = openTagSheet,
                 )
             }
         } else {
@@ -358,7 +375,7 @@ fun ArticleListItem(
                 vibrantColor = vibrantColor,
                 extractPaletteFromBitmap = ::extractPaletteFromBitmap,
                 onTagToggle = onTagToggle,
-                openAddTagDialog = { showTagSheet = true },
+                openAddTagDialog = openTagSheet,
             )
         }
         if (showTagSheet) {
@@ -366,6 +383,7 @@ fun ArticleListItem(
                 onDismissRequest = {
                     showTagSheet = false
                     newTagText = ""
+                    onClearSuggestionError()
                 },
                 sheetState = bottomSheetState,
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -424,8 +442,19 @@ fun ArticleListItem(
                                 text = "Add",
                                 color = MaterialTheme.colorScheme.primary
                             )
-                        }
                     }
+                    }
+
+                    TagSuggestionsContent(
+                        tagSuggestionState = tagSuggestionState,
+                        isTagSelected = { tag -> tagStates[tag] == true },
+                        onToggleSuggestion = { suggestion, newValue ->
+                            tagStates[suggestion] = newValue
+                            onTagToggle(suggestion, newValue)
+                        },
+                        onRequestTagSuggestions = onRequestTagSuggestions,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
                     // Selected tags section
                     val selectedTags = tagStates.filterValues { it }.keys.toList().sorted()

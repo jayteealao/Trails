@@ -47,6 +47,8 @@ robolectric = "4.8"
 splashscreen = "1.0.1"
 supabase = "3.2.3"
 shadowsPlus = "1.0.4"
+firebaseAi = "17.4.0"
+kotlinxSerializationJson = "1.7.3"
 
 timber = "5.0.1"
 workManager = "2.10.4"
@@ -159,6 +161,8 @@ markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", v
 markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer"}
 markdown-renderer-coil3 = { module = "com.mikepenz:multiplatform-markdown-renderer-coil3", version.ref = "markdown-renderer"}
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+firebase-ai = { module = "com.google.firebase:firebase-ai", version.ref = "firebaseAi" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-juni t4", version.ref = "benchmarkMacroJunit4" }
