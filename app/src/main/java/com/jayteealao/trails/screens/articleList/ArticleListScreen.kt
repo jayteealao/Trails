@@ -189,6 +189,23 @@ fun ArticleListScreen(
                 strokeCap = StrokeCap.Square,
             )
         }
+
+        // Pull-down controls at the top
+        if (controlDisplayMethod == ControlDisplayMethod.PULL_DOWN) {
+            PullDownArticleControls(
+                visible = pullDownVisible,
+                searchQuery = searchQuery,
+                sortOption = sortOption,
+                readFilter = readFilter,
+                bulkSelectionMode = bulkSelectionMode,
+                onSearchQueryChange = onSearchQueryChange,
+                onSortToggle = onSortToggle,
+                onReadFilterCycle = onReadFilterCycle,
+                onBulkSelectToggle = onBulkSelectToggle,
+                onDismiss = { pullDownVisible = false }
+            )
+        }
+
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -289,11 +306,13 @@ fun ArticleListScreen(
                 onDismissRequest = { viewModel.selectArticle(EMPTYARTICLEITEM) }
             )
 
-            // Render control components based on preference
+            // Render FAB or Menu controls
             when (controlDisplayMethod) {
                 ControlDisplayMethod.FAB -> {
                     FabArticleControls(
-                        modifier = Modifier.align(Alignment.BottomEnd),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp),
                         sortOption = sortOption,
                         readFilter = readFilter,
                         bulkSelectionMode = bulkSelectionMode,
@@ -306,7 +325,9 @@ fun ArticleListScreen(
                 }
                 ControlDisplayMethod.MENU -> {
                     MenuArticleControls(
-                        modifier = Modifier.align(Alignment.TopEnd),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
                         sortOption = sortOption,
                         readFilter = readFilter,
                         bulkSelectionMode = bulkSelectionMode,
@@ -317,19 +338,7 @@ fun ArticleListScreen(
                     )
                 }
                 ControlDisplayMethod.PULL_DOWN -> {
-                    PullDownArticleControls(
-                        modifier = Modifier.align(Alignment.TopCenter),
-                        visible = pullDownVisible,
-                        searchQuery = searchQuery,
-                        sortOption = sortOption,
-                        readFilter = readFilter,
-                        bulkSelectionMode = bulkSelectionMode,
-                        onSearchQueryChange = onSearchQueryChange,
-                        onSortToggle = onSortToggle,
-                        onReadFilterCycle = onReadFilterCycle,
-                        onBulkSelectToggle = onBulkSelectToggle,
-                        onDismiss = { pullDownVisible = false }
-                    )
+                    // Pull-down is rendered outside the Box at the top of the Column
                 }
             }
 
