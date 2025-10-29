@@ -235,6 +235,7 @@ private fun MainNavigationPreview() {
                             onSortSelected = {},
                             onSelectArticle = { navController.navigate("article") },
                             onToggleFavorite = { _, _ -> },
+                            onToggleRead = { _, _ -> },
                             onToggleTag = { _, _, _ -> },
                             onArchive = {},
                             onDelete = {},
