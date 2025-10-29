@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,7 +25,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -59,39 +57,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.createBitmap
 import androidx.core.text.HtmlCompat
 import androidx.core.text.toSpannable
 import androidx.palette.graphics.Palette
-import coil3.asDrawable
-import coil3.compose.AsyncImage
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.request.allowHardware
-import coil3.request.crossfade
-import coil3.size.Scale
-import com.gigamole.composeshadowsplus.common.ShadowsPlusType
-import com.gigamole.composeshadowsplus.common.shadowsPlus
 import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.theme.TrailsTheme
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import timber.log.Timber
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -311,38 +295,8 @@ fun ArticleListItem(
         }
     ) {
         if (useCardLayout) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = 4.dp,
-                    pressedElevation = 8.dp
-                ),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                ArticleCardContent(
-                    article = article,
-                    parsedSnippet = parsedSnippet,
-                    tagStates = tagStates,
-                    onClick = onClick,
-                    onFavoriteToggle = { checked ->
-                        isFavorite = checked
-                        onFavoriteToggle(checked)
-                    },
-                    isFavorite = isFavorite,
-                    filledStar = filledStar,
-                    outlinedStar = outlinedStar,
-                    dominantColor = dominantColor,
-                    vibrantColor = vibrantColor,
-                    extractPaletteFromBitmap = ::extractPaletteFromBitmap,
-                    onTagToggle = onTagToggle,
-                    showAddTagDialog = { showTagSheet = true },
-                )
-            }
-        } else {
-            LegacyListContent(
+
+            ArticleItemCardStyle(
                 article = article,
                 parsedSnippet = parsedSnippet,
                 tagStates = tagStates,
@@ -358,7 +312,33 @@ fun ArticleListItem(
                 vibrantColor = vibrantColor,
                 extractPaletteFromBitmap = ::extractPaletteFromBitmap,
                 onTagToggle = onTagToggle,
-                openAddTagDialog = { showTagSheet = true },
+                showAddTagDialog = { showTagSheet = true },
+            )
+
+        } else {
+
+            ArticleItemContent( // non card item layout - legacy
+                article = article,
+                parsedSnippet = parsedSnippet,
+                tagStates = tagStates,
+                onClick = onClick,
+                onFavoriteToggle = { checked ->
+                    isFavorite = checked
+                    onFavoriteToggle(checked)
+                },
+                isFavorite = isFavorite,
+                filledStar = filledStar,
+                outlinedStar = outlinedStar,
+                dominantColor = dominantColor,
+                vibrantColor = vibrantColor,
+                extractPaletteFromBitmap = ::extractPaletteFromBitmap,
+                onTagToggle = onTagToggle,
+                showAddTagDialog = { showTagSheet = true },
+                modifier = Modifier
+                    .padding(start = 8.dp, end = 8.dp, top = 8.dp)
+                    .background(colorScheme.surface)
+                    .wrapContentHeight()
+                    .clickable { onClick() },
             )
         }
         if (showTagSheet) {
@@ -503,9 +483,8 @@ fun ArticleListItem(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ArticleCardContent(
+fun ArticleItemCardStyle(
     article: ArticleItem,
     parsedSnippet: AnnotatedString?,
     tagStates: MutableMap<String, Boolean>,
@@ -520,14 +499,68 @@ private fun ArticleCardContent(
     onTagToggle: (String, Boolean) -> Unit,
     showAddTagDialog: () -> Unit,
 ) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 4.dp,
+            pressedElevation = 8.dp
+        ),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        ArticleItemContent(
+            article = article,
+            parsedSnippet = parsedSnippet,
+            tagStates = tagStates,
+            onClick = onClick,
+            onFavoriteToggle = onFavoriteToggle,
+            isFavorite = isFavorite,
+            filledStar = filledStar,
+            outlinedStar = outlinedStar,
+            dominantColor = dominantColor,
+            vibrantColor = vibrantColor,
+            extractPaletteFromBitmap = extractPaletteFromBitmap,
+            onTagToggle = onTagToggle,
+            showAddTagDialog = showAddTagDialog,
+            modifier = Modifier
+//                .clickable { onClick() }
+                .padding(12.dp)
+        )
+
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ArticleItemContent(
+    article: ArticleItem,
+    parsedSnippet: AnnotatedString?,
+    tagStates: MutableMap<String, Boolean>,
+    onClick: () -> Unit,
+    onFavoriteToggle: (Boolean) -> Unit,
+    isFavorite: Boolean,
+    filledStar: Painter,
+    outlinedStar: Painter,
+    dominantColor: Color,
+    vibrantColor: Color,
+    extractPaletteFromBitmap: (Drawable) -> Unit,
+    onTagToggle: (String, Boolean) -> Unit,
+    showAddTagDialog: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colorScheme = MaterialTheme.colorScheme
     Column(
-        modifier = Modifier.padding(12.dp)
+        modifier = modifier
+            .clickable { onClick() }
+//            .padding(12.dp)
     ) {
         Row(
             modifier = Modifier
-                .wrapContentHeight()
-                .clickable { onClick() },
+                .wrapContentHeight(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
@@ -613,256 +646,6 @@ private fun ArticleCardContent(
                 .fillMaxWidth(),
             thickness = 1.dp,
             color = colorScheme.outlineVariant
-        )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun LegacyListContent(
-    article: ArticleItem,
-    parsedSnippet: AnnotatedString?,
-    tagStates: MutableMap<String, Boolean>,
-    onClick: () -> Unit,
-    onFavoriteToggle: (Boolean) -> Unit,
-    isFavorite: Boolean,
-    filledStar: Painter,
-    outlinedStar: Painter,
-    dominantColor: Color,
-    vibrantColor: Color,
-    extractPaletteFromBitmap: (Drawable) -> Unit,
-    onTagToggle: (String, Boolean) -> Unit,
-    openAddTagDialog: () -> Unit,
-) {
-    val colorScheme = MaterialTheme.colorScheme
-    Column {
-        Row(
-            modifier = Modifier
-                .padding(start = 8.dp, end = 8.dp, top = 8.dp)
-                .background(colorScheme.surface)
-                .wrapContentHeight()
-                .clickable { onClick() },
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
-            ArticleThumbnail(
-                article = article,
-                dominantColor = dominantColor,
-                vibrantColor = vibrantColor,
-                extractPaletteFromBitmap = extractPaletteFromBitmap,
-                modifier = Modifier.align(Alignment.CenterVertically)
-            )
-
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .align(Alignment.CenterVertically)
-            ) {
-                Text(
-                    modifier = Modifier
-                        .wrapContentHeight()
-                        .padding(end = 8.dp),
-                    text = article.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontSize = 16.sp
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        modifier = Modifier.align(Alignment.CenterVertically),
-                        text = article.domain,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 10.sp
-                    )
-                    IconToggleButton(
-                        modifier = Modifier.size(24.dp),
-                        checked = isFavorite,
-                        onCheckedChange = onFavoriteToggle
-                    ) {
-                        Icon(
-                            painter = if (isFavorite) filledStar else outlinedStar,
-                            contentDescription = if (isFavorite) {
-                                "Remove from favorites"
-                            } else {
-                                "Add to favorites"
-                            },
-                            tint = if (isFavorite) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-        if (!parsedSnippet.isNullOrBlank()) {
-            Text(
-                modifier = Modifier.padding(start = 8.dp, end = 8.dp),
-                text = parsedSnippet,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        TagSection(
-            tagStates = tagStates,
-            onTagToggle = onTagToggle,
-            onAddTag = openAddTagDialog,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 8.dp, end = 4.dp)
-        )
-        HorizontalDivider(
-            modifier = Modifier
-                .background(colorScheme.surface)
-                .padding(horizontal = 16.dp)
-                .fillMaxWidth(),
-            thickness = 1.dp,
-            color = colorScheme.outlineVariant
-        )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TagSection(
-    tagStates: MutableMap<String, Boolean>,
-    onTagToggle: (String, Boolean) -> Unit,
-    onAddTag: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    FlowRow(
-        modifier = modifier
-            .wrapContentHeight(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        val tagsInDisplay = tagStates.filterValues { it }.keys.toList().sorted()
-        tagsInDisplay.forEach { tag ->
-            val selected = tagStates[tag] ?: false
-            FilterChip(
-                selected = selected,
-                onClick = onAddTag,
-                label = {
-                    Text(text = tag, style = MaterialTheme.typography.labelSmall)
-                },
-                modifier = Modifier
-                    .height(28.dp)
-                    .padding(bottom = 8.dp),
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(
-                        alpha = 0.16f
-                    ),
-                    selectedLabelColor = MaterialTheme.colorScheme.primary
-                )
-            )
-        }
-        FilterChip(
-            selected = false,
-            onClick = onAddTag,
-            label = { Text(text = "") },
-            leadingIcon = {
-                Icon(
-                    painter = painterResource(id = R.drawable.add_24px),
-                    contentDescription = "Add tag",
-                    modifier = Modifier
-                        .size(20.dp)
-                        .wrapContentHeight()
-                )
-            },
-            modifier = Modifier
-                .height(28.dp)
-                .padding(bottom = 8.dp)
-                .align(Alignment.Top),
-            border = FilterChipDefaults.filterChipBorder(
-                borderColor = Color.Transparent,
-                selectedBorderColor = Color.Transparent,
-                disabledBorderColor = Color.Transparent,
-                disabledSelectedBorderColor = Color.Transparent,
-                enabled = true,
-                selected = false
-            ),
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = Color.Transparent,
-                selectedLabelColor = Color.Transparent
-            )
-        )
-    }
-}
-
-@Composable
-private fun ArticleThumbnail(
-    article: ArticleItem,
-    dominantColor: Color,
-    vibrantColor: Color,
-    extractPaletteFromBitmap: (Drawable) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    Box(
-        modifier = modifier
-            .wrapContentSize()
-            .shadowsPlus(
-                type = ShadowsPlusType.SoftLayer,
-                shape = RoundedCornerShape(16.dp),
-                color = vibrantColor.copy(alpha = 0.6f),
-                radius = 1.dp,
-                spread = 0.dp,
-                offset = DpOffset(0.dp, 0.dp),
-                isAlphaContentClip = true
-            )
-    ) {
-        if (dominantColor != Color.Transparent && vibrantColor != Color.Transparent) {
-            Box(
-                modifier = Modifier
-                    .height(80.dp)
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                dominantColor.copy(alpha = 0.6f),
-                                vibrantColor.copy(alpha = 0.6f)
-                            ),
-                        )
-                    )
-            )
-        }
-
-        AsyncImage(
-            modifier = Modifier
-                .height(80.dp)
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .background(color = Color.Transparent),
-            model = ImageRequest.Builder(context)
-                .data(article.image)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCacheKey(article.itemId)
-                .memoryCacheKey(article.itemId)
-                .allowHardware(false)
-                .crossfade(true)
-                .coroutineContext(Dispatchers.IO)
-                .size(80, 80)
-                .scale(Scale.FILL)
-                .listener(
-                    onSuccess = { _, result ->
-                        Timber.d("Image Loaded")
-                        extractPaletteFromBitmap(result.image.asDrawable(context.resources))
-                    }
-                )
-                .build(),
-            contentDescription = null,
         )
     }
 }
