@@ -127,6 +127,9 @@ fun ArticleListScreen(
     val onToggleTag: (ArticleItem, String, Boolean) -> Unit = { articleItem, tag, enabled ->
         viewModel.updateTag(articleItem.itemId, tag, enabled)
     }
+    val onToggleRead: (ArticleItem, Boolean) -> Unit = { articleItem, isRead ->
+        viewModel.setReadStatus(articleItem.itemId, isRead)
+    }
     val onArchive: (ArticleItem) -> Unit = { articleItem ->
         viewModel.archiveArticle(articleItem.itemId)
     }
@@ -163,6 +166,7 @@ fun ArticleListScreen(
                     onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
+                    onToggleRead = onToggleRead,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
@@ -176,6 +180,7 @@ fun ArticleListScreen(
                     onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
+                    onToggleRead = onToggleRead,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
@@ -189,6 +194,7 @@ fun ArticleListScreen(
                     onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
+                    onToggleRead = onToggleRead,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
@@ -206,6 +212,7 @@ fun ArticleListScreen(
                     onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
+                    onToggleRead = onToggleRead,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
@@ -250,6 +257,7 @@ private fun ArticleListScreenPreview() {
             onSortSelected = {},
             onSelectArticle = {},
             onToggleFavorite = { _, _ -> },
+            onToggleRead = { _, _ -> },
             onToggleTag = { _, _, _ -> },
             onArchive = {},
             onDelete = {},
@@ -273,6 +281,7 @@ private fun ArticleListScreenDarkPreview() {
             onSortSelected = {},
             onSelectArticle = {},
             onToggleFavorite = { _, _ -> },
+            onToggleRead = { _, _ -> },
             onToggleTag = { _, _, _ -> },
             onArchive = {},
             onDelete = {},
@@ -294,6 +303,7 @@ private fun TagsContent(
     onSortSelected: (ArticleSortOption) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
     onToggleFavorite: (ArticleItem, Boolean) -> Unit,
+    onToggleRead: (ArticleItem, Boolean) -> Unit,
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
     onArchive: (ArticleItem) -> Unit,
     onDelete: (ArticleItem) -> Unit,
@@ -362,6 +372,7 @@ private fun TagsContent(
                     onSortSelected = onSortSelected,
                     onSelectArticle = onSelectArticle,
                     onToggleFavorite = onToggleFavorite,
+                    onToggleRead = onToggleRead,
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
@@ -381,6 +392,7 @@ internal fun PocketScreenContent(
     onSortSelected: (ArticleSortOption) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
     onToggleFavorite: (ArticleItem, Boolean) -> Unit,
+    onToggleRead: (ArticleItem, Boolean) -> Unit,
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
     onArchive: (ArticleItem) -> Unit,
     onDelete: (ArticleItem) -> Unit,
@@ -442,6 +454,9 @@ internal fun PocketScreenContent(
                         onClick = { onSelectArticle(article) },
                         onFavoriteToggle = { isFavorite ->
                             onToggleFavorite(article, isFavorite)
+                        },
+                        onReadToggle = { isRead ->
+                            onToggleRead(article, isRead)
                         },
                         onTagToggle = { tag, enabled ->
                             onToggleTag(article, tag, enabled)
