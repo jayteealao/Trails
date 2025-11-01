@@ -55,6 +55,7 @@ espressoCore = "3.7.0"
 uiautomator = "2.3.0"
 benchmarkMacroJunit4 = "1.2.0-beta01"
 material3 = "1.4.0"
+firebaseBom = "34.4.0"
 
 #constraintlayoutVersion = "2.1.4"
 
@@ -164,6 +165,9 @@ androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomato
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-juni t4", version.ref = "benchmarkMacroJunit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
 #androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayoutVersion" }
+
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-ai = { module = "com.google.firebase:firebase-ai" }
 
 [bundles]
 #androidx-compose = ["androidx-compose-material3", "androidx-compose-ui", "androidx-compose-ui-tooling-preview",]
