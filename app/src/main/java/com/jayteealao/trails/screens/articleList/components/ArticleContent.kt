@@ -43,7 +43,7 @@ fun ArticleContent(
     outlinedStar: Painter,
     dominantColor: Color,
     vibrantColor: Color,
-    extractPaletteFromBitmap: (Drawable) -> Unit,
+    onPaletteExtracted: (Color, Color) -> Unit,
     onTagToggle: (String, Boolean) -> Unit,
     showAddTagDialog: () -> Unit,
     modifier: Modifier = Modifier
@@ -63,7 +63,7 @@ fun ArticleContent(
                 article = article,
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
-                extractPaletteFromBitmap = extractPaletteFromBitmap,
+                onPaletteExtracted = onPaletteExtracted,
                 modifier = Modifier.align(Alignment.CenterVertically)
             )
 
