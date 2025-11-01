@@ -105,6 +105,8 @@
 #gson rules
 -keep class com.jayteealao.trails.network.** { *; }
 -keepclassmembers class com.jayteealao.trails.network.** { *; }
+-keep class com.jayteealao.trails.services.** { *; }
+-keepclassmembers class com.jayteealao.trails.services.** { *; }
 # Prevent proguard from stripping interface information from TypeAdapterFactory,
 # JsonSerializer, JsonDeserializer instances (so they can be used in @JsonAdapter)
 -keep class * implements com.google.gson.TypeAdapterFactory
@@ -121,6 +123,9 @@
 -keepnames @kotlin.Metadata class com.jayteealao.trails.network.**
 -keep class com.jayteealao.trails.network** { *; }
 -keepclassmembers class com.jayteealao.trails.network.** { *; }
+-keepnames @kotlin.Metadata class com.jayteealao.trails.services.**
+-keep class com.jayteealao.trails.services** { *; }
+-keepclassmembers class com.jayteealao.trails.services.** { *; }
 
 # Retain service method parameters when optimizing.
 -keep class com.skydoves.sandwich.adapters.ApiResponseCallAdapterFactory
