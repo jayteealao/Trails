@@ -113,6 +113,7 @@ android {
 
         getByName("debug") {
             isMinifyEnabled = false
+            // Always use debug signing for debug builds
             signingConfig = signingConfigs.getByName("debug")
         }
         create("benchmark") {
