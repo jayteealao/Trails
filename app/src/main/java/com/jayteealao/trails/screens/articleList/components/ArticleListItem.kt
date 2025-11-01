@@ -1,7 +1,5 @@
 package com.jayteealao.trails.screens.articleList.components
 
-import android.graphics.Canvas
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -39,12 +37,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.core.graphics.createBitmap
 import androidx.core.text.HtmlCompat
 import androidx.core.text.toSpannable
-import androidx.palette.graphics.Palette
 import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
+import com.jayteealao.trails.common.extractPaletteFromBitmap
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import kotlinx.coroutines.delay
@@ -117,28 +114,10 @@ fun ArticleListItem(
         label = "gradientAngle"
     )
 
-    // Function to extract palette from bitmap
-    fun extractPaletteFromBitmap(drawable: Drawable) {
-        // Convert hardware bitmap to software bitmap safely
-        val bitmap = when (drawable) {
-            is BitmapDrawable -> drawable.bitmap
-            else -> {
-                val width = drawable.intrinsicWidth
-                val height = drawable.intrinsicHeight
-                val bitmap = createBitmap(width, height)
-                val canvas = Canvas(bitmap)
-                drawable.setBounds(0, 0, canvas.width, canvas.height)
-                drawable.draw(canvas)
-                bitmap
-            }
-        }
-        Palette.Builder(bitmap).generate { palette ->
-            palette?.let {
-
-                dominantColor = Color(it.getDominantColor(Color.Transparent.toArgb()))
-                vibrantColor = Color(it.getVibrantColor(Color.Transparent.toArgb()))
-            }
-        }
+    // Callback function to update palette colors
+    val onPaletteExtracted: (Color, Color) -> Unit = { dominant, vibrant ->
+        dominantColor = dominant
+        vibrantColor = vibrant
     }
 
     DisposableEffect(article.itemId) {
@@ -220,7 +199,7 @@ fun ArticleListItem(
                 outlinedStar = outlinedStar,
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
-                extractPaletteFromBitmap = ::extractPaletteFromBitmap,
+                onPaletteExtracted = onPaletteExtracted,
                 onTagToggle = onTagToggle,
                 showAddTagDialog = { showTagSheet = true },
             )
@@ -240,7 +219,7 @@ fun ArticleListItem(
                 outlinedStar = outlinedStar,
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
-                extractPaletteFromBitmap = ::extractPaletteFromBitmap,
+                onPaletteExtracted = onPaletteExtracted,
                 onTagToggle = onTagToggle,
                 showAddTagDialog = { showTagSheet = true },
                 modifier = Modifier
@@ -291,7 +270,7 @@ fun ArticleItemCardStyle(
     outlinedStar: Painter,
     dominantColor: Color,
     vibrantColor: Color,
-    extractPaletteFromBitmap: (Drawable) -> Unit,
+    onPaletteExtracted: (Color, Color) -> Unit,
     onTagToggle: (String, Boolean) -> Unit,
     showAddTagDialog: () -> Unit,
 ) {
@@ -319,7 +298,7 @@ fun ArticleItemCardStyle(
             outlinedStar = outlinedStar,
             dominantColor = dominantColor,
             vibrantColor = vibrantColor,
-            extractPaletteFromBitmap = extractPaletteFromBitmap,
+            onPaletteExtracted = onPaletteExtracted,
             onTagToggle = onTagToggle,
             showAddTagDialog = showAddTagDialog,
             modifier = Modifier

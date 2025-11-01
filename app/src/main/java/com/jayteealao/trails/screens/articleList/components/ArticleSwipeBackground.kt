@@ -1,5 +1,9 @@
 package com.jayteealao.trails.screens.articleList.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -97,12 +101,12 @@ fun ArticleSwipeBackground(
                 contentAlignment = Alignment.Center
             ) {
                 // Cross-fade between filled and unfilled star
-                androidx.compose.animation.AnimatedContent(
+                AnimatedContent(
                     targetState = isFavorite,
                     transitionSpec = {
-                        androidx.compose.animation.fadeIn(
+                        fadeIn(
                             animationSpec = tween(durationMillis = 200)
-                        ) togetherWith androidx.compose.animation.fadeOut(
+                        ) togetherWith fadeOut(
                             animationSpec = tween(durationMillis = 200)
                         )
                     },

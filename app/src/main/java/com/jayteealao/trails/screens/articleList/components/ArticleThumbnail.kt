@@ -24,6 +24,7 @@ import coil3.request.crossfade
 import coil3.size.Scale
 import com.gigamole.composeshadowsplus.common.ShadowsPlusType
 import com.gigamole.composeshadowsplus.common.shadowsPlus
+import com.jayteealao.trails.common.extractPaletteFromBitmap
 import com.jayteealao.trails.data.models.ArticleItem
 import kotlinx.coroutines.Dispatchers
 import timber.log.Timber
@@ -33,7 +34,7 @@ fun ArticleThumbnail(
     article: ArticleItem,
     dominantColor: Color,
     vibrantColor: Color,
-    extractPaletteFromBitmap: (Drawable) -> Unit,
+    onPaletteExtracted: (Color, Color) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -87,7 +88,10 @@ fun ArticleThumbnail(
                 .listener(
                     onSuccess = { _, result ->
                         Timber.d("Image Loaded")
-                        extractPaletteFromBitmap(result.image.asDrawable(context.resources))
+                        extractPaletteFromBitmap(
+                            drawable = result.image.asDrawable(context.resources),
+                            onColorsExtracted = onPaletteExtracted
+                        )
                     }
                 )
                 .build(),
