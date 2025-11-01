@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "384496505300",
+    "project_id": "trails-e428e",
+    "storage_bucket": "trails-e428e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:384496505300:android:f42bc1e3776e7f6df38641",
+        "android_client_info": {
+          "package_name": "com.jayteealao.trails"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB89-9Ej9g317WFmCkCGouS9zbLy7YFoUg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

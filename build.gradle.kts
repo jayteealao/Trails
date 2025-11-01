@@ -23,6 +23,7 @@ plugins {
     id("com.google.dagger.hilt.android") version libs.versions.hilt.get() apply false
     id("com.google.devtools.ksp") version libs.versions.ksp.get() apply false
     id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
+    id("com.google.gms.google-services") version "4.4.4" apply false
     id(libs.plugins.kotlin.serialization.get().pluginId) version libs.versions.kotlin.get() apply false
     alias(libs.plugins.kotlin.compose) version libs.versions.kotlin.get() apply false
     alias(libs.plugins.android.test) apply false

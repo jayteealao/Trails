@@ -25,6 +25,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
+    id("com.google.gms.google-services")
 //    id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
 }
 
@@ -201,6 +202,10 @@ dependencies {
     implementation(libs.androidx.paging.compose)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.startup.runtime)
+
+    //firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.ai)
 
     // Compose
     implementation(libs.androidx.compose.ui)
