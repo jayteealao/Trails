@@ -22,7 +22,7 @@ interface PocketDao {
     @Query(
         """
         SELECT itemId, title, COALESCE(url, givenUrl) AS url,
-        CASE WHEN favorite = '1' THEN 1 ELSE 0 END AS favorite
+        CASE WHEN favorite = '1' OR timeFavorited > 0 THEN 1 ELSE 0 END AS favorite
         FROM pocketarticle
         ORDER BY timeUpdated DESC
         """
@@ -35,7 +35,7 @@ interface PocketDao {
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
-        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
@@ -48,7 +48,7 @@ interface PocketDao {
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
-        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
@@ -61,7 +61,7 @@ interface PocketDao {
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
-        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM pocketarticle AS art
         LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
@@ -74,7 +74,7 @@ interface PocketDao {
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
-        CASE WHEN art.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         GROUP_CONCAT(allTags.tag) AS tagsString
         FROM pocketarticle AS art
         INNER JOIN pockettags AS selectedTag ON
@@ -106,7 +106,7 @@ interface PocketDao {
     @Query(
         """
         SELECT itemId, title, COALESCE(url, givenUrl) AS url, image,
-        CASE WHEN favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN favorite = '1' OR timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         excerpt AS snippet
         FROM pocketarticle
         WHERE itemId IN (:ids)
@@ -214,7 +214,7 @@ interface PocketDao {
         SELECT pocketarticle.itemId, pocketarticle.title,
         COALESCE(pocketarticle.url, pocketarticle.givenUrl) AS url,
         pocketarticle.image,
-        CASE WHEN pocketarticle.favorite = '1' THEN 1 ELSE 0 END AS favorite
+        CASE WHEN pocketarticle.favorite = '1' OR pocketarticle.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite
         FROM pocketarticle
         JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
         WHERE pocketarticle_fts MATCH :query
@@ -228,7 +228,7 @@ interface PocketDao {
         SELECT pocketarticle.itemId, pocketarticle.title,
         COALESCE(pocketarticle.url, pocketarticle.givenUrl) AS url,
         pocketarticle.image,
-        CASE WHEN pocketarticle.favorite = '1' THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN pocketarticle.favorite = '1' OR pocketarticle.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         snippet(pocketarticle_fts) AS snippet,
         matchinfo(pocketarticle_fts) AS matchInfo
         FROM pocketarticle
@@ -313,7 +313,15 @@ interface PocketDao {
 //            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
         }
         if (existingArticle != null) {
-//            Timber.d("existingArticle is not null, updating article")
+            val normalizedFavorite = when {
+                newArticle.favorite == "1" -> "1"
+                newArticle.timeFavorited > 0 -> "1"
+                newArticle.favorite == "0" && newArticle.timeFavorited <= 0 -> "0"
+                !newArticle.favorite.isNullOrBlank() -> newArticle.favorite
+                existingArticle.favorite == "1" -> "1"
+                existingArticle.timeFavorited > 0 -> "1"
+                else -> existingArticle.favorite
+            }
             insertPocket(
                 newArticle.copy(
                     itemId = existingArticle.itemId,
@@ -325,7 +333,7 @@ interface PocketDao {
                     givenTitle = newArticle.givenTitle.ifBlank { existingArticle.givenTitle },
                     url = newArticle.url ?: existingArticle.url,
                     givenUrl = newArticle.givenUrl ?: existingArticle.givenUrl,
-                    favorite = if (newArticle.favorite.isNullOrBlank()) existingArticle.favorite else newArticle.favorite,
+                    favorite = normalizedFavorite,
                     status = newArticle.status.ifBlank { existingArticle.status },
                     image = newArticle.image ?: existingArticle.image,
                     hasImage = if (!newArticle.hasImage) existingArticle.hasImage else true,
