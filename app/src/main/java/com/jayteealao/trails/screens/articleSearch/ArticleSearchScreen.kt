@@ -56,9 +56,19 @@ fun ArticleSearchScreen(
         setFavorite = { itemId, isFavorite ->
             viewModel.setFavorite(itemId, isFavorite)
         },
+        setReadStatus = { itemId, isRead ->
+            viewModel.setReadStatus(itemId, isRead)
+        },
         updateTag = { itemId, tag, enabled ->
             viewModel.updateTag(itemId, tag, enabled)
-        }
+        },
+        archiveArticle = { itemId ->
+            viewModel.archiveArticle(itemId)
+        },
+        deleteArticle = { itemId ->
+            viewModel.deleteArticle(itemId)
+        },
+        availableTags = emptyList()
     )
 }
 
@@ -74,7 +84,11 @@ internal fun ArticleSearchContent(
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
     setFavorite: (String, Boolean) -> Unit = { _, _ -> },
+    setReadStatus: (String, Boolean) -> Unit = { _, _ -> },
     updateTag: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    archiveArticle: (String) -> Unit = {},
+    deleteArticle: (String) -> Unit = {},
+    availableTags: List<String> = emptyList(),
 ) {
     val searchBarContainerColor = searchBarState.searchBarContainerColor()
 
@@ -118,10 +132,20 @@ internal fun ArticleSearchContent(
                         onFavoriteToggle = { isFavorite ->
                             setFavorite(article.itemId, isFavorite)
                         },
+                        onReadToggle = { isRead ->
+                            setReadStatus(article.itemId, isRead)
+                        },
                         onTagToggle = { tag, enabled ->
                             updateTag(article.itemId, tag, enabled)
                         },
-                        useCardLayout = useCardLayout
+                        onArchive = {
+                            archiveArticle(article.itemId)
+                        },
+                        onDelete = {
+                            deleteArticle(article.itemId)
+                        },
+                        useCardLayout = useCardLayout,
+                        availableTags = availableTags
                     )
                 }
             }

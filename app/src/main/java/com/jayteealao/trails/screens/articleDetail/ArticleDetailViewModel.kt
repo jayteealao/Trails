@@ -67,4 +67,10 @@ class ArticleDetailViewModel @Inject constructor(
             initialValue = sharedPreferencesManager.getBoolean("USE_FREEDIUM")
         )
 
+    fun markAsRead(itemId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.setReadStatus(itemId, true)
+        }
+    }
+
 }

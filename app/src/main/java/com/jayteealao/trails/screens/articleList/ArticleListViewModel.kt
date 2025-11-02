@@ -159,6 +159,12 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
+    fun setReadStatus(itemId: String, isRead: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.setReadStatus(itemId, isRead)
+        }
+    }
+
     fun updateTag(itemId: String, tag: String, enabled: Boolean) {
         viewModelScope.launch(ioDispatcher) {
             if (enabled) {

@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +39,7 @@ fun ArticleContent(
     onClick: () -> Unit,
     onFavoriteToggle: (Boolean) -> Unit,
     isFavorite: Boolean,
+    isRead: Boolean,
     filledStar: Painter,
     outlinedStar: Painter,
     dominantColor: Color,
@@ -48,6 +50,22 @@ fun ArticleContent(
     modifier: Modifier = Modifier
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val titleColor = if (isRead) {
+        colorScheme.onSurface.copy(alpha = 0.5f)  // Stronger dimming: 50% opacity
+    } else {
+        colorScheme.onSurface
+    }
+    val domainColor = if (isRead) {
+        colorScheme.onSurfaceVariant.copy(alpha = 0.5f)  // Stronger dimming: 50% opacity
+    } else {
+        colorScheme.onSurfaceVariant
+    }
+    val snippetColor = if (isRead) {
+        colorScheme.onSurfaceVariant.copy(alpha = 0.5f)  // Stronger dimming: 50% opacity
+    } else {
+        colorScheme.onSurfaceVariant
+    }
+    val thumbnailAlpha = if (isRead) 0.3f else 1f  // Much more faded: 30% opacity
     Column(
         modifier = modifier
             .clickable { onClick() }
@@ -64,6 +82,7 @@ fun ArticleContent(
                 vibrantColor = vibrantColor,
                 onPaletteExtracted = onPaletteExtracted,
                 modifier = Modifier.align(Alignment.CenterVertically)
+                    .graphicsLayer { alpha = thumbnailAlpha }
             )
 
             Spacer(modifier = Modifier.width(16.dp))
@@ -78,7 +97,8 @@ fun ArticleContent(
                         .padding(end = 8.dp),
                     text = article.title,
                     style = MaterialTheme.typography.titleMedium,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    color = titleColor
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -90,6 +110,7 @@ fun ArticleContent(
                         text = article.domain,
                         style = MaterialTheme.typography.titleSmall,
                         maxLines = 1,
+                        color = domainColor,
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 10.sp
                     )
@@ -122,7 +143,8 @@ fun ArticleContent(
                 text = parsedSnippet,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 3,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                color = snippetColor
             )
         }
         TagSection(
