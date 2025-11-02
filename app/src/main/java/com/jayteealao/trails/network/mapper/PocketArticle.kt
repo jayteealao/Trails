@@ -15,12 +15,7 @@ fun PocketArticleResponse.toPocketArticleEntity() = PocketArticle(
     timeAdded = this.timeAdded,
     timeRead = this.timeRead,
     timeUpdated = this.timeUpdated,
-    favorite = when {
-        this.favorite == "1" -> "1"
-        this.timeFavorited > 0 -> "1"
-        this.favorite == "0" -> "0"
-        else -> this.favorite
-    },
+    favorite = if (this.timeFavorited > 0) "1" else this.favorite,
     status = this.status,
     wordCount = this.wordCount,
     sortId = this.sortId,
