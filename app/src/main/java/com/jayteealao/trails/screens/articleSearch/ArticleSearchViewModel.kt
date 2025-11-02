@@ -50,6 +50,24 @@ class ArticleSearchViewModel @Inject constructor(
         }
     }
 
+    fun setReadStatus(itemId: String, isRead: Boolean) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.setReadStatus(itemId, isRead)
+        }
+    }
+
+    fun archiveArticle(itemId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.archive(itemId)
+        }
+    }
+
+    fun deleteArticle(itemId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            pocketRepository.delete(itemId)
+        }
+    }
+
     private fun searchLocal(query: String) {
         viewModelScope.launch(ioDispatcher) {
             _searchResultsLocal.value = pocketRepository.searchLocal(query)

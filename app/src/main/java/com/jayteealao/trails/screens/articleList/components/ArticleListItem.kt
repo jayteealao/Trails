@@ -1,6 +1,5 @@
 package com.jayteealao.trails.screens.articleList.components
 
-import android.graphics.drawable.Drawable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -32,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.tooling.preview.Preview
@@ -41,7 +39,6 @@ import androidx.core.text.HtmlCompat
 import androidx.core.text.toSpannable
 import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
-import com.jayteealao.trails.common.extractPaletteFromBitmap
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import kotlinx.coroutines.delay
@@ -54,6 +51,7 @@ fun ArticleListItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onFavoriteToggle: (Boolean) -> Unit = {},
+    onReadToggle: (Boolean) -> Unit = {},
     onTagToggle: (String, Boolean) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
     onDelete: () -> Unit = {},
@@ -73,8 +71,15 @@ fun ArticleListItem(
         isFavorite = article.favorite
     }
 
+    var isRead by remember(article.itemId) { mutableStateOf(article.isRead) }
+    LaunchedEffect(article.isRead) {
+        isRead = article.isRead
+    }
+
     val filledStar = painterResource(id = R.drawable.star_filled_24px)
     val outlinedStar = painterResource(id = R.drawable.star_24px)
+    val markReadIcon = painterResource(id = R.drawable.check_24px)
+    val markUnreadIcon = painterResource(id = R.drawable.close_24px)
 
     val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }
     var showTagSheet by remember(article.itemId) { mutableStateOf(false) }
@@ -179,6 +184,13 @@ fun ArticleListItem(
                 onArchive = onArchive,
                 onDelete = onDelete,
                 isFavorite = isFavorite,
+                isRead = isRead,
+                onReadToggle = { newReadState ->
+                    isRead = newReadState
+                    onReadToggle(newReadState)
+                },
+                markReadIcon = markReadIcon,
+                markUnreadIcon = markUnreadIcon,
                 animationTrigger = animationTrigger
             )
         }
@@ -195,6 +207,7 @@ fun ArticleListItem(
                     onFavoriteToggle(checked)
                 },
                 isFavorite = isFavorite,
+                isRead = isRead,
                 filledStar = filledStar,
                 outlinedStar = outlinedStar,
                 dominantColor = dominantColor,
@@ -215,6 +228,7 @@ fun ArticleListItem(
                     onFavoriteToggle(checked)
                 },
                 isFavorite = isFavorite,
+                isRead = isRead,
                 filledStar = filledStar,
                 outlinedStar = outlinedStar,
                 dominantColor = dominantColor,
@@ -266,6 +280,7 @@ fun ArticleItemCardStyle(
     onClick: () -> Unit,
     onFavoriteToggle: (Boolean) -> Unit,
     isFavorite: Boolean,
+    isRead: Boolean,
     filledStar: Painter,
     outlinedStar: Painter,
     dominantColor: Color,
@@ -294,6 +309,7 @@ fun ArticleItemCardStyle(
             onClick = onClick,
             onFavoriteToggle = onFavoriteToggle,
             isFavorite = isFavorite,
+            isRead = isRead,
             filledStar = filledStar,
             outlinedStar = outlinedStar,
             dominantColor = dominantColor,

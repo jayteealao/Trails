@@ -41,6 +41,10 @@ fun ArticleSwipeBackground(
     onArchive: () -> Unit,
     onDelete: () -> Unit,
     isFavorite: Boolean,
+    isRead: Boolean,
+    onReadToggle: (Boolean) -> Unit,
+    markReadIcon: androidx.compose.ui.graphics.painter.Painter,
+    markUnreadIcon: androidx.compose.ui.graphics.painter.Painter,
     animationTrigger: Int = 0
 ) {
     val direction = swipeState.dismissDirection
@@ -148,6 +152,30 @@ fun ArticleSwipeBackground(
                     ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Read/Unread button
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .clickable {
+                                val newReadState = !isRead
+                                onReadToggle(newReadState)
+                                scope.launch { swipeState.reset() }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = if (isRead) markUnreadIcon else markReadIcon,
+                            contentDescription = if (isRead) {
+                                "Mark as unread"
+                            } else {
+                                "Mark as read"
+                            },
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     // Archive button
                     Box(
                         modifier = Modifier

@@ -56,6 +56,8 @@ interface ArticleRepository: Syncable {
 
     suspend fun setFavorite(itemId: String, isFavorite: Boolean)
 
+    suspend fun setReadStatus(itemId: String, isRead: Boolean)
+
     suspend fun addTag(itemId: String, tag: String)
 
     suspend fun removeTag(itemId: String, tag: String)
@@ -160,6 +162,11 @@ class ArticleRepositoryImpl @Inject constructor(
     override suspend fun setFavorite(itemId: String, isFavorite: Boolean) {
         val timestamp = if (isFavorite) System.currentTimeMillis() else 0L
         pocketDao.updateFavorite(itemId, isFavorite, timestamp)
+    }
+
+    override suspend fun setReadStatus(itemId: String, isRead: Boolean) {
+        val timestamp = if (isRead) System.currentTimeMillis() else null
+        pocketDao.updateReadStatus(itemId, isRead, timestamp)
     }
 
     override suspend fun addTag(itemId: String, tag: String) {

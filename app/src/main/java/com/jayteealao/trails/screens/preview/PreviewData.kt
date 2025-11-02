@@ -35,6 +35,7 @@ object PreviewFixtures {
             title = "Backpacking Essentials for Weekenders",
             url = "https://trail.example.com/weekend",
             snippet = "From water filtration to lightweight shelters, here's how to prep for two nights on the trail.",
+            isRead = true,
         ),
         articleItem.copy(
             itemId = "preview-article-3",

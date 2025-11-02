@@ -10,6 +10,7 @@ data class ArticleItem(
     val url: String,
     val image: String? = null,
     val favorite: Boolean = false,
+    val isRead: Boolean = false,
     val tagsString: String? = "",
     val snippet: String? = null,
     val deletedAt: Long? = null,
