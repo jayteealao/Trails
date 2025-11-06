@@ -66,6 +66,8 @@ interface ArticleRepository: Syncable {
 
     suspend fun delete(itemId: String)
 
+    suspend fun updateExcerpt(itemId: String, excerpt: String)
+
     override fun synchronize()
 
     fun getArticleById(itemId: String): PocketArticle?
@@ -194,6 +196,10 @@ class ArticleRepositoryImpl @Inject constructor(
 
     override suspend fun delete(itemId: String) {
         pocketDao.updateDeleted(itemId, System.currentTimeMillis())
+    }
+
+    override suspend fun updateExcerpt(itemId: String, excerpt: String) {
+        pocketDao.updateExcerpt(itemId, excerpt)
     }
 
     override suspend fun searchHybrid(query: String): List<ArticleItem> {
