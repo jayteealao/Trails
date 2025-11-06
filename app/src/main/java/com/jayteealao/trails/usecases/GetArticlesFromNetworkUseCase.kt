@@ -1,8 +1,8 @@
 package com.jayteealao.trails.usecases
 
 import com.jayteealao.trails.common.CONSUMERKEY
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.network.mapper.toPocketArticleEntity
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.network.mapper.toArticleEntity
 import com.jayteealao.trails.network.pocket.PocketClient
 import com.skydoves.sandwich.message
 import com.skydoves.sandwich.onError
@@ -20,9 +20,9 @@ class GetArticlesFromNetworkUseCase @Inject constructor(
 ) {
 
 
-    suspend operator fun invoke(count: Int = 10, offset: Int = 0): List<PocketArticle> {
+    suspend operator fun invoke(count: Int = 10, offset: Int = 0): List<Article> {
 
-        var result = emptyList<PocketArticle>()
+        var result = emptyList<Article>()
         pocketClient.retrieve(
             mapOf(
                 "consumer_key" to CONSUMERKEY,
@@ -33,7 +33,7 @@ class GetArticlesFromNetworkUseCase @Inject constructor(
             )
         ).onSuccess {
 //            Timber.d("Success $data")
-            result = data.list.values.toList().map { it.toPocketArticleEntity()}
+            result = data.list.values.toList().map { it.toArticleEntity()}
         }.onError {
             Timber.d("Error $errorBody")
         }.onFailure {

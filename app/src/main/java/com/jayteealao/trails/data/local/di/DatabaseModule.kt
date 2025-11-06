@@ -19,9 +19,10 @@ package com.jayteealao.trails.data.local.di
 import android.content.Context
 import androidx.room.Room
 import com.jayteealao.trails.data.local.database.AppDatabase
+import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.local.database.MIGRATION_1_2
 import com.jayteealao.trails.data.local.database.MIGRATION_2_3
-import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.local.database.MIGRATION_3_4
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -34,8 +35,8 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 class DatabaseModule {
     @Provides
-    fun providePocketDao(appDatabase: AppDatabase): PocketDao {
-        return appDatabase.pocketDao()
+    fun provideArticleDao(appDatabase: AppDatabase): ArticleDao {
+        return appDatabase.articleDao()
     }
 
     @Provides
@@ -46,7 +47,7 @@ class DatabaseModule {
             AppDatabase::class.java,
             "Pocket"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 //            .addCallback(
 //            object : RoomDatabase.Callback() {
 //                override fun onOpen(db: SupportSQLiteDatabase) {

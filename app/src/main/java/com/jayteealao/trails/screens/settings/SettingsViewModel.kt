@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.SharedPreferencesManager
-import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.local.database.ArticleDao
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,13 +16,13 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val pocketDao: PocketDao,
+    private val articleDao: ArticleDao,
     private val sharedPreferencesManager: SharedPreferencesManager,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel() {
     fun resetSemanticCache() {
         viewModelScope.launch(ioDispatcher) {
-//            pocketDao.clearModalTable()
+//            articleDao.clearModalTable()
         }
     }
     var _jinaToken = MutableStateFlow("")

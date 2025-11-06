@@ -13,8 +13,8 @@ import androidx.work.workDataOf
 import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.datasource.NetworkDataSource
-import com.jayteealao.trails.data.local.database.PocketDao
-import com.jayteealao.trails.network.PocketData
+import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.network.ArticleData
 import com.jayteealao.trails.services.jina.JinaClient
 import com.jayteealao.trails.services.postgrest.PostgrestClient
 import com.jayteealao.trails.sync.initializers.syncForegroundInfo
@@ -61,7 +61,7 @@ class SyncWorker @AssistedInject constructor(
     lateinit var networkDataSource: NetworkDataSource
 
     @Inject
-    lateinit var pocketDao: PocketDao
+    lateinit var articleDao: ArticleDao
     @Inject
     lateinit var contentMetricsCalculator: ContentMetricsCalculator
     @Inject
@@ -79,7 +79,7 @@ class SyncWorker @AssistedInject constructor(
 
 
 //        val yesterday = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(1)
-//        pocketDao.backfillZeroTimestamps(yesterday)
+//        articleDao.backfillZeroTimestamps(yesterday)
 
         setForeground(getForegroundInfo())
             syncJob = launch(Dispatchers.IO) {
@@ -87,7 +87,7 @@ class SyncWorker @AssistedInject constructor(
                 try {
 //TODO: use channels
                 val repopulateJob = launch {
-                    val nonMetricsArticles = pocketDao.getNonMetricsArticles() //TODO: replace jina
+                    val nonMetricsArticles = articleDao.getNonMetricsArticles() //TODO: replace jina
                     if (nonMetricsArticles.isNotEmpty()) {
                         Timber.d("Processing ${nonMetricsArticles.size} non-metrics articles")
 
@@ -96,7 +96,7 @@ class SyncWorker @AssistedInject constructor(
                                 try {
                                     if (article.title.isBlank()) {
                                         val result = unfurler.unfurl(article.url ?: article.givenUrl!!)
-                                        pocketDao.updateUnfurledDetails(
+                                        articleDao.updateUnfurledDetails(
                                             itemId = article.itemId,
                                             title = result?.title ?: article.title,
                                             url = (result?.url ?: article.url).toString(),
@@ -109,13 +109,13 @@ class SyncWorker @AssistedInject constructor(
                                         val jinaReader = jinaClient.getReader(article.url ?: article.givenUrl!!)
                                         val jinaResult = jinaReader?.data?.content
                                         if (!jinaResult.isNullOrBlank()) {
-                                            pocketDao.updateText(article.itemId, jinaResult)
+                                            articleDao.updateText(article.itemId, jinaResult)
                                             val metrics = contentMetricsCalculator.calculateMetrics(jinaResult)
-                                            pocketDao.updateArticleMetrics(article.itemId, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
+                                            articleDao.updateArticleMetrics(article.itemId, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
                                         }
                                     } else {
                                         val metrics = contentMetricsCalculator.calculateMetrics(article.text ?: "")
-                                        pocketDao.updateArticleMetrics(
+                                        articleDao.updateArticleMetrics(
                                             article.itemId,
                                             metrics.readingTimeMinutes,
                                             metrics.listeningTimeMinutes,
@@ -133,13 +133,13 @@ class SyncWorker @AssistedInject constructor(
                         Timber.d("Finished processing non-metrics articles")
                     }
 
-/*                    var currentChunk: List<PocketArticle>
+/*                    var currentChunk: List<Article>
                     var offset = 0
                     val chunkSize = 50
                     Timber.d("Starting repopulation")
-                    Timber.d("Total articles to repopulate: ${pocketDao.countArticle()}")
+                    Timber.d("Total articles to repopulate: ${articleDao.countArticle()}")
                     do {
-                        currentChunk = pocketDao.getPockets(offset, chunkSize)
+                        currentChunk = articleDao.getArticles(offset, chunkSize)
                         //if foreground service is killed, the job is cancelled
                         if (!currentCoroutineContext().isActive or foregroundInfoAsync.isCancelled) {
                             Timber.d("Job cancelled, stopping repopulation")
@@ -158,7 +158,7 @@ class SyncWorker @AssistedInject constructor(
                     } while (currentChunk.isNotEmpty())
                     Timber.d("Repopulation done")*/
 
-                    val unresolved = pocketDao.getUnresolvedArticles()
+                    val unresolved = articleDao.getUnresolvedArticles()
 
                     if (unresolved.isNotEmpty()) {
                         Timber.d("Unresolved articles: ${unresolved.size}")
@@ -166,7 +166,7 @@ class SyncWorker @AssistedInject constructor(
                             try {
                                 val response = postgrestClient.sendArticles(chunk)
                                 if (response) {
-                                    pocketDao.updateResolved(
+                                    articleDao.updateResolved(
                                         chunk.map { it.itemId },
                                          10,
                                      )
@@ -230,19 +230,19 @@ class SyncWorker @AssistedInject constructor(
      * This function retrieves articles from the network data source, sending them in batches to the returned channel.
      * It uses the `since` parameter to retrieve articles modified since the last update time, fetched from the `articleRepository`.
      *
-     * @return A `ReceiveChannel<List<PocketData>>` that emits lists of PocketData.
+     * @return A `ReceiveChannel<List<ArticleData>>` that emits lists of ArticleData.
      *  * Each list contains a batch of articles (up to [ARTICLE_LIMIT]).
      *  * The channel is closed when there are no more articles to retrieve.
      *
      * @throws [RuntimeException] if an error occurs during article retrieval. This is a temporary placeholder and should be replaced with more specific error handling.
      */
-    private fun CoroutineScope.producePocketArticles() = produce {
+    private fun CoroutineScope.produceArticles() = produce {
 //        val since = getSinceFromLocalUseCase()
         val since = articleRepository.getLastUpdatedArticleTime()
         var offset = 0
         val next = true
         while (next) {
-            val articleList: MutableList<PocketData> = networkDataSource(
+            val articleList: MutableList<ArticleData> = networkDataSource(
                 since, ARTICLE_LIMIT, offset
             )
             if (articleList.isNotEmpty()) {
@@ -266,14 +266,14 @@ class SyncWorker @AssistedInject constructor(
     /**
      * A coroutine consumer channel that receives articles from a producer channel
      * and saves the articles to the local database
-     * @param receiveArticles ReceiveChannel<PocketData>
-     *     a channel that emits a PocketData with article text retrieved
+     * @param receiveArticles ReceiveChannel<ArticleData>
+     *     a channel that emits ArticleData with article text retrieved
      *     the channel is closed when there are no more articles to retrieve
      *
      * TODO: handle error
      */
 //    context(PocketRepository)
-    private fun CoroutineScope.articleSaver(no: Int, receiveArticles: ReceiveChannel<MutableList<PocketData>>) =
+    private fun CoroutineScope.articleSaver(no: Int, receiveArticles: ReceiveChannel<MutableList<ArticleData>>) =
         launch(Dispatchers.IO) {
             for (msg in receiveArticles) {
                 Timber.d("articleSaver: $no Saving ${msg.size} articles")

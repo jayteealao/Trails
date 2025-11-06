@@ -1,12 +1,12 @@
 package com.jayteealao.trails.network.mapper
 
 import com.jayteealao.trails.common.generateId
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.network.PocketArticleResponse
-import com.jayteealao.trails.network.PocketData
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.network.ArticleData
+import com.jayteealao.trails.network.ArticleResponse
 
 
-fun PocketArticleResponse.toPocketArticleEntity() = PocketArticle(
+fun ArticleResponse.toArticleEntity() = Article(
     itemId = generateId(),
     title = this.title ?: "",
     excerpt = this.excerpt ?: "",
@@ -29,14 +29,14 @@ fun PocketArticleResponse.toPocketArticleEntity() = PocketArticle(
     timeFavorited = this.timeFavorited,
     hasAudio = this.hasAudio,
     listenDurationEstimate = this.listenDurationEstimate,
-    pocketId = this.itemId
+    articleId = this.itemId
     )
 
-fun PocketArticleResponse.toPocketData() = PocketData(
-    pocketArticle = this.toPocketArticleEntity(),
-    pocketImages = this.images?.values?.toList() ?: emptyList(),
-    pocketVideos = this.videos?.values?.toList() ?: emptyList(),
-    pocketTags = this.tags?.values?.toList() ?: emptyList(),
-    pocketAuthors = this.authors?.values?.toList() ?: emptyList(),
+fun ArticleResponse.toArticleData() = ArticleData(
+    article = this.toArticleEntity(),
+    images = this.images?.values?.toList() ?: emptyList(),
+    videos = this.videos?.values?.toList() ?: emptyList(),
+    tags = this.tags?.values?.toList() ?: emptyList(),
+    authors = this.authors?.values?.toList() ?: emptyList(),
     domainMetadata = this.domainMetadata
 )
