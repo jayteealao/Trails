@@ -331,6 +331,10 @@ class ArticleListViewModel @Inject constructor(
     val intentTitle: StateFlow<String>
         get() = _intentTitle
 
+    private val _savedArticleId = MutableStateFlow<String?>(null)
+    val savedArticleId: StateFlow<String?>
+        get() = _savedArticleId
+
     val unfurler = Unfurler()
 
     fun saveUrl(givenUrl: Uri, givenTitle: String?) {
@@ -368,6 +372,9 @@ class ArticleListViewModel @Inject constructor(
                         timeUpdated = timeNow,
                     )
                 )
+
+                // Emit the saved article ID for undo functionality
+                _savedArticleId.value = articleId
 
                 var resolvedTitle = title ?: ""
                 var resolvedUrl = url
