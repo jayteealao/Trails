@@ -94,21 +94,30 @@ android {
             isShrinkResources = true
             isDebuggable = false
 //            isProfileable = true
-
-            // Use release signing if available, otherwise fall back to debug signing
-            val releaseSigningConfig = signingConfigs.findByName("release")
-            if (releaseSigningConfig?.storeFile != null) {
-                signingConfig = releaseSigningConfig
-                println("Using release signing configuration")
-            } else {
-                signingConfig = signingConfigs.getByName("debug")
-                println("WARNING: Using debug signing for release build")
-            }
+            signingConfig = signingConfigs.getByName("debug")
+//             Use release signing if available, otherwise fall back to debug signing
+//            val releaseSigningConfig = signingConfigs.findByName("release")
+//            if (releaseSigningConfig?.storeFile != null) {
+//                signingConfig = releaseSigningConfig
+//                println("Using release signing configuration")
+//            } else {
+//                signingConfig = signingConfigs.getByName("debug")
+//                println("WARNING: Using debug signing for release build")
+//            }
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
+            // Handle baseline profiles to prevent installation failures
+            // Exclude baseline profile files since ProfileInstaller is disabled
+            // This prevents INSTALL_BASELINE_PROFILE_FAILED errors during installation
+            packaging {
+                resources.excludes.add("assets/dexopt/baseline.prof")
+                resources.excludes.add("assets/dexopt/baseline.profm")
+                resources.excludes.add("META-INF/androidx.profileinstaller_profileinstaller.version")
+            }
         }
 
         getByName("debug") {
@@ -116,11 +125,11 @@ android {
             // Always use debug signing for debug builds
             signingConfig = signingConfigs.getByName("debug")
         }
-        create("benchmark") {
-            initWith(buildTypes.getByName("release"))
-            matchingFallbacks += listOf("release")
-            signingConfig = signingConfigs.getByName("debug")
-        }
+//        create("benchmark") {
+//            initWith(buildTypes.getByName("release"))
+//            matchingFallbacks += listOf("release")
+//            signingConfig = signingConfigs.getByName("debug")
+//        }
     }
 
     compileOptions {
@@ -300,8 +309,8 @@ dependencies {
     //swipe-to-reveal
     implementation("me.saket.swipe:swipe:1.2.0")
 
-    //profileInstaller
-    implementation(libs.androidx.profileinstaller)
+    //profileInstaller - TEMPORARILY DISABLED to fix baseline profile installation errors
+    // implementation(libs.androidx.profileinstaller)
 
     // Local tests: jUnit, coroutines, Android runner
     testImplementation(libs.junit)
