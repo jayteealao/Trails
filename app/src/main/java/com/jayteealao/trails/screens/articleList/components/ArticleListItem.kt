@@ -55,6 +55,10 @@ fun ArticleListItem(
     onTagToggle: (String, Boolean) -> Unit = { _, _ -> },
     onArchive: () -> Unit = {},
     onDelete: () -> Unit = {},
+    onTagsClick: () -> Unit = {},
+    onRegenerateDetails: () -> Unit = {},
+    onCopyLink: () -> Unit = {},
+    onShare: () -> Unit = {},
     useCardLayout: Boolean = false,
     availableTags: List<String> = emptyList(),
     tagSuggestionState: com.jayteealao.trails.screens.articleList.TagSuggestionUiState = com.jayteealao.trails.screens.articleList.TagSuggestionUiState(),
@@ -208,6 +212,10 @@ fun ArticleListItem(
                 },
                 markReadIcon = markReadIcon,
                 markUnreadIcon = markUnreadIcon,
+                onTagsClick = onTagsClick,
+                onRegenerateDetails = onRegenerateDetails,
+                onCopyLink = onCopyLink,
+                onShare = onShare,
                 animationTrigger = animationTrigger
             )
         }

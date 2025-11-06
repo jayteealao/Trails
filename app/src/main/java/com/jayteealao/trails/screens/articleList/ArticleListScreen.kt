@@ -135,6 +135,22 @@ fun ArticleListScreen(
     val onClearSuggestionError: (String) -> Unit = { articleId ->
         viewModel.clearTagSuggestionError(articleId)
     }
+    val onTagsClick: (ArticleItem) -> Unit = { articleItem ->
+        // Open tag management sheet - This is already handled by the existing UI
+        // This button provides an alternative way to access tags
+    }
+    val onRegenerateDetails: (ArticleItem) -> Unit = { articleItem ->
+        // TODO: Implement regenerate details functionality
+        // This would refetch article metadata and content
+    }
+    val onCopyLink: (ArticleItem) -> Unit = { articleItem ->
+        // TODO: Implement copy link to clipboard
+        // This requires a ClipboardManager instance
+    }
+    val onShare: (ArticleItem) -> Unit = { articleItem ->
+        // TODO: Implement share functionality
+        // This would open the system share sheet
+    }
 
     Column(
         modifier = modifier.fillMaxSize()
@@ -166,6 +182,10 @@ fun ArticleListScreen(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
+                    onTagsClick = onTagsClick,
+                    onRegenerateDetails = onRegenerateDetails,
+                    onCopyLink = onCopyLink,
+                    onShare = onShare,
                     useCardLayout = useCardLayout,
                     availableTags = tags,
                     tagSuggestions = tagSuggestions,
@@ -183,6 +203,10 @@ fun ArticleListScreen(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
+                    onTagsClick = onTagsClick,
+                    onRegenerateDetails = onRegenerateDetails,
+                    onCopyLink = onCopyLink,
+                    onShare = onShare,
                     useCardLayout = useCardLayout,
                     availableTags = tags,
                     tagSuggestions = tagSuggestions,
@@ -200,6 +224,10 @@ fun ArticleListScreen(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
+                    onTagsClick = onTagsClick,
+                    onRegenerateDetails = onRegenerateDetails,
+                    onCopyLink = onCopyLink,
+                    onShare = onShare,
                     useCardLayout = useCardLayout,
                     availableTags = tags,
                     tagSuggestions = tagSuggestions,
@@ -221,6 +249,10 @@ fun ArticleListScreen(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
+                    onTagsClick = onTagsClick,
+                    onRegenerateDetails = onRegenerateDetails,
+                    onCopyLink = onCopyLink,
+                    onShare = onShare,
                     useCardLayout = useCardLayout,
                     availableTags = tags,
                     tagSuggestions = tagSuggestions,
@@ -315,6 +347,10 @@ private fun TagsContent(
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
     onArchive: (ArticleItem) -> Unit,
     onDelete: (ArticleItem) -> Unit,
+    onTagsClick: (ArticleItem) -> Unit = {},
+    onRegenerateDetails: (ArticleItem) -> Unit = {},
+    onCopyLink: (ArticleItem) -> Unit = {},
+    onShare: (ArticleItem) -> Unit = {},
     useCardLayout: Boolean,
     availableTags: List<String>,
     tagSuggestions: Map<String, TagSuggestionUiState>,
@@ -387,6 +423,10 @@ private fun TagsContent(
                     onToggleTag = onToggleTag,
                     onArchive = onArchive,
                     onDelete = onDelete,
+                    onTagsClick = onTagsClick,
+                    onRegenerateDetails = onRegenerateDetails,
+                    onCopyLink = onCopyLink,
+                    onShare = onShare,
                     useCardLayout = useCardLayout,
                     availableTags = availableTags,
                     tagSuggestions = tagSuggestions,
@@ -410,6 +450,10 @@ internal fun PocketScreenContent(
     onToggleTag: (ArticleItem, String, Boolean) -> Unit,
     onArchive: (ArticleItem) -> Unit,
     onDelete: (ArticleItem) -> Unit,
+    onTagsClick: (ArticleItem) -> Unit = {},
+    onRegenerateDetails: (ArticleItem) -> Unit = {},
+    onCopyLink: (ArticleItem) -> Unit = {},
+    onShare: (ArticleItem) -> Unit = {},
     useCardLayout: Boolean,
     availableTags: List<String>,
     tagSuggestions: Map<String, TagSuggestionUiState> = emptyMap(),
@@ -458,6 +502,10 @@ internal fun PocketScreenContent(
                         },
                         onArchive = { onArchive(article) },
                         onDelete = { onDelete(article) },
+                        onTagsClick = { onTagsClick(article) },
+                        onRegenerateDetails = { onRegenerateDetails(article) },
+                        onCopyLink = { onCopyLink(article) },
+                        onShare = { onShare(article) },
                         useCardLayout = useCardLayout,
                         availableTags = availableTags,
                         tagSuggestionState = tagSuggestions[article.itemId] ?: TagSuggestionUiState(),

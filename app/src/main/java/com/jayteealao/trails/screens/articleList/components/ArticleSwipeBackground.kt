@@ -45,6 +45,10 @@ fun ArticleSwipeBackground(
     onReadToggle: (Boolean) -> Unit,
     markReadIcon: androidx.compose.ui.graphics.painter.Painter,
     markUnreadIcon: androidx.compose.ui.graphics.painter.Painter,
+    onTagsClick: () -> Unit,
+    onRegenerateDetails: () -> Unit,
+    onCopyLink: () -> Unit,
+    onShare: () -> Unit,
     animationTrigger: Int = 0
 ) {
     val direction = swipeState.dismissDirection
@@ -210,6 +214,82 @@ fun ArticleSwipeBackground(
                         Icon(
                             painter = painterResource(id = R.drawable.delete_24px),
                             contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Tags button
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .clickable {
+                                onTagsClick()
+                                scope.launch { swipeState.reset() }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.tag_24px),
+                            contentDescription = "Tags",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Regenerate details button
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .clickable {
+                                onRegenerateDetails()
+                                scope.launch { swipeState.reset() }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.refresh_24px),
+                            contentDescription = "Regenerate details",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Copy link button
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .clickable {
+                                onCopyLink()
+                                scope.launch { swipeState.reset() }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.link_24px),
+                            contentDescription = "Copy link",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Share button
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .clickable {
+                                onShare()
+                                scope.launch { swipeState.reset() }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.share_24px),
+                            contentDescription = "Share",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
