@@ -33,6 +33,7 @@ import com.jayteealao.trails.data.local.database.PocketDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
+import com.jayteealao.trails.services.gemini.GeminiClient
 import com.jayteealao.trails.services.jina.JinaClient
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,10 +41,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
@@ -55,6 +58,7 @@ class ArticleListViewModel @Inject constructor(
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
     private val pocketDao: PocketDao,
     private val jinaClient: JinaClient,
+    private val geminiClient: GeminiClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel() {
@@ -68,6 +72,9 @@ class ArticleListViewModel @Inject constructor(
     private val tagsFlow = pocketRepository.allTags()
     val tags = tagsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _tagSuggestions = MutableStateFlow<Map<String, TagSuggestionUiState>>(emptyMap())
+    val tagSuggestions: StateFlow<Map<String, TagSuggestionUiState>> = _tagSuggestions.asStateFlow()
 
     init {
         viewModelScope.launch(ioDispatcher) {
@@ -185,6 +192,112 @@ class ArticleListViewModel @Inject constructor(
         viewModelScope.launch(ioDispatcher) {
             pocketRepository.delete(itemId)
         }
+    }
+
+    /**
+     * Requests tag suggestions for an article.
+     * Two-phase approach:
+     * 1. If article has no excerpt/summary, fetch one using URL context first
+     * 2. Then fetch tag suggestions using the structured JSON API with cached summary
+     */
+    fun requestTagSuggestions(articleItem: ArticleItem) {
+        val signature = buildTagSuggestionSignature(articleItem)
+        val existing = _tagSuggestions.value[articleItem.itemId]
+        val hasValidSuggestions = existing?.errorMessage == null && existing?.tags?.isNotEmpty() == true
+        if (existing?.isLoading == true) return
+        if (hasValidSuggestions && existing?.requestSignature == signature) return
+
+        _tagSuggestions.update { current ->
+            val snapshot = existing ?: current[articleItem.itemId] ?: TagSuggestionUiState()
+            current + (articleItem.itemId to snapshot.copy(
+                isLoading = true,
+                errorMessage = null,
+                requestSignature = signature
+            ))
+        }
+
+        viewModelScope.launch(ioDispatcher) {
+            // Phase 1: Ensure we have a summary
+            var summary = articleItem.snippet
+            if (summary.isNullOrBlank() && !articleItem.url.isNullOrBlank()) {
+                Timber.d("requestTagSuggestions: No excerpt found, fetching summary first for ${articleItem.itemId}")
+
+                val summaryResult = geminiClient.fetchArticleSummary(
+                    GeminiClient.ArticleSummaryRequest(
+                        articleId = articleItem.itemId,
+                        title = articleItem.title,
+                        url = articleItem.url
+                    )
+                )
+
+                when (summaryResult) {
+                    is GeminiClient.ArticleSummaryResult.Success -> {
+                        summary = summaryResult.summary
+                        Timber.d("requestTagSuggestions: Summary generated, saving to DB")
+                        // Save summary to database
+                        pocketRepository.updateExcerpt(articleItem.itemId, summary)
+                    }
+                    is GeminiClient.ArticleSummaryResult.Error -> {
+                        Timber.e("requestTagSuggestions: Failed to fetch summary: ${summaryResult.message}")
+                        _tagSuggestions.update { current ->
+                            val baseline = current[articleItem.itemId] ?: TagSuggestionUiState()
+                            current + (articleItem.itemId to baseline.copy(
+                                isLoading = false,
+                                errorMessage = "Failed to fetch article summary: ${summaryResult.message}",
+                                requestSignature = signature
+                            ))
+                        }
+                        return@launch
+                    }
+                }
+            }
+
+            // Phase 2: Fetch tag suggestions using structured JSON (no URL context)
+            Timber.d("requestTagSuggestions: Fetching tag suggestions with summary")
+            val result = geminiClient.fetchTagSuggestions(
+                GeminiClient.TagSuggestionRequest(
+                    articleId = articleItem.itemId,
+                    title = articleItem.title,
+                    description = summary,
+                    url = null,  // Don't use URL context for tag suggestions
+                    availableTags = tags.value
+                )
+            )
+
+            _tagSuggestions.update { current ->
+                val baseline = current[articleItem.itemId] ?: TagSuggestionUiState()
+                val updated = when (result) {
+                    is GeminiClient.TagSuggestionResult.Success -> baseline.copy(
+                        isLoading = false,
+                        tags = result.tags,
+                        errorMessage = null,
+                        requestSignature = signature
+                    )
+                    is GeminiClient.TagSuggestionResult.Error -> baseline.copy(
+                        isLoading = false,
+                        errorMessage = result.message,
+                        requestSignature = signature
+                    )
+                }
+                current + (articleItem.itemId to updated)
+            }
+        }
+    }
+
+    fun clearTagSuggestionError(articleId: String) {
+        _tagSuggestions.update { current ->
+            val existing = current[articleId] ?: return@update current
+            if (existing.errorMessage == null) return@update current
+            current + (articleId to existing.copy(errorMessage = null))
+        }
+    }
+
+    private fun buildTagSuggestionSignature(articleItem: ArticleItem): String {
+        return listOf(
+            articleItem.title,
+            articleItem.snippet.orEmpty(),
+            articleItem.url
+        ).joinToString(separator = "|") { it.trim() }
     }
 
     fun selectArticle(articleItem: ArticleItem) {
