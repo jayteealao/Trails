@@ -3,6 +3,7 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import android.annotation.SuppressLint
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import android.content.res.Configuration
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -25,15 +25,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.constraintlayout.compose.ConstraintLayout
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.accompanist.web.AccompanistWebViewClient
 import com.google.accompanist.web.LoadingState
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
-import com.jayteealao.trails.data.local.database.PocketArticle
+import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
@@ -49,7 +49,7 @@ import compose.icons.cssggicons.Pocket
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ArticleDetailScreen(
-    article: PocketArticle,
+    article: Article,
     viewModel: ArticleDetailViewModel = hiltViewModel()
 ) {
     var selectedTabIndex by remember { mutableIntStateOf(1) }
@@ -83,7 +83,7 @@ fun ArticleDetailScreen(
                 end.linkTo(parent.end)
             },
             selectedTabIndex = selectedTabIndex,
-            shouldShowPocket = article.pocketId != "0",
+            shouldShowPocket = article.articleId != "0",
             onTabSelected = {
                 selectedTabIndex = it
             }
@@ -96,7 +96,7 @@ fun ArticleDetailScreen(
 @Composable
 private fun ArticleDetailScreenReaderPreview() {
     TrailsTheme(darkTheme = false) {
-        ArticleDetailScreen(article = PreviewFixtures.pocketArticle)
+        ArticleDetailScreen(article = PreviewFixtures.article)
     }
 }
 
@@ -106,7 +106,7 @@ private fun ArticleDetailMarkdownPreview() {
     TrailsTheme(darkTheme = false) {
         ArticleDetails(
             selectedTabIndex = 0,
-            article = PreviewFixtures.pocketArticle,
+            article = PreviewFixtures.article,
         )
     }
 }
@@ -121,7 +121,7 @@ private fun ArticleDetailPocketPreview() {
     TrailsTheme(darkTheme = true) {
         ArticleDetails(
             selectedTabIndex = 2,
-            article = PreviewFixtures.pocketArticle,
+            article = PreviewFixtures.article,
         )
     }
 }
@@ -171,7 +171,7 @@ fun ArticleDetailTabRow(
 fun ArticleDetails(
     modifier: Modifier = Modifier,
     selectedTabIndex: Int = 1,
-    article: PocketArticle
+    article: Article
 ) {
 
 //    val modifiedUrl = remember(article.url) {

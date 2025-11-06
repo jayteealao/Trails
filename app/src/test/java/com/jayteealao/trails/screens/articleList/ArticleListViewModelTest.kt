@@ -5,8 +5,8 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.data.ArticleRepository
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.services.gemini.GeminiClient
 import com.jayteealao.trails.services.jina.JinaClient
@@ -42,7 +42,7 @@ class ArticleListViewModelTest {
 
     @MockK private lateinit var articleRepository: ArticleRepository
     @MockK private lateinit var getArticleWithTextUseCase: GetArticleWithTextUseCase
-    @MockK private lateinit var pocketDao: PocketDao
+    @MockK private lateinit var articleDao: PocketDao
     @MockK private lateinit var jinaClient: JinaClient
     @MockK private lateinit var geminiClient: GeminiClient
 
@@ -88,14 +88,14 @@ class ArticleListViewModelTest {
 
         mockkConstructor(Unfurler::class)
         coEvery { anyConstructed<Unfurler>().unfurl(any()) } throws RuntimeException("unfurl failure")
-        val upsertSlot = slot<PocketArticle>()
-        coEvery { pocketDao.upsertArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
+        val upsertSlot = slot<Article>()
+        coEvery { articleDao.upsertArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
 
         val updateItemId = slot<String>()
         val updateTitle = slot<String>()
         val updateUrl = slot<String>()
         coEvery {
-            pocketDao.updateUnfurledDetails(
+            articleDao.updateUnfurledDetails(
                 capture(updateItemId),
                 capture(updateTitle),
                 capture(updateUrl),
@@ -104,14 +104,14 @@ class ArticleListViewModelTest {
                 any(),
             )
         } returns Unit
-        coEvery { pocketDao.updateText(any(), any()) } returns Unit
-        coEvery { pocketDao.updateArticleMetrics(any(), any(), any(), any()) } returns Unit
+        coEvery { articleDao.updateText(any(), any()) } returns Unit
+        coEvery { articleDao.updateArticleMetrics(any(), any(), any(), any()) } returns Unit
         coEvery { jinaClient.getReader(any()) } throws RuntimeException("reader failure")
 
         val viewModel = ArticleListViewModel(
             pocketRepository = articleRepository,
             getArticleWithTextUseCase = getArticleWithTextUseCase,
-            pocketDao = pocketDao,
+            articleDao = articleDao,
             jinaClient = jinaClient,
             geminiClient = geminiClient,
             contentMetricsCalculator = contentMetricsCalculator,
@@ -130,7 +130,7 @@ class ArticleListViewModelTest {
         assertFalse(viewModel.shouldShow.value)
         assertEquals("Shared title", viewModel.intentTitle.value)
 
-        coVerify(exactly = 1) { pocketDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { articleDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -160,7 +160,7 @@ class ArticleListViewModelTest {
         val viewModel = ArticleListViewModel(
             pocketRepository = articleRepository,
             getArticleWithTextUseCase = getArticleWithTextUseCase,
-            pocketDao = pocketDao,
+            articleDao = articleDao,
             jinaClient = jinaClient,
             geminiClient = geminiClient,
             contentMetricsCalculator = contentMetricsCalculator,
@@ -218,7 +218,7 @@ class ArticleListViewModelTest {
         val viewModel = ArticleListViewModel(
             pocketRepository = articleRepository,
             getArticleWithTextUseCase = getArticleWithTextUseCase,
-            pocketDao = pocketDao,
+            articleDao = articleDao,
             jinaClient = jinaClient,
             geminiClient = geminiClient,
             contentMetricsCalculator = contentMetricsCalculator,
@@ -267,7 +267,7 @@ class ArticleListViewModelTest {
         val viewModel = ArticleListViewModel(
             pocketRepository = articleRepository,
             getArticleWithTextUseCase = getArticleWithTextUseCase,
-            pocketDao = pocketDao,
+            articleDao = articleDao,
             jinaClient = jinaClient,
             geminiClient = geminiClient,
             contentMetricsCalculator = contentMetricsCalculator,
@@ -315,7 +315,7 @@ class ArticleListViewModelTest {
         val viewModel = ArticleListViewModel(
             pocketRepository = articleRepository,
             getArticleWithTextUseCase = getArticleWithTextUseCase,
-            pocketDao = pocketDao,
+            articleDao = articleDao,
             jinaClient = jinaClient,
             geminiClient = geminiClient,
             contentMetricsCalculator = contentMetricsCalculator,
@@ -363,7 +363,7 @@ class ArticleListViewModelTest {
         val viewModel = ArticleListViewModel(
             pocketRepository = articleRepository,
             getArticleWithTextUseCase = getArticleWithTextUseCase,
-            pocketDao = pocketDao,
+            articleDao = articleDao,
             jinaClient = jinaClient,
             geminiClient = geminiClient,
             contentMetricsCalculator = contentMetricsCalculator,
@@ -405,7 +405,7 @@ class ArticleListViewModelTest {
         val viewModel = ArticleListViewModel(
             pocketRepository = articleRepository,
             getArticleWithTextUseCase = getArticleWithTextUseCase,
-            pocketDao = pocketDao,
+            articleDao = articleDao,
             jinaClient = jinaClient,
             geminiClient = geminiClient,
             contentMetricsCalculator = contentMetricsCalculator,

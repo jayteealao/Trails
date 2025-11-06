@@ -1,6 +1,6 @@
 package com.jayteealao.trails.services.postgrest
 
-import com.jayteealao.trails.data.local.database.PocketArticle
+import com.jayteealao.trails.data.local.database.Article
 import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.isSuccess
 import com.skydoves.sandwich.retrofit.statusCode
@@ -21,7 +21,7 @@ interface PostgrestService {
         "CF-Access-Client-Secret: 94fdc766f15aa558a64885ca9635ab5f5bcbc8d0dd4b943cf7a3574eb7f18e25"
     )
     @POST("/pocketarticle")
-    suspend fun addPocketArticle(@Body article: PocketArticle): Response<Unit>
+    suspend fun addArticle(@Body article: Article): Response<Unit>
 
     @Headers(
         "Content-Type: application/json",
@@ -30,7 +30,7 @@ interface PostgrestService {
         "CF-Access-Client-Secret: 94fdc766f15aa558a64885ca9635ab5f5bcbc8d0dd4b943cf7a3574eb7f18e25"
     )
     @POST("/pocketarticle?on_conflict=itemId")
-    suspend fun addArticles(@Body articles: List<PocketArticle>): ApiResponse<Unit>
+    suspend fun addArticles(@Body articles: List<Article>): ApiResponse<Unit>
 
     @Headers(
         "Content-Type: application/json",
@@ -46,12 +46,12 @@ interface PostgrestService {
 class PostgrestClient @Inject constructor (
     private val api: PostgrestService,
 ) {
-    suspend fun sendArticle(article: PocketArticle): Boolean {
-        val response = api.addPocketArticle(article)
+    suspend fun sendArticle(article: Article): Boolean {
+        val response = api.addArticle(article)
         return response.isSuccessful
     }
 
-    suspend fun sendArticles(articles: List<PocketArticle>): Boolean {
+    suspend fun sendArticles(articles: List<Article>): Boolean {
         var lastResponse: ApiResponse<Unit>? = null
 
         // Retry logic for server errors (502, 503, 504)

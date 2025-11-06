@@ -8,15 +8,15 @@ import androidx.room.RoomWarnings
 import androidx.room.Transaction
 import androidx.room.Upsert
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.network.ArticleAuthors
+import com.jayteealao.trails.network.ArticleImages
+import com.jayteealao.trails.network.ArticleTags
+import com.jayteealao.trails.network.ArticleVideos
 import com.jayteealao.trails.network.DomainMetadata
-import com.jayteealao.trails.network.PocketAuthors
-import com.jayteealao.trails.network.PocketImages
-import com.jayteealao.trails.network.PocketTags
-import com.jayteealao.trails.network.PocketVideos
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface PocketDao {
+interface ArticleDao {
 
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query(
@@ -24,14 +24,14 @@ interface PocketDao {
         SELECT itemId, title, COALESCE(url, givenUrl) AS url,
         CASE WHEN favorite = '1' OR timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         CASE WHEN timeRead IS NOT NULL AND timeRead > 0 THEN 1 ELSE 0 END AS isRead
-        FROM pocketarticle
+        FROM article
         ORDER BY timeUpdated DESC
         """
     )
     fun getArticles(): PagingSource<Int, ArticleItem>
 
-    @Query("SELECT * FROM pocketarticle ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
-    fun getPockets(offset: Int, limit: Int): List<PocketArticle>
+    @Query("SELECT * FROM article ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
+    fun getArticles(offset: Int, limit: Int): List<Article>
 
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
@@ -39,8 +39,8 @@ interface PocketDao {
         CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         GROUP_CONCAT(tag.tag) AS tagsString
-        FROM pocketarticle AS art
-        LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
+        FROM article AS art
+        LEFT JOIN article_tags AS tag ON art.itemId = tag.itemId
         WHERE art.archived_at IS NULL AND art.deleted_at IS NULL
         GROUP BY art.itemId
         ORDER BY art.timeAdded DESC
@@ -53,8 +53,8 @@ interface PocketDao {
         CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         GROUP_CONCAT(tag.tag) AS tagsString
-        FROM pocketarticle AS art
-        LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
+        FROM article AS art
+        LEFT JOIN article_tags AS tag ON art.itemId = tag.itemId
         WHERE art.timeFavorited > 0 AND art.archived_at IS NULL AND art.deleted_at IS NULL
         GROUP BY art.itemId
         ORDER BY art.timeFavorited DESC, art.timeAdded DESC
@@ -67,8 +67,8 @@ interface PocketDao {
         CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         GROUP_CONCAT(tag.tag) AS tagsString
-        FROM pocketarticle AS art
-        LEFT JOIN pockettags AS tag ON art.itemId = tag.itemId
+        FROM article AS art
+        LEFT JOIN article_tags AS tag ON art.itemId = tag.itemId
         WHERE art.archived_at IS NOT NULL AND art.deleted_at IS NULL
         GROUP BY art.itemId
         ORDER BY art.archived_at DESC, art.timeAdded DESC
@@ -81,11 +81,11 @@ interface PocketDao {
         CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         GROUP_CONCAT(allTags.tag) AS tagsString
-        FROM pocketarticle AS art
-        INNER JOIN pockettags AS selectedTag ON
+        FROM article AS art
+        INNER JOIN article_tags AS selectedTag ON
             (art.itemId = selectedTag.itemId OR art.resolvedId = selectedTag.itemId)
             AND selectedTag.tag = :tag
-        LEFT JOIN pockettags AS allTags ON
+        LEFT JOIN article_tags AS allTags ON
             art.itemId = allTags.itemId OR art.resolvedId = allTags.itemId
         WHERE art.deleted_at IS NULL
         GROUP BY art.itemId
@@ -96,15 +96,15 @@ interface PocketDao {
     @Query(
         """
         SELECT tag
-        FROM pockettags
+        FROM article_tags
         GROUP BY tag
         ORDER BY LOWER(tag)
     """
     )
     fun getAllTags(): Flow<List<String>>
 
-    @Query("SELECT * FROM pocketarticle WHERE itemId = :itemId")
-    fun getArticleById(itemId: String): PocketArticle?
+    @Query("SELECT * FROM article WHERE itemId = :itemId")
+    fun getArticleById(itemId: String): Article?
 
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @RewriteQueriesToDropUnusedColumns
@@ -114,21 +114,21 @@ interface PocketDao {
         CASE WHEN favorite = '1' OR timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
         CASE WHEN timeRead IS NOT NULL AND timeRead > 0 THEN 1 ELSE 0 END AS isRead,
         excerpt AS snippet
-        FROM pocketarticle
+        FROM article
         WHERE itemId IN (:ids)
         """
     )
     fun getArticlesByIds(ids: List<String>): List<ArticleItem>
 
-    @Query("SELECT * FROM pocketarticle WHERE url = :url OR givenUrl = :url")
-    fun getArticleByUrl(url: String): PocketArticle?
+    @Query("SELECT * FROM article WHERE url = :url OR givenUrl = :url")
+    fun getArticleByUrl(url: String): Article?
 
-    @Query("SELECT * FROM pocketarticle WHERE resolved = 0 OR resolved = 1 OR resolved = 3 ORDER BY timeAdded ASC")
-    suspend fun getUnresolvedArticles(): List<PocketArticle>
+    @Query("SELECT * FROM article WHERE resolved = 0 OR resolved = 1 OR resolved = 3 ORDER BY timeAdded ASC")
+    suspend fun getUnresolvedArticles(): List<Article>
 
     @Query(
         """
-        UPDATE pocketarticle
+        UPDATE article
         SET archived_at = :timeArchived
         WHERE itemId = :itemId
         """
@@ -137,7 +137,7 @@ interface PocketDao {
 
     @Query(
         """
-        UPDATE pocketarticle
+        UPDATE article
         SET deleted_at = :timeDeleted
         WHERE itemId = :itemId
         """
@@ -146,52 +146,52 @@ interface PocketDao {
 
     @Query(
         """
-        UPDATE pocketarticle
+        UPDATE article
         SET timeToRead = :timeToRead, listenDurationEstimate = :listenDurationEstimate, wordCount = :wordCount, resolved = 3
         WHERE itemId = :itemId
     """)
     suspend fun updateArticleMetrics(itemId: String, timeToRead: Int, listenDurationEstimate: Int, wordCount: Int)
 
-    @Query("SELECT * FROM pocketarticle WHERE resolved = 2 OR resolved = 1")
-    suspend fun getNonMetricsArticles(): List<PocketArticle>
+    @Query("SELECT * FROM article WHERE resolved = 2 OR resolved = 1")
+    suspend fun getNonMetricsArticles(): List<Article>
 
-    @Query("SELECT * FROM pocketarticle WHERE text = '0' OR text = '1'")
-    suspend fun getTextEqualsZeroOrOne(): List<PocketArticle>
+    @Query("SELECT * FROM article WHERE text = '0' OR text = '1'")
+    suspend fun getTextEqualsZeroOrOne(): List<Article>
 
-    @Query("UPDATE pocketarticle SET text = :text, resolved = 2 WHERE itemId = :itemId")
+    @Query("UPDATE article SET text = :text, resolved = 2 WHERE itemId = :itemId")
     suspend fun updateText(itemId: String, text: String?)
 
-    @Query("UPDATE pocketarticle SET resolved = :resolved WHERE itemId IN (:itemIds)")
+    @Query("UPDATE article SET resolved = :resolved WHERE itemId IN (:itemIds)")
     suspend fun updateResolved(itemIds: List<String>, resolved: Int)
 
     @Query("""
-            UPDATE pocketarticle
+            UPDATE article
             SET title = :title, url = :url, image = :image, hasImage = :hasImage, excerpt = :excerpt
             WHERE itemId = :itemId
             """)
     suspend fun updateUnfurledDetails(itemId: String, title: String, url: String, image: String?, hasImage: Boolean, excerpt: String)
 
-    @Query("UPDATE pocketarticle SET excerpt = :excerpt WHERE itemId = :itemId")
+    @Query("UPDATE article SET excerpt = :excerpt WHERE itemId = :itemId")
     suspend fun updateExcerpt(itemId: String, excerpt: String)
 
     @Upsert
-    suspend fun insertPocket(item: PocketArticle)
+    suspend fun upsertArticle(item: Article)
 
     @Upsert
-    suspend fun insertPockets(items: List<PocketArticle>)
+    suspend fun upsertArticles(items: List<Article>)
 
     @Upsert
-    suspend fun insertPocketImages(items: List<PocketImages>)
+    suspend fun insertArticleImages(items: List<ArticleImages>)
 
     @Upsert
-    suspend fun insertPocketVideos(item: List<PocketVideos>)
+    suspend fun insertArticleVideos(item: List<ArticleVideos>)
 
     @Upsert
-    suspend fun insertPocketTags(items: List<PocketTags>)
+    suspend fun insertArticleTags(items: List<ArticleTags>)
 
     @Query(
         """
-        UPDATE pocketarticle
+        UPDATE article
         SET favorite = CASE WHEN :isFavorite THEN '1' ELSE '0' END,
             timeFavorited = CASE WHEN :isFavorite THEN :timeFavorited ELSE 0 END
         WHERE itemId = :itemId
@@ -201,7 +201,7 @@ interface PocketDao {
 
     @Query(
         """
-        UPDATE pocketarticle
+        UPDATE article
         SET timeRead = CASE WHEN :isRead THEN :timestamp ELSE NULL END
         WHERE itemId = :itemId
         """
@@ -210,18 +210,18 @@ interface PocketDao {
 
     @Query(
         """
-        DELETE FROM pockettags WHERE itemId = :itemId AND tag = :tag
+        DELETE FROM article_tags WHERE itemId = :itemId AND tag = :tag
         """
     )
-    suspend fun deletePocketTag(itemId: String, tag: String)
+    suspend fun deleteArticleTag(itemId: String, tag: String)
 
     @Query("""
-        SELECT tag FROM pockettags WHERE itemId = :itemId
+        SELECT tag FROM article_tags WHERE itemId = :itemId
     """)
-    suspend fun getPocketTags(itemId: String): List<String>
+    suspend fun getArticleTags(itemId: String): List<String>
 
     @Upsert
-    suspend fun insertPocketAuthors(items: List<PocketAuthors>)
+    suspend fun insertArticleAuthors(items: List<ArticleAuthors>)
 
     @Upsert
     suspend fun insertDomainMetadata(item: DomainMetadata)
@@ -229,57 +229,57 @@ interface PocketDao {
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query(
         """
-        SELECT pocketarticle.itemId, pocketarticle.title,
-        COALESCE(pocketarticle.url, pocketarticle.givenUrl) AS url,
-        pocketarticle.image,
-        CASE WHEN pocketarticle.favorite = '1' OR pocketarticle.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN pocketarticle.timeRead IS NOT NULL AND pocketarticle.timeRead > 0 THEN 1 ELSE 0 END AS isRead
-        FROM pocketarticle
-        JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
-        WHERE pocketarticle_fts MATCH :query
+        SELECT article.itemId, article.title,
+        COALESCE(article.url, article.givenUrl) AS url,
+        article.image,
+        CASE WHEN article.favorite = '1' OR article.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN article.timeRead IS NOT NULL AND article.timeRead > 0 THEN 1 ELSE 0 END AS isRead
+        FROM article
+        JOIN article_fts ON article.itemId = article_fts.itemId
+        WHERE article_fts MATCH :query
         """
     )
-    suspend fun searchPockets(query: String): List<ArticleItem>
+    suspend fun searchArticles(query: String): List<ArticleItem>
 
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query(
         """
-        SELECT pocketarticle.itemId, pocketarticle.title,
-        COALESCE(pocketarticle.url, pocketarticle.givenUrl) AS url,
-        pocketarticle.image,
-        CASE WHEN pocketarticle.favorite = '1' OR pocketarticle.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN pocketarticle.timeRead IS NOT NULL AND pocketarticle.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
-        snippet(pocketarticle_fts) AS snippet,
-        matchinfo(pocketarticle_fts) AS matchInfo
-        FROM pocketarticle
-        JOIN pocketarticle_fts ON pocketarticle.itemId = pocketarticle_fts.itemId
-        WHERE pocketarticle_fts MATCH :query
+        SELECT article.itemId, article.title,
+        COALESCE(article.url, article.givenUrl) AS url,
+        article.image,
+        CASE WHEN article.favorite = '1' OR article.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN article.timeRead IS NOT NULL AND article.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
+        snippet(article_fts) AS snippet,
+        matchinfo(article_fts) AS matchInfo
+        FROM article
+        JOIN article_fts ON article.itemId = article_fts.itemId
+        WHERE article_fts MATCH :query
         """
     )
-    suspend fun searchPocketsWithMatchInfo(query: String): List<PocketWithMatchInfo>
+    suspend fun searchArticlesWithMatchInfo(query: String): List<ArticleWithMatchInfo>
 
     @Query("""
-        SELECT * FROM pocketarticle
-        WHERE pocketId != "0"
+        SELECT * FROM article
+        WHERE articleId != "0"
         ORDER BY timeAdded DESC
         LIMIT 1
     """
     )
-    fun getLatestArticle(): PocketArticle?
+    fun getLatestArticle(): Article?
 
     @Query("""
-        SELECT * FROM pocketarticle
+        SELECT * FROM article
         WHERE text IS NULL
         ORDER BY timeUpdated DESC
         LIMIT 10
         OFFSET :offset
     """
     )
-    fun getPocketsWithoutText(offset: Int): List<PocketArticle>
+    fun getPocketsWithoutText(offset: Int): List<Article>
 
     @Query(
         """
-        SELECT timeUpdated FROM pocketarticle
+        SELECT timeUpdated FROM article
         ORDER BY timeAdded DESC
         LIMIT 1
     """
@@ -287,22 +287,22 @@ interface PocketDao {
     fun getLastUpdatedArticleTime(): Long
 
     @Query("""
-        SELECT COUNT(*) FROM pocketarticle
+        SELECT COUNT(*) FROM article
         """)
     fun countArticle(): Int
 
     @Query("""
-        UPDATE pocketarticle
+        UPDATE article
         SET timeAdded = :time, timeUpdated = :time
         WHERE timeAdded = 0 AND timeUpdated = 0
         """)
     suspend fun backfillZeroTimestamps(time: Long)
 
 //    @Upsert
-//    suspend fun insertPocketSummary(pocketSummary: PocketSummary)
+//    suspend fun upsertArticleSummary(pocketSummary: PocketSummary)
 //
 //    @Upsert
-//    suspend fun insertPocketSummaries(pocketSummaries: List<PocketSummary>)
+//    suspend fun upsertArticleSummaries(pocketSummaries: List<PocketSummary>)
 //
 //    @Query("SELECT * FROM pocketsummary WHERE id = :itemId")
 //    suspend fun getSummary(itemId: String): PocketSummary?
@@ -319,9 +319,9 @@ interface PocketDao {
      * @param newArticle The new article data to upsert.
      */
     @Transaction
-    suspend fun upsertArticle(newArticle: PocketArticle): String {
+    suspend fun upsertNewArticle(newArticle: Article): String {
 //        Timber.d("insert article: ${newArticle.itemId}")
-        var existingArticle: PocketArticle? = null
+        var existingArticle: Article? = null
         if (newArticle.givenUrl != null) {
 //            Timber.d("givenUrl is not null, checking for existing article")
             existingArticle = getArticleByUrl(newArticle.givenUrl)
@@ -341,10 +341,10 @@ interface PocketDao {
                 else -> existingArticle.favorite
             }
 
-            insertPocket(
+            upsertArticle(
                 newArticle.copy(
                     itemId = existingArticle.itemId,
-                    pocketId = existingArticle.pocketId,
+                    articleId = existingArticle.articleId,
                     resolvedId = existingArticle.resolvedId,
                     timeUpdated = newArticle.timeAdded,
                     timeAdded = existingArticle.timeAdded, //TODO: this is not right
@@ -375,7 +375,7 @@ interface PocketDao {
             return existingArticle.itemId
         } else {
 //            Timber.d("existingArticle is null, inserting article")
-            insertPocket(newArticle)
+            upsertArticle(newArticle)
             return newArticle.itemId
         }
     }

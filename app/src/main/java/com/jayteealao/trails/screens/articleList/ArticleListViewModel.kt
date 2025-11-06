@@ -28,8 +28,8 @@ import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.data.ArticleRepository
-import com.jayteealao.trails.data.local.database.PocketArticle
-import com.jayteealao.trails.data.local.database.PocketDao
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
@@ -54,9 +54,9 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
-    private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
+    private val articleRepository: ArticleRepository,
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
-    private val pocketDao: PocketDao,
+    private val articleDao: ArticleDao,
     private val jinaClient: JinaClient,
     private val geminiClient: GeminiClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
@@ -69,7 +69,7 @@ class ArticleListViewModel @Inject constructor(
     private val _sortOption = MutableStateFlow(ArticleSortOption.Newest)
     val sortOption: StateFlow<ArticleSortOption> = _sortOption
 
-    private val tagsFlow = pocketRepository.allTags()
+    private val tagsFlow = articleRepository.allTags()
     val tags = tagsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -78,7 +78,7 @@ class ArticleListViewModel @Inject constructor(
 
     init {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.synchronize() //TODO: remove to activity
+            articleRepository.synchronize() //TODO: remove to activity
         }
 
         viewModelScope.launch {
@@ -100,19 +100,19 @@ class ArticleListViewModel @Inject constructor(
         get() = _selectedArticleSummary
 
 //    TODO: move to usecase
-    val databaseSync = pocketRepository.isSyncing
+    val databaseSync = articleRepository.isSyncing
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun sync() {
         viewModelScope.launch(ioDispatcher) {
-//            pocketDao.clearModalTable()
+//            articleDao.clearModalTable()
 //            synchronizePocketUseCase()
         }
     }
 
     val test = MutableStateFlow("")
 
-    private var _articles = MutableStateFlow(emptyList<PocketArticle>())
+    private var _articles = MutableStateFlow(emptyList<Article>())
     val articles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(
             pageSize = 20,
@@ -124,14 +124,14 @@ class ArticleListViewModel @Inject constructor(
 
     val favoriteArticles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(pageSize = 20),
-        pagingSourceFactory = { pocketRepository.favoritePockets() }
+        pagingSourceFactory = { articleRepository.favoritePockets() }
     ).flow
         .cachedIn(viewModelScope)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
 
     val archivedArticles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(pageSize = 20),
-        pagingSourceFactory = { pocketRepository.archivedPockets() }
+        pagingSourceFactory = { articleRepository.archivedPockets() }
     ).flow
         .cachedIn(viewModelScope)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
@@ -143,7 +143,7 @@ class ArticleListViewModel @Inject constructor(
             } else {
                 Pager(
                     config = PagingConfig(pageSize = 20),
-                    pagingSourceFactory = { pocketRepository.pocketsByTag(tag) }
+                    pagingSourceFactory = { articleRepository.pocketsByTag(tag) }
                 ).flow
             }
         }
@@ -156,41 +156,41 @@ class ArticleListViewModel @Inject constructor(
 
     fun search(query: String) {
         viewModelScope.launch(ioDispatcher) {
-            _searchResults.value = pocketRepository.searchLocal(query)
+            _searchResults.value = articleRepository.searchLocal(query)
         }
     }
 
     fun setFavorite(itemId: String, isFavorite: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.setFavorite(itemId, isFavorite)
+            articleRepository.setFavorite(itemId, isFavorite)
         }
     }
 
     fun setReadStatus(itemId: String, isRead: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.setReadStatus(itemId, isRead)
+            articleRepository.setReadStatus(itemId, isRead)
         }
     }
 
     fun updateTag(itemId: String, tag: String, enabled: Boolean) {
         viewModelScope.launch(ioDispatcher) {
             if (enabled) {
-                pocketRepository.addTag(itemId, tag)
+                articleRepository.addTag(itemId, tag)
             } else {
-                pocketRepository.removeTag(itemId, tag)
+                articleRepository.removeTag(itemId, tag)
             }
         }
     }
 
     fun archiveArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.archive(itemId)
+            articleRepository.archive(itemId)
         }
     }
 
     fun deleteArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher) {
-            pocketRepository.delete(itemId)
+            articleRepository.delete(itemId)
         }
     }
 
@@ -235,7 +235,7 @@ class ArticleListViewModel @Inject constructor(
                         summary = summaryResult.summary
                         Timber.d("requestTagSuggestions: Summary generated, saving to DB")
                         // Save summary to database
-                        pocketRepository.updateExcerpt(articleItem.itemId, summary)
+                        articleRepository.updateExcerpt(articleItem.itemId, summary)
                     }
                     is GeminiClient.ArticleSummaryResult.Error -> {
                         Timber.e("requestTagSuggestions: Failed to fetch summary: ${summaryResult.message}")
@@ -315,9 +315,9 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
-    fun insertArticle(article: PocketArticle) {
+    fun insertArticle(article: Article) {
         viewModelScope.launch(ioDispatcher) {
-            pocketDao.insertPocket(article)
+            articleDao.upsertArticle(article)
         }
     }
 
@@ -360,8 +360,8 @@ class ArticleListViewModel @Inject constructor(
 
             var articleId = id
             try {
-                articleId = pocketDao.upsertArticle(
-                    PocketArticle(
+                articleId = articleDao.upsertNewArticle(
+                    Article(
                         itemId = id,
                         resolvedId = null,
                         title = "",
@@ -398,7 +398,7 @@ class ArticleListViewModel @Inject constructor(
                     _intentTitle.value = resolvedTitle
                 }
 
-                pocketDao.updateUnfurledDetails(
+                articleDao.updateUnfurledDetails(
                     itemId = articleId,
                     title = resolvedTitle,
                     url = resolvedUrl,
@@ -413,9 +413,9 @@ class ArticleListViewModel @Inject constructor(
 
                 val readerContent = jinaResult?.data?.content //TODO: replace jina with call to archiver/singlefile,
                 if (!readerContent.isNullOrBlank()) {
-                    pocketDao.updateText(articleId, readerContent)
+                    articleDao.updateText(articleId, readerContent)
                     val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
-                    pocketDao.updateArticleMetrics(
+                    articleDao.updateArticleMetrics(
                         articleId,
                         metrics.readingTimeMinutes,
                         metrics.listeningTimeMinutes,

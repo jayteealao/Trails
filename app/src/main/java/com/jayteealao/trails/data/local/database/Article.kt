@@ -26,8 +26,8 @@ import com.jayteealao.trails.data.models.ArticleItem
 import kotlinx.serialization.Serializable
 
 @Serializable
-@Entity
-data class PocketArticle(
+@Entity(tableName = "article")
+data class Article(
     @PrimaryKey val itemId: String,
     val resolvedId: String?,
     val title: String,
@@ -51,22 +51,22 @@ data class PocketArticle(
     val timeToRead: Int? = 0,
     val listenDurationEstimate: Int = 0,
     var text : String? = null,
-    @ColumnInfo(defaultValue = "0") val pocketId: String = "0",
+    @ColumnInfo(defaultValue = "0") val articleId: String = "0",
     @ColumnInfo(defaultValue = "0") val resolved: Int = 0, // 0 = notResolved, 1 = synced, 2 = textadded, 3 = metrics, 10 = resolved
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "archived_at") val archivedAt: Long? = null,
 )
 
-@Entity(tableName = "pocketarticle_fts")
-@Fts4(contentEntity = PocketArticle::class)
-data class PocketArticleFts(
+@Entity(tableName = "article_fts")
+@Fts4(contentEntity = Article::class)
+data class ArticleFts(
     val itemId: String,
     val title: String,
     var text : String? = null,
 )
 
-data class PocketWithMatchInfo(
-    @Embedded val pocket: ArticleItem,
+data class ArticleWithMatchInfo(
+    @Embedded val article: ArticleItem,
     @ColumnInfo(name = "matchInfo")
     val matchInfo: ByteArray
 ) {
@@ -74,16 +74,16 @@ data class PocketWithMatchInfo(
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
 
-        other as PocketWithMatchInfo
+        other as ArticleWithMatchInfo
 
-        if (pocket != other.pocket) return false
+        if (article != other.article) return false
         if (!matchInfo.contentEquals(other.matchInfo)) return false
 
         return true
     }
 
     override fun hashCode(): Int {
-        var result = pocket.hashCode()
+        var result = article.hashCode()
         result = 31 * result + matchInfo.contentHashCode()
         return result
     }
@@ -94,6 +94,6 @@ data class PocketWithMatchInfo(
 )
 data class ModalArticleTable(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val pocketId: String,
+    val articleId: String,
     val modalId: String
 )

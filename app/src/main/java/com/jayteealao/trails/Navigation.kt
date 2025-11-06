@@ -245,7 +245,7 @@ private fun MainNavigationPreview() {
                     }
                 }
                 composable("article") {
-                    ArticleDetailScreen(article = PreviewFixtures.pocketArticle)
+                    ArticleDetailScreen(article = PreviewFixtures.article)
                 }
                 composable("search") {
                     ArticleSearchContent(
@@ -331,7 +331,7 @@ private fun MainNavigationDarkPreview() {
                     )
                 }
                 composable("article") {
-                    ArticleDetailScreen(article = PreviewFixtures.pocketArticle)
+                    ArticleDetailScreen(article = PreviewFixtures.article)
                 }
             }
         }
