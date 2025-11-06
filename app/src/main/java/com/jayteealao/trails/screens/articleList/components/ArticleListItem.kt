@@ -57,6 +57,9 @@ fun ArticleListItem(
     onDelete: () -> Unit = {},
     useCardLayout: Boolean = false,
     availableTags: List<String> = emptyList(),
+    tagSuggestionState: com.jayteealao.trails.screens.articleList.TagSuggestionUiState = com.jayteealao.trails.screens.articleList.TagSuggestionUiState(),
+    onRequestTagSuggestions: () -> Unit = {},
+    onClearSuggestionError: () -> Unit = {},
 ) {
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
@@ -100,9 +103,23 @@ fun ArticleListItem(
             }
         }
     }
+    LaunchedEffect(tagSuggestionState.tags) {
+        tagSuggestionState.tags.forEach { tag ->
+            if (!tagStates.containsKey(tag)) {
+                tagStates[tag] = false
+            }
+        }
+    }
     LaunchedEffect(article.itemId) {
         showTagSheet = false
         newTagText = ""
+        onClearSuggestionError()
+    }
+
+    val openTagSheet: () -> Unit = {
+        onClearSuggestionError()
+        showTagSheet = true
+        onRequestTagSuggestions()
     }
 
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -214,7 +231,7 @@ fun ArticleListItem(
                 vibrantColor = vibrantColor,
                 onPaletteExtracted = onPaletteExtracted,
                 onTagToggle = onTagToggle,
-                showAddTagDialog = { showTagSheet = true },
+                showAddTagDialog = openTagSheet,
             )
 
         } else {
@@ -235,7 +252,7 @@ fun ArticleListItem(
                 vibrantColor = vibrantColor,
                 onPaletteExtracted = onPaletteExtracted,
                 onTagToggle = onTagToggle,
-                showAddTagDialog = { showTagSheet = true },
+                showAddTagDialog = openTagSheet,
                 modifier = Modifier
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp)
                     .background(colorScheme.surface)
@@ -248,6 +265,7 @@ fun ArticleListItem(
             onDismiss = {
                 showTagSheet = false
                 newTagText = ""
+                onClearSuggestionError()
             },
             sheetState = bottomSheetState,
             tagStates = tagStates,
@@ -267,7 +285,9 @@ fun ArticleListItem(
                     }
                     newTagText = ""
                 }
-            }
+            },
+            tagSuggestionState = tagSuggestionState,
+            onRequestTagSuggestions = onRequestTagSuggestions
         )
     }
 }

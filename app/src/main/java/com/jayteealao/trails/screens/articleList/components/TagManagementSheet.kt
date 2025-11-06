@@ -35,7 +35,9 @@ fun TagManagementSheet(
     newTagText: String,
     onNewTagTextChange: (String) -> Unit,
     onTagToggle: (String, Boolean) -> Unit,
-    onAddNewTag: () -> Unit
+    onAddNewTag: () -> Unit,
+    tagSuggestionState: com.jayteealao.trails.screens.articleList.TagSuggestionUiState = com.jayteealao.trails.screens.articleList.TagSuggestionUiState(),
+    onRequestTagSuggestions: () -> Unit = {}
 ) {
     if (showSheet) {
         ModalBottomSheet(
@@ -87,6 +89,18 @@ fun TagManagementSheet(
                         )
                     }
                 }
+
+                // Tag suggestions section
+                TagSuggestionsContent(
+                    tagSuggestionState = tagSuggestionState,
+                    isTagSelected = { tag -> tagStates[tag] == true },
+                    onToggleSuggestion = { suggestion, newValue ->
+                        tagStates[suggestion] = newValue
+                        onTagToggle(suggestion, newValue)
+                    },
+                    onRequestTagSuggestions = onRequestTagSuggestions,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 // Selected tags section
                 val selectedTags = tagStates.filterValues { it }.keys.toList().sorted()
