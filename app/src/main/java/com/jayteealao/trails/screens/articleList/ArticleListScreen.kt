@@ -103,6 +103,7 @@ fun ArticleListScreen(
     val tags by viewModel.tags.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
     val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
+    val tagSuggestions by viewModel.tagSuggestions.collectAsStateWithLifecycle()
 
     LaunchedEffect(selectedTab) {
         if (selectedTab != ArticleListTab.TAGS) {
@@ -127,6 +128,12 @@ fun ArticleListScreen(
     }
     val onSortOptionSelected: (ArticleSortOption) -> Unit = { option ->
         viewModel.setSortOption(option)
+    }
+    val onRequestTagSuggestions: (ArticleItem) -> Unit = { article ->
+        viewModel.requestTagSuggestions(article)
+    }
+    val onClearSuggestionError: (String) -> Unit = { articleId ->
+        viewModel.clearTagSuggestionError(articleId)
     }
 
     Column(
@@ -160,7 +167,10 @@ fun ArticleListScreen(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = tags
+                    availableTags = tags,
+                    tagSuggestions = tagSuggestions,
+                    onRequestTagSuggestions = onRequestTagSuggestions,
+                    onClearSuggestionError = onClearSuggestionError
                 )
 
                 ArticleListTab.FAVOURITES -> PocketScreenContent(
@@ -174,7 +184,10 @@ fun ArticleListScreen(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = tags
+                    availableTags = tags,
+                    tagSuggestions = tagSuggestions,
+                    onRequestTagSuggestions = onRequestTagSuggestions,
+                    onClearSuggestionError = onClearSuggestionError
                 )
 
                 ArticleListTab.ARCHIVE -> PocketScreenContent(
@@ -188,7 +201,10 @@ fun ArticleListScreen(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = tags
+                    availableTags = tags,
+                    tagSuggestions = tagSuggestions,
+                    onRequestTagSuggestions = onRequestTagSuggestions,
+                    onClearSuggestionError = onClearSuggestionError
                 )
 
                 ArticleListTab.TAGS -> TagsContent(
@@ -206,7 +222,10 @@ fun ArticleListScreen(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = tags
+                    availableTags = tags,
+                    tagSuggestions = tagSuggestions,
+                    onRequestTagSuggestions = onRequestTagSuggestions,
+                    onClearSuggestionError = onClearSuggestionError
                 )
             }
             ArticleDialog(
@@ -298,6 +317,9 @@ private fun TagsContent(
     onDelete: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
     availableTags: List<String>,
+    tagSuggestions: Map<String, TagSuggestionUiState>,
+    onRequestTagSuggestions: (ArticleItem) -> Unit,
+    onClearSuggestionError: (String) -> Unit,
 ) {
     if (selectedTag == null) {
         if (tags.isEmpty()) {
@@ -366,7 +388,10 @@ private fun TagsContent(
                     onArchive = onArchive,
                     onDelete = onDelete,
                     useCardLayout = useCardLayout,
-                    availableTags = availableTags
+                    availableTags = availableTags,
+                    tagSuggestions = tagSuggestions,
+                    onRequestTagSuggestions = onRequestTagSuggestions,
+                    onClearSuggestionError = onClearSuggestionError
                 )
             }
         }
@@ -387,6 +412,9 @@ internal fun PocketScreenContent(
     onDelete: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
     availableTags: List<String>,
+    tagSuggestions: Map<String, TagSuggestionUiState> = emptyMap(),
+    onRequestTagSuggestions: (ArticleItem) -> Unit = {},
+    onClearSuggestionError: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -431,7 +459,10 @@ internal fun PocketScreenContent(
                         onArchive = { onArchive(article) },
                         onDelete = { onDelete(article) },
                         useCardLayout = useCardLayout,
-                        availableTags = availableTags
+                        availableTags = availableTags,
+                        tagSuggestionState = tagSuggestions[article.itemId] ?: TagSuggestionUiState(),
+                        onRequestTagSuggestions = { onRequestTagSuggestions(article) },
+                        onClearSuggestionError = { onClearSuggestionError(article.itemId) }
                     )
                 }
             }
