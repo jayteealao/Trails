@@ -171,6 +171,9 @@ interface PocketDao {
             """)
     suspend fun updateUnfurledDetails(itemId: String, title: String, url: String, image: String?, hasImage: Boolean, excerpt: String)
 
+    @Query("UPDATE pocketarticle SET excerpt = :excerpt WHERE itemId = :itemId")
+    suspend fun updateExcerpt(itemId: String, excerpt: String)
+
     @Upsert
     suspend fun insertPocket(item: PocketArticle)
 
