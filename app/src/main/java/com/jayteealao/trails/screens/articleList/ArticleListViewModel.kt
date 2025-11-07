@@ -434,8 +434,8 @@ class ArticleListViewModel @Inject constructor(
         viewModelScope.launch(ioDispatcher) {
             try {
                 // Get the current article
-                val article = articleDao.getArticle(itemId) ?: return@launch
-                val url = article.url
+                val article = articleDao.getArticleById(itemId) ?: return@launch
+                val url = article.url ?: article.givenUrl ?: return@launch
 
                 if (url.isBlank()) return@launch
 
@@ -452,7 +452,7 @@ class ArticleListViewModel @Inject constructor(
 
                 if (unfurlResult != null) {
                     resolvedTitle = unfurlResult.title ?: resolvedTitle
-                    resolvedUrl = (unfurlResult.url ?: resolvedUrl).toString()
+                    resolvedUrl = unfurlResult.url.toString()
                     resolvedImage = unfurlResult.thumbnail?.toString()
                     hasImage = unfurlResult.thumbnail != null
                     resolvedExcerpt = unfurlResult.description ?: ""
@@ -469,21 +469,21 @@ class ArticleListViewModel @Inject constructor(
                 )
 
                 // Refetch content using Jina Reader
-                val jinaResult = runCatching { jinaClient.getReader(url) }
-                    .onFailure { Timber.w(it, "Failed to fetch reader content for %s", url) }
-                    .getOrNull()
+//                val jinaResult = runCatching { jinaClient.getReader(url) }
+//                    .onFailure { Timber.w(it, "Failed to fetch reader content for %s", url) }
+//                    .getOrNull()
 
-                val readerContent = jinaResult?.data?.content
-                if (!readerContent.isNullOrBlank()) {
-                    articleDao.updateText(itemId, readerContent)
-                    val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
-                    articleDao.updateArticleMetrics(
-                        itemId,
-                        metrics.readingTimeMinutes,
-                        metrics.listeningTimeMinutes,
-                        metrics.wordCount,
-                    )
-                }
+//                val readerContent = jinaResult?.data?.content
+//                if (!readerContent.isNullOrBlank()) {
+//                    articleDao.updateText(itemId, readerContent)
+//                    val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
+//                    articleDao.updateArticleMetrics(
+//                        itemId,
+//                        metrics.readingTimeMinutes,
+//                        metrics.listeningTimeMinutes,
+//                        metrics.wordCount,
+//                    )
+//                }
 
                 Timber.d("Successfully regenerated details for article: $itemId")
             } catch (error: Throwable) {
