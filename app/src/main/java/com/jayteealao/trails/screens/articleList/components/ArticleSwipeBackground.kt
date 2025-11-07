@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.jayteealao.trails.R
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -45,7 +46,6 @@ fun ArticleSwipeBackground(
     onReadToggle: (Boolean) -> Unit,
     markReadIcon: androidx.compose.ui.graphics.painter.Painter,
     markUnreadIcon: androidx.compose.ui.graphics.painter.Painter,
-    onTagsClick: () -> Unit,
     onRegenerateDetails: () -> Unit,
     onCopyLink: () -> Unit,
     onShare: () -> Unit,
@@ -148,11 +148,11 @@ fun ArticleSwipeBackground(
             ) {
                 Row(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 12.dp),
+                        .align(Alignment.CenterEnd)
+                        .padding(start = 12.dp, end = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(
                         12.dp,
-                        Alignment.CenterHorizontally
+                        Alignment.End
                     ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -165,7 +165,10 @@ fun ArticleSwipeBackground(
                             .clickable {
                                 val newReadState = !isRead
                                 onReadToggle(newReadState)
-                                scope.launch { swipeState.reset() }
+                                scope.launch {
+                                    delay(200)
+                                    swipeState.reset()
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -188,7 +191,10 @@ fun ArticleSwipeBackground(
                             .background(MaterialTheme.colorScheme.surface)
                             .clickable {
                                 onArchive()
-                                scope.launch { swipeState.reset() }
+                                scope.launch {
+                                    delay(200)
+                                    swipeState.reset()
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -207,32 +213,16 @@ fun ArticleSwipeBackground(
                             .background(MaterialTheme.colorScheme.surface)
                             .clickable {
                                 onDelete()
-                                scope.launch { swipeState.reset() }
+                                scope.launch {
+                                    delay(200)
+                                    swipeState.reset()
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.delete_24px),
                             contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Tags button
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable {
-                                onTagsClick()
-                                scope.launch { swipeState.reset() }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.tag_24px),
-                            contentDescription = "Tags",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -245,7 +235,10 @@ fun ArticleSwipeBackground(
                             .background(MaterialTheme.colorScheme.surface)
                             .clickable {
                                 onRegenerateDetails()
-                                scope.launch { swipeState.reset() }
+                                scope.launch {
+                                    delay(200)
+                                    swipeState.reset()
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -264,7 +257,10 @@ fun ArticleSwipeBackground(
                             .background(MaterialTheme.colorScheme.surface)
                             .clickable {
                                 onCopyLink()
-                                scope.launch { swipeState.reset() }
+                                scope.launch {
+                                    delay(200)
+                                    swipeState.reset()
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -283,7 +279,10 @@ fun ArticleSwipeBackground(
                             .background(MaterialTheme.colorScheme.surface)
                             .clickable {
                                 onShare()
-                                scope.launch { swipeState.reset() }
+                                scope.launch {
+                                    delay(200)
+                                    swipeState.reset()
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
