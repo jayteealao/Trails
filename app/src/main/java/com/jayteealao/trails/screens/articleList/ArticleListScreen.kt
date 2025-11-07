@@ -93,10 +93,10 @@ fun ArticleListScreen(
     val scope = rememberCoroutineScope()
 
     // Collect paging flows separately (not part of consolidated state)
-    val articles = viewStore.action { articles }.collectAsLazyPagingItems()
-    val favoriteArticles = viewStore.action { favoriteArticles }.collectAsLazyPagingItems()
-    val archivedArticles = viewStore.action { archivedArticles }.collectAsLazyPagingItems()
-    val taggedArticles = viewStore.action { taggedArticles }.collectAsLazyPagingItems()
+    val articles = viewStore.viewModel.articles.collectAsLazyPagingItems()
+    val favoriteArticles = viewStore.viewModel.favoriteArticles.collectAsLazyPagingItems()
+    val archivedArticles = viewStore.viewModel.archivedArticles.collectAsLazyPagingItems()
+    val taggedArticles = viewStore.viewModel.taggedArticles.collectAsLazyPagingItems()
 
     // Handle events
     viewStore.handle<ArticleListEvent.NavigateToArticle> { event ->

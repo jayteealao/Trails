@@ -43,54 +43,52 @@ fun AuthScreen(
         // Could show toast message
     }
 
-    // Render different UI based on state using viewStore.render
+    // Render different UI based on state
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        viewStore.render<AuthUiState.NeedAuth> {
-            Column {
-                Text(text = "Obtain Request Token")
-                Button(onClick = { action { getRequestToken() } }) {
-                    Text(text = "Get Request Token")
+        when (val currentState = viewStore.state) {
+            is AuthUiState.NeedAuth -> {
+                Column {
+                    Text(text = "Obtain Request Token")
+                    Button(onClick = { viewStore.action { getRequestToken() } }) {
+                        Text(text = "Get Request Token")
+                    }
                 }
             }
-        }
-
-        viewStore.render<AuthUiState.RequestToken> {
-            Column {
-                Text(text = "Authorize Request Token")
-                Text(text = state.data)
-                Button(onClick = { action { authorizeWithBrowser(state.data) } }) {
-                    Text(text = "Authorize")
+            is AuthUiState.RequestToken -> {
+                Column {
+                    Text(text = "Authorize Request Token")
+                    Text(text = currentState.data)
+                    Button(onClick = { viewStore.action { authorizeWithBrowser(currentState.data) } }) {
+                        Text(text = "Authorize")
+                    }
                 }
             }
-        }
-
-        viewStore.render<AuthUiState.AccessToken> {
-            Column {
-                Text(text = "Access Token: ${state.data}")
-                Button(onClick = { navController.navigate("main") }) {
-                    Text(text = "Get Articles")
+            is AuthUiState.AccessToken -> {
+                Column {
+                    Text(text = "Access Token: ${currentState.data}")
+                    Button(onClick = { navController.navigate("main") }) {
+                        Text(text = "Get Articles")
+                    }
                 }
             }
-        }
-
-        viewStore.render<AuthUiState.Loading> {
-            Column {
-                Text(text = "Have you authorized the app")
-                Button(onClick = { action { getNetworkAccessToken() } }) {
-                    Text(text = "Get Access Token")
+            is AuthUiState.Loading -> {
+                Column {
+                    Text(text = "Have you authorized the app")
+                    Button(onClick = { viewStore.action { getNetworkAccessToken() } }) {
+                        Text(text = "Get Access Token")
+                    }
                 }
             }
-        }
-
-        viewStore.render<AuthUiState.Error> {
-            Column {
-                Text(text = "Something went wrong")
-                Text(text = state.throwable.message ?: "Unknown error")
-                Button(onClick = { action { getRequestToken() } }) {
-                    Text(text = "Retry")
+            is AuthUiState.Error -> {
+                Column {
+                    Text(text = "Something went wrong")
+                    Text(text = currentState.throwable.message ?: "Unknown error")
+                    Button(onClick = { viewStore.action { getRequestToken() } }) {
+                        Text(text = "Retry")
+                    }
                 }
             }
         }

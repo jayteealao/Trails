@@ -260,21 +260,10 @@ private fun MainNavigationPreview() {
                     )
                 }
                 composable("settings") {
-                    SettingsScreenContent(
+                    SettingsScreen(
                         modifier = Modifier
                             .padding(16.dp)
-                            .fillMaxSize(),
-                        useFreedium = true,
-                        darkThemeEnabled = false,
-                        useCardLayout = true,
-                        jinaToken = PreviewFixtures.authAccessToken,
-                        jinaPlaceholder = "Insert Jina Token Here",
-                        onResetSemanticCache = {},
-                        onToggleFreedium = {},
-                        onToggleDarkTheme = {},
-                        onToggleCardLayout = {},
-                        onJinaTokenChange = {},
-                        onSubmitJinaToken = {},
+                            .fillMaxSize()
                     )
                 }
             }
