@@ -61,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.paging.compose.LazyPagingItems
@@ -84,7 +85,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ArticleListScreen(
     modifier: Modifier = Modifier,
-    articleListViewModel: ArticleListViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    articleListViewModel: ArticleListViewModel = hiltViewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
