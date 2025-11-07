@@ -23,7 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.jayteealao.trails.screens.theme.Typography
 import compose.icons.CssGgIcons
@@ -35,7 +35,7 @@ import io.yumemi.tartlet.rememberViewStore
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
-    viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel> = rememberViewStore { viewModel() }
+    viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel> = rememberViewStore { hiltViewModel() }
 ) {
     SettingsScreenContent(
         modifier = modifier,
