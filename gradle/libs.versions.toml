@@ -48,6 +48,7 @@ splashscreen = "1.0.1"
 supabase = "3.2.3"
 shadowsPlus = "1.0.4"
 
+tartlet = "0.3.0"
 timber = "5.0.1"
 workManager = "2.10.4"
 ktorversion = "3.3.0"
@@ -146,6 +147,7 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 
 splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
 
+tartlet = { module = "io.yumemi:tartlet", version.ref = "tartlet" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 
 supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "supabase" }
