@@ -13,6 +13,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -34,16 +36,18 @@ import com.jayteealao.trails.screens.theme.TrailsTheme
 @Composable
 fun TrailScaffold(
     topBar : @Composable (MutableState<MenuState>) -> Unit = {},
-    content: @Composable (PaddingValues, TransitionData) -> Unit,
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
+    content: @Composable (PaddingValues, TransitionData, SnackbarHostState) -> Unit,
 ) {
     val menuState = remember { mutableStateOf( MenuState.Open )}
     val transitionData = updateTransitionData(menuState = menuState.value)
 
     Scaffold(
         topBar = { topBar(menuState) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
     ){ paddingValues ->
-        content(paddingValues, transitionData)
+        content(paddingValues, transitionData, snackbarHostState)
     }
 }
 
@@ -62,7 +66,7 @@ private fun TrailScaffoldPreview() {
                     menuState = menuState,
                 )
             },
-        ) { paddingValues, _ ->
+        ) { paddingValues, _, _ ->
             Column(Modifier.padding(paddingValues)) {
                 Text(text = "Preview Content")
             }
@@ -90,7 +94,7 @@ private fun TrailScaffoldDarkPreview() {
                     menuState = menuState,
                 )
             },
-        ) { paddingValues, _ ->
+        ) { paddingValues, _, _ ->
             Column(Modifier.padding(paddingValues)) {
                 Text(text = "Drawer collapsed for preview")
             }

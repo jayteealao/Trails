@@ -110,7 +110,7 @@ fun MainNavigation(
                 )
             }
         }
-    ){ paddingValues, transitionData ->
+    ){ paddingValues, transitionData, snackbarHostState ->
         NavHost(
             modifier = Modifier
                 .padding(paddingValues)
@@ -143,7 +143,8 @@ fun MainNavigation(
                         onSelectArticle = { article ->
                             navController.navigate("article/${article.itemId}")
                         },
-                        useCardLayout = useCardLayout
+                        useCardLayout = useCardLayout,
+                        snackbarHostState = snackbarHostState
                     )
                 }
             }
@@ -201,7 +202,7 @@ private fun MainNavigationPreview() {
                     )
                 }
             }
-        ) { paddingValues, transitionData ->
+        ) { paddingValues, transitionData, _ ->
             NavHost(
                 modifier = Modifier
                     .padding(paddingValues)
@@ -307,7 +308,7 @@ private fun MainNavigationDarkPreview() {
                     )
                 }
             }
-        ) { paddingValues, _ ->
+        ) { paddingValues, _, _ ->
             NavHost(
                 modifier = Modifier
                     .padding(paddingValues)
