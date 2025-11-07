@@ -96,16 +96,16 @@ class ArticleListViewModel @Inject constructor(
         _selectedArticleSummary,
         databaseSyncFlow,
         _selectedTab
-    ) { selectedTag, sortOption, tags, tagSuggestions, selectedArticle, selectedArticleSummary, databaseSync, selectedTab ->
+    ) { flows: Array<*> ->
         ArticleListState(
-            selectedTag = selectedTag,
-            sortOption = sortOption,
-            tags = tags,
-            tagSuggestions = tagSuggestions,
-            selectedArticle = selectedArticle,
-            selectedArticleSummary = selectedArticleSummary,
-            databaseSync = databaseSync,
-            selectedTab = selectedTab
+            selectedTag = flows[0] as String?,
+            sortOption = flows[1] as ArticleSortOption,
+            tags = flows[2] as List<String>,
+            tagSuggestions = flows[3] as Map<String, TagSuggestionUiState>,
+            selectedArticle = flows[4] as ArticleItem,
+            selectedArticleSummary = flows[5] as PocketSummary,
+            databaseSync = flows[6] as Boolean,
+            selectedTab = flows[7] as ArticleListTab
         )
     }.stateIn(
         scope = viewModelScope,
@@ -310,7 +310,7 @@ class ArticleListViewModel @Inject constructor(
                     title = articleItem.title,
                     description = summary,
                     url = null,  // Don't use URL context for tag suggestions
-                    availableTags = tags.value
+                    availableTags = tagsFlow.value
                 )
             )
 
