@@ -84,7 +84,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ArticleListScreen(
     modifier: Modifier = Modifier,
-    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel> = rememberViewStore { viewModel() },
+    articleListViewModel: ArticleListViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
@@ -92,11 +92,14 @@ fun ArticleListScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // Create ViewStore from ViewModel
+    val viewStore = rememberViewStore { articleListViewModel }
+
     // Collect paging flows separately (not part of consolidated state)
-    val articles = viewStore.viewModel.articles.collectAsLazyPagingItems()
-    val favoriteArticles = viewStore.viewModel.favoriteArticles.collectAsLazyPagingItems()
-    val archivedArticles = viewStore.viewModel.archivedArticles.collectAsLazyPagingItems()
-    val taggedArticles = viewStore.viewModel.taggedArticles.collectAsLazyPagingItems()
+    val articles = articleListViewModel.articles.collectAsLazyPagingItems()
+    val favoriteArticles = articleListViewModel.favoriteArticles.collectAsLazyPagingItems()
+    val archivedArticles = articleListViewModel.archivedArticles.collectAsLazyPagingItems()
+    val taggedArticles = articleListViewModel.taggedArticles.collectAsLazyPagingItems()
 
     // Handle events
     viewStore.handle<ArticleListEvent.NavigateToArticle> { event ->
