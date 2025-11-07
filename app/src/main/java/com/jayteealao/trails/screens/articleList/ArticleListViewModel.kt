@@ -37,12 +37,17 @@ import com.jayteealao.trails.services.gemini.GeminiClient
 import com.jayteealao.trails.services.jina.JinaClient
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -61,20 +66,54 @@ class ArticleListViewModel @Inject constructor(
     private val geminiClient: GeminiClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
-) : ViewModel() {
+) : ViewModel(), Store<ArticleListState, ArticleListEvent> {
 
+    // Tartlet Store implementation - Event handling
+    private val _event = MutableSharedFlow<ArticleListEvent>()
+    override val event: SharedFlow<ArticleListEvent> = _event.asSharedFlow()
+
+    // Internal mutable states
     private val _selectedTag = MutableStateFlow<String?>(null)
-    val selectedTag: StateFlow<String?> = _selectedTag
-
     private val _sortOption = MutableStateFlow(ArticleSortOption.Newest)
-    val sortOption: StateFlow<ArticleSortOption> = _sortOption
+    private val _tagSuggestions = MutableStateFlow<Map<String, TagSuggestionUiState>>(emptyMap())
+    private val _selectedArticle = MutableStateFlow<ArticleItem>(EMPTYARTICLEITEM)
+    private val _selectedArticleSummary = MutableStateFlow(PocketSummary())
+    private val _selectedTab = MutableStateFlow(ArticleListTab.HOME)
 
     private val tagsFlow = articleRepository.allTags()
-    val tags = tagsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _tagSuggestions = MutableStateFlow<Map<String, TagSuggestionUiState>>(emptyMap())
-    val tagSuggestions: StateFlow<Map<String, TagSuggestionUiState>> = _tagSuggestions.asStateFlow()
+    private val databaseSyncFlow = articleRepository.isSyncing
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // Tartlet Store implementation - Consolidated state
+    private val _state = combine(
+        _selectedTag,
+        _sortOption,
+        tagsFlow,
+        _tagSuggestions,
+        _selectedArticle,
+        _selectedArticleSummary,
+        databaseSyncFlow,
+        _selectedTab
+    ) { selectedTag, sortOption, tags, tagSuggestions, selectedArticle, selectedArticleSummary, databaseSync, selectedTab ->
+        ArticleListState(
+            selectedTag = selectedTag,
+            sortOption = sortOption,
+            tags = tags,
+            tagSuggestions = tagSuggestions,
+            selectedArticle = selectedArticle,
+            selectedArticleSummary = selectedArticleSummary,
+            databaseSync = databaseSync,
+            selectedTab = selectedTab
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ArticleListState()
+    )
+
+    override val state: StateFlow<ArticleListState> = _state
 
     init {
         viewModelScope.launch(ioDispatcher) {
@@ -82,7 +121,7 @@ class ArticleListViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            tags.collectLatest { availableTags ->
+            tagsFlow.collectLatest { availableTags ->
                 val currentTag = _selectedTag.value
                 if (currentTag != null && currentTag !in availableTags) {
                     _selectedTag.value = null
@@ -90,18 +129,6 @@ class ArticleListViewModel @Inject constructor(
             }
         }
     }
-
-    private val _selectedArticle = MutableStateFlow<ArticleItem>(EMPTYARTICLEITEM)
-    val selectedArticle: StateFlow<ArticleItem>
-        get() = _selectedArticle
-
-    private val _selectedArticleSummary = MutableStateFlow(PocketSummary())
-    val selectedArticleSummary: StateFlow<PocketSummary>
-        get() = _selectedArticleSummary
-
-//    TODO: move to usecase
-    val databaseSync = articleRepository.isSyncing
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     fun sync() {
         viewModelScope.launch(ioDispatcher) {
@@ -160,37 +187,60 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
+    // Actions
     fun setFavorite(itemId: String, isFavorite: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            articleRepository.setFavorite(itemId, isFavorite)
+            try {
+                articleRepository.setFavorite(itemId, isFavorite)
+            } catch (e: Exception) {
+                _event.emit(ArticleListEvent.ShowError(e))
+            }
         }
     }
 
     fun setReadStatus(itemId: String, isRead: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            articleRepository.setReadStatus(itemId, isRead)
+            try {
+                articleRepository.setReadStatus(itemId, isRead)
+            } catch (e: Exception) {
+                _event.emit(ArticleListEvent.ShowError(e))
+            }
         }
     }
 
     fun updateTag(itemId: String, tag: String, enabled: Boolean) {
         viewModelScope.launch(ioDispatcher) {
-            if (enabled) {
-                articleRepository.addTag(itemId, tag)
-            } else {
-                articleRepository.removeTag(itemId, tag)
+            try {
+                if (enabled) {
+                    articleRepository.addTag(itemId, tag)
+                } else {
+                    articleRepository.removeTag(itemId, tag)
+                }
+            } catch (e: Exception) {
+                _event.emit(ArticleListEvent.ShowError(e))
             }
         }
     }
 
     fun archiveArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher) {
-            articleRepository.archive(itemId)
+            try {
+                articleRepository.archive(itemId)
+                _event.emit(ArticleListEvent.ShowSnackbar("Article archived"))
+            } catch (e: Exception) {
+                _event.emit(ArticleListEvent.ShowError(e))
+            }
         }
     }
 
     fun deleteArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher) {
-            articleRepository.delete(itemId)
+            try {
+                articleRepository.delete(itemId)
+                _event.emit(ArticleListEvent.ShowSnackbar("Article deleted"))
+            } catch (e: Exception) {
+                _event.emit(ArticleListEvent.ShowError(e))
+            }
         }
     }
 
@@ -315,6 +365,22 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
+    fun setSelectedTab(tab: ArticleListTab) {
+        _selectedTab.value = tab
+    }
+
+    fun shareArticle(title: String, url: String) {
+        viewModelScope.launch {
+            _event.emit(ArticleListEvent.ShareArticle(title, url))
+        }
+    }
+
+    fun copyLink(url: String, label: String = "Article URL") {
+        viewModelScope.launch {
+            _event.emit(ArticleListEvent.CopyLink(url, label))
+        }
+    }
+
     fun insertArticle(article: Article) {
         viewModelScope.launch(ioDispatcher) {
             articleDao.upsertArticle(article)
@@ -434,10 +500,17 @@ class ArticleListViewModel @Inject constructor(
         viewModelScope.launch(ioDispatcher) {
             try {
                 // Get the current article
-                val article = articleDao.getArticleById(itemId) ?: return@launch
-                val url = article.url ?: article.givenUrl ?: return@launch
+                val article = articleDao.getArticleById(itemId)
+                if (article == null) {
+                    _event.emit(ArticleListEvent.ShowError(Exception("Article not found")))
+                    return@launch
+                }
 
-                if (url.isBlank()) return@launch
+                val url = article.url ?: article.givenUrl
+                if (url.isNullOrBlank()) {
+                    _event.emit(ArticleListEvent.ShowError(Exception("No URL found for article")))
+                    return@launch
+                }
 
                 // Refetch metadata using unfurler
                 val unfurlResult = runCatching { unfurler.unfurl(url) }
@@ -486,8 +559,10 @@ class ArticleListViewModel @Inject constructor(
 //                }
 
                 Timber.d("Successfully regenerated details for article: $itemId")
+                _event.emit(ArticleListEvent.ShowToast("Article details updated"))
             } catch (error: Throwable) {
                 Timber.e(error, "Failed to regenerate article details for: $itemId")
+                _event.emit(ArticleListEvent.ShowError(error))
             }
         }
     }
