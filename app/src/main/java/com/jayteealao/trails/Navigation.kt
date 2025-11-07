@@ -55,18 +55,15 @@ import com.jayteealao.trails.screens.articleList.ArticleListScreen
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.articleList.ArticleSortOption
 import com.jayteealao.trails.screens.articleList.PocketScreenContent
-import com.jayteealao.trails.screens.articleSearch.ArticleSearchContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchViewModel
 import com.jayteealao.trails.screens.auth.AuthScreen
-import com.jayteealao.trails.screens.auth.AuthScreenContent
 import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.preview.previewSearchBarState
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.settings.SettingsScreen
-import com.jayteealao.trails.screens.settings.SettingsScreenContent
 import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import timber.log.Timber
@@ -85,8 +82,8 @@ fun MainNavigation(
     val _isLoggedIn = authViewModel.isLoggedIn
     var isLoggedIn by remember { mutableStateOf(false) }
     val searchBarState by remember { mutableStateOf(SearchBarState(false)) }
-    val selectedArticle by articleDetailViewModel.article.collectAsState()
-    val useCardLayout by settingsViewModel.useCardLayout.collectAsState()
+    val selectedArticle by articleDetailViewModel.state.map { it.article }.collectAsState(null)
+    val useCardLayout by settingsViewModel.state.map { it.useCardLayout }.collectAsState(false)
 
     LaunchedEffect(true) {
         _isLoggedIn.collect { value ->
@@ -123,8 +120,7 @@ fun MainNavigation(
                     navController = navController,
                     modifier = Modifier
                         .padding(16.dp)
-                        .fillMaxSize(),
-                    viewModel = authViewModel
+                        .fillMaxSize()
                 )
             }
             composable("main") {
@@ -139,7 +135,6 @@ fun MainNavigation(
                     ArticleListScreen(
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.surface),
-                        viewModel = articleListViewModel,
                         onSelectArticle = { article ->
                             navController.navigate("article/${article.itemId}")
                         },
@@ -161,7 +156,6 @@ fun MainNavigation(
             composable("search") {
                 ArticleSearchScreen(
                     searchBarState = searchBarState,
-                    viewModel = articleSearchViewModel,
                     onSelectArticle = { article ->
                         navController.navigate("article/${article.itemId}")
                     },
@@ -210,16 +204,14 @@ private fun MainNavigationPreview() {
                 startDestination = "main",
             ) {
                 composable("login") {
-                    AuthScreenContent(
+                    Box(
                         modifier = Modifier
                             .padding(16.dp)
                             .fillMaxSize(),
-                        uiState = AuthUiState.NeedAuth,
-                        onGetRequestToken = {},
-                        onAuthorize = {},
-                        onGetAccessToken = {},
-                        onNavigateToMain = {},
-                    )
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Auth Screen Preview")
+                    }
                 }
                 composable("main") {
                     Box(
@@ -248,15 +240,10 @@ private fun MainNavigationPreview() {
                     ArticleDetailScreen(article = PreviewFixtures.article)
                 }
                 composable("search") {
-                    ArticleSearchContent(
-                        modifier = Modifier.fillMaxSize(),
+                    ArticleSearchScreen(
                         searchBarState = searchBarState,
-                        searchResults = PreviewFixtures.articleList,
-                        onQueryChange = {},
-                        onSearch = {},
-                        onActiveChange = { searchBarState.searchBarActive = it },
                         onSelectArticle = {},
-                        useCardLayout = true,
+                        useCardLayout = true
                     )
                 }
                 composable("settings") {

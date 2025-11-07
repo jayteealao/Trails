@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
 
 
         setContent {
-            val darkThemeEnabled by settingsViewModel.darkTheme.collectAsStateWithLifecycle()
+            val darkThemeEnabled by settingsViewModel.state.map { it.darkTheme }.collectAsStateWithLifecycle(false)
             TrailsTheme(darkTheme = darkThemeEnabled) {
                 setSingletonImageLoaderFactory { context ->
                     ImageLoader.Builder(context)
