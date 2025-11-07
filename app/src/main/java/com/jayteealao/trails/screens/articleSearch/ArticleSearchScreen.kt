@@ -22,7 +22,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.jayteealao.trails.R
 import com.jayteealao.trails.SearchBarState
 import com.jayteealao.trails.data.models.ArticleItem
@@ -37,7 +37,7 @@ import io.yumemi.tartlet.rememberViewStore
 @Composable
 fun ArticleSearchScreen(
     searchBarState: SearchBarState,
-    viewStore: ViewStore<ArticleSearchState, ArticleSearchEvent, ArticleSearchViewModel> = rememberViewStore { viewModel() },
+    viewStore: ViewStore<ArticleSearchState, ArticleSearchEvent, ArticleSearchViewModel> = rememberViewStore { hiltViewModel() },
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
 ) {

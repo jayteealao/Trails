@@ -10,7 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
@@ -22,7 +22,7 @@ import io.yumemi.tartlet.rememberViewStore
 fun AuthScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
-    viewStore: ViewStore<AuthUiState, AuthEvent, AuthViewModel> = rememberViewStore { viewModel() }
+    viewStore: ViewStore<AuthUiState, AuthEvent, AuthViewModel> = rememberViewStore { hiltViewModel() }
 ) {
     val context = LocalContext.current
 
