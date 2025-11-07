@@ -39,6 +39,7 @@ import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
