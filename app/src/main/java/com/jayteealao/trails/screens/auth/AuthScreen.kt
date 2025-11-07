@@ -6,91 +6,108 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import io.yumemi.tartlet.ViewStore
+import io.yumemi.tartlet.rememberViewStore
 
 
 @Composable
-fun AuthScreen(navController: NavController, modifier: Modifier = Modifier, viewModel: AuthViewModel = hiltViewModel()) {
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
+fun AuthScreen(
+    navController: NavController,
+    modifier: Modifier = Modifier,
+    viewStore: ViewStore<AuthUiState, AuthEvent, AuthViewModel> = rememberViewStore { viewModel() }
+) {
     val context = LocalContext.current
 
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle(lifecycle = lifecycle)
+    // Handle events
+    viewStore.handle<AuthEvent.NavigateToMain> {
+        navController.navigate("main")
+    }
 
-    AuthScreenContent(
-        modifier = modifier,
-        uiState = uiState,
-        onGetRequestToken = { viewModel.getRequestToken() },
-        onAuthorize = { token -> context.startActivity(viewModel.authorizeIntent(token)) },
-        onGetAccessToken = { viewModel.getNetworkAccessToken(viewModel.requestToken) },
-        onNavigateToMain = { navController.navigate("main") },
-    )
-}
+    viewStore.handle<AuthEvent.OpenBrowserForAuth> { event ->
+        context.startActivity(event.intent)
+    }
 
-@Composable
-internal fun AuthScreenContent(
-    modifier: Modifier = Modifier,
-    uiState: AuthUiState,
-    onGetRequestToken: () -> Unit,
-    onAuthorize: (String) -> Unit,
-    onGetAccessToken: () -> Unit,
-    onNavigateToMain: () -> Unit,
-) {
+    viewStore.handle<AuthEvent.ShowError> { event ->
+        // Could show toast/snackbar with error message
+    }
+
+    viewStore.handle<AuthEvent.ShowToast> { event ->
+        // Could show toast message
+    }
+
+    // Render different UI based on state using viewStore.render
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        when (uiState) {
-            is AuthUiState.NeedAuth -> {
+        viewStore.render<AuthUiState.NeedAuth> {
+            Column {
+                Text(text = "Obtain Request Token")
+                Button(onClick = { action { getRequestToken() } }) {
+                    Text(text = "Get Request Token")
+                }
+            }
+        }
+
+        viewStore.render<AuthUiState.RequestToken> {
+            Column {
+                Text(text = "Authorize Request Token")
+                Text(text = state.data)
+                Button(onClick = { action { authorizeWithBrowser(state.data) } }) {
+                    Text(text = "Authorize")
+                }
+            }
+        }
+
+        viewStore.render<AuthUiState.AccessToken> {
+            Column {
+                Text(text = "Access Token: ${state.data}")
+                Button(onClick = { navController.navigate("main") }) {
+                    Text(text = "Get Articles")
+                }
+            }
+        }
+
+        viewStore.render<AuthUiState.Loading> {
+            Column {
+                Text(text = "Have you authorized the app")
+                Button(onClick = { action { getNetworkAccessToken() } }) {
+                    Text(text = "Get Access Token")
+                }
+            }
+        }
+
+        viewStore.render<AuthUiState.Error> {
+            Column {
+                Text(text = "Something went wrong")
+                Text(text = state.throwable.message ?: "Unknown error")
+                Button(onClick = { action { getRequestToken() } }) {
+                    Text(text = "Retry")
+                }
+            }
+        }
+    }
+}
+
+// Previews using ViewStore
+@Preview(name = "Auth • Request", showBackground = true)
+@Composable
+private fun AuthNeedTokenPreview() {
+    TrailsTheme {
+        Box(contentAlignment = Alignment.Center) {
+            ViewStore<AuthUiState, AuthEvent, AuthViewModel> { AuthUiState.NeedAuth }.render<AuthUiState.NeedAuth> {
                 Column {
                     Text(text = "Obtain Request Token")
-                    Button(onClick = onGetRequestToken) {
+                    Button(onClick = {}) {
                         Text(text = "Get Request Token")
-                    }
-                }
-            }
-            is AuthUiState.RequestToken -> {
-                Column {
-                    Text(text = "Authorize Request Token")
-                    Text(text = uiState.data)
-                    Button(
-                        onClick = { onAuthorize(uiState.data) }
-                    ) {
-                        Text(text = "Authorize")
-                    }
-                }
-            }
-            is AuthUiState.AccessToken -> {
-                Column {
-                    Text(text = "Access Token: ${uiState.data}")
-                    Button(onClick = onNavigateToMain) {
-                        Text(text = "Get Articles")
-                    }
-                }
-            }
-            is AuthUiState.Loading -> {
-                Column {
-                    Text(text = "Have you authorized the app")
-                    Button(onClick = onGetAccessToken) {
-                        Text(text = "Get Access Token")
-                    }
-                }
-            }
-            is AuthUiState.Error -> {
-                Column {
-                    Text(text = "Something went wrong")
-                    Text(text = uiState.throwable.message ?: "Unknown error")
-                    Button(onClick = onGetRequestToken) {
-                        Text(text = "Retry")
                     }
                 }
             }
@@ -98,31 +115,21 @@ internal fun AuthScreenContent(
     }
 }
 
-@Preview(name = "Auth • Request", showBackground = true)
-@Composable
-private fun AuthNeedTokenPreview() {
-    TrailsTheme {
-        AuthScreenContent(
-            uiState = AuthUiState.NeedAuth,
-            onGetRequestToken = {},
-            onAuthorize = {},
-            onGetAccessToken = {},
-            onNavigateToMain = {},
-        )
-    }
-}
-
 @Preview(name = "Auth • Authorize", showBackground = true)
 @Composable
 private fun AuthAuthorizePreview() {
     TrailsTheme {
-        AuthScreenContent(
-            uiState = AuthUiState.RequestToken(PreviewFixtures.authRequestToken),
-            onGetRequestToken = {},
-            onAuthorize = {},
-            onGetAccessToken = {},
-            onNavigateToMain = {},
-        )
+        Box(contentAlignment = Alignment.Center) {
+            ViewStore<AuthUiState, AuthEvent, AuthViewModel> { AuthUiState.RequestToken(PreviewFixtures.authRequestToken) }.render<AuthUiState.RequestToken> {
+                Column {
+                    Text(text = "Authorize Request Token")
+                    Text(text = state.data)
+                    Button(onClick = {}) {
+                        Text(text = "Authorize")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -130,13 +137,16 @@ private fun AuthAuthorizePreview() {
 @Composable
 private fun AuthAccessPreview() {
     TrailsTheme {
-        AuthScreenContent(
-            uiState = AuthUiState.AccessToken(PreviewFixtures.authAccessToken),
-            onGetRequestToken = {},
-            onAuthorize = {},
-            onGetAccessToken = {},
-            onNavigateToMain = {},
-        )
+        Box(contentAlignment = Alignment.Center) {
+            ViewStore<AuthUiState, AuthEvent, AuthViewModel> { AuthUiState.AccessToken(PreviewFixtures.authAccessToken) }.render<AuthUiState.AccessToken> {
+                Column {
+                    Text(text = "Access Token: ${state.data}")
+                    Button(onClick = {}) {
+                        Text(text = "Get Articles")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -148,13 +158,16 @@ private fun AuthAccessPreview() {
 @Composable
 private fun AuthLoadingPreview() {
     TrailsTheme(darkTheme = true) {
-        AuthScreenContent(
-            uiState = AuthUiState.Loading,
-            onGetRequestToken = {},
-            onAuthorize = {},
-            onGetAccessToken = {},
-            onNavigateToMain = {},
-        )
+        Box(contentAlignment = Alignment.Center) {
+            ViewStore<AuthUiState, AuthEvent, AuthViewModel> { AuthUiState.Loading }.render<AuthUiState.Loading> {
+                Column {
+                    Text(text = "Have you authorized the app")
+                    Button(onClick = {}) {
+                        Text(text = "Get Access Token")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -162,12 +175,16 @@ private fun AuthLoadingPreview() {
 @Composable
 private fun AuthErrorPreview() {
     TrailsTheme {
-        AuthScreenContent(
-            uiState = AuthUiState.Error(Throwable("Network unavailable")),
-            onGetRequestToken = {},
-            onAuthorize = {},
-            onGetAccessToken = {},
-            onNavigateToMain = {},
-        )
+        Box(contentAlignment = Alignment.Center) {
+            ViewStore<AuthUiState, AuthEvent, AuthViewModel> { AuthUiState.Error(Throwable("Network unavailable")) }.render<AuthUiState.Error> {
+                Column {
+                    Text(text = "Something went wrong")
+                    Text(text = state.throwable.message ?: "Unknown error")
+                    Button(onClick = {}) {
+                        Text(text = "Retry")
+                    }
+                }
+            }
+        }
     }
 }
