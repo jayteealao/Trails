@@ -74,8 +74,8 @@ android {
         applicationId = "com.jayteealao.trails"
         minSdk = 23
         targetSdk = 33
-        versionCode = 105017
-        versionName = "1.5.17"
+        versionCode = 10809
+        versionName = "1.8.9"
 
         testInstrumentationRunner = "com.jayteealao.trails.HiltTestRunner"
         vectorDrawables {
