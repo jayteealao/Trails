@@ -43,6 +43,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,6 +76,7 @@ import com.jayteealao.trails.screens.articleList.components.ArticleDialog
 import com.jayteealao.trails.screens.articleList.components.ArticleListItem
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import kotlinx.coroutines.launch
 
 
 private enum class ArticleListTab(val label: String, val icon: @Composable () -> Unit = {}) {
@@ -95,6 +100,8 @@ fun ArticleListScreen(
     useCardLayout: Boolean = false,
 ) {
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     var selectedTab by rememberSaveable { mutableStateOf(ArticleListTab.HOME) }
 
@@ -152,6 +159,9 @@ fun ArticleListScreen(
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("Article URL", articleItem.url)
         clipboard.setPrimaryClip(clip)
+        scope.launch {
+            snackbarHostState.showSnackbar("Link copied to clipboard")
+        }
     }
     val onShare: (ArticleItem) -> Unit = { articleItem ->
         val sendIntent = Intent().apply {
@@ -163,8 +173,14 @@ fun ArticleListScreen(
         context.startActivity(shareIntent)
     }
 
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { paddingValues ->
     Column(
-        modifier = modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)
     ) {
         AnimatedVisibility(
             visible = isSyncing.value,
@@ -294,6 +310,7 @@ fun ArticleListScreen(
                 )
             }
         }
+    }
     }
 
 }
