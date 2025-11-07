@@ -22,8 +22,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jayteealao.trails.R
 import com.jayteealao.trails.SearchBarState
 import com.jayteealao.trails.data.models.ArticleItem
@@ -31,44 +30,39 @@ import com.jayteealao.trails.screens.articleList.components.ArticleListItem
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.preview.previewSearchBarState
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import io.yumemi.tartlet.ViewStore
+import io.yumemi.tartlet.rememberViewStore
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArticleSearchScreen(
     searchBarState: SearchBarState,
-    viewModel: ArticleSearchViewModel = hiltViewModel(),
+    viewStore: ViewStore<ArticleSearchState, ArticleSearchEvent, ArticleSearchViewModel> = rememberViewStore { viewModel() },
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
 ) {
-    val searchResultsLocal = viewModel.searchResultsLocal.collectAsStateWithLifecycle()
-    val searchResultsHybrid = viewModel.searchResultsHybrid.collectAsStateWithLifecycle()
-    val searchResult = linkedSetOf(searchResultsHybrid.value, searchResultsLocal.value).flatten()
+    // Handle events
+    viewStore.handle<ArticleSearchEvent.NavigateToArticle> { event ->
+        // Navigation handled by parent
+    }
+
+    viewStore.handle<ArticleSearchEvent.ShowError> { event ->
+        // Show error toast/snackbar
+    }
+
+    viewStore.handle<ArticleSearchEvent.ShowToast> { event ->
+        // Show toast message
+    }
 
     ArticleSearchContent(
         modifier = Modifier.fillMaxSize(),
         searchBarState = searchBarState,
-        searchResults = searchResult,
+        viewStore = viewStore,
         onQueryChange = { searchBarState.updateSearchText(it) },
-        onSearch = { viewModel.search(searchBarState.searchText) },
+        onSearch = { viewStore.action { search(searchBarState.searchText) } },
         onActiveChange = { searchBarState.searchBarActive = it },
         onSelectArticle = onSelectArticle,
-        useCardLayout = useCardLayout,
-        setFavorite = { itemId, isFavorite ->
-            viewModel.setFavorite(itemId, isFavorite)
-        },
-        setReadStatus = { itemId, isRead ->
-            viewModel.setReadStatus(itemId, isRead)
-        },
-        updateTag = { itemId, tag, enabled ->
-            viewModel.updateTag(itemId, tag, enabled)
-        },
-        archiveArticle = { itemId ->
-            viewModel.archiveArticle(itemId)
-        },
-        deleteArticle = { itemId ->
-            viewModel.deleteArticle(itemId)
-        },
-        availableTags = emptyList()
+        useCardLayout = useCardLayout
     )
 }
 
@@ -77,20 +71,15 @@ fun ArticleSearchScreen(
 internal fun ArticleSearchContent(
     modifier: Modifier = Modifier,
     searchBarState: SearchBarState,
-    searchResults: List<ArticleItem>,
+    viewStore: ViewStore<ArticleSearchState, ArticleSearchEvent, ArticleSearchViewModel>,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onActiveChange: (Boolean) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
-    setFavorite: (String, Boolean) -> Unit = { _, _ -> },
-    setReadStatus: (String, Boolean) -> Unit = { _, _ -> },
-    updateTag: (String, String, Boolean) -> Unit = { _, _, _ -> },
-    archiveArticle: (String) -> Unit = {},
-    deleteArticle: (String) -> Unit = {},
-    availableTags: List<String> = emptyList(),
 ) {
     val searchBarContainerColor = searchBarState.searchBarContainerColor()
+    val searchResults = viewStore.state.combinedResults
 
     Column(
         modifier = modifier,
@@ -130,22 +119,22 @@ internal fun ArticleSearchContent(
                         modifier = if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier,
                         onClick = { onSelectArticle(article) },
                         onFavoriteToggle = { isFavorite ->
-                            setFavorite(article.itemId, isFavorite)
+                            viewStore.action { setFavorite(article.itemId, isFavorite) }
                         },
                         onReadToggle = { isRead ->
-                            setReadStatus(article.itemId, isRead)
+                            viewStore.action { setReadStatus(article.itemId, isRead) }
                         },
                         onTagToggle = { tag, enabled ->
-                            updateTag(article.itemId, tag, enabled)
+                            viewStore.action { updateTag(article.itemId, tag, enabled) }
                         },
                         onArchive = {
-                            archiveArticle(article.itemId)
+                            viewStore.action { archiveArticle(article.itemId) }
                         },
                         onDelete = {
-                            deleteArticle(article.itemId)
+                            viewStore.action { deleteArticle(article.itemId) }
                         },
                         useCardLayout = useCardLayout,
-                        availableTags = availableTags
+                        availableTags = viewStore.state.availableTags
                     )
                 }
             }
@@ -157,15 +146,17 @@ internal fun ArticleSearchContent(
 @Composable
 private fun ArticleSearchPreview() {
     TrailsTheme {
-        ArticleSearchContent(
-            modifier = Modifier.fillMaxSize(),
+        ArticleSearchScreen(
             searchBarState = previewSearchBarState(query = "trail"),
-            searchResults = PreviewFixtures.articleList,
-            onQueryChange = {},
-            onSearch = {},
-            onActiveChange = {},
+            viewStore = ViewStore {
+                ArticleSearchState(
+                    searchResultsLocal = PreviewFixtures.articleList,
+                    searchResultsHybrid = emptyList(),
+                    isSearching = false
+                )
+            },
             onSelectArticle = {},
-            useCardLayout = true,
+            useCardLayout = true
         )
     }
 }
@@ -178,15 +169,17 @@ private fun ArticleSearchPreview() {
 @Composable
 private fun ArticleSearchEmptyPreview() {
     TrailsTheme(darkTheme = true) {
-        ArticleSearchContent(
-            modifier = Modifier.fillMaxSize(),
+        ArticleSearchScreen(
             searchBarState = previewSearchBarState(active = true, query = "winter"),
-            searchResults = emptyList(),
-            onQueryChange = {},
-            onSearch = {},
-            onActiveChange = {},
+            viewStore = ViewStore {
+                ArticleSearchState(
+                    searchResultsLocal = emptyList(),
+                    searchResultsHybrid = emptyList(),
+                    isSearching = false
+                )
+            },
             onSelectArticle = {},
-            useCardLayout = true,
+            useCardLayout = true
         )
     }
 }
