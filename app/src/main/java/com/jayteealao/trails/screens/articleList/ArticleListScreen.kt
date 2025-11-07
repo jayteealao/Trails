@@ -43,8 +43,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -98,9 +96,9 @@ fun ArticleListScreen(
     viewModel: ArticleListViewModel = hiltViewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
 ) {
     val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     var selectedTab by rememberSaveable { mutableStateOf(ArticleListTab.HOME) }
@@ -173,14 +171,8 @@ fun ArticleListScreen(
         context.startActivity(shareIntent)
     }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { paddingValues ->
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(paddingValues)
+        modifier = modifier.fillMaxSize()
     ) {
         AnimatedVisibility(
             visible = isSyncing.value,
@@ -310,7 +302,6 @@ fun ArticleListScreen(
                 )
             }
         }
-    }
     }
 
 }
