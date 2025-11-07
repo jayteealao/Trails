@@ -19,69 +19,54 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.jayteealao.trails.screens.preview.PreviewFixtures
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.jayteealao.trails.screens.theme.Typography
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.ArrowRight
-import kotlinx.coroutines.launch
+import io.yumemi.tartlet.ViewStore
+import io.yumemi.tartlet.rememberViewStore
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
-    settingsViewModel: SettingsViewModel
+    viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel> = rememberViewStore { viewModel() }
 ) {
-    val scope = rememberCoroutineScope()
-    val preferenceFlow = settingsViewModel.preferenceFlow.collectAsState()
-    val jinaToken = settingsViewModel.jinaToken.collectAsState()
-    val darkTheme = settingsViewModel.darkTheme.collectAsState()
-    val useCardLayout = settingsViewModel.useCardLayout.collectAsState()
     SettingsScreenContent(
         modifier = modifier,
-        useFreedium = preferenceFlow.value,
-        darkThemeEnabled = darkTheme.value,
-        useCardLayout = useCardLayout.value,
-        jinaToken = jinaToken.value,
-        jinaPlaceholder = settingsViewModel.jinaPlaceHolder,
-        onResetSemanticCache = {
-            scope.launch { settingsViewModel.resetSemanticCache() }
-        },
-        onToggleFreedium = { settingsViewModel.updatePreference(it) },
-        onToggleDarkTheme = { settingsViewModel.updateDarkTheme(it) },
-        onToggleCardLayout = { settingsViewModel.updateCardLayout(it) },
-        onJinaTokenChange = { settingsViewModel.updateJinaToken(it) },
-        onSubmitJinaToken = { settingsViewModel.updateJinaTokenPreferences() },
+        viewStore = viewStore
     )
+
+    // Handle events
+    viewStore.handle<SettingsEvent.SemanticCacheCleared> {
+        // Could show a toast or snackbar here
+    }
+
+    viewStore.handle<SettingsEvent.JinaTokenSaved> {
+        // Could show a toast or snackbar here
+    }
+
+    viewStore.handle<SettingsEvent.ShowToast> { event ->
+        // Could show a toast or snackbar here
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsScreenContent(
     modifier: Modifier = Modifier,
-    useFreedium: Boolean,
-    darkThemeEnabled: Boolean,
-    useCardLayout: Boolean,
-    jinaToken: String,
-    jinaPlaceholder: String,
-    onResetSemanticCache: () -> Unit,
-    onToggleFreedium: (Boolean) -> Unit,
-    onToggleDarkTheme: (Boolean) -> Unit,
-    onToggleCardLayout: (Boolean) -> Unit,
-    onJinaTokenChange: (String) -> Unit,
-    onSubmitJinaToken: () -> Unit,
+    viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel>
 ) {
     Column(modifier = modifier) {
         Text(text = "Settings")
         TextButton(
             modifier = Modifier.height(48.dp),
-            onClick = onResetSemanticCache
+            onClick = { viewStore.action { resetSemanticCache() } }
         ) {
             Text(text = "Reset Semantic Cache")
         }
@@ -98,8 +83,8 @@ internal fun SettingsScreenContent(
         ) {
             Text(text = "Dark mode")
             Switch(
-                checked = darkThemeEnabled,
-                onCheckedChange = onToggleDarkTheme
+                checked = viewStore.state.darkTheme,
+                onCheckedChange = { viewStore.action { updateDarkTheme(it) } }
             )
         }
         Row(
@@ -111,8 +96,8 @@ internal fun SettingsScreenContent(
         ) {
             Text(text = "Card layout")
             Switch(
-                checked = useCardLayout,
-                onCheckedChange = onToggleCardLayout
+                checked = viewStore.state.useCardLayout,
+                onCheckedChange = { viewStore.action { updateCardLayout(it) } }
             )
         }
         HorizontalDivider()
@@ -124,8 +109,8 @@ internal fun SettingsScreenContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Checkbox(
-                checked = useFreedium,
-                onCheckedChange = onToggleFreedium
+                checked = viewStore.state.useFreedium,
+                onCheckedChange = { viewStore.action { updatePreference(it) } }
             )
             Text(text = "Use Freedium")
         }
@@ -140,10 +125,10 @@ internal fun SettingsScreenContent(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             TextField(
-                value = jinaToken,
+                value = viewStore.state.jinaToken,
                 modifier = Modifier.weight(0.6f),
-                onValueChange = onJinaTokenChange,
-                placeholder = { Text(text = jinaPlaceholder) },
+                onValueChange = { viewStore.action { updateJinaToken(it) } },
+                placeholder = { Text(text = viewStore.state.jinaPlaceholder) },
                 supportingText = {
                     Text(
                         text = "Jina.ai token is required to extract text from saved articles—get one at https://r.jina.ai/",
@@ -152,7 +137,7 @@ internal fun SettingsScreenContent(
                 }
             )
             IconButton(
-                onClick = onSubmitJinaToken,
+                onClick = { viewStore.action { updateJinaTokenPreferences() } },
             ) {
                 Icon(
                     imageVector = CssGgIcons.ArrowRight,
@@ -167,18 +152,16 @@ internal fun SettingsScreenContent(
 @Composable
 private fun SettingsScreenPreview() {
     TrailsTheme {
-        SettingsScreenContent(
-            useFreedium = true,
-            darkThemeEnabled = false,
-            useCardLayout = true,
-            jinaToken = PreviewFixtures.authAccessToken,
-            jinaPlaceholder = "Insert Jina Token Here",
-            onResetSemanticCache = {},
-            onToggleFreedium = {},
-            onToggleDarkTheme = {},
-            onToggleCardLayout = {},
-            onJinaTokenChange = {},
-            onSubmitJinaToken = {},
+        SettingsScreen(
+            viewStore = ViewStore {
+                SettingsState(
+                    useFreedium = true,
+                    darkTheme = false,
+                    useCardLayout = true,
+                    jinaToken = "sample_token_123",
+                    jinaPlaceholder = "Insert Jina Token Here"
+                )
+            }
         )
     }
 }
@@ -191,18 +174,16 @@ private fun SettingsScreenPreview() {
 @Composable
 private fun SettingsScreenDarkPreview() {
     TrailsTheme(darkTheme = true) {
-        SettingsScreenContent(
-            useFreedium = false,
-            darkThemeEnabled = true,
-            useCardLayout = true,
-            jinaToken = "",
-            jinaPlaceholder = "Insert Jina Token Here",
-            onResetSemanticCache = {},
-            onToggleFreedium = {},
-            onToggleDarkTheme = {},
-            onToggleCardLayout = {},
-            onJinaTokenChange = {},
-            onSubmitJinaToken = {},
+        SettingsScreen(
+            viewStore = ViewStore {
+                SettingsState(
+                    useFreedium = false,
+                    darkTheme = true,
+                    useCardLayout = true,
+                    jinaToken = "",
+                    jinaPlaceholder = "Insert Jina Token Here"
+                )
+            }
         )
     }
 }

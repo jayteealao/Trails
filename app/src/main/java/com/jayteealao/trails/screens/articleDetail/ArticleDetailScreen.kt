@@ -20,15 +20,11 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.constraintlayout.compose.ConstraintLayout
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.accompanist.web.AccompanistWebViewClient
 import com.google.accompanist.web.LoadingState
 import com.google.accompanist.web.WebView
@@ -45,19 +41,37 @@ import compose.icons.CssGgIcons
 import compose.icons.cssggicons.AlignMiddle
 import compose.icons.cssggicons.Browser
 import compose.icons.cssggicons.Pocket
+import io.yumemi.tartlet.ViewStore
+import io.yumemi.tartlet.rememberViewStore
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ArticleDetailScreen(
     article: Article,
-    viewModel: ArticleDetailViewModel = hiltViewModel()
+    viewStore: ViewStore<ArticleDetailState, ArticleDetailEvent, ArticleDetailViewModel> = rememberViewStore { viewModel() }
 ) {
-    var selectedTabIndex by remember { mutableIntStateOf(1) }
-
-    // Auto-mark article as read when screen opens
+    // Load article and auto-mark as read when screen opens
     LaunchedEffect(article.itemId) {
-        viewModel.markAsRead(article.itemId)
+        viewStore.action {
+            getArticle(article.itemId)
+            markAsRead(article.itemId)
+        }
     }
+
+    // Handle events
+    viewStore.handle<ArticleDetailEvent.ArticleMarkedAsRead> { event ->
+        // Could show a subtle indicator that article was marked as read
+    }
+
+    viewStore.handle<ArticleDetailEvent.ShowError> { event ->
+        // Could show error toast/snackbar
+    }
+
+    viewStore.handle<ArticleDetailEvent.ShowToast> { event ->
+        // Show toast message
+    }
+
+    val currentArticle = viewStore.state.article ?: article
 
     ConstraintLayout(
         modifier = Modifier.padding(top = 2.dp).fillMaxHeight()
@@ -71,24 +85,20 @@ fun ArticleDetailScreen(
                 start.linkTo(parent.start)
                 end.linkTo(parent.end)
             },
-            selectedTabIndex = selectedTabIndex,
-            article = article
+            selectedTabIndex = viewStore.state.selectedTabIndex,
+            article = currentArticle
         )
 
         ArticleDetailTabRow(
             modifier = Modifier.constrainAs(tabRow) {
-//                top.linkTo(detailView.bottom)
                 bottom.linkTo(parent.bottom)
                 start.linkTo(parent.start)
                 end.linkTo(parent.end)
             },
-            selectedTabIndex = selectedTabIndex,
-            shouldShowPocket = article.articleId != "0",
-            onTabSelected = {
-                selectedTabIndex = it
-            }
+            selectedTabIndex = viewStore.state.selectedTabIndex,
+            shouldShowPocket = currentArticle.articleId != "0",
+            onTabSelected = { viewStore.action { setSelectedTab(it) } }
         )
-
     }
 }
 
@@ -96,7 +106,15 @@ fun ArticleDetailScreen(
 @Composable
 private fun ArticleDetailScreenReaderPreview() {
     TrailsTheme(darkTheme = false) {
-        ArticleDetailScreen(article = PreviewFixtures.article)
+        ArticleDetailScreen(
+            article = PreviewFixtures.article,
+            viewStore = ViewStore {
+                ArticleDetailState(
+                    article = PreviewFixtures.article,
+                    selectedTabIndex = 1
+                )
+            }
+        )
     }
 }
 

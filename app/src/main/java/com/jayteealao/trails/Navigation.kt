@@ -173,8 +173,7 @@ fun MainNavigation(
                 SettingsScreen(
                     modifier = Modifier
                         .padding(16.dp)
-                        .fillMaxSize(),
-                    settingsViewModel = settingsViewModel
+                        .fillMaxSize()
                 )
             }
             // TODO: Add more destinations
