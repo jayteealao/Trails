@@ -16,6 +16,10 @@
 
 package com.jayteealao.trails.screens.articleList
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -51,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -89,6 +94,7 @@ fun ArticleListScreen(
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
 ) {
+    val context = LocalContext.current
 
     var selectedTab by rememberSaveable { mutableStateOf(ArticleListTab.HOME) }
 
@@ -135,21 +141,26 @@ fun ArticleListScreen(
     val onClearSuggestionError: (String) -> Unit = { articleId ->
         viewModel.clearTagSuggestionError(articleId)
     }
-    val onTagsClick: (ArticleItem) -> Unit = { articleItem ->
-        // Open tag management sheet - This is already handled by the existing UI
-        // This button provides an alternative way to access tags
+    val onTagsClick: (ArticleItem) -> Unit = { _ ->
+        // Tags sheet is opened directly in ArticleListItem when swipe button is clicked
+        // No additional action needed here
     }
     val onRegenerateDetails: (ArticleItem) -> Unit = { articleItem ->
-        // TODO: Implement regenerate details functionality
-        // This would refetch article metadata and content
+        viewModel.regenerateArticleDetails(articleItem.itemId)
     }
     val onCopyLink: (ArticleItem) -> Unit = { articleItem ->
-        // TODO: Implement copy link to clipboard
-        // This requires a ClipboardManager instance
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Article URL", articleItem.url)
+        clipboard.setPrimaryClip(clip)
     }
     val onShare: (ArticleItem) -> Unit = { articleItem ->
-        // TODO: Implement share functionality
-        // This would open the system share sheet
+        val sendIntent = Intent().apply {
+            action = Intent.ACTION_SEND
+            putExtra(Intent.EXTRA_TEXT, "${articleItem.title}\n\n${articleItem.url}")
+            type = "text/plain"
+        }
+        val shareIntent = Intent.createChooser(sendIntent, "Share article")
+        context.startActivity(shareIntent)
     }
 
     Column(

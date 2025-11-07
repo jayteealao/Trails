@@ -430,6 +430,68 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
+    fun regenerateArticleDetails(itemId: String) {
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                // Get the current article
+                val article = articleDao.getArticle(itemId) ?: return@launch
+                val url = article.url
+
+                if (url.isBlank()) return@launch
+
+                // Refetch metadata using unfurler
+                val unfurlResult = runCatching { unfurler.unfurl(url) }
+                    .onFailure { Timber.w(it, "Failed to unfurl url: %s", url) }
+                    .getOrNull()
+
+                var resolvedTitle = article.givenTitle
+                var resolvedUrl = url
+                var resolvedImage: String? = null
+                var hasImage = false
+                var resolvedExcerpt = ""
+
+                if (unfurlResult != null) {
+                    resolvedTitle = unfurlResult.title ?: resolvedTitle
+                    resolvedUrl = (unfurlResult.url ?: resolvedUrl).toString()
+                    resolvedImage = unfurlResult.thumbnail?.toString()
+                    hasImage = unfurlResult.thumbnail != null
+                    resolvedExcerpt = unfurlResult.description ?: ""
+                }
+
+                // Update article with new metadata
+                articleDao.updateUnfurledDetails(
+                    itemId = itemId,
+                    title = resolvedTitle,
+                    url = resolvedUrl,
+                    image = resolvedImage,
+                    hasImage = hasImage,
+                    excerpt = resolvedExcerpt,
+                )
+
+                // Refetch content using Jina Reader
+                val jinaResult = runCatching { jinaClient.getReader(url) }
+                    .onFailure { Timber.w(it, "Failed to fetch reader content for %s", url) }
+                    .getOrNull()
+
+                val readerContent = jinaResult?.data?.content
+                if (!readerContent.isNullOrBlank()) {
+                    articleDao.updateText(itemId, readerContent)
+                    val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
+                    articleDao.updateArticleMetrics(
+                        itemId,
+                        metrics.readingTimeMinutes,
+                        metrics.listeningTimeMinutes,
+                        metrics.wordCount,
+                    )
+                }
+
+                Timber.d("Successfully regenerated details for article: $itemId")
+            } catch (error: Throwable) {
+                Timber.e(error, "Failed to regenerate article details for: $itemId")
+            }
+        }
+    }
+
     fun extractTitleAndUrl(combinedString: String): Pair<String, String>? {
         val urlRegex = "(https?://\\S+)".toRegex()
         val urlMatch = urlRegex.find(combinedString)
