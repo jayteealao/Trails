@@ -212,7 +212,7 @@ fun ArticleListItem(
                 },
                 markReadIcon = markReadIcon,
                 markUnreadIcon = markUnreadIcon,
-                onTagsClick = onTagsClick,
+                onTagsClick = openTagSheet,  // Use internal tag sheet opener
                 onRegenerateDetails = onRegenerateDetails,
                 onCopyLink = onCopyLink,
                 onShare = onShare,
