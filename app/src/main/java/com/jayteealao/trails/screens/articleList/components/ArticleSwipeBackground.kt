@@ -30,11 +30,54 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.jayteealao.trails.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * Data class representing a swipe action button configuration
+ */
+data class SwipeActionButton(
+    val icon: @Composable () -> Painter,
+    val contentDescription: @Composable () -> String,
+    val onClick: () -> Unit
+)
+
+/**
+ * Reusable swipe action button composable
+ */
+@Composable
+private fun SwipeActionButton(
+    button: SwipeActionButton,
+    swipeState: SwipeToDismissBoxState,
+    modifier: Modifier = Modifier
+) {
+    val scope = rememberCoroutineScope()
+
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable {
+                button.onClick()
+                scope.launch {
+                    delay(200)
+                    swipeState.reset()
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = button.icon(),
+            contentDescription = button.contentDescription(),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
 
 @Composable
 fun ArticleSwipeBackground(
@@ -139,6 +182,45 @@ fun ArticleSwipeBackground(
 
         // RIGHT SWIPE (EndToStart): Archive and Delete actions
         if (direction == SwipeToDismissBoxValue.EndToStart) {
+            // Create list of action buttons
+            val actionButtons = remember(isRead) {
+                listOf(
+                    SwipeActionButton(
+                        icon = { if (isRead) markUnreadIcon else markReadIcon },
+                        contentDescription = { if (isRead) "Mark as unread" else "Mark as read" },
+                        onClick = {
+                            val newReadState = !isRead
+                            onReadToggle(newReadState)
+                        }
+                    ),
+                    SwipeActionButton(
+                        icon = { painterResource(id = R.drawable.archive_icon_24) },
+                        contentDescription = { "Archive" },
+                        onClick = onArchive
+                    ),
+                    SwipeActionButton(
+                        icon = { painterResource(id = R.drawable.delete_24px) },
+                        contentDescription = { "Delete" },
+                        onClick = onDelete
+                    ),
+                    SwipeActionButton(
+                        icon = { painterResource(id = R.drawable.refresh_24px) },
+                        contentDescription = { "Regenerate details" },
+                        onClick = onRegenerateDetails
+                    ),
+                    SwipeActionButton(
+                        icon = { painterResource(id = R.drawable.link_24px) },
+                        contentDescription = { "Copy link" },
+                        onClick = onCopyLink
+                    ),
+                    SwipeActionButton(
+                        icon = { painterResource(id = R.drawable.share_24px) },
+                        contentDescription = { "Share" },
+                        onClick = onShare
+                    )
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -156,140 +238,10 @@ fun ArticleSwipeBackground(
                     ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Read/Unread button
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable {
-                                val newReadState = !isRead
-                                onReadToggle(newReadState)
-                                scope.launch {
-                                    delay(200)
-                                    swipeState.reset()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = if (isRead) markUnreadIcon else markReadIcon,
-                            contentDescription = if (isRead) {
-                                "Mark as unread"
-                            } else {
-                                "Mark as read"
-                            },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Archive button
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable {
-                                onArchive()
-                                scope.launch {
-                                    delay(200)
-                                    swipeState.reset()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.archive_icon_24),
-                            contentDescription = "Archive",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Delete button
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable {
-                                onDelete()
-                                scope.launch {
-                                    delay(200)
-                                    swipeState.reset()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.delete_24px),
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Regenerate details button
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable {
-                                onRegenerateDetails()
-                                scope.launch {
-                                    delay(200)
-                                    swipeState.reset()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.refresh_24px),
-                            contentDescription = "Regenerate details",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Copy link button
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable {
-                                onCopyLink()
-                                scope.launch {
-                                    delay(200)
-                                    swipeState.reset()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.link_24px),
-                            contentDescription = "Copy link",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Share button
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .clickable {
-                                onShare()
-                                scope.launch {
-                                    delay(200)
-                                    swipeState.reset()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.share_24px),
-                            contentDescription = "Share",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    actionButtons.forEach { button ->
+                        SwipeActionButton(
+                            button = button,
+                            swipeState = swipeState
                         )
                     }
                 }
