@@ -72,7 +72,7 @@ android {
 
     defaultConfig {
         applicationId = "com.jayteealao.trails"
-        minSdk = 23
+        minSdk = 24
         targetSdk = 33
         versionCode = 10809
         versionName = "1.8.9"
@@ -308,6 +308,9 @@ dependencies {
 
     //swipe-to-reveal
     implementation("me.saket.swipe:swipe:1.2.0")
+
+    // Tartlet - Compose MVVM helper
+    implementation(libs.tartlet)
 
     //profileInstaller - TEMPORARILY DISABLED to fix baseline profile installation errors
     // implementation(libs.androidx.profileinstaller)

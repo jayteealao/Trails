@@ -29,15 +29,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.ArticleListEvent
+import com.jayteealao.trails.screens.articleList.ArticleListState
+import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import io.yumemi.tartlet.ViewStore
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ArticleContent(
     article: ArticleItem,
+    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     parsedSnippet: AnnotatedString?,
     tagStates: MutableMap<String, Boolean>,
     onClick: () -> Unit,
-    onFavoriteToggle: (Boolean) -> Unit,
+    onFavoriteToggleLocal: (Boolean) -> Unit,
     isFavorite: Boolean,
     isRead: Boolean,
     filledStar: Painter,
@@ -45,7 +50,6 @@ fun ArticleContent(
     dominantColor: Color,
     vibrantColor: Color,
     onPaletteExtracted: (Color, Color) -> Unit,
-    onTagToggle: (String, Boolean) -> Unit,
     showAddTagDialog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -117,7 +121,10 @@ fun ArticleContent(
                     IconToggleButton(
                         modifier = Modifier.size(24.dp),
                         checked = isFavorite,
-                        onCheckedChange = onFavoriteToggle
+                        onCheckedChange = { checked ->
+                            onFavoriteToggleLocal(checked)
+                            viewStore.action { setFavorite(article.itemId, checked) }
+                        }
                     ) {
                         Icon(
                             painter = if (isFavorite) filledStar else outlinedStar,
@@ -149,7 +156,9 @@ fun ArticleContent(
         }
         TagSection(
             tagStates = tagStates,
-            onTagToggle = onTagToggle,
+            onTagToggle = { tag, enabled ->
+                viewStore.action { updateTag(article.itemId, tag, enabled) }
+            },
             onAddTag = showAddTagDialog,
             modifier = Modifier
                 .fillMaxWidth()

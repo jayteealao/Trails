@@ -61,7 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -74,26 +74,17 @@ import com.jayteealao.trails.screens.articleList.components.ArticleDialog
 import com.jayteealao.trails.screens.articleList.components.ArticleListItem
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import io.yumemi.tartlet.ViewStore
+import io.yumemi.tartlet.rememberViewStore
 import kotlinx.coroutines.launch
 
 
-private enum class ArticleListTab(val label: String, val icon: @Composable () -> Unit = {}) {
-    HOME(label = "Home", icon = { Icon(painter = painterResource(id = R.drawable.home_24px), contentDescription = "Home")}),
-    FAVOURITES(label = "Favourites", icon = { Icon(painter = painterResource(id = R.drawable.favorite_24px), contentDescription = "Favourites")}),
-    ARCHIVE(label = "Archive", icon = { Icon(painter = painterResource(id = R.drawable.archive_icon_24), contentDescription = "Archive")}),
-    TAGS(label = "Tags", icon = { Icon(painter = painterResource(id = R.drawable.tag_24px), contentDescription = "Tags")}),
-}
-
-enum class ArticleSortOption(val label: String) {
-    Newest("Newest"),
-    Popular("Popular"),
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArticleListScreen(
     modifier: Modifier = Modifier,
-    viewModel: ArticleListViewModel = hiltViewModel(),
+    articleListViewModel: ArticleListViewModel = hiltViewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
@@ -101,81 +92,68 @@ fun ArticleListScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var selectedTab by rememberSaveable { mutableStateOf(ArticleListTab.HOME) }
+    // Create ViewStore from ViewModel
+    val viewStore = rememberViewStore { articleListViewModel }
 
-    val articles = viewModel.articles.collectAsLazyPagingItems()
-    val favoriteArticles = viewModel.favoriteArticles.collectAsLazyPagingItems()
-    val archivedArticles = viewModel.archivedArticles.collectAsLazyPagingItems()
-    val taggedArticles = viewModel.taggedArticles.collectAsLazyPagingItems()
-    val isSyncing = viewModel.databaseSync.collectAsStateWithLifecycle()
-    val article by remember { mutableStateOf<ArticleItem>(EMPTYARTICLEITEM) }
-    val summary by viewModel.selectedArticleSummary.collectAsStateWithLifecycle()
-    val selectedArticle by viewModel.selectedArticle.collectAsStateWithLifecycle()
-    val tags by viewModel.tags.collectAsStateWithLifecycle()
-    val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
-    val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
-    val tagSuggestions by viewModel.tagSuggestions.collectAsStateWithLifecycle()
+    // Collect paging flows separately (not part of consolidated state)
+    val articles = articleListViewModel.articles.collectAsLazyPagingItems()
+    val favoriteArticles = articleListViewModel.favoriteArticles.collectAsLazyPagingItems()
+    val archivedArticles = articleListViewModel.archivedArticles.collectAsLazyPagingItems()
+    val taggedArticles = articleListViewModel.taggedArticles.collectAsLazyPagingItems()
 
-    LaunchedEffect(selectedTab) {
-        if (selectedTab != ArticleListTab.TAGS) {
-            viewModel.selectTag(null)
-        }
+    // Handle events
+    viewStore.handle<ArticleListEvent.NavigateToArticle> { event ->
+        // Navigation handled by parent if needed
     }
 
-    val onToggleFavorite: (ArticleItem, Boolean) -> Unit = { articleItem, isFavorite ->
-        viewModel.setFavorite(articleItem.itemId, isFavorite)
-    }
-    val onToggleRead: (ArticleItem, Boolean) -> Unit = { articleItem, isRead ->
-        viewModel.setReadStatus(articleItem.itemId, isRead)
-    }
-    val onToggleTag: (ArticleItem, String, Boolean) -> Unit = { articleItem, tag, enabled ->
-        viewModel.updateTag(articleItem.itemId, tag, enabled)
-    }
-    val onArchive: (ArticleItem) -> Unit = { articleItem ->
-        viewModel.archiveArticle(articleItem.itemId)
-    }
-    val onDelete: (ArticleItem) -> Unit = { articleItem ->
-        viewModel.deleteArticle(articleItem.itemId)
-    }
-    val onSortOptionSelected: (ArticleSortOption) -> Unit = { option ->
-        viewModel.setSortOption(option)
-    }
-    val onRequestTagSuggestions: (ArticleItem) -> Unit = { article ->
-        viewModel.requestTagSuggestions(article)
-    }
-    val onClearSuggestionError: (String) -> Unit = { articleId ->
-        viewModel.clearTagSuggestionError(articleId)
-    }
-    val onTagsClick: (ArticleItem) -> Unit = { _ ->
-        // Tags sheet is opened directly in ArticleListItem when swipe button is clicked
-        // No additional action needed here
-    }
-    val onRegenerateDetails: (ArticleItem) -> Unit = { articleItem ->
-        viewModel.regenerateArticleDetails(articleItem.itemId)
-    }
-    val onCopyLink: (ArticleItem) -> Unit = { articleItem ->
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Article URL", articleItem.url)
-        clipboard.setPrimaryClip(clip)
+    viewStore.handle<ArticleListEvent.ShowSnackbar> { event ->
         scope.launch {
-            snackbarHostState.showSnackbar("Link copied to clipboard")
+            snackbarHostState.showSnackbar(event.message)
         }
     }
-    val onShare: (ArticleItem) -> Unit = { articleItem ->
+
+    viewStore.handle<ArticleListEvent.ShowToast> { event ->
+        scope.launch {
+            snackbarHostState.showSnackbar(event.message)
+        }
+    }
+
+    viewStore.handle<ArticleListEvent.ShowError> { event ->
+        scope.launch {
+            snackbarHostState.showSnackbar("Error: ${event.error.message}")
+        }
+    }
+
+    viewStore.handle<ArticleListEvent.ShareArticle> { event ->
         val sendIntent = Intent().apply {
             action = Intent.ACTION_SEND
-            putExtra(Intent.EXTRA_TEXT, "${articleItem.title}\n\n${articleItem.url}")
+            putExtra(Intent.EXTRA_TEXT, "${event.title}\n\n${event.url}")
             type = "text/plain"
         }
         val shareIntent = Intent.createChooser(sendIntent, "Share article")
         context.startActivity(shareIntent)
     }
 
+    viewStore.handle<ArticleListEvent.CopyLink> { event ->
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText(event.label, event.url)
+        clipboard.setPrimaryClip(clip)
+        scope.launch {
+            snackbarHostState.showSnackbar("${event.label} copied to clipboard")
+        }
+    }
+
+    LaunchedEffect(viewStore.state.selectedTab) {
+        if (viewStore.state.selectedTab != ArticleListTab.TAGS) {
+            viewStore.action { selectTag(null) }
+        }
+    }
+
     Column(
         modifier = modifier.fillMaxSize()
     ) {
         AnimatedVisibility(
-            visible = isSyncing.value,
+            visible = viewStore.state.databaseSync,
             modifier = Modifier.padding(0.dp)
             ) {
             LinearProgressIndicator(
@@ -190,99 +168,39 @@ fun ArticleListScreen(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            when (selectedTab) {
+            when (viewStore.state.selectedTab) {
                 ArticleListTab.HOME -> PocketScreenContent(
                     lazyItems = articles,
-                    sortOption = sortOption,
-                    onSortSelected = onSortOptionSelected,
+                    viewStore = viewStore,
                     onSelectArticle = onSelectArticle,
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleRead = onToggleRead,
-                    onToggleTag = onToggleTag,
-                    onArchive = onArchive,
-                    onDelete = onDelete,
-                    onTagsClick = onTagsClick,
-                    onRegenerateDetails = onRegenerateDetails,
-                    onCopyLink = onCopyLink,
-                    onShare = onShare,
-                    useCardLayout = useCardLayout,
-                    availableTags = tags,
-                    tagSuggestions = tagSuggestions,
-                    onRequestTagSuggestions = onRequestTagSuggestions,
-                    onClearSuggestionError = onClearSuggestionError
+                    useCardLayout = useCardLayout
                 )
 
                 ArticleListTab.FAVOURITES -> PocketScreenContent(
                     lazyItems = favoriteArticles,
-                    sortOption = sortOption,
-                    onSortSelected = onSortOptionSelected,
+                    viewStore = viewStore,
                     onSelectArticle = onSelectArticle,
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleRead = onToggleRead,
-                    onToggleTag = onToggleTag,
-                    onArchive = onArchive,
-                    onDelete = onDelete,
-                    onTagsClick = onTagsClick,
-                    onRegenerateDetails = onRegenerateDetails,
-                    onCopyLink = onCopyLink,
-                    onShare = onShare,
-                    useCardLayout = useCardLayout,
-                    availableTags = tags,
-                    tagSuggestions = tagSuggestions,
-                    onRequestTagSuggestions = onRequestTagSuggestions,
-                    onClearSuggestionError = onClearSuggestionError
+                    useCardLayout = useCardLayout
                 )
 
                 ArticleListTab.ARCHIVE -> PocketScreenContent(
                     lazyItems = archivedArticles,
-                    sortOption = sortOption,
-                    onSortSelected = onSortOptionSelected,
+                    viewStore = viewStore,
                     onSelectArticle = onSelectArticle,
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleRead = onToggleRead,
-                    onToggleTag = onToggleTag,
-                    onArchive = onArchive,
-                    onDelete = onDelete,
-                    onTagsClick = onTagsClick,
-                    onRegenerateDetails = onRegenerateDetails,
-                    onCopyLink = onCopyLink,
-                    onShare = onShare,
-                    useCardLayout = useCardLayout,
-                    availableTags = tags,
-                    tagSuggestions = tagSuggestions,
-                    onRequestTagSuggestions = onRequestTagSuggestions,
-                    onClearSuggestionError = onClearSuggestionError
+                    useCardLayout = useCardLayout
                 )
 
                 ArticleListTab.TAGS -> TagsContent(
-                    tags = tags,
-                    selectedTag = selectedTag,
-                    onSelectTag = { tag -> viewModel.selectTag(tag) },
-                    onClearSelection = { viewModel.selectTag(null) },
+                    viewStore = viewStore,
                     lazyItems = taggedArticles,
-                    sortOption = sortOption,
-                    onSortSelected = onSortOptionSelected,
                     onSelectArticle = onSelectArticle,
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleRead = onToggleRead,
-                    onToggleTag = onToggleTag,
-                    onArchive = onArchive,
-                    onDelete = onDelete,
-                    onTagsClick = onTagsClick,
-                    onRegenerateDetails = onRegenerateDetails,
-                    onCopyLink = onCopyLink,
-                    onShare = onShare,
-                    useCardLayout = useCardLayout,
-                    availableTags = tags,
-                    tagSuggestions = tagSuggestions,
-                    onRequestTagSuggestions = onRequestTagSuggestions,
-                    onClearSuggestionError = onClearSuggestionError
+                    useCardLayout = useCardLayout
                 )
             }
             ArticleDialog(
-                article = article.copy(snippet = summary.summary),
-                showDialog = selectedArticle != EMPTYARTICLEITEM,
-                onDismissRequest = { viewModel.selectArticle(EMPTYARTICLEITEM) }
+                article = viewStore.state.selectedArticle.copy(snippet = viewStore.state.selectedArticleSummary.summary),
+                showDialog = viewStore.state.selectedArticle != EMPTYARTICLEITEM,
+                onDismissRequest = { viewStore.action { selectArticle(EMPTYARTICLEITEM) } }
             )
 
         }
@@ -293,10 +211,10 @@ fun ArticleListScreen(
             containerColor = MaterialTheme.colorScheme.surface,
 //                .height(64.dp)
         ) {
-            ArticleListTab.values().forEach { tab ->
+            ArticleListTab.entries.forEach { tab ->
                 NavigationBarItem(
-                    selected = selectedTab == tab,
-                    onClick = { selectedTab = tab },
+                    selected = viewStore.state.selectedTab == tab,
+                    onClick = { viewStore.action { setSelectedTab(tab) } },
                     icon = tab.icon,
                     label = { Text(text = tab.label) }
                 )
@@ -312,16 +230,15 @@ private fun ArticleListScreenPreview() {
     TrailsTheme(darkTheme = false) {
         PocketScreenContent(
             lazyItems = rememberPreviewArticles(),
-            sortOption = ArticleSortOption.Newest,
-            onSortSelected = {},
+            viewStore = ViewStore {
+                ArticleListState(
+                    sortOption = ArticleSortOption.Newest,
+                    tags = listOf("compose", "kotlin", "android"),
+                    selectedTab = ArticleListTab.HOME
+                )
+            },
             onSelectArticle = {},
-            onToggleFavorite = { _, _ -> },
-            onToggleRead = { _, _ -> },
-            onToggleTag = { _, _, _ -> },
-            onArchive = {},
-            onDelete = {},
-            useCardLayout = true,
-            availableTags = listOf("compose", "kotlin", "android")
+            useCardLayout = true
         )
     }
 }
@@ -336,16 +253,15 @@ private fun ArticleListScreenDarkPreview() {
     TrailsTheme(darkTheme = true) {
         PocketScreenContent(
             lazyItems = rememberPreviewArticles(),
-            sortOption = ArticleSortOption.Newest,
-            onSortSelected = {},
+            viewStore = ViewStore {
+                ArticleListState(
+                    sortOption = ArticleSortOption.Newest,
+                    tags = listOf("compose", "kotlin", "android"),
+                    selectedTab = ArticleListTab.HOME
+                )
+            },
             onSelectArticle = {},
-            onToggleFavorite = { _, _ -> },
-            onToggleRead = { _, _ -> },
-            onToggleTag = { _, _, _ -> },
-            onArchive = {},
-            onDelete = {},
-            useCardLayout = true,
-            availableTags = listOf("compose", "kotlin", "android")
+            useCardLayout = true
         )
     }
 }
@@ -353,29 +269,14 @@ private fun ArticleListScreenDarkPreview() {
 
 @Composable
 private fun TagsContent(
-    tags: List<String>,
-    selectedTag: String?,
-    onSelectTag: (String) -> Unit,
-    onClearSelection: () -> Unit,
+    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     lazyItems: LazyPagingItems<ArticleItem>,
-    sortOption: ArticleSortOption,
-    onSortSelected: (ArticleSortOption) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
-    onToggleFavorite: (ArticleItem, Boolean) -> Unit,
-    onToggleRead: (ArticleItem, Boolean) -> Unit,
-    onToggleTag: (ArticleItem, String, Boolean) -> Unit,
-    onArchive: (ArticleItem) -> Unit,
-    onDelete: (ArticleItem) -> Unit,
-    onTagsClick: (ArticleItem) -> Unit = {},
-    onRegenerateDetails: (ArticleItem) -> Unit = {},
-    onCopyLink: (ArticleItem) -> Unit = {},
-    onShare: (ArticleItem) -> Unit = {},
     useCardLayout: Boolean,
-    availableTags: List<String>,
-    tagSuggestions: Map<String, TagSuggestionUiState>,
-    onRequestTagSuggestions: (ArticleItem) -> Unit,
-    onClearSuggestionError: (String) -> Unit,
 ) {
+    val tags = viewStore.state.tags
+    val selectedTag = viewStore.state.selectedTag
+
     if (selectedTag == null) {
         if (tags.isEmpty()) {
             Box(
@@ -403,7 +304,7 @@ private fun TagsContent(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelectTag(tag) }
+                            .clickable { viewStore.action { selectTag(tag) } }
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     )
                 }
@@ -427,30 +328,16 @@ private fun TagsContent(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                TextButton(onClick = onClearSelection) {
+                TextButton(onClick = { viewStore.action { selectTag(null) } }) {
                     Text(text = "All tags")
                 }
             }
             Box(modifier = Modifier.weight(1f)) {
                 PocketScreenContent(
                     lazyItems = lazyItems,
-                    sortOption = sortOption,
-                    onSortSelected = onSortSelected,
+                    viewStore = viewStore,
                     onSelectArticle = onSelectArticle,
-                    onToggleFavorite = onToggleFavorite,
-                    onToggleRead = onToggleRead,
-                    onToggleTag = onToggleTag,
-                    onArchive = onArchive,
-                    onDelete = onDelete,
-                    onTagsClick = onTagsClick,
-                    onRegenerateDetails = onRegenerateDetails,
-                    onCopyLink = onCopyLink,
-                    onShare = onShare,
-                    useCardLayout = useCardLayout,
-                    availableTags = availableTags,
-                    tagSuggestions = tagSuggestions,
-                    onRequestTagSuggestions = onRequestTagSuggestions,
-                    onClearSuggestionError = onClearSuggestionError
+                    useCardLayout = useCardLayout
                 )
             }
         }
@@ -461,23 +348,9 @@ private fun TagsContent(
 @Composable
 internal fun PocketScreenContent(
     lazyItems: LazyPagingItems<ArticleItem>,
-    sortOption: ArticleSortOption,
-    onSortSelected: (ArticleSortOption) -> Unit,
+    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     onSelectArticle: (ArticleItem) -> Unit,
-    onToggleFavorite: (ArticleItem, Boolean) -> Unit,
-    onToggleRead: (ArticleItem, Boolean) -> Unit,
-    onToggleTag: (ArticleItem, String, Boolean) -> Unit,
-    onArchive: (ArticleItem) -> Unit,
-    onDelete: (ArticleItem) -> Unit,
-    onTagsClick: (ArticleItem) -> Unit = {},
-    onRegenerateDetails: (ArticleItem) -> Unit = {},
-    onCopyLink: (ArticleItem) -> Unit = {},
-    onShare: (ArticleItem) -> Unit = {},
     useCardLayout: Boolean,
-    availableTags: List<String>,
-    tagSuggestions: Map<String, TagSuggestionUiState> = emptyMap(),
-    onRequestTagSuggestions: (ArticleItem) -> Unit = {},
-    onClearSuggestionError: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -505,31 +378,13 @@ internal fun PocketScreenContent(
                 val article = lazyItems[index]
                 if (article != null) {
                     ArticleListItem(
-                        article,
-                        Modifier.animateItem().then(
+                        article = article,
+                        viewStore = viewStore,
+                        modifier = Modifier.animateItem().then(
                             if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier
                         ),
                         onClick = { onSelectArticle(article) },
-                        onFavoriteToggle = { isFavorite ->
-                            onToggleFavorite(article, isFavorite)
-                        },
-                        onReadToggle = { isRead ->
-                            onToggleRead(article, isRead)
-                        },
-                        onTagToggle = { tag, enabled ->
-                            onToggleTag(article, tag, enabled)
-                        },
-                        onArchive = { onArchive(article) },
-                        onDelete = { onDelete(article) },
-                        onTagsClick = { onTagsClick(article) },
-                        onRegenerateDetails = { onRegenerateDetails(article) },
-                        onCopyLink = { onCopyLink(article) },
-                        onShare = { onShare(article) },
-                        useCardLayout = useCardLayout,
-                        availableTags = availableTags,
-                        tagSuggestionState = tagSuggestions[article.itemId] ?: TagSuggestionUiState(),
-                        onRequestTagSuggestions = { onRequestTagSuggestions(article) },
-                        onClearSuggestionError = { onClearSuggestionError(article.itemId) }
+                        useCardLayout = useCardLayout
                     )
                 }
             }

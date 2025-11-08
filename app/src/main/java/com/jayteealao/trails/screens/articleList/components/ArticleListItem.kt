@@ -40,7 +40,11 @@ import androidx.core.text.toSpannable
 import com.jayteealao.trails.R
 import com.jayteealao.trails.common.ext.toAnnotatedString
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.ArticleListEvent
+import com.jayteealao.trails.screens.articleList.ArticleListState
+import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import io.yumemi.tartlet.ViewStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -48,22 +52,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun ArticleListItem(
     article: ArticleItem,
+    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
-    onFavoriteToggle: (Boolean) -> Unit = {},
-    onReadToggle: (Boolean) -> Unit = {},
-    onTagToggle: (String, Boolean) -> Unit = { _, _ -> },
-    onArchive: () -> Unit = {},
-    onDelete: () -> Unit = {},
-    onTagsClick: () -> Unit = {},
-    onRegenerateDetails: () -> Unit = {},
-    onCopyLink: () -> Unit = {},
-    onShare: () -> Unit = {},
     useCardLayout: Boolean = false,
-    availableTags: List<String> = emptyList(),
-    tagSuggestionState: com.jayteealao.trails.screens.articleList.TagSuggestionUiState = com.jayteealao.trails.screens.articleList.TagSuggestionUiState(),
-    onRequestTagSuggestions: () -> Unit = {},
-    onClearSuggestionError: () -> Unit = {},
 ) {
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
@@ -100,13 +92,17 @@ fun ArticleListItem(
             tagStates[tag] = true
         }
     }
-    LaunchedEffect(article.itemId, availableTags) {
-        availableTags.forEach { tag ->
+    LaunchedEffect(article.itemId, viewStore.state.tags) {
+        viewStore.state.tags.forEach { tag ->
             if (!tagStates.containsKey(tag)) {
                 tagStates[tag] = false
             }
         }
     }
+
+    val tagSuggestionState = viewStore.state.tagSuggestions[article.itemId]
+        ?: com.jayteealao.trails.screens.articleList.TagSuggestionUiState()
+
     LaunchedEffect(tagSuggestionState.tags) {
         tagSuggestionState.tags.forEach { tag ->
             if (!tagStates.containsKey(tag)) {
@@ -117,13 +113,13 @@ fun ArticleListItem(
     LaunchedEffect(article.itemId) {
         showTagSheet = false
         newTagText = ""
-        onClearSuggestionError()
+        viewStore.action { clearTagSuggestionError(article.itemId) }
     }
 
     val openTagSheet: () -> Unit = {
-        onClearSuggestionError()
+        viewStore.action { clearTagSuggestionError(article.itemId) }
         showTagSheet = true
-        onRequestTagSuggestions()
+        viewStore.action { requestTagSuggestions(article) }
     }
 
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -171,7 +167,7 @@ fun ArticleListItem(
                 // Perform action immediately
                 val newFavorite = !isFavorite
                 isFavorite = newFavorite
-                onFavoriteToggle(newFavorite)
+                viewStore.action { setFavorite(article.itemId, newFavorite) }
 
                 // Trigger animation (increment counter so animation runs every time)
                 animationTrigger++
@@ -201,20 +197,13 @@ fun ArticleListItem(
         state = swipeState,
         backgroundContent = {
             ArticleSwipeBackground(
+                article = article,
+                viewStore = viewStore,
                 swipeState = swipeState,
-                onArchive = onArchive,
-                onDelete = onDelete,
                 isFavorite = isFavorite,
                 isRead = isRead,
-                onReadToggle = { newReadState ->
-                    isRead = newReadState
-                    onReadToggle(newReadState)
-                },
                 markReadIcon = markReadIcon,
                 markUnreadIcon = markUnreadIcon,
-                onRegenerateDetails = onRegenerateDetails,
-                onCopyLink = onCopyLink,
-                onShare = onShare,
                 animationTrigger = animationTrigger
             )
         }
@@ -223,13 +212,11 @@ fun ArticleListItem(
 
             ArticleItemCardStyle(
                 article = article,
+                viewStore = viewStore,
                 parsedSnippet = parsedSnippet,
                 tagStates = tagStates,
                 onClick = onClick,
-                onFavoriteToggle = { checked ->
-                    isFavorite = checked
-                    onFavoriteToggle(checked)
-                },
+                onFavoriteToggleLocal = { checked -> isFavorite = checked },
                 isFavorite = isFavorite,
                 isRead = isRead,
                 filledStar = filledStar,
@@ -237,20 +224,17 @@ fun ArticleListItem(
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
                 onPaletteExtracted = onPaletteExtracted,
-                onTagToggle = onTagToggle,
                 showAddTagDialog = openTagSheet,
             )
 
         } else {
             ArticleContent( // non card item layout - legacy
                 article = article,
+                viewStore = viewStore,
                 parsedSnippet = parsedSnippet,
                 tagStates = tagStates,
                 onClick = onClick,
-                onFavoriteToggle = { checked ->
-                    isFavorite = checked
-                    onFavoriteToggle(checked)
-                },
+                onFavoriteToggleLocal = { checked -> isFavorite = checked },
                 isFavorite = isFavorite,
                 isRead = isRead,
                 filledStar = filledStar,
@@ -258,7 +242,6 @@ fun ArticleListItem(
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
                 onPaletteExtracted = onPaletteExtracted,
-                onTagToggle = onTagToggle,
                 showAddTagDialog = openTagSheet,
                 modifier = Modifier
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp)
@@ -268,18 +251,18 @@ fun ArticleListItem(
         }
 
         TagManagementSheet(
+            article = article,
+            viewStore = viewStore,
             showSheet = showTagSheet,
             onDismiss = {
                 showTagSheet = false
                 newTagText = ""
-                onClearSuggestionError()
+                viewStore.action { clearTagSuggestionError(article.itemId) }
             },
             sheetState = bottomSheetState,
             tagStates = tagStates,
-            availableTags = availableTags,
             newTagText = newTagText,
             onNewTagTextChange = { newValue -> newTagText = newValue },
-            onTagToggle = onTagToggle,
             onAddNewTag = {
                 val normalizedTag = newTagText
                     .trim()
@@ -288,13 +271,12 @@ fun ArticleListItem(
                     val wasSelected = tagStates[normalizedTag] == true
                     tagStates[normalizedTag] = true
                     if (!wasSelected) {
-                        onTagToggle(normalizedTag, true)
+                        viewStore.action { updateTag(article.itemId, normalizedTag, true) }
                     }
                     newTagText = ""
                 }
             },
-            tagSuggestionState = tagSuggestionState,
-            onRequestTagSuggestions = onRequestTagSuggestions
+            tagSuggestionState = tagSuggestionState
         )
     }
 }
@@ -302,10 +284,11 @@ fun ArticleListItem(
 @Composable
 fun ArticleItemCardStyle(
     article: ArticleItem,
+    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     parsedSnippet: AnnotatedString?,
     tagStates: MutableMap<String, Boolean>,
     onClick: () -> Unit,
-    onFavoriteToggle: (Boolean) -> Unit,
+    onFavoriteToggleLocal: (Boolean) -> Unit,
     isFavorite: Boolean,
     isRead: Boolean,
     filledStar: Painter,
@@ -313,7 +296,6 @@ fun ArticleItemCardStyle(
     dominantColor: Color,
     vibrantColor: Color,
     onPaletteExtracted: (Color, Color) -> Unit,
-    onTagToggle: (String, Boolean) -> Unit,
     showAddTagDialog: () -> Unit,
 ) {
     Card(
@@ -331,10 +313,11 @@ fun ArticleItemCardStyle(
     ) {
         ArticleContent(
             article = article,
+            viewStore = viewStore,
             parsedSnippet = parsedSnippet,
             tagStates = tagStates,
             onClick = onClick,
-            onFavoriteToggle = onFavoriteToggle,
+            onFavoriteToggleLocal = onFavoriteToggleLocal,
             isFavorite = isFavorite,
             isRead = isRead,
             filledStar = filledStar,
@@ -342,7 +325,6 @@ fun ArticleItemCardStyle(
             dominantColor = dominantColor,
             vibrantColor = vibrantColor,
             onPaletteExtracted = onPaletteExtracted,
-            onTagToggle = onTagToggle,
             showAddTagDialog = showAddTagDialog,
             modifier = Modifier
                 .padding(12.dp)
@@ -366,10 +348,13 @@ fun ArticleListItemPreview() {
     TrailsTheme {
         ArticleListItem(
             article = article,
+            viewStore = ViewStore {
+                com.jayteealao.trails.screens.articleList.ArticleListState(
+                    tags = listOf("compose", "android", "kotlin")
+                )
+            },
             onClick = {},
-            onFavoriteToggle = {},
-            onTagToggle = { _, _ -> },
-            availableTags = listOf("compose", "android", "kotlin")
+            useCardLayout = true
         )
     }
 }

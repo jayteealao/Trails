@@ -23,7 +23,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jayteealao.trails.R
 import com.jayteealao.trails.SearchBarState
 import com.jayteealao.trails.data.models.ArticleItem
@@ -31,44 +30,39 @@ import com.jayteealao.trails.screens.articleList.components.ArticleListItem
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.preview.previewSearchBarState
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import io.yumemi.tartlet.ViewStore
+import io.yumemi.tartlet.rememberViewStore
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArticleSearchScreen(
     searchBarState: SearchBarState,
-    viewModel: ArticleSearchViewModel = hiltViewModel(),
+    viewStore: ViewStore<ArticleSearchState, ArticleSearchEvent, ArticleSearchViewModel> = rememberViewStore { hiltViewModel() },
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
 ) {
-    val searchResultsLocal = viewModel.searchResultsLocal.collectAsStateWithLifecycle()
-    val searchResultsHybrid = viewModel.searchResultsHybrid.collectAsStateWithLifecycle()
-    val searchResult = linkedSetOf(searchResultsHybrid.value, searchResultsLocal.value).flatten()
+    // Handle events
+    viewStore.handle<ArticleSearchEvent.NavigateToArticle> { event ->
+        // Navigation handled by parent
+    }
+
+    viewStore.handle<ArticleSearchEvent.ShowError> { event ->
+        // Show error toast/snackbar
+    }
+
+    viewStore.handle<ArticleSearchEvent.ShowToast> { event ->
+        // Show toast message
+    }
 
     ArticleSearchContent(
         modifier = Modifier.fillMaxSize(),
         searchBarState = searchBarState,
-        searchResults = searchResult,
+        viewStore = viewStore,
         onQueryChange = { searchBarState.updateSearchText(it) },
-        onSearch = { viewModel.search(searchBarState.searchText) },
+        onSearch = { viewStore.action { search(searchBarState.searchText) } },
         onActiveChange = { searchBarState.searchBarActive = it },
         onSelectArticle = onSelectArticle,
-        useCardLayout = useCardLayout,
-        setFavorite = { itemId, isFavorite ->
-            viewModel.setFavorite(itemId, isFavorite)
-        },
-        setReadStatus = { itemId, isRead ->
-            viewModel.setReadStatus(itemId, isRead)
-        },
-        updateTag = { itemId, tag, enabled ->
-            viewModel.updateTag(itemId, tag, enabled)
-        },
-        archiveArticle = { itemId ->
-            viewModel.archiveArticle(itemId)
-        },
-        deleteArticle = { itemId ->
-            viewModel.deleteArticle(itemId)
-        },
-        availableTags = emptyList()
+        useCardLayout = useCardLayout
     )
 }
 
@@ -77,20 +71,15 @@ fun ArticleSearchScreen(
 internal fun ArticleSearchContent(
     modifier: Modifier = Modifier,
     searchBarState: SearchBarState,
-    searchResults: List<ArticleItem>,
+    viewStore: ViewStore<ArticleSearchState, ArticleSearchEvent, ArticleSearchViewModel>,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onActiveChange: (Boolean) -> Unit,
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
-    setFavorite: (String, Boolean) -> Unit = { _, _ -> },
-    setReadStatus: (String, Boolean) -> Unit = { _, _ -> },
-    updateTag: (String, String, Boolean) -> Unit = { _, _, _ -> },
-    archiveArticle: (String) -> Unit = {},
-    deleteArticle: (String) -> Unit = {},
-    availableTags: List<String> = emptyList(),
 ) {
     val searchBarContainerColor = searchBarState.searchBarContainerColor()
+    val searchResults = viewStore.state.combinedResults
 
     Column(
         modifier = modifier,
@@ -125,27 +114,10 @@ internal fun ArticleSearchContent(
                     items = searchResults,
                     key = { _, article -> article.itemId }
                 ) { index, article ->
-                    ArticleListItem(
+                    SearchResultItem(
                         article = article,
                         modifier = if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier,
-                        onClick = { onSelectArticle(article) },
-                        onFavoriteToggle = { isFavorite ->
-                            setFavorite(article.itemId, isFavorite)
-                        },
-                        onReadToggle = { isRead ->
-                            setReadStatus(article.itemId, isRead)
-                        },
-                        onTagToggle = { tag, enabled ->
-                            updateTag(article.itemId, tag, enabled)
-                        },
-                        onArchive = {
-                            archiveArticle(article.itemId)
-                        },
-                        onDelete = {
-                            deleteArticle(article.itemId)
-                        },
-                        useCardLayout = useCardLayout,
-                        availableTags = availableTags
+                        onClick = { onSelectArticle(article) }
                     )
                 }
             }
@@ -157,15 +129,17 @@ internal fun ArticleSearchContent(
 @Composable
 private fun ArticleSearchPreview() {
     TrailsTheme {
-        ArticleSearchContent(
-            modifier = Modifier.fillMaxSize(),
+        ArticleSearchScreen(
             searchBarState = previewSearchBarState(query = "trail"),
-            searchResults = PreviewFixtures.articleList,
-            onQueryChange = {},
-            onSearch = {},
-            onActiveChange = {},
+            viewStore = ViewStore {
+                ArticleSearchState(
+                    searchResultsLocal = PreviewFixtures.articleList,
+                    searchResultsHybrid = emptyList(),
+                    isSearching = false
+                )
+            },
             onSelectArticle = {},
-            useCardLayout = true,
+            useCardLayout = true
         )
     }
 }
@@ -178,15 +152,51 @@ private fun ArticleSearchPreview() {
 @Composable
 private fun ArticleSearchEmptyPreview() {
     TrailsTheme(darkTheme = true) {
-        ArticleSearchContent(
-            modifier = Modifier.fillMaxSize(),
+        ArticleSearchScreen(
             searchBarState = previewSearchBarState(active = true, query = "winter"),
-            searchResults = emptyList(),
-            onQueryChange = {},
-            onSearch = {},
-            onActiveChange = {},
+            viewStore = ViewStore {
+                ArticleSearchState(
+                    searchResultsLocal = emptyList(),
+                    searchResultsHybrid = emptyList(),
+                    isSearching = false
+                )
+            },
             onSelectArticle = {},
-            useCardLayout = true,
+            useCardLayout = true
         )
+    }
+}
+
+@Composable
+private fun SearchResultItem(
+    article: ArticleItem,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    androidx.compose.material3.Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        onClick = onClick
+    ) {
+        androidx.compose.foundation.layout.Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            androidx.compose.material3.Text(
+                text = article.title,
+                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            article.url?.let { url ->
+                androidx.compose.material3.Text(
+                    text = url,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }

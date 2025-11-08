@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
@@ -55,20 +57,19 @@ import com.jayteealao.trails.screens.articleList.ArticleListScreen
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.articleList.ArticleSortOption
 import com.jayteealao.trails.screens.articleList.PocketScreenContent
-import com.jayteealao.trails.screens.articleSearch.ArticleSearchContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
+import io.yumemi.tartlet.ViewStore
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchViewModel
 import com.jayteealao.trails.screens.auth.AuthScreen
-import com.jayteealao.trails.screens.auth.AuthScreenContent
 import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.preview.previewSearchBarState
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.settings.SettingsScreen
-import com.jayteealao.trails.screens.settings.SettingsScreenContent
 import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import kotlinx.coroutines.flow.map
 import timber.log.Timber
 
 @OptIn(ExperimentalAnimationApi::class)
@@ -85,8 +86,8 @@ fun MainNavigation(
     val _isLoggedIn = authViewModel.isLoggedIn
     var isLoggedIn by remember { mutableStateOf(false) }
     val searchBarState by remember { mutableStateOf(SearchBarState(false)) }
-    val selectedArticle by articleDetailViewModel.article.collectAsState()
-    val useCardLayout by settingsViewModel.useCardLayout.collectAsState()
+    val selectedArticle by articleDetailViewModel.state.map { it.article }.collectAsState(null)
+    val useCardLayout by settingsViewModel.state.map { it.useCardLayout }.collectAsState(false)
 
     LaunchedEffect(true) {
         _isLoggedIn.collect { value ->
@@ -123,8 +124,7 @@ fun MainNavigation(
                     navController = navController,
                     modifier = Modifier
                         .padding(16.dp)
-                        .fillMaxSize(),
-                    viewModel = authViewModel
+                        .fillMaxSize()
                 )
             }
             composable("main") {
@@ -139,7 +139,6 @@ fun MainNavigation(
                     ArticleListScreen(
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.surface),
-                        viewModel = articleListViewModel,
                         onSelectArticle = { article ->
                             navController.navigate("article/${article.itemId}")
                         },
@@ -161,7 +160,6 @@ fun MainNavigation(
             composable("search") {
                 ArticleSearchScreen(
                     searchBarState = searchBarState,
-                    viewModel = articleSearchViewModel,
                     onSelectArticle = { article ->
                         navController.navigate("article/${article.itemId}")
                     },
@@ -173,8 +171,7 @@ fun MainNavigation(
                 SettingsScreen(
                     modifier = Modifier
                         .padding(16.dp)
-                        .fillMaxSize(),
-                    settingsViewModel = settingsViewModel
+                        .fillMaxSize()
                 )
             }
             // TODO: Add more destinations
@@ -211,16 +208,14 @@ private fun MainNavigationPreview() {
                 startDestination = "main",
             ) {
                 composable("login") {
-                    AuthScreenContent(
+                    Box(
                         modifier = Modifier
                             .padding(16.dp)
                             .fillMaxSize(),
-                        uiState = AuthUiState.NeedAuth,
-                        onGetRequestToken = {},
-                        onAuthorize = {},
-                        onGetAccessToken = {},
-                        onNavigateToMain = {},
-                    )
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Auth Screen Preview")
+                    }
                 }
                 composable("main") {
                     Box(
@@ -232,16 +227,15 @@ private fun MainNavigationPreview() {
                     ) {
                         PocketScreenContent(
                             lazyItems = previewArticles,
-                            sortOption = ArticleSortOption.Newest,
-                            onSortSelected = {},
+                            viewStore = ViewStore {
+                                com.jayteealao.trails.screens.articleList.ArticleListState(
+                                    sortOption = com.jayteealao.trails.screens.articleList.ArticleSortOption.Newest,
+                                    tags = emptyList(),
+                                    selectedTab = com.jayteealao.trails.screens.articleList.ArticleListTab.HOME
+                                )
+                            },
                             onSelectArticle = { navController.navigate("article") },
-                            onToggleFavorite = { _, _ -> },
-                            onToggleRead = { _, _ -> },
-                            onToggleTag = { _, _, _ -> },
-                            onArchive = {},
-                            onDelete = {},
-                            useCardLayout = true,
-                            availableTags = emptyList()
+                            useCardLayout = true
                         )
                     }
                 }
@@ -249,33 +243,17 @@ private fun MainNavigationPreview() {
                     ArticleDetailScreen(article = PreviewFixtures.article)
                 }
                 composable("search") {
-                    ArticleSearchContent(
-                        modifier = Modifier.fillMaxSize(),
+                    ArticleSearchScreen(
                         searchBarState = searchBarState,
-                        searchResults = PreviewFixtures.articleList,
-                        onQueryChange = {},
-                        onSearch = {},
-                        onActiveChange = { searchBarState.searchBarActive = it },
                         onSelectArticle = {},
-                        useCardLayout = true,
+                        useCardLayout = true
                     )
                 }
                 composable("settings") {
-                    SettingsScreenContent(
+                    SettingsScreen(
                         modifier = Modifier
                             .padding(16.dp)
-                            .fillMaxSize(),
-                        useFreedium = true,
-                        darkThemeEnabled = false,
-                        useCardLayout = true,
-                        jinaToken = PreviewFixtures.authAccessToken,
-                        jinaPlaceholder = "Insert Jina Token Here",
-                        onResetSemanticCache = {},
-                        onToggleFreedium = {},
-                        onToggleDarkTheme = {},
-                        onToggleCardLayout = {},
-                        onJinaTokenChange = {},
-                        onSubmitJinaToken = {},
+                            .fillMaxSize()
                     )
                 }
             }
@@ -319,16 +297,15 @@ private fun MainNavigationDarkPreview() {
                 composable("main") {
                     PocketScreenContent(
                         lazyItems = previewArticles,
-                        sortOption = ArticleSortOption.Newest,
-                        onSortSelected = {},
+                        viewStore = ViewStore {
+                            com.jayteealao.trails.screens.articleList.ArticleListState(
+                                sortOption = com.jayteealao.trails.screens.articleList.ArticleSortOption.Newest,
+                                tags = emptyList(),
+                                selectedTab = com.jayteealao.trails.screens.articleList.ArticleListTab.HOME
+                            )
+                        },
                         onSelectArticle = {},
-                        onToggleFavorite = { _, _ -> },
-                        onToggleRead = { _, _ -> },
-                        onToggleTag = { _, _, _ -> },
-                        onArchive = {},
-                        onDelete = {},
-                        useCardLayout = true,
-                        availableTags = emptyList()
+                        useCardLayout = true
                     )
                 }
                 composable("article") {

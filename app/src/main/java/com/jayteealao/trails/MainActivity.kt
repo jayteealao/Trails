@@ -39,6 +39,7 @@ import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -68,7 +69,7 @@ class MainActivity : ComponentActivity() {
 
 
         setContent {
-            val darkThemeEnabled by settingsViewModel.darkTheme.collectAsStateWithLifecycle()
+            val darkThemeEnabled by settingsViewModel.state.map { it.darkTheme }.collectAsStateWithLifecycle(false)
             TrailsTheme(darkTheme = darkThemeEnabled) {
                 setSingletonImageLoaderFactory { context ->
                     ImageLoader.Builder(context)
