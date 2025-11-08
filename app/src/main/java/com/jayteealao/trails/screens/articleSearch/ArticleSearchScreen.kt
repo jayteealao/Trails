@@ -114,27 +114,10 @@ internal fun ArticleSearchContent(
                     items = searchResults,
                     key = { _, article -> article.itemId }
                 ) { index, article ->
-                    ArticleListItem(
+                    SearchResultItem(
                         article = article,
                         modifier = if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier,
-                        onClick = { onSelectArticle(article) },
-                        onFavoriteToggle = { isFavorite ->
-                            viewStore.action { setFavorite(article.itemId, isFavorite) }
-                        },
-                        onReadToggle = { isRead ->
-                            viewStore.action { setReadStatus(article.itemId, isRead) }
-                        },
-                        onTagToggle = { tag, enabled ->
-                            viewStore.action { updateTag(article.itemId, tag, enabled) }
-                        },
-                        onArchive = {
-                            viewStore.action { archiveArticle(article.itemId) }
-                        },
-                        onDelete = {
-                            viewStore.action { deleteArticle(article.itemId) }
-                        },
-                        useCardLayout = useCardLayout,
-                        availableTags = viewStore.state.availableTags
+                        onClick = { onSelectArticle(article) }
                     )
                 }
             }
@@ -181,5 +164,39 @@ private fun ArticleSearchEmptyPreview() {
             onSelectArticle = {},
             useCardLayout = true
         )
+    }
+}
+
+@Composable
+private fun SearchResultItem(
+    article: ArticleItem,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    androidx.compose.material3.Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        onClick = onClick
+    ) {
+        androidx.compose.foundation.layout.Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            androidx.compose.material3.Text(
+                text = article.title,
+                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            article.url?.let { url ->
+                androidx.compose.material3.Text(
+                    text = url,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
