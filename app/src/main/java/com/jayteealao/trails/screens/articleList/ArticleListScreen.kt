@@ -343,7 +343,6 @@ private fun TagsContent(
         }
     }
 }
-}
 
 
 @Composable
