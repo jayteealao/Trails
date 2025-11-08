@@ -88,6 +88,7 @@ fun ArticleListScreen(
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
+    onOpenTagManagement: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -194,7 +195,8 @@ fun ArticleListScreen(
                     viewStore = viewStore,
                     lazyItems = taggedArticles,
                     onSelectArticle = onSelectArticle,
-                    useCardLayout = useCardLayout
+                    useCardLayout = useCardLayout,
+                    onOpenTagManagement = onOpenTagManagement
                 )
             }
             ArticleDialog(
@@ -273,6 +275,7 @@ private fun TagsContent(
     lazyItems: LazyPagingItems<ArticleItem>,
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
+    onOpenTagManagement: () -> Unit,
 ) {
     val tags = viewStore.state.tags
     val selectedTag = viewStore.state.selectedTag
@@ -331,6 +334,9 @@ private fun TagsContent(
                 TextButton(onClick = { viewStore.action { selectTag(null) } }) {
                     Text(text = "All tags")
                 }
+            }
+            Button(onClick = onOpenTagManagement) {
+                Text("Manage Tags")
             }
             Box(modifier = Modifier.weight(1f)) {
                 PocketScreenContent(
