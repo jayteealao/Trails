@@ -23,21 +23,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.ArticleListEvent
+import com.jayteealao.trails.screens.articleList.ArticleListState
+import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import io.yumemi.tartlet.ViewStore
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TagManagementSheet(
+    article: ArticleItem,
+    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     showSheet: Boolean,
     onDismiss: () -> Unit,
     sheetState: SheetState,
     tagStates: MutableMap<String, Boolean>,
-    availableTags: List<String>,
     newTagText: String,
     onNewTagTextChange: (String) -> Unit,
-    onTagToggle: (String, Boolean) -> Unit,
     onAddNewTag: () -> Unit,
-    tagSuggestionState: com.jayteealao.trails.screens.articleList.TagSuggestionUiState = com.jayteealao.trails.screens.articleList.TagSuggestionUiState(),
-    onRequestTagSuggestions: () -> Unit = {}
+    tagSuggestionState: com.jayteealao.trails.screens.articleList.TagSuggestionUiState = com.jayteealao.trails.screens.articleList.TagSuggestionUiState()
 ) {
     if (showSheet) {
         ModalBottomSheet(
@@ -96,9 +100,11 @@ fun TagManagementSheet(
                     isTagSelected = { tag -> tagStates[tag] == true },
                     onToggleSuggestion = { suggestion, newValue ->
                         tagStates[suggestion] = newValue
-                        onTagToggle(suggestion, newValue)
+                        viewStore.action { updateTag(article.itemId, suggestion, newValue) }
                     },
-                    onRequestTagSuggestions = onRequestTagSuggestions,
+                    onRequestTagSuggestions = {
+                        viewStore.action { requestTagSuggestions(article) }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -120,7 +126,7 @@ fun TagManagementSheet(
                                 selected = true,
                                 onClick = {
                                     tagStates[tag] = false
-                                    onTagToggle(tag, false)
+                                    viewStore.action { updateTag(article.itemId, tag, false) }
                                 },
                                 label = {
                                     Text(
@@ -148,7 +154,7 @@ fun TagManagementSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val availableUnselectedTags = (tagStates.keys + availableTags)
+                    val availableUnselectedTags = (tagStates.keys + viewStore.state.tags)
                         .toSet()
                         .filter { tagStates[it] != true }
                         .sorted()
@@ -157,7 +163,7 @@ fun TagManagementSheet(
                             selected = false,
                             onClick = {
                                 tagStates[tag] = true
-                                onTagToggle(tag, true)
+                                viewStore.action { updateTag(article.itemId, tag, true) }
                             },
                             label = {
                                 Text(
