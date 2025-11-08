@@ -58,6 +58,7 @@ import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.articleList.ArticleSortOption
 import com.jayteealao.trails.screens.articleList.PocketScreenContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
+import io.yumemi.tartlet.ViewStore
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchViewModel
 import com.jayteealao.trails.screens.auth.AuthScreen
 import com.jayteealao.trails.screens.auth.AuthUiState
@@ -226,16 +227,15 @@ private fun MainNavigationPreview() {
                     ) {
                         PocketScreenContent(
                             lazyItems = previewArticles,
-                            sortOption = ArticleSortOption.Newest,
-                            onSortSelected = {},
+                            viewStore = ViewStore {
+                                com.jayteealao.trails.screens.articleList.ArticleListState(
+                                    sortOption = com.jayteealao.trails.screens.articleList.ArticleSortOption.Newest,
+                                    tags = emptyList(),
+                                    selectedTab = com.jayteealao.trails.screens.articleList.ArticleListTab.HOME
+                                )
+                            },
                             onSelectArticle = { navController.navigate("article") },
-                            onToggleFavorite = { _, _ -> },
-                            onToggleRead = { _, _ -> },
-                            onToggleTag = { _, _, _ -> },
-                            onArchive = {},
-                            onDelete = {},
-                            useCardLayout = true,
-                            availableTags = emptyList()
+                            useCardLayout = true
                         )
                     }
                 }
@@ -297,16 +297,15 @@ private fun MainNavigationDarkPreview() {
                 composable("main") {
                     PocketScreenContent(
                         lazyItems = previewArticles,
-                        sortOption = ArticleSortOption.Newest,
-                        onSortSelected = {},
+                        viewStore = ViewStore {
+                            com.jayteealao.trails.screens.articleList.ArticleListState(
+                                sortOption = com.jayteealao.trails.screens.articleList.ArticleSortOption.Newest,
+                                tags = emptyList(),
+                                selectedTab = com.jayteealao.trails.screens.articleList.ArticleListTab.HOME
+                            )
+                        },
                         onSelectArticle = {},
-                        onToggleFavorite = { _, _ -> },
-                        onToggleRead = { _, _ -> },
-                        onToggleTag = { _, _, _ -> },
-                        onArchive = {},
-                        onDelete = {},
-                        useCardLayout = true,
-                        availableTags = emptyList()
+                        useCardLayout = true
                     )
                 }
                 composable("article") {
