@@ -82,7 +82,6 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainNavigation(
                         authViewModel = authViewModel,
-                        settingsViewModel = settingsViewModel,
                     )
                 }
             }
