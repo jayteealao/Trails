@@ -46,12 +46,12 @@ fun AuthScreen(
     val googleSignInClient = GoogleSignIn.getClient(context, gso)
 
     // Handle events
-    viewStore.handle<AuthEvent.NavigateToMain> {
-        onLoginSuccess()
-    }
-
     viewStore.handle<AuthEvent.ShowError> { event ->
         // Could show toast/snackbar with error message
+    }
+
+    viewStore.handle<AuthEvent.ShowToast> { event ->
+        // Could show toast message
     }
 
     // Render different UI based on state
@@ -59,7 +59,7 @@ fun AuthScreen(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        when (viewStore.state) {
+        when (val state = viewStore.state) {
             is AuthUiState.SignedOut -> {
                 Button(onClick = {
                     googleSignInLauncher.launch(googleSignInClient.signInIntent)
@@ -76,7 +76,7 @@ fun AuthScreen(
             is AuthUiState.Error -> {
                 Column {
                     Text(text = "Something went wrong")
-                    Text(text = viewStore.state.throwable.message ?: "Unknown error")
+                    Text(text = state.throwable.message ?: "Unknown error")
                     Button(onClick = {
                         googleSignInLauncher.launch(googleSignInClient.signInIntent)
                     }) {

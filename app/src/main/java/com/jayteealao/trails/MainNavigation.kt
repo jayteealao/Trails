@@ -46,6 +46,7 @@ fun MainNavigation(
     val authState by authViewModel.state.collectAsState()
     val startRoute = if (authState is AuthUiState.SignedIn) Screen.ArticleList else Screen.Login
     val backStack = rememberNavBackStack(startRoute)
+    val searchBarState = remember { SearchBarState(false) }
     val listDetailSceneStrategy = rememberListDetailSceneStrategy<Screen>(
         detailPlaceholder = { Text("Select an article to view details") }
     )
@@ -87,6 +88,7 @@ fun MainNavigation(
             }
             entry<Screen.ArticleSearch> {
                 ArticleSearchScreen(
+                    searchBarState = searchBarState,
                     onSelectArticle = { article ->
                         backStack.add(Screen.ArticleDetail(article.itemId))
                     },

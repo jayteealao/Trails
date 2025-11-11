@@ -25,9 +25,9 @@ class ListDetailScene<T : Any>(
 
     override val content: @Composable () -> Unit = {
         Row {
-            listEntry.Content(modifier = Modifier.weight(1f))
+            listEntry.Content()
             if (detailEntry != null) {
-                detailEntry.Content(modifier = Modifier.weight(1f))
+                detailEntry.Content()
             } else {
                 detailPlaceholder()
             }

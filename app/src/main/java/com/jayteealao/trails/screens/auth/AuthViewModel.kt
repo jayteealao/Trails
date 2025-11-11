@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -46,7 +47,7 @@ class AuthViewModel @Inject constructor(
             try {
                 val result = authRepository.signInWithCredential(credential)
                 _uiState.value = AuthUiState.SignedIn(result.user!!)
-                _event.emit(AuthEvent.NavigateToMain)
+                // Navigation is now handled by observing the SignedIn state in AuthScreen
             } catch (e: Exception) {
                 _uiState.value = AuthUiState.Error(e)
                 _event.emit(AuthEvent.ShowError(e.message ?: "Failed to sign in"))
