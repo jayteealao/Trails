@@ -2,6 +2,7 @@
 package com.jayteealao.trails
 
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Text
@@ -11,8 +12,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import com.jayteealao.trails.screens.TrailScaffold
+import com.jayteealao.trails.screens.TrailsTopAppBarNav3
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailScreen
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailViewModel
 import com.jayteealao.trails.screens.articleList.ArticleListScreen
@@ -20,11 +24,10 @@ import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchViewModel
 import com.jayteealao.trails.screens.auth.AuthScreen
+import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
 import com.jayteealao.trails.screens.settings.SettingsScreen
 import com.jayteealao.trails.screens.settings.SettingsViewModel
-import androidx.navigation3.runtime.entryProvider
-import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.tagManagement.TagManagementScreen
 import com.jayteealao.trails.ui.adaptive.BOTTOM_SHEET
 import com.jayteealao.trails.ui.adaptive.BottomSheetSceneStrategy
@@ -53,12 +56,27 @@ fun MainNavigation(
     val bottomSheetSceneStrategy = remember { BottomSheetSceneStrategy<Screen>() }
     @Suppress("UNCHECKED_CAST")
     val sceneStrategy = (listDetailSceneStrategy.then(bottomSheetSceneStrategy)) as androidx.navigation3.scene.SceneStrategy<androidx.navigation3.runtime.NavKey>
-    NavDisplay(
-        backStack = backStack,
-        modifier = modifier,
-        onBack = { backStack.removeLastOrNull() },
-        sceneStrategy = sceneStrategy,
-        entryProvider = entryProvider {
+
+    TrailScaffold(
+        topBar = { menuState ->
+            if (authState is AuthUiState.SignedIn) {
+                TrailsTopAppBarNav3(
+                    title = "Trails",
+                    currentScreen = (backStack.lastOrNull() as? Screen) ?: Screen.ArticleList,
+                    menuState = menuState,
+                    onNavigateBack = { backStack.removeLastOrNull() },
+                    onNavigateToSearch = { backStack.add(Screen.ArticleSearch) },
+                    onNavigateToSettings = { backStack.add(Screen.Settings) }
+                )
+            }
+        }
+    ) { paddingValues, _, snackbarHostState ->
+        NavDisplay(
+            backStack = backStack,
+            modifier = modifier.padding(paddingValues),
+            onBack = { backStack.removeLastOrNull() },
+            sceneStrategy = sceneStrategy,
+            entryProvider = entryProvider {
             entry<Screen.Login> {
                 AuthScreen(
                     onLoginSuccess = {
@@ -105,5 +123,6 @@ fun MainNavigation(
                 TagManagementScreen()
             }
         }
-    )
+        )
+    }
 }
