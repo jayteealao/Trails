@@ -68,7 +68,7 @@ fun AuthScreen(
             is AuthUiState.SignedOut -> {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(dp = 12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Button(onClick = {
                         googleSignInLauncher.launch(googleSignInClient.signInIntent)
@@ -91,7 +91,7 @@ fun AuthScreen(
             is AuthUiState.Error -> {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(dp = 12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(text = "Something went wrong")
                     Text(text = state.throwable.message ?: "Unknown error")
