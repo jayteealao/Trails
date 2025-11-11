@@ -18,6 +18,10 @@ class AuthRepository @Inject constructor(
         return auth.signInWithCredential(credential).await()
     }
 
+    suspend fun signInAnonymously(): AuthResult {
+        return auth.signInAnonymously().await()
+    }
+
     fun signOut() {
         auth.signOut()
     }

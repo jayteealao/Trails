@@ -3,14 +3,19 @@ package com.jayteealao.trails.screens.auth
 import android.app.Activity.RESULT_OK
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -61,10 +66,20 @@ fun AuthScreen(
     ) {
         when (val state = viewStore.state) {
             is AuthUiState.SignedOut -> {
-                Button(onClick = {
-                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                }) {
-                    Text(text = "Sign In with Google")
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(dp = 12.dp)
+                ) {
+                    Button(onClick = {
+                        googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                    }) {
+                        Text(text = "Sign In with Google")
+                    }
+                    OutlinedButton(onClick = {
+                        viewStore.action { signInAnonymously() }
+                    }) {
+                        Text(text = "Continue as Guest")
+                    }
                 }
             }
             is AuthUiState.SignedIn -> {
@@ -74,13 +89,21 @@ fun AuthScreen(
                 Text(text = "Loading...")
             }
             is AuthUiState.Error -> {
-                Column {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(dp = 12.dp)
+                ) {
                     Text(text = "Something went wrong")
                     Text(text = state.throwable.message ?: "Unknown error")
                     Button(onClick = {
                         googleSignInLauncher.launch(googleSignInClient.signInIntent)
                     }) {
                         Text(text = "Retry")
+                    }
+                    OutlinedButton(onClick = {
+                        viewStore.action { signInAnonymously() }
+                    }) {
+                        Text(text = "Continue as Guest")
                     }
                 }
             }
