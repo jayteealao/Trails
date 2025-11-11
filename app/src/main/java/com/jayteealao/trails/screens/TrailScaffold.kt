@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,10 +27,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.jayteealao.trails.R
+import com.jayteealao.trails.Screen
 import com.jayteealao.trails.screens.theme.TrailsTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,6 +49,7 @@ fun TrailScaffold(
         topBar = { topBar(menuState) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0.dp)
     ){ paddingValues ->
         content(paddingValues, transitionData, snackbarHostState)
     }
@@ -226,6 +230,101 @@ fun TrailsTopAppBar(
                     }
                 }
                 IconButton(onClick = { navController.navigate("settings") }) {
+                    Icon(painter = painterResource(R.drawable.settings_24px), contentDescription = "Settings")
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TrailsTopAppBarNav3(
+    title: String,
+    currentScreen: Screen,
+    menuState: MutableState<MenuState>,
+    onNavigateBack: () -> Unit,
+    onNavigateToSearch: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+) {
+    // Determine icons and actions based on current screen
+    val icon = when (currentScreen) {
+        is Screen.ArticleList -> painterResource(R.drawable.menu_24px)
+        else -> painterResource(R.drawable.arrow_back_24px)
+    }
+
+    val titleText = when (currentScreen) {
+        is Screen.ArticleSearch -> "Search"
+        is Screen.Settings -> "Settings"
+        is Screen.ArticleDetail -> "Article"
+        is Screen.TagManagement -> "Tags"
+        else -> title
+    }
+
+    val actionOnClick: () -> Unit = when (currentScreen) {
+        is Screen.ArticleList -> onNavigateToSearch
+        else -> { {} }
+    }
+
+    val actionIcon = when (currentScreen) {
+        is Screen.ArticleList -> painterResource(R.drawable.search_24px)
+        is Screen.ArticleSearch -> painterResource(R.drawable.more_vert_24px)
+        else -> null
+    }
+
+    val actionContentDesc = when (currentScreen) {
+        is Screen.ArticleList -> "Search"
+        is Screen.ArticleSearch -> "Menu"
+        else -> null
+    }
+
+    // Hide app bar on search screen
+    AnimatedVisibility(visible = currentScreen !is Screen.ArticleSearch) {
+        CenterAlignedTopAppBar(
+            title = {
+                Text(
+                    text = titleText,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            navigationIcon = {
+                IconButton(
+                    onClick = {
+                        when (currentScreen) {
+                            is Screen.ArticleList -> {
+                                // Toggle menu
+                                menuState.value = if (menuState.value == MenuState.Open) {
+                                    MenuState.Closed
+                                } else {
+                                    MenuState.Open
+                                }
+                            }
+                            else -> {
+                                // Go back
+                                onNavigateBack()
+                            }
+                        }
+                    }
+                ) {
+                    Icon(
+                        painter = icon,
+                        contentDescription = if (currentScreen is Screen.ArticleList) "Menu" else "Back"
+                    )
+                }
+            },
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            actions = {
+                if (actionIcon != null) {
+                    IconButton(onClick = actionOnClick) {
+                        Icon(painter = actionIcon, contentDescription = actionContentDesc)
+                    }
+                }
+                IconButton(onClick = onNavigateToSettings) {
                     Icon(painter = painterResource(R.drawable.settings_24px), contentDescription = "Settings")
                 }
             }
