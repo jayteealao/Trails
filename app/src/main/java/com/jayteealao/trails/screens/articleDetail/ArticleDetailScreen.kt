@@ -6,16 +6,19 @@ import android.annotation.SuppressLint
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.runtime.Composable
@@ -75,7 +78,7 @@ fun ArticleDetailScreen(
     val currentArticle = viewStore.state.article ?: article
 
     ConstraintLayout(
-        modifier = Modifier.padding(top = 2.dp).fillMaxHeight()
+        modifier = Modifier.fillMaxSize()
     ) {
         val (tabRow, detailView) = createRefs()
 
@@ -85,6 +88,8 @@ fun ArticleDetailScreen(
                 bottom.linkTo(tabRow.top)
                 start.linkTo(parent.start)
                 end.linkTo(parent.end)
+//                width = Dimension.fillToConstraints
+//                height = Dimension.fillToConstraints
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
             article = currentArticle
@@ -95,6 +100,7 @@ fun ArticleDetailScreen(
                 bottom.linkTo(parent.bottom)
                 start.linkTo(parent.start)
                 end.linkTo(parent.end)
+//                width = Dimension.fillToConstraints
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
             shouldShowPocket = currentArticle.articleId != "0",
@@ -154,7 +160,8 @@ fun ArticleDetailTabRow(
 ) {
     PrimaryTabRow(
         selectedTabIndex = selectedTabIndex,
-        modifier = modifier
+        modifier = modifier.windowInsetsPadding(WindowInsets.navigationBars),
+        containerColor = MaterialTheme.colorScheme.surface
     ) {
 //        Tab
         Tab(
@@ -222,17 +229,30 @@ fun ArticleWebView(
         }
     }
 
-    WebView(
-        state = webViewState,
-        modifier = modifier,
-        onCreated = {
-            it.settings.javaScriptEnabled = true
-            it.settings.domStorageEnabled = true
-        },
-        onDispose = {
-        },
-        client = webClient
-    )
+    val loadingState = webViewState.loadingState
+    Column(modifier = modifier) {
+        if (loadingState is LoadingState.Loading) {
+            LinearProgressIndicator(
+                progress = { loadingState.progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp),
+            )
+        }
+        WebView(
+            state = webViewState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(),
+            onCreated = {
+                it.settings.javaScriptEnabled = true
+                it.settings.domStorageEnabled = true
+            },
+            onDispose = {
+            },
+            client = webClient
+        )
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
