@@ -55,6 +55,19 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun signInAnonymously() {
+        viewModelScope.launch {
+            _uiState.value = AuthUiState.Loading
+            try {
+                val result = authRepository.signInAnonymously()
+                _uiState.value = AuthUiState.SignedIn(result.user!!)
+            } catch (e: Exception) {
+                _uiState.value = AuthUiState.Error(e)
+                _event.emit(AuthEvent.ShowError(e.message ?: "Failed to sign in as guest"))
+            }
+        }
+    }
+
     fun signOut() {
         authRepository.signOut()
         _uiState.value = AuthUiState.SignedOut
