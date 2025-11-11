@@ -8,7 +8,9 @@ data class SettingsState(
     val darkTheme: Boolean = false,
     val useCardLayout: Boolean = false,
     val jinaToken: String = "",
-    val jinaPlaceholder: String = "Insert Jina Token Here"
+    val jinaPlaceholder: String = "Insert Jina Token Here",
+    val versionName: String = "",
+    val versionCode: Int = 0
 )
 
 /**

@@ -145,6 +145,38 @@ internal fun SettingsScreenContent(
                 )
             }
         }
+        HorizontalDivider()
+        Spacer(Modifier.height(8.dp))
+        Text("ABOUT", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = "Version")
+            Text(
+                text = viewStore.state.versionName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = "Build")
+            Text(
+                text = viewStore.state.versionCode.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -159,7 +191,9 @@ private fun SettingsScreenPreview() {
                     darkTheme = false,
                     useCardLayout = true,
                     jinaToken = "sample_token_123",
-                    jinaPlaceholder = "Insert Jina Token Here"
+                    jinaPlaceholder = "Insert Jina Token Here",
+                    versionName = "1.8.9",
+                    versionCode = 108090
                 )
             }
         )
@@ -181,7 +215,9 @@ private fun SettingsScreenDarkPreview() {
                     darkTheme = true,
                     useCardLayout = true,
                     jinaToken = "",
-                    jinaPlaceholder = "Insert Jina Token Here"
+                    jinaPlaceholder = "Insert Jina Token Here",
+                    versionName = "1.8.9",
+                    versionCode = 108090
                 )
             }
         )
