@@ -51,11 +51,13 @@ fun MainNavigation(
         detailPlaceholder = { Text("Select an article to view details") }
     )
     val bottomSheetSceneStrategy = remember { BottomSheetSceneStrategy<Screen>() }
+    @Suppress("UNCHECKED_CAST")
+    val sceneStrategy = (listDetailSceneStrategy.then(bottomSheetSceneStrategy)) as androidx.navigation3.scene.SceneStrategy<androidx.navigation3.runtime.NavKey>
     NavDisplay(
         backStack = backStack,
         modifier = modifier,
         onBack = { backStack.removeLastOrNull() },
-        sceneStrategy = listDetailSceneStrategy.then(bottomSheetSceneStrategy),
+        sceneStrategy = sceneStrategy,
         entryProvider = entryProvider {
             entry<Screen.Login> {
                 AuthScreen(
