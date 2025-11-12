@@ -220,6 +220,15 @@ interface ArticleDao {
 
     @Query(
         """
+        UPDATE article
+        SET timeUpdated = :timestamp
+        WHERE itemId = :itemId
+        """
+    )
+    suspend fun updateTimeUpdated(itemId: String, timestamp: Long = System.currentTimeMillis())
+
+    @Query(
+        """
         DELETE FROM article_tags WHERE itemId = :itemId AND tag = :tag
         """
     )

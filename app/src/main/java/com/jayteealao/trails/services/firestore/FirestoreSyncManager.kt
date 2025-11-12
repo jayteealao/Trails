@@ -127,19 +127,46 @@ class FirestoreSyncManager @Inject constructor(
     /**
      * Handle remote article change with conflict resolution
      * Uses timestamp-based last-write-wins strategy
+     * Also restores related data (tags, images, etc.)
      */
     private suspend fun handleRemoteArticleChange(remoteArticle: Article) {
         try {
             val localArticle = articleDao.getArticleById(remoteArticle.itemId)
 
             if (localArticle == null) {
-                // New article - just insert
+                // New article - insert with related data
                 articleDao.upsertArticle(remoteArticle)
+
+                // Restore tags
+                val remoteTags = firestoreBackupService.restoreArticleTags(remoteArticle.itemId)
+                remoteTags.getOrNull()?.let { tags ->
+                    if (tags.isNotEmpty()) {
+                        articleDao.insertArticleTags(tags)
+                        Timber.d("Restored ${tags.size} tags for article ${remoteArticle.itemId}")
+                    }
+                }
+
                 Timber.d("Inserted new article ${remoteArticle.itemId} from remote")
             } else {
                 // Conflict resolution: compare timestamps
                 if (shouldAcceptRemoteChange(localArticle, remoteArticle)) {
                     articleDao.upsertArticle(remoteArticle)
+
+                    // Restore tags (replace existing)
+                    val remoteTags = firestoreBackupService.restoreArticleTags(remoteArticle.itemId)
+                    remoteTags.getOrNull()?.let { tags ->
+                        // Delete existing tags first
+                        val existingTags = articleDao.getArticleTags(remoteArticle.itemId)
+                        existingTags.forEach { tag ->
+                            articleDao.deleteArticleTag(remoteArticle.itemId, tag)
+                        }
+                        // Insert remote tags
+                        if (tags.isNotEmpty()) {
+                            articleDao.insertArticleTags(tags)
+                        }
+                        Timber.d("Updated ${tags.size} tags for article ${remoteArticle.itemId}")
+                    }
+
                     Timber.d("Updated article ${remoteArticle.itemId} from remote (remote newer)")
                 } else {
                     Timber.d("Kept local version of ${remoteArticle.itemId} (local newer)")
@@ -186,20 +213,33 @@ class FirestoreSyncManager @Inject constructor(
     }
 
     /**
-     * Push local article to Firestore
+     * Push local article with related data to Firestore
      */
     private suspend fun pushLocalArticle(article: Article) {
         val user = auth.currentUser ?: return
 
         try {
-            firestore.collection(USERS_COLLECTION)
-                .document(user.uid)
-                .collection(ARTICLES_COLLECTION)
-                .document(article.itemId)
-                .set(article)
-                .await()
+            // Fetch related data
+            val tags = articleDao.getArticleTags(article.itemId).map { tag ->
+                com.jayteealao.trails.network.ArticleTags(
+                    itemId = article.itemId,
+                    tag = tag,
+                    sortId = null,
+                    type = null
+                )
+            }
 
-            Timber.d("Pushed local article ${article.itemId} to Firestore")
+            // Backup article with related data
+            firestoreBackupService.backupArticle(
+                article = article,
+                tags = tags,
+                images = emptyList(), // TODO: fetch images when needed
+                videos = emptyList(), // TODO: fetch videos when needed
+                authors = emptyList(), // TODO: fetch authors when needed
+                domainMetadata = null // TODO: fetch metadata when needed
+            )
+
+            Timber.d("Pushed local article ${article.itemId} with ${tags.size} tags to Firestore")
         } catch (e: Exception) {
             Timber.e(e, "Failed to push article ${article.itemId}")
         }
@@ -234,18 +274,40 @@ class FirestoreSyncManager @Inject constructor(
                 return
             }
 
-            Timber.d("Syncing ${modifiedArticles.size} modified articles")
+            Timber.d("Syncing ${modifiedArticles.size} modified articles with related data")
 
-            // Push changes in batches
-            modifiedArticles.chunked(50).forEach { chunk ->
-                firestoreBackupService.backupArticles(chunk)
+            // Push changes with related data
+            modifiedArticles.forEach { article ->
+                try {
+                    // Fetch related data for each article
+                    val tags = articleDao.getArticleTags(article.itemId).map { tag ->
+                        com.jayteealao.trails.network.ArticleTags(
+                            itemId = article.itemId,
+                            tag = tag,
+                            sortId = null,
+                            type = null
+                        )
+                    }
+
+                    // Backup article with all related data
+                    firestoreBackupService.backupArticle(
+                        article = article,
+                        tags = tags,
+                        images = emptyList(),
+                        videos = emptyList(),
+                        authors = emptyList(),
+                        domainMetadata = null
+                    )
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to sync article ${article.itemId}")
+                }
             }
 
             // Update last sync timestamp
             firestoreBackupService.updateLastSyncTimestamp()
             _lastSyncTime.value = System.currentTimeMillis()
 
-            Timber.d("Successfully synced local changes")
+            Timber.d("Successfully synced local changes with related data")
         } catch (e: Exception) {
             Timber.e(e, "Failed to sync local changes")
         } finally {

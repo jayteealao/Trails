@@ -32,6 +32,8 @@ class FirestoreBackupService @Inject constructor(
         private const val VIDEOS_COLLECTION = "videos"
         private const val AUTHORS_COLLECTION = "authors"
         private const val DOMAIN_METADATA_COLLECTION = "domain_metadata"
+        private const val ARTICLE_TEXT_COLLECTION = "text"
+        private const val MAX_TEXT_SIZE = 900_000 // 900KB to leave buffer for other fields
     }
 
     /**
@@ -68,8 +70,26 @@ class FirestoreBackupService @Inject constructor(
             // Use batch write for atomic operation
             val batch = firestore.batch()
 
-            // Save article
-            batch.set(articleRef, article, SetOptions.merge())
+            // Handle large article text (>900KB)
+            val articleToSave: Article
+            val textSize = article.text?.toByteArray()?.size ?: 0
+
+            if (textSize > MAX_TEXT_SIZE && article.text != null) {
+                Timber.d("Article ${article.itemId} text is large ($textSize bytes), storing separately")
+
+                // Save text in separate subcollection
+                val textRef = articleRef.collection(ARTICLE_TEXT_COLLECTION)
+                    .document("content")
+                batch.set(textRef, mapOf("text" to article.text), SetOptions.merge())
+
+                // Save article without text
+                articleToSave = article.copy(text = null)
+            } else {
+                articleToSave = article
+            }
+
+            // Save article (with or without text)
+            batch.set(articleRef, articleToSave, SetOptions.merge())
 
             // Save tags
             tags.forEach { tag ->
@@ -157,13 +177,32 @@ class FirestoreBackupService @Inject constructor(
             val user = getCurrentUser()
                 ?: return Result.failure(Exception("User not authenticated"))
 
-            val articleDoc = getUserArticlesCollection(user.uid)
+            val articleRef = getUserArticlesCollection(user.uid)
                 .document(articleId)
-                .get()
-                .await()
+
+            val articleDoc = articleRef.get().await()
 
             if (articleDoc.exists()) {
-                val article = articleDoc.toObject(Article::class.java)
+                var article = articleDoc.toObject(Article::class.java)
+
+                // Check if text was stored separately
+                if (article != null && article.text == null) {
+                    try {
+                        val textDoc = articleRef.collection(ARTICLE_TEXT_COLLECTION)
+                            .document("content")
+                            .get()
+                            .await()
+
+                        if (textDoc.exists()) {
+                            val text = textDoc.getString("text")
+                            article = article.copy(text = text)
+                            Timber.d("Restored separate text for article $articleId")
+                        }
+                    } catch (e: Exception) {
+                        Timber.w(e, "Failed to restore separate text for article $articleId")
+                    }
+                }
+
                 Timber.d("Successfully restored article $articleId")
                 Result.success(article)
             } else {
