@@ -41,6 +41,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -167,6 +168,15 @@ class ArticleRepositoryImpl @Inject constructor(
             articleDao.insertArticleAuthors(datum.authors)
             datum.domainMetadata?.let { articleDao.insertDomainMetadata(it) }
         }
+
+        // Trigger immediate sync for new articles
+        coroutineScope.launch {
+            try {
+                firestoreSyncManager.syncLocalChanges()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to sync newly added articles")
+            }
+        }
     }
 
     override suspend fun setFavorite(itemId: String, isFavorite: Boolean) {
@@ -181,6 +191,7 @@ class ArticleRepositoryImpl @Inject constructor(
 
     override suspend fun addTag(itemId: String, tag: String) {
         if (tag.isBlank()) return
+        val timestamp = System.currentTimeMillis()
         articleDao.insertArticleTags(
             listOf(
                 ArticleTags(
@@ -191,11 +202,15 @@ class ArticleRepositoryImpl @Inject constructor(
                 )
             )
         )
+        // Update timeUpdated to trigger sync
+        articleDao.updateTimeUpdated(itemId, timestamp)
     }
 
     override suspend fun removeTag(itemId: String, tag: String) {
         if (tag.isBlank()) return
         articleDao.deleteArticleTag(itemId, tag)
+        // Update timeUpdated to trigger sync
+        articleDao.updateTimeUpdated(itemId, System.currentTimeMillis())
     }
 
     override suspend fun archive(itemId: String) {
@@ -204,6 +219,25 @@ class ArticleRepositoryImpl @Inject constructor(
 
     override suspend fun delete(itemId: String) {
         articleDao.updateDeleted(itemId, System.currentTimeMillis())
+
+        // Delete from Firestore as well
+        coroutineScope.launch {
+            try {
+                val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                if (user != null) {
+                    com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                        .collection("users")
+                        .document(user.uid)
+                        .collection("articles")
+                        .document(itemId)
+                        .delete()
+                        .await()
+                    Timber.d("Deleted article $itemId from Firestore")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to delete article $itemId from Firestore")
+            }
+        }
     }
 
     override suspend fun updateExcerpt(itemId: String, excerpt: String) {
