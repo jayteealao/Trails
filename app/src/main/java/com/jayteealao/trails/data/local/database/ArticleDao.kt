@@ -33,6 +33,9 @@ interface ArticleDao {
     @Query("SELECT * FROM article ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
     fun getArticles(offset: Int, limit: Int): List<Article>
 
+    @Query("SELECT * FROM article WHERE deleted_at IS NULL ORDER BY timeAdded DESC")
+    suspend fun getAllArticles(): List<Article>
+
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,

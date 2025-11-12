@@ -32,6 +32,8 @@ import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.initializers.SyncWorkName
 import com.jayteealao.trails.sync.workers.SyncWorker
+import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
+import com.jayteealao.trails.sync.workers.FirestoreRestoreWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -84,6 +86,10 @@ interface ArticleRepository: Syncable {
     suspend fun searchLocal(query: String): List<ArticleItem>
 
     suspend fun searchHybrid(query: String): List<ArticleItem>
+
+    fun syncToFirestore()
+
+    fun restoreFromFirestore()
 }
 
 interface Syncable {
@@ -291,20 +297,37 @@ class ArticleRepositoryImpl @Inject constructor(
         get() = syncStatusMonitor.isSyncing
 
     /**
-     * Synchronize articles from Pocket API to local database
-     * @param accessToken Pocket API access token
-     * @return Job
-     *
-     * TODO: Refactor this function
-     *
-     * note: returns a job object in order to allow preventing the syncworker from suceeding
-     * until the coroutine is finished
+     * Synchronize articles - now backs up to Firestore instead of Pocket API
+     * This replaces the old Pocket sync that is no longer available
      */
     override fun synchronize() {
+        syncToFirestore()
+    }
+
+    /**
+     * Backup articles to Firestore for the current user
+     */
+    override fun syncToFirestore() {
         WorkManager.getInstance(context)
-            .beginUniqueWork(SyncWorkName, ExistingWorkPolicy.KEEP, SyncWorker.startUpSyncWork())
-//            .then(ArticleExtractorWorker.startUpArticleExtractorWork())
-//            .then(SemanticModalWorker.startUpSemanticModalWork())
+            .beginUniqueWork(
+                "FirestoreBackupWork",
+                ExistingWorkPolicy.KEEP,
+                FirestoreSyncWorker.startUpSyncWork()
+            )
+            .enqueue()
+    }
+
+    /**
+     * Restore articles from Firestore for the current user
+     * Useful when user signs in on a new device
+     */
+    override fun restoreFromFirestore() {
+        WorkManager.getInstance(context)
+            .beginUniqueWork(
+                "FirestoreRestoreWork",
+                ExistingWorkPolicy.KEEP,
+                FirestoreRestoreWorker.startUpRestoreWork()
+            )
             .enqueue()
     }
 }
