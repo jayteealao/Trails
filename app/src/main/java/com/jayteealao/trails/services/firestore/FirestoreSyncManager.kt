@@ -102,8 +102,13 @@ class FirestoreSyncManager @Inject constructor(
                                         handleRemoteArticleChange(remoteArticle)
                                     }
                                     com.google.firebase.firestore.DocumentChange.Type.REMOVED -> {
-                                        // Handle deletion if needed
-                                        Timber.d("Article ${remoteArticle.itemId} removed remotely")
+                                        // Delete locally when remote deletion detected
+                                        try {
+                                            articleDao.updateDeleted(remoteArticle.itemId, System.currentTimeMillis())
+                                            Timber.d("Article ${remoteArticle.itemId} removed remotely and deleted locally")
+                                        } catch (e: Exception) {
+                                            Timber.e(e, "Failed to delete article ${remoteArticle.itemId} locally")
+                                        }
                                     }
                                 }
                             } catch (e: Exception) {
