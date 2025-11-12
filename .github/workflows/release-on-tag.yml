@@ -64,6 +64,34 @@ jobs:
             echo "SIGNING_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}"
           } >> $GITHUB_ENV
 
+      # --- Decode google-services.json ---
+      - name: Decode google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          set -euo pipefail
+      
+          if [ -z "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
+          echo "GOOGLE_SERVICES_JSON_B64 is empty."
+          exit 1
+          fi
+      
+          mkdir -p app
+      
+          # 1) Normalize line endings and strip *only* whitespace characters that can
+          # appear in secrets files (Windows/act can inject CRLF/newlines).
+          # 2) Base64-decode safely.
+          printf '%s' "$GOOGLE_SERVICES_JSON_B64" \
+          | tr -d '\r\n\t ' \
+          | base64 -d > app/google-services.json
+      
+          # Validate the JSON so we fail fast with a clear error
+          if ! command -v jq >/dev/null 2>&1; then
+          sudo apt-get update -y && sudo apt-get install -y jq
+          fi
+      
+          jq type app/google-services.json
+          echo "google-services.json decoded and valid."
       # --- Build (adjust module & tasks as needed) ---
       # If you have flavors, e.g., prod, replace with assembleProdRelease/bundleProdRelease
       - name: Build APK + AAB
