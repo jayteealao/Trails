@@ -68,6 +68,18 @@ jobs:
             echo "SIGNING_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}"
           } >> $GITHUB_ENV
 
+      # --- Decode google-services.json ---
+      - name: Decode google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          printf '%s' "$GOOGLE_SERVICES_JSON_B64" | tr -d '[:space:]' | base64 -d > app/google-services.json
+          echo "File size: $(wc -c < app/google-services.json) bytes"
+          echo "First line: $(head -1 app/google-services.json)"
+          echo "Last line: $(tail -1 app/google-services.json)"
+          if command -v python3 &> /dev/null; then
+            python3 -m json.tool app/google-services.json > /dev/null && echo "✓ JSON is valid" || echo "✗ JSON is malformed"
+          fi
 
       - name: Build debug APK
         id: build
