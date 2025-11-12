@@ -36,6 +36,9 @@ interface ArticleDao {
     @Query("SELECT * FROM article WHERE deleted_at IS NULL ORDER BY timeAdded DESC")
     suspend fun getAllArticles(): List<Article>
 
+    @Query("SELECT * FROM article WHERE timeUpdated > :since AND deleted_at IS NULL ORDER BY timeUpdated DESC")
+    suspend fun getArticlesModifiedSince(since: Long): List<Article>
+
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
         SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
@@ -132,7 +135,8 @@ interface ArticleDao {
     @Query(
         """
         UPDATE article
-        SET archived_at = :timeArchived
+        SET archived_at = :timeArchived,
+            timeUpdated = :timeArchived
         WHERE itemId = :itemId
         """
     )
@@ -141,7 +145,8 @@ interface ArticleDao {
     @Query(
         """
         UPDATE article
-        SET deleted_at = :timeDeleted
+        SET deleted_at = :timeDeleted,
+            timeUpdated = :timeDeleted
         WHERE itemId = :itemId
         """
     )
@@ -196,7 +201,8 @@ interface ArticleDao {
         """
         UPDATE article
         SET favorite = CASE WHEN :isFavorite THEN '1' ELSE '0' END,
-            timeFavorited = CASE WHEN :isFavorite THEN :timeFavorited ELSE 0 END
+            timeFavorited = CASE WHEN :isFavorite THEN :timeFavorited ELSE 0 END,
+            timeUpdated = :timeFavorited
         WHERE itemId = :itemId
         """
     )
@@ -205,7 +211,8 @@ interface ArticleDao {
     @Query(
         """
         UPDATE article
-        SET timeRead = CASE WHEN :isRead THEN :timestamp ELSE NULL END
+        SET timeRead = CASE WHEN :isRead THEN :timestamp ELSE NULL END,
+            timeUpdated = :timestamp
         WHERE itemId = :itemId
         """
     )
