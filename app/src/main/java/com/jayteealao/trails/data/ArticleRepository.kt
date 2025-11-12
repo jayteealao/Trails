@@ -161,7 +161,15 @@ class ArticleRepositoryImpl @Inject constructor(
      */
     override suspend fun add(articleData: List<ArticleData>) {
         articleData.forEach { datum ->
-            articleDao.upsertArticle(datum.article)
+            // Clear deleted_at and archived_at when re-adding articles
+            // This undeletes/unarchives previously deleted articles
+            val articleToAdd = datum.article.copy(
+                deletedAt = null,
+                archivedAt = null,
+                timeUpdated = System.currentTimeMillis() // Update timestamp for sync
+            )
+
+            articleDao.upsertArticle(articleToAdd)
             articleDao.insertArticleImages(datum.images)
             datum.videos.let { articleDao.insertArticleVideos(it) }
             articleDao.insertArticleTags(datum.tags)
