@@ -29,6 +29,7 @@ import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.network.ArticleData
 import com.jayteealao.trails.network.ArticleTags
+import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.initializers.SyncWorkName
 import com.jayteealao.trails.sync.workers.SyncWorker
@@ -120,6 +121,7 @@ class ArticleRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val articleDao: ArticleDao,
     private val syncStatusMonitor: SyncStatusMonitor,
+    private val firestoreSyncManager: FirestoreSyncManager,
 //    private val modalClient: ModalClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ArticleRepository {
@@ -297,15 +299,18 @@ class ArticleRepositoryImpl @Inject constructor(
         get() = syncStatusMonitor.isSyncing
 
     /**
-     * Synchronize articles - now backs up to Firestore instead of Pocket API
-     * This replaces the old Pocket sync that is no longer available
+     * Synchronize articles - uses bidirectional Firestore sync
+     * This replaces the old Pocket API sync that is no longer available
      */
     override fun synchronize() {
-        syncToFirestore()
+        coroutineScope.launch {
+            firestoreSyncManager.syncLocalChanges()
+        }
     }
 
     /**
      * Backup articles to Firestore for the current user
+     * Uses WorkManager for background sync
      */
     override fun syncToFirestore() {
         WorkManager.getInstance(context)

@@ -81,6 +81,9 @@
             <!-- android:value="androidx.startup" -->
             <!-- tools:node="merge" /> -->
             <meta-data
+                android:name="com.jayteealao.trails.sync.initializers.FirestoreSyncInitializer"
+                android:value="androidx.startup" />
+            <meta-data
                 android:name="androidx.work.WorkManagerInitializer"
                 android:value="androidx.startup"
                 tools:node="remove" />
