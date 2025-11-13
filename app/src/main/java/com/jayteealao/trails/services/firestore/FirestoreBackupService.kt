@@ -34,6 +34,7 @@ class FirestoreBackupService @Inject constructor(
         private const val DOMAIN_METADATA_COLLECTION = "domain_metadata"
         private const val ARTICLE_TEXT_COLLECTION = "text"
         private const val MAX_TEXT_SIZE = 900_000 // 900KB to leave buffer for other fields
+        private const val PAGINATION_LIMIT = 50 // Fetch 50 articles at a time
     }
 
     /**
@@ -215,7 +216,7 @@ class FirestoreBackupService @Inject constructor(
     }
 
     /**
-     * Restore all articles for the current user
+     * Restore all articles for the current user (non-paginated, for backwards compatibility)
      */
     suspend fun restoreAllArticles(): Result<List<Article>> {
         return try {
@@ -234,6 +235,73 @@ class FirestoreBackupService @Inject constructor(
             Result.success(articles)
         } catch (e: Exception) {
             Timber.e(e, "Failed to restore articles")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Restore all articles with pagination and progress callback
+     * @param onProgress Callback with (current, total) counts
+     */
+    suspend fun restoreAllArticlesPaginated(
+        onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }
+    ): Result<List<Article>> {
+        return try {
+            val user = getCurrentUser()
+                ?: return Result.failure(Exception("User not authenticated"))
+
+            val allArticles = mutableListOf<Article>()
+            var lastDocument: com.google.firebase.firestore.DocumentSnapshot? = null
+            var hasMore = true
+            var fetchedCount = 0
+
+            // First, get total count for progress reporting
+            val countSnapshot = getUserArticlesCollection(user.uid)
+                .count()
+                .get(com.google.firebase.firestore.AggregateSource.SERVER)
+                .await()
+            val totalCount = countSnapshot.count.toInt()
+
+            Timber.d("Starting paginated restore of $totalCount articles")
+
+            while (hasMore) {
+                val query = if (lastDocument != null) {
+                    getUserArticlesCollection(user.uid)
+                        .orderBy("timeAdded")
+                        .startAfter(lastDocument)
+                        .limit(PAGINATION_LIMIT.toLong())
+                } else {
+                    getUserArticlesCollection(user.uid)
+                        .orderBy("timeAdded")
+                        .limit(PAGINATION_LIMIT.toLong())
+                }
+
+                val snapshot = query.get().await()
+
+                if (snapshot.documents.isEmpty()) {
+                    hasMore = false
+                } else {
+                    val articles = snapshot.documents.mapNotNull { doc ->
+                        doc.toObject(Article::class.java)
+                    }
+
+                    allArticles.addAll(articles)
+                    fetchedCount += articles.size
+                    lastDocument = snapshot.documents.lastOrNull()
+
+                    onProgress(fetchedCount, totalCount)
+                    Timber.d("Restored $fetchedCount / $totalCount articles")
+
+                    if (articles.size < PAGINATION_LIMIT) {
+                        hasMore = false
+                    }
+                }
+            }
+
+            Timber.d("Successfully restored ${allArticles.size} articles for user ${user.uid}")
+            Result.success(allArticles)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to restore articles with pagination")
             Result.failure(e)
         }
     }
@@ -346,6 +414,83 @@ class FirestoreBackupService @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             Timber.e(e, "Failed to update last sync timestamp")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Check if this is the first sync for the user
+     * Returns true if no lastSyncTimestamp exists
+     */
+    suspend fun isFirstSync(): Result<Boolean> {
+        return try {
+            val user = getCurrentUser()
+                ?: return Result.failure(Exception("User not authenticated"))
+
+            val doc = firestore.collection(USERS_COLLECTION)
+                .document(user.uid)
+                .get()
+                .await()
+
+            val hasTimestamp = doc.exists() && doc.contains("lastSyncTimestamp")
+            Result.success(!hasTimestamp)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to check first sync status")
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Backup articles with pagination and progress callback
+     * @param articles List of articles to backup
+     * @param onProgress Callback with (current, total) counts
+     */
+    suspend fun backupArticlesPaginated(
+        articles: List<Article>,
+        onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }
+    ): Result<Int> {
+        return try {
+            val user = getCurrentUser()
+                ?: return Result.failure(Exception("User not authenticated"))
+
+            var successCount = 0
+            val totalCount = articles.size
+
+            Timber.d("Starting paginated backup of $totalCount articles")
+
+            // Process in chunks of 50 for better performance
+            articles.chunked(PAGINATION_LIMIT).forEachIndexed { chunkIndex, chunk ->
+                val batch = firestore.batch()
+
+                chunk.forEach { article ->
+                    val articleRef = getUserArticlesCollection(user.uid)
+                        .document(article.itemId)
+
+                    // Handle large text
+                    val textSize = article.text?.toByteArray()?.size ?: 0
+                    val articleToSave = if (textSize > MAX_TEXT_SIZE && article.text != null) {
+                        val textRef = articleRef.collection(ARTICLE_TEXT_COLLECTION)
+                            .document("content")
+                        batch.set(textRef, mapOf("text" to article.text), SetOptions.merge())
+                        article.copy(text = null)
+                    } else {
+                        article
+                    }
+
+                    batch.set(articleRef, articleToSave, SetOptions.merge())
+                }
+
+                batch.commit().await()
+                successCount += chunk.size
+
+                onProgress(successCount, totalCount)
+                Timber.d("Backed up $successCount / $totalCount articles (chunk ${chunkIndex + 1})")
+            }
+
+            Timber.d("Successfully backed up $successCount articles for user ${user.uid}")
+            Result.success(successCount)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to backup articles with pagination")
             Result.failure(e)
         }
     }
