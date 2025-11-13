@@ -433,7 +433,10 @@ class FirestoreSyncManager @Inject constructor(
 
     /**
      * Perform full bidirectional sync with pagination
-     * Pulls remote changes and pushes local changes
+     * Intelligently handles first sync scenarios:
+     * - New device with remote data → restore only
+     * - Existing user upgrading → backup only
+     * - Both have data → bidirectional sync
      */
     suspend fun performFullSync() {
         val user = auth.currentUser
@@ -448,42 +451,77 @@ class FirestoreSyncManager @Inject constructor(
             _syncStatus.value = SyncStatus.Syncing
             _lastError.value = null
 
-            Timber.d("Starting full bidirectional sync with pagination")
+            // Check if this is first sync
+            val isFirstSync = firestoreBackupService.isFirstSync().getOrNull() ?: false
 
-            // First, pull remote changes with pagination
-            val remoteResult = firestoreBackupService.restoreAllArticlesPaginated(
-                onProgress = { current, total ->
-                    val progressMessage = "Restoring $current / $total articles"
-                    _syncStatus.value = SyncStatus.Syncing
-                    Timber.d(progressMessage)
-                }
-            )
+            if (isFirstSync) {
+                Timber.d("First sync detected - determining sync strategy")
 
-            remoteResult.fold(
-                onSuccess = { remoteArticles ->
-                    if (remoteArticles.isNotEmpty()) {
-                        Timber.d("Applying ${remoteArticles.size} remote articles")
+                // Get counts to determine strategy
+                val localArticles = articleDao.getAllArticles()
+                val localCount = localArticles.size
+                val remoteCount = firestoreBackupService.getRemoteArticleCount().getOrNull() ?: 0
+
+                Timber.d("First sync counts - Local: $localCount, Remote: $remoteCount")
+
+                when {
+                    localCount > 0 && remoteCount == 0 -> {
+                        // Scenario 1: Existing user upgrading - backup local data
+                        Timber.d("First sync: Backup scenario (existing user upgrading)")
+                        _syncStatus.value = SyncStatus.Syncing
+                        syncLocalChanges() // This will backup all local articles
+                    }
+                    localCount == 0 && remoteCount > 0 -> {
+                        // Scenario 2: New device - restore from remote
+                        Timber.d("First sync: Restore scenario (new device with remote data)")
                         _syncStatus.value = SyncStatus.Syncing
 
-                        // Process articles in chunks to avoid memory issues
-                        remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
-                            chunk.forEach { remoteArticle ->
-                                handleRemoteArticleChange(remoteArticle)
+                        val remoteResult = firestoreBackupService.restoreAllArticlesPaginated(
+                            onProgress = { current, total ->
+                                _syncStatus.value = SyncStatus.Syncing
+                                Timber.d("Restoring $current / $total articles")
                             }
-                            Timber.d("Processed chunk ${chunkIndex + 1} of ${(remoteArticles.size + 49) / 50}")
-                        }
-                    } else {
-                        Timber.d("No remote articles to restore")
-                    }
-                },
-                onFailure = { error ->
-                    Timber.e(error, "Failed to restore remote articles")
-                    throw error
-                }
-            )
+                        )
 
-            // Then push local changes with pagination
-            syncLocalChanges()
+                        remoteResult.fold(
+                            onSuccess = { remoteArticles ->
+                                Timber.d("Applying ${remoteArticles.size} remote articles")
+                                remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
+                                    chunk.forEach { remoteArticle ->
+                                        handleRemoteArticleChange(remoteArticle)
+                                    }
+                                    Timber.d("Processed chunk ${chunkIndex + 1}")
+                                }
+                                _syncStatus.value = SyncStatus.Success("Restored $remoteCount articles")
+                            },
+                            onFailure = { error ->
+                                Timber.e(error, "Failed to restore remote articles")
+                                throw error
+                            }
+                        )
+
+                        // Mark as synced
+                        firestoreBackupService.updateLastSyncTimestamp()
+                        _lastSyncTime.value = System.currentTimeMillis()
+                    }
+                    localCount > 0 && remoteCount > 0 -> {
+                        // Scenario 3: Both have data - full bidirectional sync
+                        Timber.d("First sync: Bidirectional scenario (both have data)")
+                        performBidirectionalSync()
+                    }
+                    else -> {
+                        // Scenario 4: Neither has data - just mark as synced
+                        Timber.d("First sync: No data on either side")
+                        firestoreBackupService.updateLastSyncTimestamp()
+                        _lastSyncTime.value = System.currentTimeMillis()
+                        _syncStatus.value = SyncStatus.Success("Up to date")
+                    }
+                }
+            } else {
+                // Regular sync - always bidirectional
+                Timber.d("Regular sync - performing bidirectional sync")
+                performBidirectionalSync()
+            }
 
             Timber.d("Full sync completed successfully")
         } catch (e: Exception) {
@@ -493,6 +531,45 @@ class FirestoreSyncManager @Inject constructor(
         } finally {
             _isSyncing.value = false
         }
+    }
+
+    /**
+     * Perform bidirectional sync (pull remote, push local)
+     */
+    private suspend fun performBidirectionalSync() {
+        // First, pull remote changes with pagination
+        val remoteResult = firestoreBackupService.restoreAllArticlesPaginated(
+            onProgress = { current, total ->
+                _syncStatus.value = SyncStatus.Syncing
+                Timber.d("Restoring $current / $total articles")
+            }
+        )
+
+        remoteResult.fold(
+            onSuccess = { remoteArticles ->
+                if (remoteArticles.isNotEmpty()) {
+                    Timber.d("Applying ${remoteArticles.size} remote articles")
+                    _syncStatus.value = SyncStatus.Syncing
+
+                    // Process articles in chunks to avoid memory issues
+                    remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
+                        chunk.forEach { remoteArticle ->
+                            handleRemoteArticleChange(remoteArticle)
+                        }
+                        Timber.d("Processed chunk ${chunkIndex + 1} of ${(remoteArticles.size + 49) / 50}")
+                    }
+                } else {
+                    Timber.d("No remote articles to restore")
+                }
+            },
+            onFailure = { error ->
+                Timber.e(error, "Failed to restore remote articles")
+                throw error
+            }
+        )
+
+        // Then push local changes with pagination
+        syncLocalChanges()
     }
 
     /**
