@@ -27,6 +27,16 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * Sync status for UI display
+ */
+sealed class SyncStatus {
+    object Idle : SyncStatus()
+    object Syncing : SyncStatus()
+    data class Success(val message: String) : SyncStatus()
+    data class Error(val message: String, val exception: Exception?) : SyncStatus()
+}
+
+/**
  * Manages bidirectional sync between local Room database and Firestore
  * Provides real-time sync with conflict resolution for multi-device support
  */
@@ -46,6 +56,12 @@ class FirestoreSyncManager @Inject constructor(
 
     private val _lastSyncTime = MutableStateFlow(0L)
     val lastSyncTime: StateFlow<Long> = _lastSyncTime.asStateFlow()
+
+    private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+    val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
+
+    private val _lastError = MutableStateFlow<String?>(null)
+    val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
     companion object {
         private const val USERS_COLLECTION = "users"
@@ -258,11 +274,14 @@ class FirestoreSyncManager @Inject constructor(
         val user = auth.currentUser
         if (user == null) {
             Timber.w("Cannot sync - user not authenticated")
+            _syncStatus.value = SyncStatus.Error("Not authenticated", null)
             return
         }
 
         try {
             _isSyncing.value = true
+            _syncStatus.value = SyncStatus.Syncing
+            _lastError.value = null
 
             val lastSync = firestoreBackupService.getLastSyncTimestamp().getOrNull() ?: 0L
 
@@ -276,10 +295,14 @@ class FirestoreSyncManager @Inject constructor(
 
             if (modifiedArticles.isEmpty()) {
                 Timber.d("No local changes to sync")
+                _syncStatus.value = SyncStatus.Success("Up to date")
                 return
             }
 
             Timber.d("Syncing ${modifiedArticles.size} modified articles with related data")
+
+            var successCount = 0
+            var failureCount = 0
 
             // Push changes with related data
             modifiedArticles.forEach { article ->
@@ -303,18 +326,30 @@ class FirestoreSyncManager @Inject constructor(
                         authors = emptyList(),
                         domainMetadata = null
                     )
+                    successCount++
                 } catch (e: Exception) {
                     Timber.e(e, "Failed to sync article ${article.itemId}")
+                    failureCount++
                 }
             }
 
             // Update last sync timestamp
             firestoreBackupService.updateLastSyncTimestamp()
-            _lastSyncTime.value = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            _lastSyncTime.value = now
 
-            Timber.d("Successfully synced local changes with related data")
+            val message = if (failureCount > 0) {
+                "Synced $successCount articles, $failureCount failed"
+            } else {
+                "Synced $successCount articles"
+            }
+
+            _syncStatus.value = SyncStatus.Success(message)
+            Timber.d("Successfully synced local changes: $message")
         } catch (e: Exception) {
             Timber.e(e, "Failed to sync local changes")
+            _lastError.value = e.message ?: "Sync failed"
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error", e)
         } finally {
             _isSyncing.value = false
         }
@@ -360,29 +395,43 @@ class FirestoreSyncManager @Inject constructor(
         val user = auth.currentUser
         if (user == null) {
             Timber.w("Cannot perform full sync - user not authenticated")
+            _syncStatus.value = SyncStatus.Error("Not authenticated", null)
             return
         }
 
         try {
             _isSyncing.value = true
+            _syncStatus.value = SyncStatus.Syncing
+            _lastError.value = null
+
             Timber.d("Starting full bidirectional sync")
 
             // First, pull remote changes
-            val remoteArticles = firestoreBackupService.restoreAllArticles().getOrNull()
+            val remoteResult = firestoreBackupService.restoreAllArticles()
 
-            if (remoteArticles != null) {
-                Timber.d("Applying ${remoteArticles.size} remote articles")
-                remoteArticles.forEach { remoteArticle ->
-                    handleRemoteArticleChange(remoteArticle)
+            remoteResult.fold(
+                onSuccess = { remoteArticles ->
+                    if (remoteArticles.isNotEmpty()) {
+                        Timber.d("Applying ${remoteArticles.size} remote articles")
+                        remoteArticles.forEach { remoteArticle ->
+                            handleRemoteArticleChange(remoteArticle)
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    Timber.e(error, "Failed to restore remote articles")
+                    throw error
                 }
-            }
+            )
 
             // Then push local changes
             syncLocalChanges()
 
-            Timber.d("Full sync completed")
+            Timber.d("Full sync completed successfully")
         } catch (e: Exception) {
-            Timber.e(e, "Full sync failed")
+            Timber.e(e, "Full sync failed: ${e.message}")
+            _lastError.value = e.message ?: "Full sync failed"
+            _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error", e)
         } finally {
             _isSyncing.value = false
         }

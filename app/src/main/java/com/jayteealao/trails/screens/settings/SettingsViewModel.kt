@@ -7,6 +7,7 @@ import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CoroutineDispatcher
@@ -25,6 +26,7 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val articleDao: ArticleDao,
     private val sharedPreferencesManager: SharedPreferencesManager,
+    private val firestoreSyncManager: FirestoreSyncManager,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel(), Store<SettingsState, SettingsEvent> {
 
@@ -40,8 +42,12 @@ class SettingsViewModel @Inject constructor(
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_FREEDIUM),
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.DARK_MODE_ENABLED),
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_CARD_LAYOUT, defaultValue = false),
-        _jinaToken
-    ) { useFreedium, darkTheme, useCardLayout, jinaToken ->
+        _jinaToken,
+        firestoreSyncManager.isSyncing,
+        firestoreSyncManager.lastSyncTime,
+        firestoreSyncManager.syncStatus,
+        firestoreSyncManager.lastError
+    ) { useFreedium, darkTheme, useCardLayout, jinaToken, isSyncing, lastSyncTime, syncStatus, lastError ->
         SettingsState(
             useFreedium = useFreedium,
             darkTheme = darkTheme,
@@ -49,7 +55,11 @@ class SettingsViewModel @Inject constructor(
             jinaToken = jinaToken,
             jinaPlaceholder = sharedPreferencesManager.getString("JINA_TOKEN") ?: "Insert Jina Token Here",
             versionName = BuildConfig.VERSION_NAME,
-            versionCode = BuildConfig.VERSION_CODE
+            versionCode = BuildConfig.VERSION_CODE,
+            isSyncing = isSyncing,
+            lastSyncTime = lastSyncTime,
+            syncStatus = syncStatus,
+            lastError = lastError
         )
     }.stateIn(
         scope = viewModelScope,
@@ -101,6 +111,17 @@ class SettingsViewModel @Inject constructor(
     fun updateCardLayout(enabled: Boolean) {
         viewModelScope.launch(ioDispatcher) {
             sharedPreferencesManager.saveBoolean(SettingsPreferenceKeys.USE_CARD_LAYOUT, enabled)
+        }
+    }
+
+    fun performManualSync() {
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                firestoreSyncManager.performFullSync()
+                _event.emit(SettingsEvent.SyncCompleted)
+            } catch (e: Exception) {
+                _event.emit(SettingsEvent.ShowToast("Sync failed: ${e.message}"))
+            }
         }
     }
 }

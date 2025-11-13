@@ -1,14 +1,18 @@
 package com.jayteealao.trails.screens.settings
 
 import android.content.res.Configuration
+import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -26,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.jayteealao.trails.screens.theme.Typography
+import com.jayteealao.trails.services.firestore.SyncStatus
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.ArrowRight
 import io.yumemi.tartlet.ViewStore
@@ -147,6 +152,76 @@ internal fun SettingsScreenContent(
         }
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
+        Text("SYNC", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+
+        // Sync Status Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(text = "Status")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (viewStore.state.isSyncing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+                Text(
+                    text = when (val status = viewStore.state.syncStatus) {
+                        is SyncStatus.Idle -> "Idle"
+                        is SyncStatus.Syncing -> "Syncing..."
+                        is SyncStatus.Success -> status.message
+                        is SyncStatus.Error -> "Error: ${status.message}"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = when (viewStore.state.syncStatus) {
+                        is SyncStatus.Error -> MaterialTheme.colorScheme.error
+                        is SyncStatus.Success -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+
+        // Last Sync Time Row
+        if (viewStore.state.lastSyncTime > 0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = "Last Sync")
+                Text(
+                    text = formatRelativeTime(viewStore.state.lastSyncTime),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Manual Sync Button
+        Button(
+            onClick = { viewStore.action { performManualSync() } },
+            enabled = !viewStore.state.isSyncing,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+            Text(text = if (viewStore.state.isSyncing) "Syncing..." else "Sync Now")
+        }
+
+        HorizontalDivider()
+        Spacer(Modifier.height(8.dp))
         Text("ABOUT", style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(4.dp))
         Row(
@@ -222,4 +297,16 @@ private fun SettingsScreenDarkPreview() {
             }
         )
     }
+}
+
+/**
+ * Format timestamp as relative time (e.g., "2 minutes ago")
+ */
+private fun formatRelativeTime(timestamp: Long): String {
+    return DateUtils.getRelativeTimeSpanString(
+        timestamp,
+        System.currentTimeMillis(),
+        DateUtils.MINUTE_IN_MILLIS,
+        DateUtils.FORMAT_ABBREV_RELATIVE
+    ).toString()
 }

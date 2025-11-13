@@ -34,32 +34,43 @@ class FirestoreSyncInitializer : Initializer<Unit> {
         auth.currentUser?.let { user ->
             Timber.d("User authenticated: ${user.uid}, starting sync")
 
-            // Start real-time sync
+            // Start real-time sync listener
             syncManager.startRealtimeSync()
 
-            // Perform initial full sync
+            // Perform initial full sync in background
             ProcessLifecycleOwner.get().lifecycleScope.launch {
                 try {
+                    Timber.d("Starting initial full sync")
                     syncManager.performFullSync()
+                    Timber.d("Initial full sync completed successfully")
                 } catch (e: Exception) {
-                    Timber.e(e, "Initial sync failed")
+                    Timber.e(e, "Initial sync failed: ${e.message}")
+                    // Error will be reflected in syncStatus StateFlow for UI
                 }
             }
         } ?: run {
             Timber.d("No authenticated user, skipping sync initialization")
         }
 
-        // Listen for auth state changes
+        // Listen for auth state changes to handle sign-in/sign-out
         auth.addAuthStateListener { firebaseAuth ->
-            if (firebaseAuth.currentUser != null) {
-                Timber.d("User signed in, starting sync")
+            val currentUser = firebaseAuth.currentUser
+
+            if (currentUser != null) {
+                Timber.d("User signed in: ${currentUser.uid}, starting sync")
+
+                // Start real-time sync listener
                 syncManager.startRealtimeSync()
 
+                // Perform full sync after sign-in
                 ProcessLifecycleOwner.get().lifecycleScope.launch {
                     try {
+                        Timber.d("Starting full sync after sign-in")
                         syncManager.performFullSync()
+                        Timber.d("Sync after sign-in completed successfully")
                     } catch (e: Exception) {
-                        Timber.e(e, "Sync after sign-in failed")
+                        Timber.e(e, "Sync after sign-in failed: ${e.message}")
+                        // Error will be reflected in syncStatus StateFlow for UI
                     }
                 }
             } else {
