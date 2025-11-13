@@ -441,6 +441,29 @@ class FirestoreBackupService @Inject constructor(
     }
 
     /**
+     * Check if remote articles exist in Firestore
+     * Returns the count of remote articles
+     */
+    suspend fun getRemoteArticleCount(): Result<Int> {
+        return try {
+            val user = getCurrentUser()
+                ?: return Result.failure(Exception("User not authenticated"))
+
+            val countSnapshot = getUserArticlesCollection(user.uid)
+                .count()
+                .get(com.google.firebase.firestore.AggregateSource.SERVER)
+                .await()
+
+            val count = countSnapshot.count.toInt()
+            Timber.d("Remote article count: $count")
+            Result.success(count)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to get remote article count")
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Backup articles with pagination and progress callback
      * @param articles List of articles to backup
      * @param onProgress Callback with (current, total) counts
