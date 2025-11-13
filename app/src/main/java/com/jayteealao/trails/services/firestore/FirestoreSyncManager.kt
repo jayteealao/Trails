@@ -268,7 +268,7 @@ class FirestoreSyncManager @Inject constructor(
 
     /**
      * Sync local changes to Firestore
-     * Pushes articles modified since last sync
+     * Pushes articles modified since last sync, or all articles on first sync
      */
     suspend fun syncLocalChanges() {
         val user = auth.currentUser
@@ -283,55 +283,95 @@ class FirestoreSyncManager @Inject constructor(
             _syncStatus.value = SyncStatus.Syncing
             _lastError.value = null
 
+            // Check if this is first sync
+            val isFirstSync = firestoreBackupService.isFirstSync().getOrNull() ?: false
             val lastSync = firestoreBackupService.getLastSyncTimestamp().getOrNull() ?: 0L
 
-            // Get articles modified since last sync
-            val modifiedArticles = if (lastSync > 0) {
-                articleDao.getArticlesModifiedSince(lastSync)
-            } else {
-                // First sync - get all articles
-                articleDao.getAllArticles()
+            // Get articles to sync
+            val articlesToSync = when {
+                isFirstSync -> {
+                    // First sync - backup all existing articles for existing users
+                    Timber.d("First sync detected - backing up all existing articles")
+                    articleDao.getAllArticles()
+                }
+                lastSync > 0 -> {
+                    // Regular sync - only modified articles
+                    articleDao.getArticlesModifiedSince(lastSync)
+                }
+                else -> {
+                    // Fallback - get all articles
+                    articleDao.getAllArticles()
+                }
             }
 
-            if (modifiedArticles.isEmpty()) {
+            if (articlesToSync.isEmpty()) {
                 Timber.d("No local changes to sync")
                 _syncStatus.value = SyncStatus.Success("Up to date")
+
+                // Still update timestamp even if nothing to sync
+                if (isFirstSync) {
+                    firestoreBackupService.updateLastSyncTimestamp()
+                }
                 return
             }
 
-            Timber.d("Syncing ${modifiedArticles.size} modified articles with related data")
+            Timber.d("Syncing ${articlesToSync.size} articles with related data (firstSync=$isFirstSync)")
 
             var successCount = 0
             var failureCount = 0
 
-            // Push changes with related data
-            modifiedArticles.forEach { article ->
-                try {
-                    // Fetch related data for each article
-                    val tags = articleDao.getArticleTags(article.itemId).map { tag ->
-                        com.jayteealao.trails.network.ArticleTags(
-                            itemId = article.itemId,
-                            tag = tag,
-                            sortId = null,
-                            type = null
-                        )
-                    }
-
-                    // Backup article with all related data
-                    firestoreBackupService.backupArticle(
-                        article = article,
-                        tags = tags,
-                        images = emptyList(),
-                        videos = emptyList(),
-                        authors = emptyList(),
-                        domainMetadata = null
-                    )
-                    successCount++
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to sync article ${article.itemId}")
-                    failureCount++
+            // Use paginated backup for better performance
+            val backupResult = firestoreBackupService.backupArticlesPaginated(
+                articles = articlesToSync,
+                onProgress = { current, total ->
+                    val progressMessage = "Syncing $current / $total articles"
+                    _syncStatus.value = SyncStatus.Syncing
+                    Timber.d(progressMessage)
                 }
-            }
+            )
+
+            backupResult.fold(
+                onSuccess = { count ->
+                    successCount = count
+
+                    // Also backup tags for synced articles
+                    articlesToSync.forEach { article ->
+                        try {
+                            val tags = articleDao.getArticleTags(article.itemId).map { tag ->
+                                com.jayteealao.trails.network.ArticleTags(
+                                    itemId = article.itemId,
+                                    tag = tag,
+                                    sortId = null,
+                                    type = null
+                                )
+                            }
+
+                            if (tags.isNotEmpty()) {
+                                // Backup tags separately
+                                val user = auth.currentUser ?: return@forEach
+                                val articleRef = firestore.collection("users")
+                                    .document(user.uid)
+                                    .collection("articles")
+                                    .document(article.itemId)
+
+                                val batch = firestore.batch()
+                                tags.forEach { tag ->
+                                    val tagRef = articleRef.collection("tags")
+                                        .document("${tag.itemId}_${tag.tag}")
+                                    batch.set(tagRef, tag, com.google.firebase.firestore.SetOptions.merge())
+                                }
+                                batch.commit().await()
+                            }
+                        } catch (e: Exception) {
+                            Timber.w(e, "Failed to backup tags for article ${article.itemId}")
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    Timber.e(error, "Failed to backup articles")
+                    failureCount = articlesToSync.size
+                }
+            )
 
             // Update last sync timestamp
             firestoreBackupService.updateLastSyncTimestamp()
@@ -341,7 +381,11 @@ class FirestoreSyncManager @Inject constructor(
             val message = if (failureCount > 0) {
                 "Synced $successCount articles, $failureCount failed"
             } else {
-                "Synced $successCount articles"
+                if (isFirstSync) {
+                    "Initial backup complete: $successCount articles"
+                } else {
+                    "Synced $successCount articles"
+                }
             }
 
             _syncStatus.value = SyncStatus.Success(message)
@@ -388,7 +432,7 @@ class FirestoreSyncManager @Inject constructor(
     }
 
     /**
-     * Perform full bidirectional sync
+     * Perform full bidirectional sync with pagination
      * Pulls remote changes and pushes local changes
      */
     suspend fun performFullSync() {
@@ -404,18 +448,32 @@ class FirestoreSyncManager @Inject constructor(
             _syncStatus.value = SyncStatus.Syncing
             _lastError.value = null
 
-            Timber.d("Starting full bidirectional sync")
+            Timber.d("Starting full bidirectional sync with pagination")
 
-            // First, pull remote changes
-            val remoteResult = firestoreBackupService.restoreAllArticles()
+            // First, pull remote changes with pagination
+            val remoteResult = firestoreBackupService.restoreAllArticlesPaginated(
+                onProgress = { current, total ->
+                    val progressMessage = "Restoring $current / $total articles"
+                    _syncStatus.value = SyncStatus.Syncing
+                    Timber.d(progressMessage)
+                }
+            )
 
             remoteResult.fold(
                 onSuccess = { remoteArticles ->
                     if (remoteArticles.isNotEmpty()) {
                         Timber.d("Applying ${remoteArticles.size} remote articles")
-                        remoteArticles.forEach { remoteArticle ->
-                            handleRemoteArticleChange(remoteArticle)
+                        _syncStatus.value = SyncStatus.Syncing
+
+                        // Process articles in chunks to avoid memory issues
+                        remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
+                            chunk.forEach { remoteArticle ->
+                                handleRemoteArticleChange(remoteArticle)
+                            }
+                            Timber.d("Processed chunk ${chunkIndex + 1} of ${(remoteArticles.size + 49) / 50}")
                         }
+                    } else {
+                        Timber.d("No remote articles to restore")
                     }
                 },
                 onFailure = { error ->
@@ -424,7 +482,7 @@ class FirestoreSyncManager @Inject constructor(
                 }
             )
 
-            // Then push local changes
+            // Then push local changes with pagination
             syncLocalChanges()
 
             Timber.d("Full sync completed successfully")
