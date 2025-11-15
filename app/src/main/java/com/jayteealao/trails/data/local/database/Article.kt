@@ -28,12 +28,12 @@ import kotlinx.serialization.Serializable
 @Serializable
 @Entity(tableName = "article")
 data class Article(
-    @PrimaryKey val itemId: String,
-    val resolvedId: String?,
-    val title: String,
-    val givenTitle: String,
-    val url: String?,
-    val givenUrl: String?,
+    @PrimaryKey val itemId: String = "",
+    val resolvedId: String? = null,
+    val title: String = "",
+    val givenTitle: String = "",
+    val url: String? = null,
+    val givenUrl: String? = null,
     val excerpt: String? = null,
     val wordCount: Int = 0,
     val favorite: String? = null,
