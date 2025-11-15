@@ -32,3 +32,9 @@ mapping.txt
 *.zip
 .worktrees/
 **/google-services.json
+/firestore.rules
+/docs/FIRESTORE_SYNC_TROUBLESHOOTING.md
+/.artifacts/1/Trails-main/Trails-main/CHANGELOG-main.md
+/.claude/settings.local.json
+/docs/plans/2025-01-26-article-list-controls-redesign.md
+/google-services-base64.txt
