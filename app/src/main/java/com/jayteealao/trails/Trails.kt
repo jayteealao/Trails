@@ -17,6 +17,8 @@
 package com.jayteealao.trails
 
 import android.app.Application
+import android.os.Handler
+import android.os.Looper
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import coil3.ImageLoader
@@ -47,11 +49,15 @@ class Trails @Inject constructor() : Application(), Configuration.Provider, Sing
 //        Sync.initialize(context = this)
         Timber.plant(Timber.DebugTree())
 
-        // Schedule periodic sync after WorkManager is fully initialized
+        // Schedule periodic sync AFTER Hilt dependency injection completes
+        // We use Handler.post to ensure this runs after onCreate() returns,
+        // which guarantees workerFactory has been injected by Hilt
         // Only schedule if user is authenticated
-        auth.currentUser?.let {
-            Timber.d("User authenticated, scheduling periodic sync")
-            firestoreSyncManager.schedulePeriodicSync()
+        Handler(Looper.getMainLooper()).post {
+            auth.currentUser?.let {
+                Timber.d("User authenticated, scheduling periodic sync")
+                firestoreSyncManager.schedulePeriodicSync()
+            }
         }
     }
 

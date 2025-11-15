@@ -31,36 +31,30 @@ class FirestoreSyncInitializer : Initializer<Unit> {
         val syncManager = entryPoint.firestoreSyncManager()
         val auth = entryPoint.firebaseAuth()
 
-        // Check if user is authenticated
+        // NOTE: We do NOT schedule WorkManager tasks here!
+        // AndroidX Startup runs BEFORE Application.onCreate(), which means Hilt hasn't
+        // injected dependencies yet. WorkManager needs HiltWorkerFactory which is a
+        // lateinit var that won't be initialized until after Hilt injection completes.
+        // Scheduling is handled in Application.onCreate() instead.
+
+        // Check if user is authenticated (just for logging)
         auth.currentUser?.let { user ->
-            Timber.d("User authenticated: ${user.uid}, scheduling sync")
-
-            // Schedule periodic sync - first run will happen within 15 minutes
-            // This prevents blocking the app startup for large datasets
-            syncManager.schedulePeriodicSync()
-
-            // For large datasets (11K+ articles), let WorkManager handle initial sync
-            // instead of blocking app startup. User can manually trigger if needed.
-            Timber.d("Sync scheduled via WorkManager - will run in background")
+            Timber.d("User authenticated: ${user.uid}")
         } ?: run {
-            Timber.d("No authenticated user, skipping sync initialization")
+            Timber.d("No authenticated user")
         }
 
         // Listen for auth state changes to handle sign-in/sign-out
+        // NOTE: We only cancel sync on sign-out. Scheduling happens in Application.onCreate()
         auth.addAuthStateListener { firebaseAuth ->
             val currentUser = firebaseAuth.currentUser
 
             if (currentUser != null) {
-                Timber.d("User signed in: ${currentUser.uid}, scheduling background sync")
-
-                // Schedule periodic sync (safe to call after WorkManager is initialized)
-                // This syncs every 15 minutes using pagination to avoid memory issues
-                // For large datasets, this prevents blocking the UI
-                syncManager.schedulePeriodicSync()
-
-                Timber.d("Background sync scheduled - user can manually trigger immediate sync if needed")
+                Timber.d("User signed in: ${currentUser.uid}")
+                // Sync scheduling is handled by Application.onCreate() after Hilt injection
             } else {
                 Timber.d("User signed out, stopping sync")
+                // Safe to cancel - WorkManager is already initialized at this point
                 syncManager.cancelPeriodicSync()
             }
         }
