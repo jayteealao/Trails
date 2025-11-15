@@ -8,6 +8,7 @@ import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
+import com.jayteealao.trails.services.firestore.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CoroutineDispatcher
@@ -16,11 +17,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+// Internal data classes for grouping flow state
+private data class PreferencesState(
+    val useFreedium: Boolean,
+    val darkTheme: Boolean,
+    val useCardLayout: Boolean,
+    val jinaToken: String
+)
+
+private data class SyncStateData(
+    val isSyncing: Boolean,
+    val lastSyncTime: Long,
+    val syncStatus: SyncStatus,
+    val lastError: String?
+)
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -38,28 +53,43 @@ class SettingsViewModel @Inject constructor(
     private val _jinaToken = MutableStateFlow("")
 
     // Tartlet Store implementation - Consolidated state
-    private val _state = combine(
+    // Combine preferences flows
+    private val preferencesFlow = combine(
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_FREEDIUM),
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.DARK_MODE_ENABLED),
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_CARD_LAYOUT, defaultValue = false),
-        _jinaToken,
+        _jinaToken
+    ) { useFreedium, darkTheme, useCardLayout, jinaToken ->
+        PreferencesState(useFreedium, darkTheme, useCardLayout, jinaToken)
+    }
+
+    // Combine sync state flows
+    private val syncStateFlow = combine(
         firestoreSyncManager.isSyncing,
         firestoreSyncManager.lastSyncTime,
         firestoreSyncManager.syncStatus,
         firestoreSyncManager.lastError
-    ) { useFreedium, darkTheme, useCardLayout, jinaToken, isSyncing, lastSyncTime, syncStatus, lastError ->
+    ) { isSyncing, lastSyncTime, syncStatus, lastError ->
+        SyncStateData(isSyncing, lastSyncTime, syncStatus, lastError)
+    }
+
+    // Combine both groups into final state
+    private val _state = combine(
+        preferencesFlow,
+        syncStateFlow
+    ) { prefs, sync ->
         SettingsState(
-            useFreedium = useFreedium,
-            darkTheme = darkTheme,
-            useCardLayout = useCardLayout,
-            jinaToken = jinaToken,
+            useFreedium = prefs.useFreedium,
+            darkTheme = prefs.darkTheme,
+            useCardLayout = prefs.useCardLayout,
+            jinaToken = prefs.jinaToken,
             jinaPlaceholder = sharedPreferencesManager.getString("JINA_TOKEN") ?: "Insert Jina Token Here",
             versionName = BuildConfig.VERSION_NAME,
             versionCode = BuildConfig.VERSION_CODE,
-            isSyncing = isSyncing,
-            lastSyncTime = lastSyncTime,
-            syncStatus = syncStatus,
-            lastError = lastError
+            isSyncing = sync.isSyncing,
+            lastSyncTime = sync.lastSyncTime,
+            syncStatus = sync.syncStatus,
+            lastError = sync.lastError
         )
     }.stateIn(
         scope = viewModelScope,
