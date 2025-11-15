@@ -139,3 +139,32 @@
 -keep class org.apache.http.conn.ssl.AllowAllHostnameVerifier {
     public static org.apache.http.conn.ssl.AllowAllHostnameVerifier INSTANCE;
 }
+
+# Firestore serialization rules
+# Keep all fields and constructors for Firestore model classes
+-keepclassmembers class com.jayteealao.trails.data.local.database.Article { *; }
+-keep class com.jayteealao.trails.data.local.database.Article { *; }
+
+# Keep no-arg constructors for Firestore deserialization
+-keepclassmembers class com.jayteealao.trails.data.local.database.** {
+    <init>();
+}
+
+# Keep all fields for Firestore serialization
+-keepclassmembers class com.jayteealao.trails.data.local.database.** {
+    *;
+}
+
+# Protobuf rules to prevent OOM errors during deserialization
+-keep class com.google.protobuf.** { *; }
+-keepclassmembers class com.google.protobuf.** { *; }
+-dontwarn com.google.protobuf.**
+
+# Optimize protobuf message parsing
+-keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
+
+# Firebase/Firestore protobuf classes
+-keep class com.google.firebase.firestore.proto.** { *; }
+-keep class com.google.firestore.v1.** { *; }
+-dontwarn com.google.firebase.firestore.proto.**
+-dontwarn com.google.firestore.v1.**
