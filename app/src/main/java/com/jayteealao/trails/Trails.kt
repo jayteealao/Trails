@@ -24,6 +24,8 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
+import com.google.firebase.auth.FirebaseAuth
+import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.Dispatchers
 import okio.Path.Companion.toOkioPath
@@ -34,6 +36,8 @@ import javax.inject.Inject
 class Trails @Inject constructor() : Application(), Configuration.Provider, SingletonImageLoader.Factory {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var firestoreSyncManager: FirestoreSyncManager
+    @Inject lateinit var auth: FirebaseAuth
 
 //    override val workManagerConfiguration: Configuration = Configuration.Builder()
 
@@ -42,6 +46,13 @@ class Trails @Inject constructor() : Application(), Configuration.Provider, Sing
         super.onCreate()
 //        Sync.initialize(context = this)
         Timber.plant(Timber.DebugTree())
+
+        // Schedule periodic sync after WorkManager is fully initialized
+        // Only schedule if user is authenticated
+        auth.currentUser?.let {
+            Timber.d("User authenticated, scheduling periodic sync")
+            firestoreSyncManager.schedulePeriodicSync()
+        }
     }
 
     override val workManagerConfiguration: Configuration
