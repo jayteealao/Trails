@@ -16,7 +16,9 @@ data class SettingsState(
     val isSyncing: Boolean = false,
     val lastSyncTime: Long = 0L,
     val syncStatus: SyncStatus = SyncStatus.Idle,
-    val lastError: String? = null
+    val lastError: String? = null,
+    val userEmail: String? = null,
+    val isAnonymous: Boolean = false
 )
 
 /**
@@ -27,4 +29,5 @@ sealed interface SettingsEvent {
     data object SemanticCacheCleared : SettingsEvent
     data object JinaTokenSaved : SettingsEvent
     data object SyncCompleted : SettingsEvent
+    data object LoggedOut : SettingsEvent
 }

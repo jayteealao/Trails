@@ -1,23 +1,31 @@
 package com.jayteealao.trails.screens.settings
 
+import android.app.Activity.RESULT_OK
 import android.content.res.Configuration
 import android.text.format.DateUtils
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,9 +33,14 @@ import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.GoogleAuthProvider
+import com.jayteealao.trails.R
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.jayteealao.trails.screens.theme.Typography
 import com.jayteealao.trails.services.firestore.SyncStatus
@@ -40,11 +53,15 @@ import io.yumemi.tartlet.rememberViewStore
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
+    onLogout: () -> Unit = {},
+    onUpgradeAccount: (com.google.firebase.auth.AuthCredential) -> Unit = {},
     viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel> = rememberViewStore { hiltViewModel() }
 ) {
     SettingsScreenContent(
         modifier = modifier,
-        viewStore = viewStore
+        viewStore = viewStore,
+        onLogout = onLogout,
+        onUpgradeAccount = onUpgradeAccount
     )
 
     // Handle events
@@ -59,16 +76,102 @@ fun SettingsScreen(
     viewStore.handle<SettingsEvent.ShowToast> { event ->
         // Could show a toast or snackbar here
     }
+
+    viewStore.handle<SettingsEvent.LoggedOut> {
+        onLogout()
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsScreenContent(
     modifier: Modifier = Modifier,
-    viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel>
+    viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel>,
+    onLogout: () -> Unit = {},
+    onUpgradeAccount: (com.google.firebase.auth.AuthCredential) -> Unit = {}
 ) {
+    val context = LocalContext.current
+
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            val account = task.result
+            val credential = GoogleAuthProvider.getCredential(account.idToken, null)
+            onUpgradeAccount(credential)
+        }
+    }
+
+    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+        .requestIdToken(context.getString(R.string.default_web_client_id))
+        .requestEmail()
+        .build()
+
+    val googleSignInClient = GoogleSignIn.getClient(context, gso)
+
     Column(modifier = modifier) {
         Text(text = "Settings")
+
+        // Account Section
+        HorizontalDivider()
+        Spacer(Modifier.height(8.dp))
+        Text("ACCOUNT", style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(4.dp))
+
+        if (viewStore.state.userEmail != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = "Email")
+                Text(
+                    text = viewStore.state.userEmail ?: "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (viewStore.state.isAnonymous) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = "Account Type")
+                Text(
+                    text = "Guest",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            FilledTonalButton(
+                onClick = {
+                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Text(text = "Upgrade to Full Account")
+            }
+        }
+
+        OutlinedButton(
+            onClick = { viewStore.action { logout() } },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Text(text = "Logout")
+        }
         TextButton(
             modifier = Modifier.height(48.dp),
             onClick = { viewStore.action { resetSemanticCache() } }
@@ -210,14 +313,19 @@ internal fun SettingsScreenContent(
         }
 
         // Manual Sync Button
-        Button(
-            onClick = { viewStore.action { performManualSync() } },
-            enabled = !viewStore.state.isSyncing,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Start
         ) {
-            Text(text = if (viewStore.state.isSyncing) "Syncing..." else "Sync Now")
+            Button(
+                onClick = { viewStore.action { performManualSync() } },
+                enabled = !viewStore.state.isSyncing,
+                modifier = Modifier
+                    .wrapContentWidth()
+                    .height(48.dp)
+            ) {
+                Text(text = if (viewStore.state.isSyncing) "Syncing..." else "Sync Now")
+            }
         }
 
         HorizontalDivider()
@@ -268,7 +376,9 @@ private fun SettingsScreenPreview() {
                     jinaToken = "sample_token_123",
                     jinaPlaceholder = "Insert Jina Token Here",
                     versionName = "1.8.9",
-                    versionCode = 108090
+                    versionCode = 108090,
+                    userEmail = "user@example.com",
+                    isAnonymous = false
                 )
             }
         )
@@ -276,7 +386,7 @@ private fun SettingsScreenPreview() {
 }
 
 @Preview(
-    name = "Settings • Empty Token (Dark)",
+    name = "Settings • Guest Account (Dark)",
     showBackground = true,
     uiMode = Configuration.UI_MODE_NIGHT_YES,
 )
@@ -292,7 +402,9 @@ private fun SettingsScreenDarkPreview() {
                     jinaToken = "",
                     jinaPlaceholder = "Insert Jina Token Here",
                     versionName = "1.8.9",
-                    versionCode = 108090
+                    versionCode = 108090,
+                    userEmail = null,
+                    isAnonymous = true
                 )
             }
         )

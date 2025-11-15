@@ -72,6 +72,20 @@ class AuthViewModel @Inject constructor(
         authRepository.signOut()
         _uiState.value = AuthUiState.SignedOut
     }
+
+    fun linkWithCredential(credential: AuthCredential) {
+        viewModelScope.launch {
+            _uiState.value = AuthUiState.Loading
+            try {
+                val result = authRepository.linkWithCredential(credential)
+                _uiState.value = AuthUiState.SignedIn(result.user!!)
+                _event.emit(AuthEvent.ShowToast("Account upgraded successfully!"))
+            } catch (e: Exception) {
+                _uiState.value = AuthUiState.Error(e)
+                _event.emit(AuthEvent.ShowError(e.message ?: "Failed to upgrade account"))
+            }
+        }
+    }
 }
 
 sealed interface AuthUiState {

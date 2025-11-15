@@ -42,6 +42,7 @@ class SettingsViewModel @Inject constructor(
     private val articleDao: ArticleDao,
     private val sharedPreferencesManager: SharedPreferencesManager,
     private val firestoreSyncManager: FirestoreSyncManager,
+    private val authRepository: com.jayteealao.trails.data.AuthRepository,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel(), Store<SettingsState, SettingsEvent> {
 
@@ -78,6 +79,7 @@ class SettingsViewModel @Inject constructor(
         preferencesFlow,
         syncStateFlow
     ) { prefs, sync ->
+        val currentUser = authRepository.getCurrentUser()
         SettingsState(
             useFreedium = prefs.useFreedium,
             darkTheme = prefs.darkTheme,
@@ -89,7 +91,9 @@ class SettingsViewModel @Inject constructor(
             isSyncing = sync.isSyncing,
             lastSyncTime = sync.lastSyncTime,
             syncStatus = sync.syncStatus,
-            lastError = sync.lastError
+            lastError = sync.lastError,
+            userEmail = currentUser?.email,
+            isAnonymous = currentUser?.isAnonymous ?: false
         )
     }.stateIn(
         scope = viewModelScope,
@@ -101,7 +105,9 @@ class SettingsViewModel @Inject constructor(
             jinaToken = "",
             jinaPlaceholder = sharedPreferencesManager.getString("JINA_TOKEN") ?: "Insert Jina Token Here",
             versionName = BuildConfig.VERSION_NAME,
-            versionCode = BuildConfig.VERSION_CODE
+            versionCode = BuildConfig.VERSION_CODE,
+            userEmail = authRepository.getCurrentUser()?.email,
+            isAnonymous = authRepository.getCurrentUser()?.isAnonymous ?: false
         )
     )
 
@@ -152,6 +158,13 @@ class SettingsViewModel @Inject constructor(
             } catch (e: Exception) {
                 _event.emit(SettingsEvent.ShowToast("Sync failed: ${e.message}"))
             }
+        }
+    }
+
+    fun logout() {
+        viewModelScope.launch {
+            authRepository.signOut()
+            _event.emit(SettingsEvent.LoggedOut)
         }
     }
 }

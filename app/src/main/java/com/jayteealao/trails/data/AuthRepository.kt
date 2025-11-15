@@ -22,6 +22,12 @@ class AuthRepository @Inject constructor(
         return auth.signInAnonymously().await()
     }
 
+    suspend fun linkWithCredential(credential: AuthCredential): AuthResult {
+        val currentUser = auth.currentUser
+            ?: throw IllegalStateException("No current user to link")
+        return currentUser.linkWithCredential(credential).await()
+    }
+
     fun signOut() {
         auth.signOut()
     }

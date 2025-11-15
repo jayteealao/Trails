@@ -115,7 +115,15 @@ fun MainNavigation(
                 )
             }
             entry<Screen.Settings> {
-                SettingsScreen()
+                SettingsScreen(
+                    onLogout = {
+                        backStack.clear()
+                        backStack.add(Screen.Login)
+                    },
+                    onUpgradeAccount = { credential ->
+                        authViewModel.linkWithCredential(credential)
+                    }
+                )
             }
             entry<Screen.TagManagement>(
                 metadata = mapOf(BOTTOM_SHEET to ModalBottomSheetProperties())
