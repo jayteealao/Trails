@@ -33,11 +33,33 @@ interface ArticleDao {
     @Query("SELECT * FROM article ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
     fun getArticles(offset: Int, limit: Int): List<Article>
 
+    /**
+     * WARNING: This method loads ALL articles including the text field into memory.
+     * For large datasets, this can cause OutOfMemoryError.
+     * Use getAllArticlesPaginated() instead for safer memory usage.
+     * @deprecated Use getAllArticlesPaginated() to avoid OOM errors
+     */
+    @Deprecated(
+        message = "Use getAllArticlesPaginated() to avoid OutOfMemoryError with large datasets",
+        replaceWith = ReplaceWith("getAllArticlesPaginated(limit, offset)")
+    )
     @Query("SELECT * FROM article WHERE deleted_at IS NULL ORDER BY timeAdded DESC")
     suspend fun getAllArticles(): List<Article>
 
+    @Query("SELECT * FROM article WHERE deleted_at IS NULL ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
+    suspend fun getAllArticlesPaginated(limit: Int, offset: Int): List<Article>
+
+    @Query("SELECT COUNT(*) FROM article WHERE deleted_at IS NULL")
+    suspend fun countAllArticles(): Int
+
     @Query("SELECT * FROM article WHERE timeUpdated > :since AND deleted_at IS NULL ORDER BY timeUpdated DESC")
     suspend fun getArticlesModifiedSince(since: Long): List<Article>
+
+    @Query("SELECT * FROM article WHERE timeUpdated > :since AND deleted_at IS NULL ORDER BY timeUpdated DESC LIMIT :limit OFFSET :offset")
+    suspend fun getArticlesModifiedSincePaginated(since: Long, limit: Int, offset: Int): List<Article>
+
+    @Query("SELECT COUNT(*) FROM article WHERE timeUpdated > :since AND deleted_at IS NULL")
+    suspend fun countArticlesModifiedSince(since: Long): Int
 
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @Query("""
@@ -110,7 +132,7 @@ interface ArticleDao {
     fun getAllTags(): Flow<List<String>>
 
     @Query("SELECT * FROM article WHERE itemId = :itemId")
-    fun getArticleById(itemId: String): Article?
+    suspend fun getArticleById(itemId: String): Article?
 
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @RewriteQueriesToDropUnusedColumns

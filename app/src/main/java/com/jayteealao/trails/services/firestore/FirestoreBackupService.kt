@@ -216,8 +216,22 @@ class FirestoreBackupService @Inject constructor(
     }
 
     /**
-     * Restore all articles for the current user (non-paginated, for backwards compatibility)
+     * Restore all articles for the current user (non-paginated)
+     *
+     * ⚠️ WARNING: CAUSES OutOfMemoryError with large collections
+     *
+     * This method loads ALL articles into memory at once, which crashes the app
+     * when users have hundreds or thousands of articles with text content.
+     *
+     * Use restoreAllArticlesPaginated() instead for memory-safe restore.
+     *
+     * @deprecated Causes OOM with large datasets. Use restoreAllArticlesPaginated() instead.
      */
+    @Deprecated(
+        message = "Loads all articles into memory at once, causing OOM. Use restoreAllArticlesPaginated() instead.",
+        replaceWith = ReplaceWith("restoreAllArticlesPaginated(onProgress)"),
+        level = DeprecationLevel.WARNING
+    )
     suspend fun restoreAllArticles(): Result<List<Article>> {
         return try {
             val user = getCurrentUser()
