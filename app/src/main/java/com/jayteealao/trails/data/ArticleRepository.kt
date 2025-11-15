@@ -31,16 +31,15 @@ import com.jayteealao.trails.network.ArticleData
 import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.sync.SyncStatusMonitor
-import com.jayteealao.trails.sync.initializers.SyncWorkName
-import com.jayteealao.trails.sync.workers.SyncWorker
-import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import com.jayteealao.trails.sync.workers.FirestoreRestoreWorker
+import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.nio.ByteBuffer
@@ -74,7 +73,7 @@ interface ArticleRepository: Syncable {
 
     override fun synchronize()
 
-    fun getArticleById(itemId: String): Article?
+    suspend fun getArticleById(itemId: String): Article?
 
     fun getLastUpdatedArticleTime(): Long
 
@@ -144,7 +143,7 @@ class ArticleRepositoryImpl @Inject constructor(
      * @return Article
      *     an Article
      */
-    override fun getArticleById(itemId: String): Article? {
+    override suspend fun getArticleById(itemId: String): Article? {
          return articleDao.getArticleById(itemId)
     }
 
