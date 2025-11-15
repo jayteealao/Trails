@@ -8,8 +8,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.jayteealao.trails.data.local.database.ArticleDao
-import com.jayteealao.trails.services.firestore.FirestoreBackupService
+import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.sync.initializers.syncForegroundInfo
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -20,7 +19,7 @@ import javax.inject.Inject
 
 /**
  * Worker that syncs local articles to Firestore for backup
- * Backs up articles for the currently authenticated user
+ * Delegates to FirestoreSyncManager which handles chunked processing to avoid OOM
  */
 @HiltWorker
 class FirestoreSyncWorker @AssistedInject constructor(
@@ -29,10 +28,7 @@ class FirestoreSyncWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, workerParams) {
 
     @Inject
-    lateinit var firestoreBackupService: FirestoreBackupService
-
-    @Inject
-    lateinit var articleDao: ArticleDao
+    lateinit var firestoreSyncManager: FirestoreSyncManager
 
     override suspend fun getForegroundInfo(): ForegroundInfo =
         appContext.syncForegroundInfo()
@@ -41,61 +37,21 @@ class FirestoreSyncWorker @AssistedInject constructor(
         try {
             setForeground(getForegroundInfo())
 
-            // Get all articles that need to be backed up
-            // You can customize this to only backup articles modified since last sync
-            val articles = articleDao.getAllArticles()
+            Timber.d("Starting Firestore sync via FirestoreSyncManager")
 
-            if (articles.isEmpty()) {
-                Timber.d("No articles to backup")
-                return@withContext Result.success()
-            }
-
-            Timber.d("Starting Firestore backup for ${articles.size} articles")
-
-            // Backup articles in chunks
-            var successCount = 0
-            var failureCount = 0
-
-            articles.chunked(50).forEachIndexed { index, chunk ->
-                try {
-                    val result = firestoreBackupService.backupArticles(chunk)
-                    result.fold(
-                        onSuccess = { count ->
-                            successCount += count
-                            val progress = ((index + 1) * 50 * 100) / articles.size
-                            setProgress(workDataOf(PROGRESS to progress))
-                            Timber.d("Backed up chunk ${index + 1}, total: $successCount")
-                        },
-                        onFailure = { error ->
-                            failureCount += chunk.size
-                            Timber.e(error, "Failed to backup chunk ${index + 1}")
-                        }
-                    )
-                } catch (e: Exception) {
-                    failureCount += chunk.size
-                    Timber.e(e, "Exception backing up chunk ${index + 1}")
-                }
-            }
-
-            // Update last sync timestamp
-            firestoreBackupService.updateLastSyncTimestamp()
+            // Delegate to FirestoreSyncManager which handles:
+            // - Chunked processing (50 articles at a time) to avoid OOM
+            // - Pagination using getAllArticlesPaginated instead of loading all at once
+            // - Proper memory management for large datasets
+            firestoreSyncManager.syncLocalChanges()
 
             setProgress(workDataOf(PROGRESS to 100))
 
-            Timber.d("Firestore backup completed: $successCount succeeded, $failureCount failed")
+            Timber.d("Firestore sync completed successfully")
 
-            if (failureCount > 0 && successCount == 0) {
-                Result.failure()
-            } else {
-                Result.success(
-                    workDataOf(
-                        SUCCESS_COUNT to successCount,
-                        FAILURE_COUNT to failureCount
-                    )
-                )
-            }
+            Result.success()
         } catch (e: Exception) {
-            Timber.e(e, "Firestore sync failed")
+            Timber.e(e, "Firestore sync failed: ${e.message}")
             Result.failure()
         }
     }
