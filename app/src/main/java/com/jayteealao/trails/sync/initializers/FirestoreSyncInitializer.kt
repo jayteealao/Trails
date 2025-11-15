@@ -15,7 +15,8 @@ import timber.log.Timber
 
 /**
  * Initializes Firestore sync on app startup
- * Starts real-time sync listener if user is authenticated
+ * Uses periodic background sync (every 15 minutes) with pagination to avoid OOM
+ * Real-time sync listener is disabled for large datasets
  */
 class FirestoreSyncInitializer : Initializer<Unit> {
 
@@ -32,22 +33,15 @@ class FirestoreSyncInitializer : Initializer<Unit> {
 
         // Check if user is authenticated
         auth.currentUser?.let { user ->
-            Timber.d("User authenticated: ${user.uid}, starting sync")
+            Timber.d("User authenticated: ${user.uid}, scheduling sync")
 
-            // Start real-time sync listener
-            syncManager.startRealtimeSync()
+            // Schedule periodic sync - first run will happen within 15 minutes
+            // This prevents blocking the app startup for large datasets
+            syncManager.schedulePeriodicSync()
 
-            // Perform initial full sync in background
-            ProcessLifecycleOwner.get().lifecycleScope.launch {
-                try {
-                    Timber.d("Starting initial full sync")
-                    syncManager.performFullSync()
-                    Timber.d("Initial full sync completed successfully")
-                } catch (e: Exception) {
-                    Timber.e(e, "Initial sync failed: ${e.message}")
-                    // Error will be reflected in syncStatus StateFlow for UI
-                }
-            }
+            // For large datasets (11K+ articles), let WorkManager handle initial sync
+            // instead of blocking app startup. User can manually trigger if needed.
+            Timber.d("Sync scheduled via WorkManager - will run in background")
         } ?: run {
             Timber.d("No authenticated user, skipping sync initialization")
         }
@@ -57,25 +51,17 @@ class FirestoreSyncInitializer : Initializer<Unit> {
             val currentUser = firebaseAuth.currentUser
 
             if (currentUser != null) {
-                Timber.d("User signed in: ${currentUser.uid}, starting sync")
+                Timber.d("User signed in: ${currentUser.uid}, scheduling background sync")
 
-                // Start real-time sync listener
-                syncManager.startRealtimeSync()
+                // Schedule periodic sync (safe to call after WorkManager is initialized)
+                // This syncs every 15 minutes using pagination to avoid memory issues
+                // For large datasets, this prevents blocking the UI
+                syncManager.schedulePeriodicSync()
 
-                // Perform full sync after sign-in
-                ProcessLifecycleOwner.get().lifecycleScope.launch {
-                    try {
-                        Timber.d("Starting full sync after sign-in")
-                        syncManager.performFullSync()
-                        Timber.d("Sync after sign-in completed successfully")
-                    } catch (e: Exception) {
-                        Timber.e(e, "Sync after sign-in failed: ${e.message}")
-                        // Error will be reflected in syncStatus StateFlow for UI
-                    }
-                }
+                Timber.d("Background sync scheduled - user can manually trigger immediate sync if needed")
             } else {
                 Timber.d("User signed out, stopping sync")
-                syncManager.stopRealtimeSync()
+                syncManager.cancelPeriodicSync()
             }
         }
     }
