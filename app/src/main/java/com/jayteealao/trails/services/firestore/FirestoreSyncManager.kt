@@ -6,10 +6,9 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.MetadataChanges
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -19,7 +18,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
@@ -38,7 +36,13 @@ sealed class SyncStatus {
 
 /**
  * Manages bidirectional sync between local Room database and Firestore
- * Provides real-time sync with conflict resolution for multi-device support
+ * Uses periodic background sync (every 15 min) with pagination to avoid OOM
+ *
+ * IMPORTANT: Realtime sync is DISABLED for large datasets
+ * - Firestore snapshot listeners load entire collections into memory
+ * - For thousands of articles with large text fields, this causes OutOfMemoryError
+ * - No pagination support for snapshot listeners in Firestore SDK
+ * - Instead, we use WorkManager periodic sync with chunked processing
  */
 @Singleton
 class FirestoreSyncManager @Inject constructor(
@@ -49,7 +53,6 @@ class FirestoreSyncManager @Inject constructor(
     private val firestoreBackupService: FirestoreBackupService
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var syncListener: ListenerRegistration? = null
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
@@ -67,82 +70,6 @@ class FirestoreSyncManager @Inject constructor(
         private const val USERS_COLLECTION = "users"
         private const val ARTICLES_COLLECTION = "articles"
         private const val SYNC_WORK_NAME = "FirestoreBidirectionalSync"
-    }
-
-    /**
-     * Start real-time sync listener
-     * Listens for remote changes and applies them locally with conflict resolution
-     */
-    fun startRealtimeSync() {
-        val user = auth.currentUser
-        if (user == null) {
-            Timber.w("Cannot start sync - user not authenticated")
-            return
-        }
-
-        // Stop any existing listener
-        stopRealtimeSync()
-
-        Timber.d("Starting real-time sync for user ${user.uid}")
-
-        // Listen to all articles in user's collection
-        syncListener = firestore.collection(USERS_COLLECTION)
-            .document(user.uid)
-            .collection(ARTICLES_COLLECTION)
-            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
-                if (error != null) {
-                    Timber.e(error, "Error listening to Firestore changes")
-                    return@addSnapshotListener
-                }
-
-                if (snapshot == null || snapshot.isEmpty) {
-                    Timber.d("No remote articles found")
-                    return@addSnapshotListener
-                }
-
-                scope.launch {
-                    try {
-                        _isSyncing.value = true
-
-                        // Process changes
-                        val changes = snapshot.documentChanges
-                        Timber.d("Received ${changes.size} document changes from Firestore")
-
-                        changes.forEach { change ->
-                            try {
-                                val remoteArticle = change.document.toObject(Article::class.java)
-
-                                when (change.type) {
-                                    com.google.firebase.firestore.DocumentChange.Type.ADDED,
-                                    com.google.firebase.firestore.DocumentChange.Type.MODIFIED -> {
-                                        handleRemoteArticleChange(remoteArticle)
-                                    }
-                                    com.google.firebase.firestore.DocumentChange.Type.REMOVED -> {
-                                        // Delete locally when remote deletion detected
-                                        try {
-                                            articleDao.updateDeleted(remoteArticle.itemId, System.currentTimeMillis())
-                                            Timber.d("Article ${remoteArticle.itemId} removed remotely and deleted locally")
-                                        } catch (e: Exception) {
-                                            Timber.e(e, "Failed to delete article ${remoteArticle.itemId} locally")
-                                        }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to process document change")
-                            }
-                        }
-
-                        _lastSyncTime.value = System.currentTimeMillis()
-                    } catch (e: Exception) {
-                        Timber.e(e, "Error processing Firestore snapshot")
-                    } finally {
-                        _isSyncing.value = false
-                    }
-                }
-            }
-
-        // Also schedule periodic sync for backup
-        schedulePeriodicSync()
     }
 
     /**
@@ -242,7 +169,7 @@ class FirestoreSyncManager @Inject constructor(
         try {
             // Fetch related data
             val tags = articleDao.getArticleTags(article.itemId).map { tag ->
-                com.jayteealao.trails.network.ArticleTags(
+                ArticleTags(
                     itemId = article.itemId,
                     tag = tag,
                     sortId = null,
@@ -269,6 +196,7 @@ class FirestoreSyncManager @Inject constructor(
     /**
      * Sync local changes to Firestore
      * Pushes articles modified since last sync, or all articles on first sync
+     * Uses chunked processing to avoid OutOfMemoryError with large datasets
      */
     suspend fun syncLocalChanges() {
         val user = auth.currentUser
@@ -287,24 +215,21 @@ class FirestoreSyncManager @Inject constructor(
             val isFirstSync = firestoreBackupService.isFirstSync().getOrNull() ?: false
             val lastSync = firestoreBackupService.getLastSyncTimestamp().getOrNull() ?: 0L
 
-            // Get articles to sync
-            val articlesToSync = when {
+            // Get count of articles to sync (without loading them all into memory)
+            val totalCount = when {
                 isFirstSync -> {
-                    // First sync - backup all existing articles for existing users
-                    Timber.d("First sync detected - backing up all existing articles")
-                    articleDao.getAllArticles()
+                    Timber.d("First sync detected - counting all existing articles")
+                    articleDao.countAllArticles()
                 }
                 lastSync > 0 -> {
-                    // Regular sync - only modified articles
-                    articleDao.getArticlesModifiedSince(lastSync)
+                    articleDao.countArticlesModifiedSince(lastSync)
                 }
                 else -> {
-                    // Fallback - get all articles
-                    articleDao.getAllArticles()
+                    articleDao.countAllArticles()
                 }
             }
 
-            if (articlesToSync.isEmpty()) {
+            if (totalCount == 0) {
                 Timber.d("No local changes to sync")
                 _syncStatus.value = SyncStatus.Success("Up to date")
 
@@ -315,63 +240,89 @@ class FirestoreSyncManager @Inject constructor(
                 return
             }
 
-            Timber.d("Syncing ${articlesToSync.size} articles with related data (firstSync=$isFirstSync)")
+            Timber.d("Syncing $totalCount articles with related data (firstSync=$isFirstSync)")
 
             var successCount = 0
             var failureCount = 0
+            // Adaptive chunk size: larger for first sync to reduce API calls
+            val chunkSize = if (isFirstSync && totalCount > 1000) {
+                200 // Larger chunks for big initial syncs
+            } else {
+                50  // Smaller chunks for regular syncs
+            }
 
-            // Use paginated backup for better performance
-            val backupResult = firestoreBackupService.backupArticlesPaginated(
-                articles = articlesToSync,
-                onProgress = { current, total ->
-                    val progressMessage = "Syncing $current / $total articles"
-                    _syncStatus.value = SyncStatus.Syncing
-                    Timber.d(progressMessage)
-                }
-            )
-
-            backupResult.fold(
-                onSuccess = { count ->
-                    successCount = count
-
-                    // Also backup tags for synced articles
-                    articlesToSync.forEach { article ->
-                        try {
-                            val tags = articleDao.getArticleTags(article.itemId).map { tag ->
-                                com.jayteealao.trails.network.ArticleTags(
-                                    itemId = article.itemId,
-                                    tag = tag,
-                                    sortId = null,
-                                    type = null
-                                )
-                            }
-
-                            if (tags.isNotEmpty()) {
-                                // Backup tags separately
-                                val user = auth.currentUser ?: return@forEach
-                                val articleRef = firestore.collection("users")
-                                    .document(user.uid)
-                                    .collection("articles")
-                                    .document(article.itemId)
-
-                                val batch = firestore.batch()
-                                tags.forEach { tag ->
-                                    val tagRef = articleRef.collection("tags")
-                                        .document("${tag.itemId}_${tag.tag}")
-                                    batch.set(tagRef, tag, com.google.firebase.firestore.SetOptions.merge())
-                                }
-                                batch.commit().await()
-                            }
-                        } catch (e: Exception) {
-                            Timber.w(e, "Failed to backup tags for article ${article.itemId}")
-                        }
+            // Process articles in chunks to avoid OOM
+            var offset = 0
+            while (offset < totalCount) {
+                try {
+                    // Fetch chunk of articles
+                    val chunk = when {
+                        isFirstSync -> articleDao.getAllArticlesPaginated(chunkSize, offset)
+                        lastSync > 0 -> articleDao.getArticlesModifiedSincePaginated(lastSync, chunkSize, offset)
+                        else -> articleDao.getAllArticlesPaginated(chunkSize, offset)
                     }
-                },
-                onFailure = { error ->
-                    Timber.e(error, "Failed to backup articles")
-                    failureCount = articlesToSync.size
+
+                    if (chunk.isEmpty()) break
+
+                    // Backup this chunk
+                    val backupResult = firestoreBackupService.backupArticlesPaginated(
+                        articles = chunk,
+                        onProgress = { current, _ ->
+                            val totalProgress = offset + current
+                            _syncStatus.value = SyncStatus.Syncing
+                            Timber.d("Syncing $totalProgress / $totalCount articles")
+                        }
+                    )
+
+                    backupResult.fold(
+                        onSuccess = { count ->
+                            successCount += count
+
+                            // Backup tags for this chunk
+                            chunk.forEach { article ->
+                                try {
+                                    val tags = articleDao.getArticleTags(article.itemId).map { tag ->
+                                        com.jayteealao.trails.network.ArticleTags(
+                                            itemId = article.itemId,
+                                            tag = tag,
+                                            sortId = null,
+                                            type = null
+                                        )
+                                    }
+
+                                    if (tags.isNotEmpty()) {
+                                        val currentUser = auth.currentUser ?: return@forEach
+                                        val articleRef = firestore.collection("users")
+                                            .document(currentUser.uid)
+                                            .collection("articles")
+                                            .document(article.itemId)
+
+                                        val batch = firestore.batch()
+                                        tags.forEach { tag ->
+                                            val tagRef = articleRef.collection("tags")
+                                                .document("${tag.itemId}_${tag.tag}")
+                                            batch.set(tagRef, tag, com.google.firebase.firestore.SetOptions.merge())
+                                        }
+                                        batch.commit().await()
+                                    }
+                                } catch (e: Exception) {
+                                    Timber.w(e, "Failed to backup tags for article ${article.itemId}")
+                                }
+                            }
+                        },
+                        onFailure = { error ->
+                            Timber.e(error, "Failed to backup chunk at offset $offset")
+                            failureCount += chunk.size
+                        }
+                    )
+
+                    offset += chunk.size
+                } catch (e: Exception) {
+                    Timber.e(e, "Error processing chunk at offset $offset")
+                    failureCount += chunkSize
+                    offset += chunkSize
                 }
-            )
+            }
 
             // Update last sync timestamp
             firestoreBackupService.updateLastSyncTimestamp()
@@ -400,18 +351,10 @@ class FirestoreSyncManager @Inject constructor(
     }
 
     /**
-     * Stop real-time sync listener
-     */
-    fun stopRealtimeSync() {
-        syncListener?.remove()
-        syncListener = null
-        Timber.d("Stopped real-time sync")
-    }
-
-    /**
      * Schedule periodic background sync
+     * Should be called after WorkManager is fully initialized
      */
-    private fun schedulePeriodicSync() {
+    fun schedulePeriodicSync() {
         val syncRequest = PeriodicWorkRequestBuilder<FirestoreSyncWorker>(
             15, TimeUnit.MINUTES // Sync every 15 minutes
         ).build()
@@ -457,9 +400,8 @@ class FirestoreSyncManager @Inject constructor(
             if (isFirstSync) {
                 Timber.d("First sync detected - determining sync strategy")
 
-                // Get counts to determine strategy
-                val localArticles = articleDao.getAllArticles()
-                val localCount = localArticles.size
+                // Get counts to determine strategy (without loading all articles)
+                val localCount = articleDao.countAllArticles()
                 val remoteCount = firestoreBackupService.getRemoteArticleCount().getOrNull() ?: 0
 
                 Timber.d("First sync counts - Local: $localCount, Remote: $remoteCount")
@@ -486,11 +428,14 @@ class FirestoreSyncManager @Inject constructor(
                         remoteResult.fold(
                             onSuccess = { remoteArticles ->
                                 Timber.d("Applying ${remoteArticles.size} remote articles")
-                                remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
-                                    chunk.forEach { remoteArticle ->
-                                        handleRemoteArticleChange(remoteArticle)
+                                // Run on IO dispatcher to ensure database operations don't block main thread
+                                withContext(Dispatchers.IO) {
+                                    remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
+                                        chunk.forEach { remoteArticle ->
+                                            handleRemoteArticleChange(remoteArticle)
+                                        }
+                                        Timber.d("Processed chunk ${chunkIndex + 1}")
                                     }
-                                    Timber.d("Processed chunk ${chunkIndex + 1}")
                                 }
                                 _syncStatus.value = SyncStatus.Success("Restored $remoteCount articles")
                             },
@@ -552,11 +497,14 @@ class FirestoreSyncManager @Inject constructor(
                     _syncStatus.value = SyncStatus.Syncing
 
                     // Process articles in chunks to avoid memory issues
-                    remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
-                        chunk.forEach { remoteArticle ->
-                            handleRemoteArticleChange(remoteArticle)
+                    // Run on IO dispatcher to ensure database operations don't block main thread
+                    withContext(Dispatchers.IO) {
+                        remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
+                            chunk.forEach { remoteArticle ->
+                                handleRemoteArticleChange(remoteArticle)
+                            }
+                            Timber.d("Processed chunk ${chunkIndex + 1} of ${(remoteArticles.size + 49) / 50}")
                         }
-                        Timber.d("Processed chunk ${chunkIndex + 1} of ${(remoteArticles.size + 49) / 50}")
                     }
                 } else {
                     Timber.d("No remote articles to restore")
@@ -576,7 +524,6 @@ class FirestoreSyncManager @Inject constructor(
      * Clean up resources
      */
     fun cleanup() {
-        stopRealtimeSync()
         cancelPeriodicSync()
         scope.cancel()
     }
