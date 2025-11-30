@@ -54,6 +54,14 @@ fun ArticleSearchScreen(
         // Show toast message
     }
 
+    viewStore.handle<ArticleSearchEvent.ShareArticle> { event ->
+        // Share article handled by parent
+    }
+
+    viewStore.handle<ArticleSearchEvent.CopyLink> { event ->
+        // Copy link handled by parent
+    }
+
     ArticleSearchContent(
         modifier = Modifier.fillMaxSize(),
         searchBarState = searchBarState,
@@ -107,17 +115,33 @@ internal fun ArticleSearchContent(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFFF5F5F5))
-                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(
+                        horizontal = if (useCardLayout) 16.dp else 0.dp,
+                        vertical = 16.dp
+                    )
             ) {
                 itemsIndexed(
                     items = searchResults,
                     key = { _, article -> article.itemId }
                 ) { index, article ->
-                    SearchResultItem(
+                    ArticleListItem<ArticleSearchState, ArticleSearchEvent, ArticleSearchViewModel>(
                         article = article,
-                        modifier = if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier,
-                        onClick = { onSelectArticle(article) }
+                        viewStore = viewStore,
+                        modifier = Modifier.animateItem().then(
+                            if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier
+                        ),
+                        onClick = { onSelectArticle(article) },
+                        onOpenTagManagement = {},
+                        useCardLayout = useCardLayout,
+                        tags = viewStore.state.tags,
+                        onSetFavorite = { itemId, isFavorite -> viewStore.action { setFavorite(itemId, isFavorite) } },
+                        onSetReadStatus = { itemId, isRead -> viewStore.action { setReadStatus(itemId, isRead) } },
+                        onArchiveArticle = { itemId -> viewStore.action { archiveArticle(itemId) } },
+                        onDeleteArticle = { itemId -> viewStore.action { deleteArticle(itemId) } },
+                        onRegenerateDetails = { itemId -> viewStore.action { regenerateArticleDetails(itemId) } },
+                        onCopyLink = { url, label -> viewStore.action { copyLink(url, label) } },
+                        onShareArticle = { title, url -> viewStore.action { shareArticle(title, url) } }
                     )
                 }
             }
