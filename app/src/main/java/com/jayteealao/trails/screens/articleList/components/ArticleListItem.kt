@@ -18,7 +18,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -44,18 +43,28 @@ import com.jayteealao.trails.screens.articleList.ArticleListEvent
 import com.jayteealao.trails.screens.articleList.ArticleListState
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import io.yumemi.tartlet.Store
 import io.yumemi.tartlet.ViewStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun ArticleListItem(
+fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
     article: ArticleItem,
-    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
+    viewStore: ViewStore<S, E, VM>,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    onOpenTagManagement: () -> Unit,
     useCardLayout: Boolean = false,
+    tags: List<String> = emptyList(),
+    onSetFavorite: (String, Boolean) -> Unit = { _, _ -> },
+    onSetReadStatus: (String, Boolean) -> Unit = { _, _ -> },
+    onArchiveArticle: (String) -> Unit = {},
+    onDeleteArticle: (String) -> Unit = {},
+    onRegenerateDetails: (String) -> Unit = {},
+    onCopyLink: (String, String) -> Unit = { _, _ -> },
+    onShareArticle: (String, String) -> Unit = { _, _ -> },
 ) {
     // State for palette colors
     var dominantColor by remember { mutableStateOf(Color.Transparent) }
@@ -81,8 +90,6 @@ fun ArticleListItem(
     val markUnreadIcon = painterResource(id = R.drawable.close_24px)
 
     val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }
-    var showTagSheet by remember(article.itemId) { mutableStateOf(false) }
-    var newTagText by remember(article.itemId) { mutableStateOf("") }
     LaunchedEffect(article.tagsString) {
         // Mark all known tags as absent until confirmed by the latest data snapshot
         tagStates.keys.toList().forEach { key ->
@@ -92,37 +99,13 @@ fun ArticleListItem(
             tagStates[tag] = true
         }
     }
-    LaunchedEffect(article.itemId, viewStore.state.tags) {
-        viewStore.state.tags.forEach { tag ->
+    LaunchedEffect(article.itemId, tags) {
+        tags.forEach { tag ->
             if (!tagStates.containsKey(tag)) {
                 tagStates[tag] = false
             }
         }
     }
-
-    val tagSuggestionState = viewStore.state.tagSuggestions[article.itemId]
-        ?: com.jayteealao.trails.screens.articleList.TagSuggestionUiState()
-
-    LaunchedEffect(tagSuggestionState.tags) {
-        tagSuggestionState.tags.forEach { tag ->
-            if (!tagStates.containsKey(tag)) {
-                tagStates[tag] = false
-            }
-        }
-    }
-    LaunchedEffect(article.itemId) {
-        showTagSheet = false
-        newTagText = ""
-        viewStore.action { clearTagSuggestionError(article.itemId) }
-    }
-
-    val openTagSheet: () -> Unit = {
-        viewStore.action { clearTagSuggestionError(article.itemId) }
-        showTagSheet = true
-        viewStore.action { requestTagSuggestions(article) }
-    }
-
-    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Animated gradient angle
     val infiniteTransition = rememberInfiniteTransition(label = "gradientTransition")
@@ -167,7 +150,7 @@ fun ArticleListItem(
                 // Perform action immediately
                 val newFavorite = !isFavorite
                 isFavorite = newFavorite
-                viewStore.action { setFavorite(article.itemId, newFavorite) }
+                onSetFavorite(article.itemId, newFavorite)
 
                 // Trigger animation (increment counter so animation runs every time)
                 animationTrigger++
@@ -198,13 +181,18 @@ fun ArticleListItem(
         backgroundContent = {
             ArticleSwipeBackground(
                 article = article,
-                viewStore = viewStore,
                 swipeState = swipeState,
                 isFavorite = isFavorite,
                 isRead = isRead,
                 markReadIcon = markReadIcon,
                 markUnreadIcon = markUnreadIcon,
-                animationTrigger = animationTrigger
+                animationTrigger = animationTrigger,
+                onSetReadStatus = onSetReadStatus,
+                onArchiveArticle = onArchiveArticle,
+                onDeleteArticle = onDeleteArticle,
+                onRegenerateDetails = onRegenerateDetails,
+                onCopyLink = onCopyLink,
+                onShareArticle = onShareArticle
             )
         }
     ) {
@@ -224,7 +212,8 @@ fun ArticleListItem(
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
                 onPaletteExtracted = onPaletteExtracted,
-                showAddTagDialog = openTagSheet,
+                showAddTagDialog = onOpenTagManagement,
+                onSetFavorite = onSetFavorite
             )
 
         } else {
@@ -242,49 +231,21 @@ fun ArticleListItem(
                 dominantColor = dominantColor,
                 vibrantColor = vibrantColor,
                 onPaletteExtracted = onPaletteExtracted,
-                showAddTagDialog = openTagSheet,
+                showAddTagDialog = onOpenTagManagement,
                 modifier = Modifier
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp)
                     .background(colorScheme.surface)
-                    .wrapContentHeight()
+                    .wrapContentHeight(),
+                onSetFavorite = onSetFavorite
             )
         }
-
-        TagManagementSheet(
-            article = article,
-            viewStore = viewStore,
-            showSheet = showTagSheet,
-            onDismiss = {
-                showTagSheet = false
-                newTagText = ""
-                viewStore.action { clearTagSuggestionError(article.itemId) }
-            },
-            sheetState = bottomSheetState,
-            tagStates = tagStates,
-            newTagText = newTagText,
-            onNewTagTextChange = { newValue -> newTagText = newValue },
-            onAddNewTag = {
-                val normalizedTag = newTagText
-                    .trim()
-                    .replace(Regex("\\s+"), " ")
-                if (normalizedTag.isNotEmpty()) {
-                    val wasSelected = tagStates[normalizedTag] == true
-                    tagStates[normalizedTag] = true
-                    if (!wasSelected) {
-                        viewStore.action { updateTag(article.itemId, normalizedTag, true) }
-                    }
-                    newTagText = ""
-                }
-            },
-            tagSuggestionState = tagSuggestionState
-        )
     }
 }
 
 @Composable
-fun ArticleItemCardStyle(
+fun <S : Any, E : Any, VM : Store<S, E>> ArticleItemCardStyle(
     article: ArticleItem,
-    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
+    viewStore: ViewStore<S, E, VM>,
     parsedSnippet: AnnotatedString?,
     tagStates: MutableMap<String, Boolean>,
     onClick: () -> Unit,
@@ -297,6 +258,7 @@ fun ArticleItemCardStyle(
     vibrantColor: Color,
     onPaletteExtracted: (Color, Color) -> Unit,
     showAddTagDialog: () -> Unit,
+    onSetFavorite: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     Card(
         modifier = Modifier
@@ -327,7 +289,8 @@ fun ArticleItemCardStyle(
             onPaletteExtracted = onPaletteExtracted,
             showAddTagDialog = showAddTagDialog,
             modifier = Modifier
-                .padding(12.dp)
+                .padding(12.dp),
+            onSetFavorite = onSetFavorite
         )
     }
 }
@@ -354,7 +317,9 @@ fun ArticleListItemPreview() {
                 )
             },
             onClick = {},
-            useCardLayout = true
+            onOpenTagManagement = {},
+            useCardLayout = true,
+            tags = listOf("compose", "android", "kotlin")
         )
     }
 }

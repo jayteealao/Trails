@@ -32,13 +32,14 @@ import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleList.ArticleListEvent
 import com.jayteealao.trails.screens.articleList.ArticleListState
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import io.yumemi.tartlet.Store
 import io.yumemi.tartlet.ViewStore
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ArticleContent(
+fun <S : Any, E : Any, VM : Store<S, E>> ArticleContent(
     article: ArticleItem,
-    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
+    viewStore: ViewStore<S, E, VM>,
     parsedSnippet: AnnotatedString?,
     tagStates: MutableMap<String, Boolean>,
     onClick: () -> Unit,
@@ -51,7 +52,8 @@ fun ArticleContent(
     vibrantColor: Color,
     onPaletteExtracted: (Color, Color) -> Unit,
     showAddTagDialog: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSetFavorite: (String, Boolean) -> Unit = { _, _ -> }
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val titleColor = if (isRead) {
@@ -123,7 +125,7 @@ fun ArticleContent(
                         checked = isFavorite,
                         onCheckedChange = { checked ->
                             onFavoriteToggleLocal(checked)
-                            viewStore.action { setFavorite(article.itemId, checked) }
+                            onSetFavorite(article.itemId, checked)
                         }
                     ) {
                         Icon(
@@ -156,8 +158,8 @@ fun ArticleContent(
         }
         TagSection(
             tagStates = tagStates,
-            onTagToggle = { tag, enabled ->
-                viewStore.action { updateTag(article.itemId, tag, enabled) }
+            onTagToggle = { _, _ ->
+                // Tag management removed from article list - use dedicated tag management screen
             },
             onAddTag = showAddTagDialog,
             modifier = Modifier

@@ -87,13 +87,18 @@ private fun SwipeActionButton(
 @Composable
 fun ArticleSwipeBackground(
     article: ArticleItem,
-    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     swipeState: SwipeToDismissBoxState,
     isFavorite: Boolean,
     isRead: Boolean,
     markReadIcon: androidx.compose.ui.graphics.painter.Painter,
     markUnreadIcon: androidx.compose.ui.graphics.painter.Painter,
-    animationTrigger: Int = 0
+    animationTrigger: Int = 0,
+    onSetReadStatus: (String, Boolean) -> Unit = { _, _ -> },
+    onArchiveArticle: (String) -> Unit = {},
+    onDeleteArticle: (String) -> Unit = {},
+    onRegenerateDetails: (String) -> Unit = {},
+    onCopyLink: (String, String) -> Unit = { _, _ -> },
+    onShareArticle: (String, String) -> Unit = { _, _ -> },
 ) {
     val direction = swipeState.dismissDirection
     val scope = rememberCoroutineScope()
@@ -191,33 +196,33 @@ fun ArticleSwipeBackground(
                         contentDescription = { if (isRead) "Mark as unread" else "Mark as read" },
                         onClick = {
                             val newReadState = !isRead
-                            viewStore.action { setReadStatus(article.itemId, newReadState) }
+                            onSetReadStatus(article.itemId, newReadState)
                         }
                     ),
                     SwipeActionButton(
                         icon = { painterResource(id = R.drawable.archive_icon_24) },
                         contentDescription = { "Archive" },
-                        onClick = { viewStore.action { archiveArticle(article.itemId) } }
+                        onClick = { onArchiveArticle(article.itemId) }
                     ),
                     SwipeActionButton(
                         icon = { painterResource(id = R.drawable.delete_24px) },
                         contentDescription = { "Delete" },
-                        onClick = { viewStore.action { deleteArticle(article.itemId) } }
+                        onClick = { onDeleteArticle(article.itemId) }
                     ),
                     SwipeActionButton(
                         icon = { painterResource(id = R.drawable.refresh_24px) },
                         contentDescription = { "Regenerate details" },
-                        onClick = { viewStore.action { regenerateArticleDetails(article.itemId) } }
+                        onClick = { onRegenerateDetails(article.itemId) }
                     ),
                     SwipeActionButton(
                         icon = { painterResource(id = R.drawable.link_24px) },
                         contentDescription = { "Copy link" },
-                        onClick = { viewStore.action { copyLink(article.url ?: "", "Article URL") } }
+                        onClick = { onCopyLink(article.url ?: "", "Article URL") }
                     ),
                     SwipeActionButton(
                         icon = { painterResource(id = R.drawable.share_24px) },
                         contentDescription = { "Share" },
-                        onClick = { viewStore.action { shareArticle(article.title, article.url ?: "") } }
+                        onClick = { onShareArticle(article.title, article.url ?: "") }
                     )
                 )
             }
