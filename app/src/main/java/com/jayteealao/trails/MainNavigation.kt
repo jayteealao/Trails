@@ -11,27 +11,32 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.scene.SceneStrategy
 import androidx.navigation3.ui.NavDisplay
+import com.jayteealao.trails.screens.Screen
 import com.jayteealao.trails.screens.TrailScaffold
 import com.jayteealao.trails.screens.TrailsTopAppBarNav3
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailScreen
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailViewModel
 import com.jayteealao.trails.screens.articleList.ArticleListScreen
-import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
-import com.jayteealao.trails.screens.articleSearch.ArticleSearchViewModel
 import com.jayteealao.trails.screens.auth.AuthScreen
 import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
+import com.jayteealao.trails.screens.settings.LogoutConfirmationDialog
 import com.jayteealao.trails.screens.settings.SettingsScreen
 import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.tagManagement.TagManagementScreen
 import com.jayteealao.trails.ui.adaptive.BOTTOM_SHEET
 import com.jayteealao.trails.ui.adaptive.BottomSheetSceneStrategy
 import com.jayteealao.trails.ui.adaptive.DETAIL_PANE
+import com.jayteealao.trails.ui.adaptive.DIALOG
+import com.jayteealao.trails.ui.adaptive.DialogSceneStrategy
 import com.jayteealao.trails.ui.adaptive.LIST_PANE
 import com.jayteealao.trails.ui.adaptive.rememberListDetailSceneStrategy
 import kotlinx.coroutines.flow.map
@@ -41,9 +46,7 @@ import kotlinx.coroutines.flow.map
 fun MainNavigation(
     modifier: Modifier = Modifier,
     authViewModel: AuthViewModel,
-    articleListViewModel: ArticleListViewModel = hiltViewModel(),
     articleDetailViewModel: ArticleDetailViewModel = hiltViewModel(),
-    articleSearchViewModel: ArticleSearchViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val authState by authViewModel.state.collectAsState()
@@ -54,8 +57,11 @@ fun MainNavigation(
         detailPlaceholder = { Text("Select an article to view details") }
     )
     val bottomSheetSceneStrategy = remember { BottomSheetSceneStrategy<Screen>() }
+    val dialogSceneStrategy = remember { DialogSceneStrategy<Screen>() }
     @Suppress("UNCHECKED_CAST")
-    val sceneStrategy = (listDetailSceneStrategy.then(bottomSheetSceneStrategy)) as androidx.navigation3.scene.SceneStrategy<androidx.navigation3.runtime.NavKey>
+    val sceneStrategy = (listDetailSceneStrategy
+        .then(bottomSheetSceneStrategy)
+        .then(dialogSceneStrategy)) as SceneStrategy<NavKey>
 
     TrailScaffold(
         topBar = { menuState ->
@@ -70,7 +76,7 @@ fun MainNavigation(
                 )
             }
         }
-    ) { paddingValues, _, snackbarHostState ->
+    ) { paddingValues, _, snackbarHostState -> // TODO: pass in snackbarHostState
         NavDisplay(
             backStack = backStack,
             modifier = modifier.padding(paddingValues),
@@ -92,8 +98,8 @@ fun MainNavigation(
                     onSelectArticle = { article ->
                         backStack.add(Screen.ArticleDetail(article.itemId))
                     },
-                    onOpenTagManagement = {
-                        backStack.add(Screen.TagManagement)
+                    onOpenTagManagement = { article ->
+                        backStack.add(Screen.TagManagement(article.itemId))
                     }
                 )
             }
@@ -120,15 +126,36 @@ fun MainNavigation(
                         backStack.clear()
                         backStack.add(Screen.Login)
                     },
+                    onShowLogoutDialog = {
+                        backStack.add(Screen.LogoutConfirmation)
+                    },
                     onUpgradeAccount = { credential ->
                         authViewModel.linkWithCredential(credential)
                     }
                 )
             }
+            entry<Screen.LogoutConfirmation>(
+                metadata = mapOf(DIALOG to DialogProperties())
+            ) {
+                LogoutConfirmationDialog(
+                    onLogoutOnly = {
+                        backStack.removeLastOrNull() // Close dialog
+                        settingsViewModel.logout(clearData = false)
+                    },
+                    onLogoutAndClear = {
+                        backStack.removeLastOrNull() // Close dialog
+                        settingsViewModel.logout(clearData = true)
+                    },
+                    onDismiss = {
+                        backStack.removeLastOrNull() // Close dialog
+                    }
+                )
+            }
             entry<Screen.TagManagement>(
                 metadata = mapOf(BOTTOM_SHEET to ModalBottomSheetProperties())
-            ) {
-                TagManagementScreen()
+            ) { key ->
+                val articleId = key.articleId
+                TagManagementScreen(articleId = articleId)
             }
         }
         )
