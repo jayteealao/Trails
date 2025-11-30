@@ -33,37 +33,35 @@ import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
-import com.jayteealao.trails.services.gemini.GeminiClient
 import com.jayteealao.trails.services.jina.JinaClient
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import javax.inject.Inject
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
     private val articleRepository: ArticleRepository,
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
     private val articleDao: ArticleDao,
     private val jinaClient: JinaClient,
-    private val geminiClient: GeminiClient,
     private val contentMetricsCalculator: ContentMetricsCalculator,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel(), Store<ArticleListState, ArticleListEvent> {
@@ -75,7 +73,6 @@ class ArticleListViewModel @Inject constructor(
     // Internal mutable states
     private val _selectedTag = MutableStateFlow<String?>(null)
     private val _sortOption = MutableStateFlow(ArticleSortOption.Newest)
-    private val _tagSuggestions = MutableStateFlow<Map<String, TagSuggestionUiState>>(emptyMap())
     private val _selectedArticle = MutableStateFlow<ArticleItem>(EMPTYARTICLEITEM)
     private val _selectedArticleSummary = MutableStateFlow(PocketSummary())
     private val _selectedTab = MutableStateFlow(ArticleListTab.HOME)
@@ -88,30 +85,29 @@ class ArticleListViewModel @Inject constructor(
 
     // Tartlet Store implementation - Consolidated state
     private val _state = combine(
-        _selectedTag,
-        _sortOption,
-        tagsFlow,
-        _tagSuggestions,
-        _selectedArticle,
-        _selectedArticleSummary,
-        databaseSyncFlow,
-        _selectedTab
-    ) { flows: Array<*> ->
+        combine(_selectedTag, _sortOption, tagsFlow) { tag, sort, tags ->
+            Triple(tag, sort, tags)
+        },
+        combine(_selectedArticle, _selectedArticleSummary, databaseSyncFlow, _selectedTab) { article, summary, sync, tab ->
+            Quad(article, summary, sync, tab)
+        }
+    ) { (selectedTag, sortOption, tags), (selectedArticle, selectedArticleSummary, databaseSync, selectedTab) ->
         ArticleListState(
-            selectedTag = flows[0] as String?,
-            sortOption = flows[1] as ArticleSortOption,
-            tags = flows[2] as List<String>,
-            tagSuggestions = flows[3] as Map<String, TagSuggestionUiState>,
-            selectedArticle = flows[4] as ArticleItem,
-            selectedArticleSummary = flows[5] as PocketSummary,
-            databaseSync = flows[6] as Boolean,
-            selectedTab = flows[7] as ArticleListTab
+            selectedTag = selectedTag,
+            sortOption = sortOption,
+            tags = tags,
+            selectedArticle = selectedArticle,
+            selectedArticleSummary = selectedArticleSummary,
+            databaseSync = databaseSync,
+            selectedTab = selectedTab
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = ArticleListState()
     )
+
+    private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
     override val state: StateFlow<ArticleListState> = _state
 
@@ -208,20 +204,6 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
-    fun updateTag(itemId: String, tag: String, enabled: Boolean) {
-        viewModelScope.launch(ioDispatcher) {
-            try {
-                if (enabled) {
-                    articleRepository.addTag(itemId, tag)
-                } else {
-                    articleRepository.removeTag(itemId, tag)
-                }
-            } catch (e: Exception) {
-                _event.emit(ArticleListEvent.ShowError(e))
-            }
-        }
-    }
-
     fun archiveArticle(itemId: String) {
         viewModelScope.launch(ioDispatcher) {
             try {
@@ -242,112 +224,6 @@ class ArticleListViewModel @Inject constructor(
                 _event.emit(ArticleListEvent.ShowError(e))
             }
         }
-    }
-
-    /**
-     * Requests tag suggestions for an article.
-     * Two-phase approach:
-     * 1. If article has no excerpt/summary, fetch one using URL context first
-     * 2. Then fetch tag suggestions using the structured JSON API with cached summary
-     */
-    fun requestTagSuggestions(articleItem: ArticleItem) {
-        val signature = buildTagSuggestionSignature(articleItem)
-        val existing = _tagSuggestions.value[articleItem.itemId]
-        val hasValidSuggestions = existing?.errorMessage == null && existing?.tags?.isNotEmpty() == true
-        if (existing?.isLoading == true) return
-        if (hasValidSuggestions && existing?.requestSignature == signature) return
-
-        _tagSuggestions.update { current ->
-            val snapshot = existing ?: current[articleItem.itemId] ?: TagSuggestionUiState()
-            current + (articleItem.itemId to snapshot.copy(
-                isLoading = true,
-                errorMessage = null,
-                requestSignature = signature
-            ))
-        }
-
-        viewModelScope.launch(ioDispatcher) {
-            // Phase 1: Ensure we have a summary
-            var summary = articleItem.snippet
-            if (summary.isNullOrBlank() && !articleItem.url.isNullOrBlank()) {
-                Timber.d("requestTagSuggestions: No excerpt found, fetching summary first for ${articleItem.itemId}")
-
-                val summaryResult = geminiClient.fetchArticleSummary(
-                    GeminiClient.ArticleSummaryRequest(
-                        articleId = articleItem.itemId,
-                        title = articleItem.title,
-                        url = articleItem.url
-                    )
-                )
-
-                when (summaryResult) {
-                    is GeminiClient.ArticleSummaryResult.Success -> {
-                        summary = summaryResult.summary
-                        Timber.d("requestTagSuggestions: Summary generated, saving to DB")
-                        // Save summary to database
-                        articleRepository.updateExcerpt(articleItem.itemId, summary)
-                    }
-                    is GeminiClient.ArticleSummaryResult.Error -> {
-                        Timber.e("requestTagSuggestions: Failed to fetch summary: ${summaryResult.message}")
-                        _tagSuggestions.update { current ->
-                            val baseline = current[articleItem.itemId] ?: TagSuggestionUiState()
-                            current + (articleItem.itemId to baseline.copy(
-                                isLoading = false,
-                                errorMessage = "Failed to fetch article summary: ${summaryResult.message}",
-                                requestSignature = signature
-                            ))
-                        }
-                        return@launch
-                    }
-                }
-            }
-
-            // Phase 2: Fetch tag suggestions using structured JSON (no URL context)
-            Timber.d("requestTagSuggestions: Fetching tag suggestions with summary")
-            val result = geminiClient.fetchTagSuggestions(
-                GeminiClient.TagSuggestionRequest(
-                    articleId = articleItem.itemId,
-                    title = articleItem.title,
-                    description = summary,
-                    url = null,  // Don't use URL context for tag suggestions
-                    availableTags = tagsFlow.value
-                )
-            )
-
-            _tagSuggestions.update { current ->
-                val baseline = current[articleItem.itemId] ?: TagSuggestionUiState()
-                val updated = when (result) {
-                    is GeminiClient.TagSuggestionResult.Success -> baseline.copy(
-                        isLoading = false,
-                        tags = result.tags,
-                        errorMessage = null,
-                        requestSignature = signature
-                    )
-                    is GeminiClient.TagSuggestionResult.Error -> baseline.copy(
-                        isLoading = false,
-                        errorMessage = result.message,
-                        requestSignature = signature
-                    )
-                }
-                current + (articleItem.itemId to updated)
-            }
-        }
-    }
-
-    fun clearTagSuggestionError(articleId: String) {
-        _tagSuggestions.update { current ->
-            val existing = current[articleId] ?: return@update current
-            if (existing.errorMessage == null) return@update current
-            current + (articleId to existing.copy(errorMessage = null))
-        }
-    }
-
-    private fun buildTagSuggestionSignature(articleItem: ArticleItem): String {
-        return listOf(
-            articleItem.title,
-            articleItem.snippet.orEmpty(),
-            articleItem.url
-        ).joinToString(separator = "|") { it.trim() }
     }
 
     fun selectArticle(articleItem: ArticleItem) {
