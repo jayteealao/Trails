@@ -35,16 +35,21 @@ class ArticleSearchViewModel @Inject constructor(
     private val _searchResultsHybrid = MutableStateFlow(emptyList<com.jayteealao.trails.data.models.ArticleItem>())
     private val _isSearching = MutableStateFlow(false)
 
+    private val tagsFlow = pocketRepository.allTags()
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Tartlet Store implementation - Consolidated state
     private val _state = combine(
         _searchResultsLocal,
         _searchResultsHybrid,
-        _isSearching
-    ) { local, hybrid, isSearching ->
+        _isSearching,
+        tagsFlow
+    ) { local, hybrid, isSearching, tags ->
         ArticleSearchState(
             searchResultsLocal = local,
             searchResultsHybrid = hybrid,
-            isSearching = isSearching
+            isSearching = isSearching,
+            tags = tags
         )
     }.stateIn(
         scope = viewModelScope,
@@ -120,6 +125,24 @@ class ArticleSearchViewModel @Inject constructor(
             } catch (e: Exception) {
                 _event.emit(ArticleSearchEvent.ShowError(e))
             }
+        }
+    }
+
+    fun shareArticle(title: String, url: String) {
+        viewModelScope.launch {
+            _event.emit(ArticleSearchEvent.ShareArticle(title, url))
+        }
+    }
+
+    fun copyLink(url: String, label: String = "Article URL") {
+        viewModelScope.launch {
+            _event.emit(ArticleSearchEvent.CopyLink(url, label))
+        }
+    }
+
+    fun regenerateArticleDetails(itemId: String) {
+        viewModelScope.launch {
+            _event.emit(ArticleSearchEvent.ShowToast("Regenerate details not available in search. Open article in list view."))
         }
     }
 

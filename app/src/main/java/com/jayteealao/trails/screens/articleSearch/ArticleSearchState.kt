@@ -9,7 +9,7 @@ data class ArticleSearchState(
     val searchResultsLocal: List<ArticleItem> = emptyList(),
     val searchResultsHybrid: List<ArticleItem> = emptyList(),
     val isSearching: Boolean = false,
-    val availableTags: List<String> = emptyList()
+    val tags: List<String> = emptyList()
 ) {
     /**
      * Combined deduplicated search results (hybrid + local)
@@ -25,4 +25,6 @@ sealed interface ArticleSearchEvent {
     data class NavigateToArticle(val itemId: String) : ArticleSearchEvent
     data class ShowToast(val message: String) : ArticleSearchEvent
     data class ShowError(val error: Throwable) : ArticleSearchEvent
+    data class ShareArticle(val title: String, val url: String) : ArticleSearchEvent
+    data class CopyLink(val url: String, val label: String) : ArticleSearchEvent
 }
