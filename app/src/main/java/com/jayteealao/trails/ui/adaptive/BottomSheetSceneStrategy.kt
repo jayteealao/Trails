@@ -1,6 +1,7 @@
 package com.jayteealao.trails.ui.adaptive
 
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.runtime.Composable
@@ -26,6 +27,8 @@ internal class BottomSheetScene<T : Any>(
         ModalBottomSheet(
             onDismissRequest = onBack,
             properties = modalBottomSheetProperties,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
             entry.Content()
         }
@@ -48,5 +51,21 @@ class BottomSheetSceneStrategy<T : Any> : SceneStrategy<T> {
                 onBack = onBack
             )
         }
+    }
+
+    companion object {
+        /**
+         * Function to be called on the [NavEntry.metadata] to mark this entry as something that
+         * should be displayed within a [ModalBottomSheet].
+         *
+         * @param modalBottomSheetProperties properties that should be passed to the containing
+         * [ModalBottomSheet].
+         */
+        @OptIn(ExperimentalMaterial3Api::class)
+        fun bottomSheet(
+            modalBottomSheetProperties: ModalBottomSheetProperties = ModalBottomSheetProperties()
+        ): Map<String, Any> = mapOf(BOTTOM_SHEET_KEY to modalBottomSheetProperties)
+
+        internal const val BOTTOM_SHEET_KEY = "bottomsheet"
     }
 }
