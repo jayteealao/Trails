@@ -17,7 +17,6 @@ data class ArticleListState(
     val selectedTag: String? = null,
     val sortOption: ArticleSortOption = ArticleSortOption.Newest,
     val tags: List<String> = emptyList(),
-    val tagSuggestions: Map<String, TagSuggestionUiState> = emptyMap(),
     val selectedArticle: ArticleItem = EMPTYARTICLEITEM,
     val selectedArticleSummary: PocketSummary = PocketSummary(),
     val databaseSync: Boolean = false,
