@@ -39,7 +39,6 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -80,9 +79,9 @@ fun ArticleListScreen(
     modifier: Modifier = Modifier,
     articleListViewModel: ArticleListViewModel = hiltViewModel(),
     onSelectArticle: (ArticleItem) -> Unit,
+    onOpenTagManagement: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
-    onOpenTagManagement: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -164,24 +163,27 @@ fun ArticleListScreen(
                 .fillMaxWidth()
         ) {
             when (viewStore.state.selectedTab) {
-                ArticleListTab.HOME -> PocketScreenContent(
+                ArticleListTab.HOME -> ArticleListScreenContent(
                     lazyItems = articles,
                     viewStore = viewStore,
                     onSelectArticle = onSelectArticle,
+                    onOpenTagManagement = onOpenTagManagement,
                     useCardLayout = useCardLayout
                 )
 
-                ArticleListTab.FAVOURITES -> PocketScreenContent(
+                ArticleListTab.FAVOURITES -> ArticleListScreenContent(
                     lazyItems = favoriteArticles,
                     viewStore = viewStore,
                     onSelectArticle = onSelectArticle,
+                    onOpenTagManagement = onOpenTagManagement,
                     useCardLayout = useCardLayout
                 )
 
-                ArticleListTab.ARCHIVE -> PocketScreenContent(
+                ArticleListTab.ARCHIVE -> ArticleListScreenContent(
                     lazyItems = archivedArticles,
                     viewStore = viewStore,
                     onSelectArticle = onSelectArticle,
+                    onOpenTagManagement = onOpenTagManagement,
                     useCardLayout = useCardLayout
                 )
 
@@ -189,11 +191,11 @@ fun ArticleListScreen(
                     viewStore = viewStore,
                     lazyItems = taggedArticles,
                     onSelectArticle = onSelectArticle,
-                    useCardLayout = useCardLayout,
-                    onOpenTagManagement = onOpenTagManagement
+                    onOpenTagManagement = onOpenTagManagement,
+                    useCardLayout = useCardLayout
                 )
             }
-            ArticleDialog(
+            ArticleDialog( // remove dialog or add to swipe buttons
                 article = viewStore.state.selectedArticle.copy(snippet = viewStore.state.selectedArticleSummary.summary),
                 showDialog = viewStore.state.selectedArticle != EMPTYARTICLEITEM,
                 onDismissRequest = { viewStore.action { selectArticle(EMPTYARTICLEITEM) } }
@@ -224,7 +226,7 @@ fun ArticleListScreen(
 @Composable
 private fun ArticleListScreenPreview() {
     TrailsTheme(darkTheme = false) {
-        PocketScreenContent(
+        ArticleListScreenContent(
             lazyItems = rememberPreviewArticles(),
             viewStore = ViewStore {
                 ArticleListState(
@@ -234,6 +236,7 @@ private fun ArticleListScreenPreview() {
                 )
             },
             onSelectArticle = {},
+            onOpenTagManagement = {},
             useCardLayout = true
         )
     }
@@ -247,7 +250,7 @@ private fun ArticleListScreenPreview() {
 @Composable
 private fun ArticleListScreenDarkPreview() {
     TrailsTheme(darkTheme = true) {
-        PocketScreenContent(
+        ArticleListScreenContent(
             lazyItems = rememberPreviewArticles(),
             viewStore = ViewStore {
                 ArticleListState(
@@ -257,6 +260,7 @@ private fun ArticleListScreenDarkPreview() {
                 )
             },
             onSelectArticle = {},
+            onOpenTagManagement = {},
             useCardLayout = true
         )
     }
@@ -268,8 +272,8 @@ private fun TagsContent(
     viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     lazyItems: LazyPagingItems<ArticleItem>,
     onSelectArticle: (ArticleItem) -> Unit,
+    onOpenTagManagement: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
-    onOpenTagManagement: () -> Unit,
 ) {
     val tags = viewStore.state.tags
     val selectedTag = viewStore.state.selectedTag
@@ -329,14 +333,12 @@ private fun TagsContent(
                     Text(text = "All tags")
                 }
             }
-            Button(onClick = onOpenTagManagement) {
-                Text("Manage Tags")
-            }
             Box(modifier = Modifier.weight(1f)) {
-                PocketScreenContent(
+                ArticleListScreenContent(
                     lazyItems = lazyItems,
                     viewStore = viewStore,
                     onSelectArticle = onSelectArticle,
+                    onOpenTagManagement = onOpenTagManagement,
                     useCardLayout = useCardLayout
                 )
             }
@@ -346,10 +348,11 @@ private fun TagsContent(
 
 
 @Composable
-internal fun PocketScreenContent(
+internal fun ArticleListScreenContent(
     lazyItems: LazyPagingItems<ArticleItem>,
     viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
     onSelectArticle: (ArticleItem) -> Unit,
+    onOpenTagManagement: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
 ) {
     val listState = rememberLazyListState()
@@ -377,14 +380,23 @@ internal fun PocketScreenContent(
             ) { index ->
                 val article = lazyItems[index]
                 if (article != null) {
-                    ArticleListItem(
+                    ArticleListItem<ArticleListState, ArticleListEvent, ArticleListViewModel>(
                         article = article,
                         viewStore = viewStore,
                         modifier = Modifier.animateItem().then(
                             if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier
                         ),
                         onClick = { onSelectArticle(article) },
-                        useCardLayout = useCardLayout
+                        onOpenTagManagement = { onOpenTagManagement(article) },
+                        useCardLayout = useCardLayout,
+                        tags = viewStore.state.tags,
+                        onSetFavorite = { itemId, isFavorite -> viewStore.action { setFavorite(itemId, isFavorite) } },
+                        onSetReadStatus = { itemId, isRead -> viewStore.action { setReadStatus(itemId, isRead) } },
+                        onArchiveArticle = { itemId -> viewStore.action { archiveArticle(itemId) } },
+                        onDeleteArticle = { itemId -> viewStore.action { deleteArticle(itemId) } },
+                        onRegenerateDetails = { itemId -> viewStore.action { regenerateArticleDetails(itemId) } },
+                        onCopyLink = { url, label -> viewStore.action { copyLink(url, label) } },
+                        onShareArticle = { title, url -> viewStore.action { shareArticle(title, url) } }
                     )
                 }
             }
