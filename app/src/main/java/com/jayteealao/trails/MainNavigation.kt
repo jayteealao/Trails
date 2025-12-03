@@ -1,23 +1,28 @@
 
 package com.jayteealao.trails
 
+//import com.jayteealao.trails.ui.adaptive.rememberListDetailSceneStrategy
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheetProperties
-import androidx.compose.material3.Text
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
+import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.scene.SceneStrategy
 import androidx.navigation3.ui.NavDisplay
+import com.jayteealao.trails.navigation.AppBackStack
 import com.jayteealao.trails.screens.Screen
 import com.jayteealao.trails.screens.TrailScaffold
 import com.jayteealao.trails.screens.TrailsTopAppBarNav3
@@ -34,14 +39,15 @@ import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.tagManagement.TagManagementScreen
 import com.jayteealao.trails.ui.adaptive.BOTTOM_SHEET
 import com.jayteealao.trails.ui.adaptive.BottomSheetSceneStrategy
-import com.jayteealao.trails.ui.adaptive.DETAIL_PANE
 import com.jayteealao.trails.ui.adaptive.DIALOG
 import com.jayteealao.trails.ui.adaptive.DialogSceneStrategy
-import com.jayteealao.trails.ui.adaptive.LIST_PANE
-import com.jayteealao.trails.ui.adaptive.rememberListDetailSceneStrategy
+import com.jayteealao.trails.ui.adaptive.TrailsListDetailSceneStrategy
+import com.jayteealao.trails.ui.adaptive.rememberTrailsListDetailSceneStrategy
 import kotlinx.coroutines.flow.map
 
-@OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3AdaptiveApi::class
+)
 @Composable
 fun MainNavigation(
     modifier: Modifier = Modifier,
@@ -50,61 +56,83 @@ fun MainNavigation(
     settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val authState by authViewModel.state.collectAsState()
-    val startRoute = if (authState is AuthUiState.SignedIn) Screen.ArticleList else Screen.Login
-    val backStack = rememberNavBackStack(startRoute)
+    // Cache the initial route calculation to prevent recomposition issues
+    val initialRoute = remember(authState) {
+        if (authState is AuthUiState.SignedIn) Screen.ArticleList else Screen.Login
+    }
+    val appBackStack = remember(initialRoute) { AppBackStack(initialRoute, Screen.Login) }
     val searchBarState = remember { SearchBarState(false) }
-    val listDetailSceneStrategy = rememberListDetailSceneStrategy<Screen>(
-        detailPlaceholder = { Text("Select an article to view details") }
+
+    val trailsListDetailSceneStrategy = rememberTrailsListDetailSceneStrategy<Screen>(
+//        appBackStack = appBackStack
+//        detailPlaceholder = { Text("Select an article to view details") }
     )
+// Override the defaults so that there isn't a horizontal space between the panes.
+    // See b/418201867
+    val windowAdaptiveInfo = currentWindowAdaptiveInfo()
+    val directive = remember(windowAdaptiveInfo) {
+        calculatePaneScaffoldDirective(windowAdaptiveInfo)
+            .copy(horizontalPartitionSpacerSize = 2.dp)
+    }
+    val listDetailSceneStrategy = rememberListDetailSceneStrategy<Screen>(directive = directive)
+
+
     val bottomSheetSceneStrategy = remember { BottomSheetSceneStrategy<Screen>() }
     val dialogSceneStrategy = remember { DialogSceneStrategy<Screen>() }
+
     @Suppress("UNCHECKED_CAST")
-    val sceneStrategy = (listDetailSceneStrategy
+    val sceneStrategy = (
+//            listDetailSceneStrategy
+            trailsListDetailSceneStrategy
         .then(bottomSheetSceneStrategy)
         .then(dialogSceneStrategy)) as SceneStrategy<NavKey>
 
     TrailScaffold(
         topBar = { menuState ->
-            if (authState is AuthUiState.SignedIn) {
+            // Show top bar when user is in the app (logged in OR skipped login)
+            if (appBackStack.isLoggedIn) {
                 TrailsTopAppBarNav3(
                     title = "Trails",
-                    currentScreen = (backStack.lastOrNull() as? Screen) ?: Screen.ArticleList,
+                    currentScreen = appBackStack.backStack.lastOrNull() ?: Screen.ArticleList,
                     menuState = menuState,
-                    onNavigateBack = { backStack.removeLastOrNull() },
-                    onNavigateToSearch = { backStack.add(Screen.ArticleSearch) },
-                    onNavigateToSettings = { backStack.add(Screen.Settings) }
+                    onNavigateBack = { appBackStack.remove() },
+                    onNavigateToSearch = { appBackStack.add(Screen.ArticleSearch) },
+                    onNavigateToSettings = { appBackStack.add(Screen.Settings) }
                 )
             }
         }
     ) { paddingValues, _, snackbarHostState -> // TODO: pass in snackbarHostState
         NavDisplay(
-            backStack = backStack,
+            backStack = appBackStack.backStack,
             modifier = modifier.padding(paddingValues),
-            onBack = { backStack.removeLastOrNull() },
+            onBack = { appBackStack.remove() },
             sceneStrategy = sceneStrategy,
             entryProvider = entryProvider {
             entry<Screen.Login> {
                 AuthScreen(
                     onLoginSuccess = {
-                        backStack.clear()
-                        backStack.add(Screen.ArticleList)
+                        appBackStack.login()
                     }
                 )
             }
             entry<Screen.ArticleList>(
-                metadata = mapOf(LIST_PANE to true)
+                metadata = TrailsListDetailSceneStrategy.listPane()
+//                metadata = ListDetailSceneStrategy.listPane(
+//                    detailPlaceholder = { Text("Select an article to view details") }
+//                )
             ) {
                 ArticleListScreen(
                     onSelectArticle = { article ->
-                        backStack.add(Screen.ArticleDetail(article.itemId))
+                        appBackStack.add(Screen.ArticleDetail(article.itemId))
                     },
                     onOpenTagManagement = { article ->
-                        backStack.add(Screen.TagManagement(article.itemId))
+                        appBackStack.add(Screen.TagManagement(article.itemId))
                     }
                 )
             }
             entry<Screen.ArticleDetail>(
-                metadata = mapOf(DETAIL_PANE to true)
+                metadata = TrailsListDetailSceneStrategy.detailPane()
+//                metadata = ListDetailSceneStrategy.detailPane()
             ) { key ->
                 val articleId = key.id
                 articleDetailViewModel.getArticle(articleId)
@@ -116,18 +144,17 @@ fun MainNavigation(
                 ArticleSearchScreen(
                     searchBarState = searchBarState,
                     onSelectArticle = { article ->
-                        backStack.add(Screen.ArticleDetail(article.itemId))
+                        appBackStack.add(Screen.ArticleDetail(article.itemId))
                     },
                 )
             }
             entry<Screen.Settings> {
                 SettingsScreen(
                     onLogout = {
-                        backStack.clear()
-                        backStack.add(Screen.Login)
+                        appBackStack.logout()
                     },
                     onShowLogoutDialog = {
-                        backStack.add(Screen.LogoutConfirmation)
+                        appBackStack.add(Screen.LogoutConfirmation)
                     },
                     onUpgradeAccount = { credential ->
                         authViewModel.linkWithCredential(credential)
@@ -139,15 +166,17 @@ fun MainNavigation(
             ) {
                 LogoutConfirmationDialog(
                     onLogoutOnly = {
-                        backStack.removeLastOrNull() // Close dialog
+                        appBackStack.remove() // Close dialog
+                        authViewModel.signOut() // Update auth state immediately
                         settingsViewModel.logout(clearData = false)
                     },
                     onLogoutAndClear = {
-                        backStack.removeLastOrNull() // Close dialog
+                        appBackStack.remove() // Close dialog
+                        authViewModel.signOut() // Update auth state immediately
                         settingsViewModel.logout(clearData = true)
                     },
                     onDismiss = {
-                        backStack.removeLastOrNull() // Close dialog
+                        appBackStack.remove() // Close dialog
                     }
                 )
             }

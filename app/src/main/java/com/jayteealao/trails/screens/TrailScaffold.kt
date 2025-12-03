@@ -32,7 +32,7 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.jayteealao.trails.R
-import com.jayteealao.trails.Screen
+import com.jayteealao.trails.screens.Screen
 import com.jayteealao.trails.screens.theme.TrailsTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,14 +88,14 @@ private fun TrailScaffoldDarkPreview() {
     TrailsTheme(darkTheme = true) {
         val navController = rememberNavController()
         val route = remember { mutableStateOf<NavBackStackEntry?>(null) }
+        val menuState = remember { mutableStateOf(MenuState.Closed) }
         TrailScaffold(
-            topBar = { menuState ->
-                menuState.value = MenuState.Closed
+            topBar = { receivedMenuState ->
                 TrailsTopAppBar(
                     title = "Trails",
                     navController = navController,
                     route = route,
-                    menuState = menuState,
+                    menuState = receivedMenuState,
                 )
             },
         ) { paddingValues, _, _ ->
