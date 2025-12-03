@@ -74,7 +74,7 @@ class SettingsViewModel @Inject constructor(
         SyncStateData(isSyncing, lastSyncTime, syncStatus, lastError)
     }
 
-    // Combine both groups into final state
+    // Combine all groups into final state
     private val _state = combine(
         preferencesFlow,
         syncStateFlow
@@ -161,8 +161,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun logout() {
-        viewModelScope.launch {
+    fun logout(clearData: Boolean = false) {
+        viewModelScope.launch(ioDispatcher) {
+            if (clearData) {
+                // Clear all local data
+                articleDao.deleteAllArticles()
+                sharedPreferencesManager.clear()
+            }
             authRepository.signOut()
             _event.emit(SettingsEvent.LoggedOut)
         }

@@ -5,15 +5,23 @@ import android.content.res.Configuration
 import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Button
@@ -54,6 +62,7 @@ import io.yumemi.tartlet.rememberViewStore
 fun SettingsScreen(
     modifier: Modifier = Modifier,
     onLogout: () -> Unit = {},
+    onShowLogoutDialog: () -> Unit = {},
     onUpgradeAccount: (com.google.firebase.auth.AuthCredential) -> Unit = {},
     viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel> = rememberViewStore { hiltViewModel() }
 ) {
@@ -61,6 +70,7 @@ fun SettingsScreen(
         modifier = modifier,
         viewStore = viewStore,
         onLogout = onLogout,
+        onShowLogoutDialog = onShowLogoutDialog,
         onUpgradeAccount = onUpgradeAccount
     )
 
@@ -88,6 +98,7 @@ internal fun SettingsScreenContent(
     modifier: Modifier = Modifier,
     viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel>,
     onLogout: () -> Unit = {},
+    onShowLogoutDialog: () -> Unit = {},
     onUpgradeAccount: (com.google.firebase.auth.AuthCredential) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -109,9 +120,21 @@ internal fun SettingsScreenContent(
         .build()
 
     val googleSignInClient = GoogleSignIn.getClient(context, gso)
+    val scrollState = rememberScrollState()
 
-    Column(modifier = modifier) {
-        Text(text = "Settings")
+    Column(
+        modifier = modifier
+            .verticalScroll(scrollState)
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(horizontal = 16.dp)
+    ) {
+        // Screen Title
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            modifier = Modifier.padding(vertical = 16.dp)
+        )
 
         // Account Section
         HorizontalDivider()
@@ -165,7 +188,7 @@ internal fun SettingsScreenContent(
         }
 
         OutlinedButton(
-            onClick = { viewStore.action { logout() } },
+            onClick = onShowLogoutDialog,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
@@ -185,11 +208,21 @@ internal fun SettingsScreenContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = "Dark mode")
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Dark mode",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = "Use dark theme across the app",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Switch(
                 checked = viewStore.state.darkTheme,
                 onCheckedChange = { viewStore.action { updateDarkTheme(it) } }
@@ -198,11 +231,21 @@ internal fun SettingsScreenContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = "Card layout")
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Card layout",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = "Display articles as cards with spacing",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Switch(
                 checked = viewStore.state.useCardLayout,
                 onCheckedChange = { viewStore.action { updateCardLayout(it) } }
@@ -258,23 +301,31 @@ internal fun SettingsScreenContent(
         Text("SYNC", style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(4.dp))
 
-        // Sync Status Row
+        // Sync Status Row with Animation
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = "Status")
+            Text(
+                text = "Status",
+                style = MaterialTheme.typography.bodyLarge
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (viewStore.state.isSyncing) {
+                AnimatedVisibility(
+                    visible = viewStore.state.isSyncing,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
                 Text(
@@ -282,7 +333,7 @@ internal fun SettingsScreenContent(
                         is SyncStatus.Idle -> "Idle"
                         is SyncStatus.Syncing -> "Syncing..."
                         is SyncStatus.Success -> status.message
-                        is SyncStatus.Error -> "Error: ${status.message}"
+                        is SyncStatus.Error -> status.message
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = when (viewStore.state.syncStatus) {
@@ -312,20 +363,30 @@ internal fun SettingsScreenContent(
             }
         }
 
-        // Manual Sync Button
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Start
+        // Manual Sync Button with Loading Indicator
+        Button(
+            onClick = { viewStore.action { performManualSync() } },
+            enabled = !viewStore.state.isSyncing,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .height(48.dp)
         ) {
-            Button(
-                onClick = { viewStore.action { performManualSync() } },
-                enabled = !viewStore.state.isSyncing,
-                modifier = Modifier
-                    .wrapContentWidth()
-                    .height(48.dp)
+            AnimatedVisibility(
+                visible = viewStore.state.isSyncing,
+                enter = fadeIn(),
+                exit = fadeOut()
             ) {
-                Text(text = if (viewStore.state.isSyncing) "Syncing..." else "Sync Now")
+                Row {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
             }
+            Text(text = if (viewStore.state.isSyncing) "Syncing..." else "Sync Now")
         }
 
         HorizontalDivider()
