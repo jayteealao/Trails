@@ -27,7 +27,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * UI tests for [PocketScreenContent].
+ * UI tests for [ArticleListScreenContent].
  */
 @RunWith(AndroidJUnit4::class)
 class PocketScreenTest {

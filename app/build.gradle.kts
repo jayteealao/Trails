@@ -162,6 +162,11 @@ android {
 //            excludes += "META-INF/DEPENDENCIES"
         }
     }
+    kotlinOptions {
+        freeCompilerArgs = listOf("-XXLanguage:+PropertyParamAnnotationDefaultTargetMode",
+            "-XXLanguage:+ContextParameters"
+        )
+    }
 }
 
 kotlin {
