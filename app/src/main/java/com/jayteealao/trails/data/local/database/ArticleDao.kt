@@ -261,6 +261,13 @@ interface ArticleDao {
     """)
     suspend fun getArticleTags(itemId: String): List<String>
 
+    /**
+     * Delete all articles (hard delete for logout/data clearing)
+     * WARNING: This permanently removes all data
+     */
+    @Query("DELETE FROM article")
+    suspend fun deleteAllArticles()
+
     @Upsert
     suspend fun insertArticleAuthors(items: List<ArticleAuthors>)
 
