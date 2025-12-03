@@ -5,18 +5,21 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 sealed class Screen : NavKey {
+    // Marker interface for screens that require authentication
+    interface RequiresAuth
+
     @Serializable
-    data object ArticleList : Screen()
+    data object ArticleList : Screen(), RequiresAuth
     @Serializable
-    data class ArticleDetail(val id: String) : Screen()
+    data class ArticleDetail(val id: String) : Screen(), RequiresAuth
     @Serializable
-    data object ArticleSearch : Screen()
+    data object ArticleSearch : Screen(), RequiresAuth
     @Serializable
-    data object Settings : Screen()
+    data object Settings : Screen(), RequiresAuth
     @Serializable
     data object Login : Screen()
     @Serializable
-    data class TagManagement(val articleId: String) : Screen()
+    data class TagManagement(val articleId: String) : Screen(), RequiresAuth
     @Serializable
-    data object LogoutConfirmation : Screen()
+    data object LogoutConfirmation : Screen(), RequiresAuth
 }

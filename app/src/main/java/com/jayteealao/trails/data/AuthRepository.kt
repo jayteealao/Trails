@@ -5,6 +5,7 @@ import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 
 class AuthRepository @Inject constructor(
@@ -19,7 +20,13 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun signInAnonymously(): AuthResult {
-        return auth.signInAnonymously().await()
+        return try {
+            withTimeout(10000) {  // 10 second timeout
+                auth.signInAnonymously().await()
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            throw Exception("Authentication timeout. Please check your internet connection and ensure Firebase is properly configured.")
+        }
     }
 
     suspend fun linkWithCredential(credential: AuthCredential): AuthResult {

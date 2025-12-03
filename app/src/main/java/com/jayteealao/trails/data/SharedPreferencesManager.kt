@@ -74,5 +74,14 @@ class SharedPreferencesManager @Inject constructor(
         sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
         awaitClose { sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+
+    /**
+     * Clear all preferences
+     */
+    fun clear() {
+        val editor = sharedPreferences.edit()
+        editor.clear()
+        editor.apply()
+    }
 }
 
