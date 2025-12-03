@@ -13,9 +13,6 @@ import androidx.navigation3.scene.SceneStrategyScope
 import androidx.window.core.layout.WindowSizeClass
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
 
-const val LIST_PANE = "list"
-const val DETAIL_PANE = "detail"
-
 class TrailsListDetailScene<T : Any>(
     override val key: Any,
     override val previousEntries: List<NavEntry<T>>,
@@ -64,12 +61,12 @@ class TrailsListDetailSceneStrategy<T : Any>(
             return null
         }
 
-        val listEntry = entries.findLast { it.metadata[LIST_PANE] == true } ?: return null
-        val detailEntry = entries.lastOrNull()?.takeIf { it.metadata[DETAIL_PANE] == true }
+        val listEntry = entries.findLast { it.metadata[LIST_KEY] == true } ?: return null
+        val detailEntry = entries.lastOrNull()?.takeIf { it.metadata[DETAIL_KEY] == true }
 
         return TrailsListDetailScene(
             key = listEntry.contentKey,
-            previousEntries = if (detailEntry != null) entries.dropLast(1) else entries,
+            previousEntries = entries.dropLast(1),
             listEntry = listEntry,
             detailEntry = detailEntry,
         )
