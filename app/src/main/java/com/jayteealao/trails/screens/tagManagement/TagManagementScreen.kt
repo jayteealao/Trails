@@ -26,8 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.jayteealao.trails.screens.articleList.TagSuggestionUiState
-import com.jayteealao.trails.screens.articleList.components.TagSuggestionsContent
+import com.jayteealao.trails.screens.tagManagement.TagSuggestionUiState
 import io.yumemi.tartlet.rememberViewStore
 
 /**

@@ -1,4 +1,4 @@
-package com.jayteealao.trails.screens.articleList.components
+package com.jayteealao.trails.screens.tagManagement
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,7 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.jayteealao.trails.screens.articleList.TagSuggestionUiState
+import com.jayteealao.trails.screens.tagManagement.TagSuggestionUiState
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

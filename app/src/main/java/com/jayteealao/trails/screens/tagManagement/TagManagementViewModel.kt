@@ -7,7 +7,7 @@ import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.screens.articleList.TagSuggestionUiState
+import com.jayteealao.trails.screens.tagManagement.TagSuggestionUiState
 import com.jayteealao.trails.services.gemini.GeminiClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
