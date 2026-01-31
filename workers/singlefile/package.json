@@ -10,7 +10,8 @@
     "types": "wrangler types"
   },
   "dependencies": {
-    "@warg/shared": "workspace:*"
+    "@warg/shared": "workspace:*",
+    "@cloudflare/puppeteer": "^1.0.5"
   },
   "devDependencies": {}
 }

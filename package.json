@@ -14,6 +14,7 @@
     "deploy:all": "pnpm exec wrangler deploy --config workers/logger/wrangler.jsonc && pnpm exec wrangler deploy --config workers/renderer/wrangler.jsonc && pnpm exec wrangler deploy --config workers/singlefile/wrangler.jsonc && pnpm exec wrangler deploy --config workers/readability/wrangler.jsonc && pnpm exec wrangler deploy --config workers/monolith/wrangler.jsonc && pnpm exec wrangler deploy --config workers/gcs/wrangler.jsonc && pnpm exec wrangler deploy --config workers/workflow/wrangler.jsonc && pnpm exec wrangler deploy --config workers/gateway/wrangler.jsonc"
   },
   "devDependencies": {
+    "@cloudflare/puppeteer": "^0.0.17",
     "@typescript-eslint/eslint-plugin": "^8.21.0",
     "@typescript-eslint/parser": "^8.21.0",
     "concurrently": "^9.1.2",
