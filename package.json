@@ -1,0 +1,25 @@
+{
+  "name": "warg",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r test",
+    "dev:all": "concurrently -n logger,renderer,singlefile,readability,monolith,gcs,workflow,gateway -c blue,cyan,magenta,yellow,green,red,white,gray \"pnpm exec wrangler dev --config workers/logger/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/renderer/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/singlefile/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/readability/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/monolith/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/gcs/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/workflow/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/gateway/wrangler.jsonc\"",
+    "deploy:all": "pnpm exec wrangler deploy --config workers/logger/wrangler.jsonc && pnpm exec wrangler deploy --config workers/renderer/wrangler.jsonc && pnpm exec wrangler deploy --config workers/singlefile/wrangler.jsonc && pnpm exec wrangler deploy --config workers/readability/wrangler.jsonc && pnpm exec wrangler deploy --config workers/monolith/wrangler.jsonc && pnpm exec wrangler deploy --config workers/gcs/wrangler.jsonc && pnpm exec wrangler deploy --config workers/workflow/wrangler.jsonc && pnpm exec wrangler deploy --config workers/gateway/wrangler.jsonc"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.21.0",
+    "@typescript-eslint/parser": "^8.21.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "wrangler": "4"
+  }
+}
