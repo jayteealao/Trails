@@ -4,7 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
   "services": [
-    { "binding": "LOGGER", "service": "logger" }
+    { "binding": "LOGGER", "service": "logger" },
+    { "binding": "WORKFLOW", "service": "workflow" }
   ],
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }

@@ -1,0 +1,8 @@
+{
+  "enabledMcpjsonServers": [
+    "cloudflare-docs",
+    "cloudflare-workers-observability",
+    "cloudflare-workers-builds"
+  ],
+  "enableAllProjectMcpServers": true
+}

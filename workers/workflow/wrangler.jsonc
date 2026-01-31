@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "workflow",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "observability": { "enabled": true },
+
+  // Cloudflare Workflows
+  "workflows": [
+    {
+      "name": "archive-workflow",
+      "binding": "ARCHIVE_WORKFLOW",
+      "class_name": "ArchiveWorkflow"
+    }
+  ],
+
+  // Durable Objects for browser quota management
+  "durable_objects": {
+    "bindings": [
+      { "name": "BROWSER_QUOTA", "class_name": "BrowserQuotaDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_classes": ["BrowserQuotaDO"] }
+  ],
+
+  // Service bindings for internal workers
+  "services": [
+    { "binding": "LOGGER", "service": "logger" },
+    { "binding": "RENDERER", "service": "renderer" },
+    { "binding": "SINGLEFILE", "service": "singlefile" },
+    { "binding": "READABILITY", "service": "readability" },
+    { "binding": "MONOLITH", "service": "monolith" },
+    { "binding": "GCS", "service": "gcs" }
+  ],
+
+  // R2 bucket for artifacts
+  "r2_buckets": [
+    { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
+  ],
+
+  // Environment variables
+  "vars": {
+    "MOCK_PIPELINE": "false"
+  }
+}

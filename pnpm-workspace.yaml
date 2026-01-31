@@ -1,0 +1,9 @@
+packages:
+  - workers/*
+  - packages/*
+  - cloud-functions/*
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - workerd

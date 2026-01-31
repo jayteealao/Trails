@@ -17,6 +17,31 @@ function generateRequestId(): string {
 }
 
 /**
+ * Validate that a URL is http or https.
+ */
+function isValidArchiveUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wrap a response with the X-Request-Id correlation header.
+ */
+function withRequestId(response: Response, requestId: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set('X-Request-Id', requestId);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+/**
  * Make an internal request to the logger service.
  */
 async function loggerRequest(
@@ -98,14 +123,25 @@ export default {
     // POST /begin - Start a new archive request
     if (method === 'POST' && path === '/begin') {
       try {
-        const options = (await request.json()) as ArchiveOptions;
+        const body = (await request.json()) as ArchiveOptions & { request_id?: string };
 
-        if (!options.url) {
+        if (!body.url) {
           return Response.json({ error: 'url is required' }, { status: 400 });
         }
 
-        const requestId = generateRequestId();
+        if (!isValidArchiveUrl(body.url)) {
+          return Response.json(
+            { error: 'Invalid URL: only http and https URLs are supported' },
+            { status: 400 }
+          );
+        }
+
+        // Use client-provided request_id or generate one
+        const requestId = body.request_id ?? generateRequestId();
         const optionsR2Key = getOptionsKey(requestId);
+
+        // Extract options (remove request_id from stored options)
+        const { request_id: _, ...options } = body;
 
         // Store options in R2
         await env.ARCHIVE_BUCKET.put(optionsR2Key, JSON.stringify(options), {
@@ -129,7 +165,28 @@ export default {
           })
         );
 
-        return Response.json({ requestId }, { status: 201 });
+        // Trigger workflow
+        const workflowResponse = await env.WORKFLOW.fetch('https://workflow/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            request_id: requestId,
+            url: options.url,
+            options_r2_key: optionsR2Key
+          })
+        });
+
+        if (!workflowResponse.ok) {
+          console.error('Failed to trigger workflow:', await workflowResponse.text());
+          // Log the failure but don't fail the request - workflow can be retried
+          await appendLogEvent(
+            env,
+            requestId,
+            createEvent('workflow.trigger_failed', 'error', 'Failed to trigger workflow')
+          );
+        }
+
+        return withRequestId(Response.json({ requestId }, { status: 201 }), requestId);
       } catch (err) {
         console.error('Error in /begin:', err);
         const message = err instanceof Error ? err.message : 'Internal error';
@@ -145,14 +202,17 @@ export default {
       }
 
       const response = await loggerRequest(env, `/request/${requestId}`, 'GET');
-      return new Response(response.body, {
-        status: response.status,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return withRequestId(
+        new Response(response.body, {
+          status: response.status,
+          headers: { 'Content-Type': 'application/json' }
+        }),
+        requestId
+      );
     }
 
-    // POST /internal/event - Forward event to logger (for external services)
-    if (method === 'POST' && path === '/internal/event') {
+    // POST /internal/log - Forward event to logger (for external services)
+    if (method === 'POST' && path === '/internal/log') {
       const apiKey = request.headers.get('X-Internal-API-Key');
       if (apiKey !== env.INTERNAL_API_KEY) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
@@ -161,12 +221,15 @@ export default {
       try {
         const body = (await request.json()) as { requestId: string; event: LogEvent };
         const response = await loggerRequest(env, '/event', 'POST', body);
-        return new Response(response.body, {
-          status: response.status,
-          headers: { 'Content-Type': 'application/json' }
-        });
+        return withRequestId(
+          new Response(response.body, {
+            status: response.status,
+            headers: { 'Content-Type': 'application/json' }
+          }),
+          body.requestId
+        );
       } catch (err) {
-        console.error('Error in /internal/event:', err);
+        console.error('Error in /internal/log:', err);
         const message = err instanceof Error ? err.message : 'Internal error';
         return Response.json({ error: message }, { status: 500 });
       }
