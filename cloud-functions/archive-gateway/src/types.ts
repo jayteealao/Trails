@@ -1,4 +1,54 @@
 /**
+ * Log level for events.
+ */
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+/**
+ * Event source identifier.
+ */
+export type EventSource =
+  | 'gateway'
+  | 'workflow'
+  | 'renderer'
+  | 'singlefile'
+  | 'readability'
+  | 'monolith'
+  | 'gcs'
+  | 'logger'
+  | 'cloud-function';
+
+/**
+ * Event type for logging.
+ */
+export type EventType =
+  | 'request.created'
+  | 'request.done'
+  | 'request.failed'
+  | 'workflow.started'
+  | 'workflow.completed'
+  | 'workflow.failed'
+  | 'step.started'
+  | 'step.completed'
+  | 'step.failed'
+  | 'artifact.written'
+  | 'persist.started'
+  | 'persist.completed'
+  | 'persist.failed';
+
+/**
+ * Log event structure.
+ */
+export interface LogEvent {
+  ts: string;
+  source: EventSource;
+  type: EventType;
+  level: LogLevel;
+  message: string;
+  attempt?: number;
+  data?: Record<string, unknown>;
+}
+
+/**
  * Artifact kind (matches @warg/shared).
  */
 export type ArtifactKind =

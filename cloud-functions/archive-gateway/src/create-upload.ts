@@ -12,6 +12,7 @@ import type {
   ArtifactUploadInfo
 } from './types.js';
 import { GCS_PATH_CONFIG, KIND_TO_ARCHIVE_KEY } from './types.js';
+import { logEvent } from './logging.js';
 
 const GCS_BUCKET = process.env['GCS_BUCKET'] ?? 'htbase-archives-standard';
 const SIGNED_URL_EXPIRY_MINUTES = 15;
@@ -57,6 +58,15 @@ export async function handleCreateUpload(
 
     const { request_id, url, artifacts } = body;
     console.log(`[create-upload] Processing ${artifacts.length} artifacts for ${request_id}`);
+
+    // Log persist.started event
+    await logEvent(
+      request_id,
+      'gcs',
+      'persist.started',
+      'Creating signed upload URLs',
+      { artifactCount: artifacts.length }
+    );
 
     // Initialize GCS and Firestore
     const storage = new Storage({
@@ -129,6 +139,15 @@ export async function handleCreateUpload(
       console.log(`[create-upload] Generated signed URL for ${artifact.kind}${artifact.compressed ? ' [gzip]' : ''}`);
     }
 
+    // Log persist.completed event
+    await logEvent(
+      request_id,
+      'gcs',
+      'persist.completed',
+      'Signed URLs created',
+      { firestoreDocId: request_id, uploadCount: uploads.length }
+    );
+
     const response: CreateUploadResponse = {
       firestore_doc_id: request_id,
       uploads
@@ -138,6 +157,20 @@ export async function handleCreateUpload(
   } catch (err) {
     console.error('[create-upload] Error:', err);
     const message = err instanceof Error ? err.message : String(err);
+
+    // Log persist.failed event (request_id may not be available if parsing failed)
+    const reqBody = req.body as Partial<CreateUploadRequest>;
+    if (reqBody?.request_id) {
+      await logEvent(
+        reqBody.request_id,
+        'gcs',
+        'persist.failed',
+        `Failed to create upload URLs: ${message}`,
+        { error: message },
+        'error'
+      );
+    }
+
     res.status(500).json({ error: 'Internal error', message });
   }
 }

@@ -44,10 +44,43 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   ): Promise<WorkflowResult> {
     const { request_id, url, options_r2_key } = event.payload;
 
+    try {
+      return await this.executeWorkflow(event, step);
+    } catch (err) {
+      // Log workflow.failed before re-throwing
+      await step.do('log-workflow-failed', async () => {
+        await logEvent(
+          this.env,
+          request_id,
+          'workflow.failed',
+          `Workflow failed: ${err instanceof Error ? err.message : String(err)}`,
+          { error: err instanceof Error ? err.message : String(err) },
+          'error'
+        );
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Main workflow execution logic.
+   */
+  private async executeWorkflow(
+    event: WorkflowEvent<WorkflowParams>,
+    step: WorkflowStep
+  ): Promise<WorkflowResult> {
+    const { request_id, url, options_r2_key } = event.payload;
+
     // Step 1: Read options from R2
     const options = await step.do('read-options', async () => {
       const obj = await this.env.ARCHIVE_BUCKET.get(options_r2_key);
       if (!obj) {
+        await logStepFailed(
+          this.env,
+          request_id,
+          'read-options',
+          `Options not found: ${options_r2_key}`
+        );
         throw new NonRetryableError(`Options not found: ${options_r2_key}`);
       }
       return obj.json<ArchiveOptionsExtended>();
@@ -69,10 +102,12 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const renderResult = await this.renderWithQuota(step, request_id, url, options);
 
     // Step 5: Run singlefile (with quota)
+    // SingleFile navigates to the live URL (not rendered HTML) to capture resources
     const singlefileResult = await this.singlefileWithQuota(
       step,
       request_id,
-      renderResult.renderedHtmlKey
+      url,
+      options_r2_key
     );
 
     // Step 6: Parallel derivatives (readability + monolith - no browser needed)
@@ -206,6 +241,12 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         (a) => a.kind === 'rendered.html'
       );
       if (!renderedHtml) {
+        await logStepFailed(
+          this.env,
+          requestId,
+          'render',
+          'Renderer did not produce rendered.html'
+        );
         throw new NonRetryableError('Renderer did not produce rendered.html');
       }
 
@@ -226,11 +267,13 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
 
   /**
    * Run singlefile extraction with browser quota management.
+   * SingleFile navigates to the live URL (not rendered HTML) to capture resources.
    */
   private async singlefileWithQuota(
     step: WorkflowStep,
     requestId: string,
-    renderedHtmlKey: string
+    url: string,
+    optionsR2Key: string
   ): Promise<ArtifactMeta> {
     // Acquire quota (with retry)
     const { leaseId } = await step.do(
@@ -257,7 +300,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         await logStepStarted(this.env, requestId, 'singlefile');
       });
 
-      // Call singlefile
+      // Call singlefile (navigates to live URL to capture resources)
       const result = await step.do(
         'singlefile',
         {
@@ -267,7 +310,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         async () => {
           return await callSinglefile(this.env, {
             request_id: requestId,
-            rendered_html_key: renderedHtmlKey
+            url,
+            options_r2_key: optionsR2Key
           });
         }
       );
@@ -315,34 +359,46 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     });
 
     // Run readability and monolith in parallel
-    const [readabilityResult, monolithResult] = await Promise.all([
-      step.do(
-        'readability',
-        {
-          retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
-          timeout: '2 minutes'
-        },
-        async () => {
-          return await callReadability(this.env, {
-            request_id: requestId,
-            rendered_html_key: renderedHtmlKey
-          });
-        }
-      ),
-      step.do(
-        'monolith',
-        {
-          retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
-          timeout: '2 minutes'
-        },
-        async () => {
-          return await callMonolith(this.env, {
-            request_id: requestId,
-            rendered_html_key: renderedHtmlKey
-          });
-        }
-      )
-    ]);
+    let readabilityResult: Awaited<ReturnType<typeof callReadability>>;
+    let monolithResult: Awaited<ReturnType<typeof callMonolith>>;
+    try {
+      [readabilityResult, monolithResult] = await Promise.all([
+        step.do(
+          'readability',
+          {
+            retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
+            timeout: '2 minutes'
+          },
+          async () => {
+            return await callReadability(this.env, {
+              request_id: requestId,
+              rendered_html_key: renderedHtmlKey
+            });
+          }
+        ),
+        step.do(
+          'monolith',
+          {
+            retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
+            timeout: '2 minutes'
+          },
+          async () => {
+            return await callMonolith(this.env, {
+              request_id: requestId,
+              rendered_html_key: renderedHtmlKey
+            });
+          }
+        )
+      ]);
+    } catch (err) {
+      await logStepFailed(
+        this.env,
+        requestId,
+        'derivatives',
+        err instanceof Error ? err.message : String(err)
+      );
+      throw err;
+    }
 
     // Log artifacts
     await step.do('log-derivative-artifacts', async () => {
