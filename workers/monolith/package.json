@@ -10,7 +10,8 @@
     "types": "wrangler types"
   },
   "dependencies": {
-    "@warg/shared": "workspace:*"
+    "@warg/shared": "workspace:*",
+    "@cloudflare/sandbox": "^0.7.0"
   },
   "devDependencies": {}
 }

@@ -2,5 +2,29 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "monolith",
   "main": "src/index.ts",
-  "compatibility_date": "2025-01-01"
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "r2_buckets": [
+    { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives", "preview_bucket_name": "warg-archives" }
+  ],
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "lite",
+      "max_instances": 5
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "class_name": "Sandbox", "name": "Sandbox" }
+    ]
+  },
+  "migrations": [
+    { "new_sqlite_classes": ["Sandbox"], "tag": "v1" }
+  ]
 }
+// Secrets (via `wrangler secret put`):
+// - INTERNAL_API_KEY: shared key for internal worker auth
+// - MONOLITH_SERVICE_URL (optional): fallback HTTP service URL
