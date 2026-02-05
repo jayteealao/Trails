@@ -11,10 +11,12 @@
     "format:check": "prettier --check .",
     "test": "pnpm -r test",
     "dev:all": "concurrently -n logger,renderer,singlefile,readability,monolith,gcs,workflow,gateway -c blue,cyan,magenta,yellow,green,red,white,gray \"pnpm exec wrangler dev --config workers/logger/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/renderer/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/singlefile/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/readability/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/monolith/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/gcs/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/workflow/wrangler.jsonc\" \"pnpm exec wrangler dev --config workers/gateway/wrangler.jsonc\"",
-    "deploy:all": "pnpm exec wrangler deploy --config workers/logger/wrangler.jsonc && pnpm exec wrangler deploy --config workers/renderer/wrangler.jsonc && pnpm exec wrangler deploy --config workers/singlefile/wrangler.jsonc && pnpm exec wrangler deploy --config workers/readability/wrangler.jsonc && pnpm exec wrangler deploy --config workers/monolith/wrangler.jsonc && pnpm exec wrangler deploy --config workers/gcs/wrangler.jsonc && pnpm exec wrangler deploy --config workers/workflow/wrangler.jsonc && pnpm exec wrangler deploy --config workers/gateway/wrangler.jsonc"
+    "deploy": "bash scripts/deploy.sh",
+    "deploy:pages": "bash scripts/deploy.sh --with-pages",
+    "deploy:quick": "bash scripts/deploy.sh --skip-checks"
   },
   "devDependencies": {
-    "@cloudflare/puppeteer": "^0.0.17",
+    "@cloudflare/puppeteer": "^1.0.5",
     "@typescript-eslint/eslint-plugin": "^8.21.0",
     "@typescript-eslint/parser": "^8.21.0",
     "concurrently": "^9.1.2",
@@ -22,5 +24,8 @@
     "prettier": "^3.4.2",
     "typescript": "^5.7.3",
     "wrangler": "4"
+  },
+  "dependencies": {
+    "@cloudflare/workerd-windows-64": "^1.20260131.0"
   }
 }
