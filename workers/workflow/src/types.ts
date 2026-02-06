@@ -18,8 +18,11 @@ export interface ArchiveOptionsExtended extends ArchiveOptions {
 
 /**
  * Response from the renderer service.
+ * Matches RenderSuccessResponse from workers/renderer/src/types.ts.
  */
 export interface RendererResponse {
+  uses_browser_rendering: true;
+  quota_kind_used: 'bindings_launch' | 'rest_request';
   artifacts: ArtifactMeta[];
   meta?: {
     skipped: string[];
@@ -34,7 +37,6 @@ export interface DerivativeResponse {
   artifact: ArtifactMeta;
   meta?: {
     method?: 'sandbox' | 'http_fallback';
-    exitCode?: number;
     processingMs?: number;
   };
 }
@@ -82,8 +84,10 @@ export interface RendererParams {
   request_id: string;
   url: string;
   browser_quota_kind: 'bindings_launch' | 'rest_request';
+  options_r2_key?: string;
   include_screenshot?: boolean;
   include_pdf?: boolean;
+  include_markdown?: boolean;
 }
 
 /**
