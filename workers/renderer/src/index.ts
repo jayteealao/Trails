@@ -38,6 +38,22 @@ function buildBrPayload(url: string): BrowserRenderingRequest {
   };
 }
 
+/**
+ * Check if a Browser Rendering response is rate-limited.
+ * Returns a 429 Response if so, or null to continue.
+ */
+function checkRateLimit(resp: Response, context: string): Response | null {
+  if (resp.status !== 429) return null;
+  const retryAfter = resp.headers.get('Retry-After');
+  const retryMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+  const rateLimited: RenderRateLimitedResponse = {
+    error: 'rate_limited',
+    retry_after_ms: retryMs,
+    message: `Browser Rendering rate limited${context ? ` on ${context}` : ''}`
+  };
+  return Response.json(rateLimited, { status: 429 });
+}
+
 export default {
   async fetch(
     request: Request,
@@ -98,16 +114,8 @@ export default {
 
       // 1. Fetch rendered HTML
       const contentResp = await callBrowserRendering(env, 'content', brPayload);
-      if (contentResp.status === 429) {
-        const retryAfter = contentResp.headers.get('Retry-After');
-        const retryMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
-        const rateLimited: RenderRateLimitedResponse = {
-          error: 'rate_limited',
-          retry_after_ms: retryMs,
-          message: 'Browser Rendering rate limited'
-        };
-        return Response.json(rateLimited, { status: 429 });
-      }
+      const contentRateLimit = checkRateLimit(contentResp, '');
+      if (contentRateLimit) return contentRateLimit;
       if (!contentResp.ok) {
         const errorText = await contentResp.text();
         return Response.json(
@@ -130,16 +138,8 @@ export default {
       // 2. Fetch screenshot if requested
       if (includeScreenshot) {
         const ssResp = await callBrowserRendering(env, 'screenshot', brPayload);
-        if (ssResp.status === 429) {
-          const retryAfter = ssResp.headers.get('Retry-After');
-          const retryMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
-          const rateLimited: RenderRateLimitedResponse = {
-            error: 'rate_limited',
-            retry_after_ms: retryMs,
-            message: 'Browser Rendering rate limited on screenshot'
-          };
-          return Response.json(rateLimited, { status: 429 });
-        }
+        const ssRateLimit = checkRateLimit(ssResp, 'screenshot');
+        if (ssRateLimit) return ssRateLimit;
         if (ssResp.ok) {
           const ssData = await ssResp.arrayBuffer();
           const ssMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', ssData, 'image/png');
@@ -154,16 +154,8 @@ export default {
       // 3. Fetch PDF if requested
       if (includePdf) {
         const pdfResp = await callBrowserRendering(env, 'pdf', brPayload);
-        if (pdfResp.status === 429) {
-          const retryAfter = pdfResp.headers.get('Retry-After');
-          const retryMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
-          const rateLimited: RenderRateLimitedResponse = {
-            error: 'rate_limited',
-            retry_after_ms: retryMs,
-            message: 'Browser Rendering rate limited on PDF'
-          };
-          return Response.json(rateLimited, { status: 429 });
-        }
+        const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
+        if (pdfRateLimit) return pdfRateLimit;
         if (pdfResp.ok) {
           const pdfData = await pdfResp.arrayBuffer();
           const pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
@@ -178,16 +170,8 @@ export default {
       // 4. Fetch markdown if requested
       if (includeMarkdown) {
         const mdResp = await callBrowserRendering(env, 'markdown', brPayload);
-        if (mdResp.status === 429) {
-          const retryAfter = mdResp.headers.get('Retry-After');
-          const retryMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
-          const rateLimited: RenderRateLimitedResponse = {
-            error: 'rate_limited',
-            retry_after_ms: retryMs,
-            message: 'Browser Rendering rate limited on markdown'
-          };
-          return Response.json(rateLimited, { status: 429 });
-        }
+        const mdRateLimit = checkRateLimit(mdResp, 'markdown');
+        if (mdRateLimit) return mdRateLimit;
         if (mdResp.ok) {
           // Browser Rendering /markdown returns JSON: { success: true, result: "markdown content" }
           const mdJson = (await mdResp.json()) as { success: boolean; result: string };

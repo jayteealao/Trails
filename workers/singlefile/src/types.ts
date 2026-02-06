@@ -50,18 +50,20 @@ export interface SinglefileOptions {
 
 /**
  * SingleFile native options passed directly to singlefile.getPageData().
+ * Derived from SinglefileOptions to avoid duplication.
  */
-export interface SinglefileNativeOptions {
-  removeHiddenElements?: boolean;
-  removeUnusedStyles?: boolean;
-  removeUnusedFonts?: boolean;
-  compressHTML?: boolean;
-  blockScripts?: boolean;
-  blockVideos?: boolean;
-  blockAudios?: boolean;
-  removeFrames?: boolean;
-  removeAlternativeImages?: boolean;
-}
+export type SinglefileNativeOptions = Pick<
+  SinglefileOptions,
+  | 'removeHiddenElements'
+  | 'removeUnusedStyles'
+  | 'removeUnusedFonts'
+  | 'compressHTML'
+  | 'blockScripts'
+  | 'blockVideos'
+  | 'blockAudios'
+  | 'removeFrames'
+  | 'removeAlternativeImages'
+>;
 
 /**
  * Successful response from singlefile worker.

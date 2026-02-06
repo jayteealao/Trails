@@ -16,7 +16,6 @@ export interface MonolithSuccessResponse {
   artifact: ArtifactMeta;
   meta?: {
     method: 'sandbox' | 'http_fallback';
-    exitCode?: number;
     processingMs?: number;
   };
 }
