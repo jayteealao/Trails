@@ -25,6 +25,10 @@ export interface RenderSuccessResponse {
   uses_browser_rendering: true;
   quota_kind_used: BrowserQuotaKind;
   artifacts: ArtifactMeta[];
+  meta?: {
+    skipped: string[];
+    browserApiMs?: number;
+  };
 }
 
 /**

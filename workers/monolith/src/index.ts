@@ -176,6 +176,8 @@ export default {
 
       // Try sandbox execution first, fall back to HTTP service if configured
       let monolithHtml: string;
+      let method: 'sandbox' | 'http_fallback' = 'sandbox';
+      const processingStart = Date.now();
       try {
         monolithHtml = await runMonolithInSandbox(env, request_id, html, base_url);
       } catch (sandboxError) {
@@ -183,11 +185,13 @@ export default {
 
         if (env.MONOLITH_SERVICE_URL) {
           console.log('[monolith] Trying HTTP fallback...');
+          method = 'http_fallback';
           monolithHtml = await runMonolithViaHttp(env.MONOLITH_SERVICE_URL, html, base_url);
         } else {
           throw sandboxError;
         }
       }
+      const processingMs = Date.now() - processingStart;
 
       console.log('[monolith] Monolith output length:', monolithHtml.length);
 
@@ -203,7 +207,10 @@ export default {
       );
 
       console.log('[monolith] Success!', { r2Key: artifact.r2Key, bytes: artifact.bytes });
-      const response: MonolithSuccessResponse = { artifact };
+      const response: MonolithSuccessResponse = {
+        artifact,
+        meta: { method, processingMs }
+      };
       return jsonResponse(response);
     } catch (err) {
       console.error('[monolith] Unhandled error:', err);

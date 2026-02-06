@@ -125,7 +125,9 @@ export default {
 
     const brPayload = buildBrPayload(targetUrl, options.preScript);
     const artifacts: ArtifactMeta[] = [];
+    const skipped: string[] = [];
     const quotaKindUsed: BrowserQuotaKind = browser_quota_kind;
+    const browserApiStart = Date.now();
 
     // 1. Fetch rendered HTML
     const contentResp = await callBrowserRendering(env, 'content', brPayload);
@@ -175,8 +177,11 @@ export default {
         const ssData = await ssResp.arrayBuffer();
         const ssMeta = await storeArtifact(env, request_id, 'screenshot.png', ssData, 'image/png');
         artifacts.push(ssMeta);
+      } else {
+        skipped.push(`screenshot: API returned ${ssResp.status}`);
       }
-      // If screenshot fails but it's not rate-limited, we continue (non-critical)
+    } else {
+      skipped.push('screenshot: not requested');
     }
 
     // 3. Fetch PDF if requested
@@ -196,8 +201,11 @@ export default {
         const pdfData = await pdfResp.arrayBuffer();
         const pdfMeta = await storeArtifact(env, request_id, 'page.pdf', pdfData, 'application/pdf');
         artifacts.push(pdfMeta);
+      } else {
+        skipped.push(`pdf: API returned ${pdfResp.status}`);
       }
-      // If PDF fails but it's not rate-limited, we continue (non-critical)
+    } else {
+      skipped.push('pdf: not requested');
     }
 
     // 4. Fetch markdown if requested
@@ -220,15 +228,22 @@ export default {
           const mdData = new TextEncoder().encode(mdJson.result);
           const mdMeta = await storeArtifact(env, request_id, 'rendered.md', mdData.buffer, 'text/markdown');
           artifacts.push(mdMeta);
+        } else {
+          skipped.push('markdown: API returned invalid response');
         }
+      } else {
+        skipped.push(`markdown: API returned ${mdResp.status}`);
       }
-      // If markdown fails but it's not rate-limited, we continue (non-critical)
+    } else {
+      skipped.push('markdown: not requested');
     }
 
+    const browserApiMs = Date.now() - browserApiStart;
     const successResponse: RenderSuccessResponse = {
       uses_browser_rendering: true,
       quota_kind_used: quotaKindUsed,
-      artifacts
+      artifacts,
+      meta: { skipped, browserApiMs }
     };
     return jsonResponse(successResponse);
   }
