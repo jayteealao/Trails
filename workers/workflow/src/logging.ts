@@ -96,7 +96,7 @@ export function logStepCompletedWithDuration(
   data?: Record<string, unknown>
 ): Promise<void> {
   const durationMs = Date.now() - startedAt;
-  return logStepCompleted(env, requestId, stepName, { duration_ms: durationMs, ...data });
+  return logStepCompleted(env, requestId, stepName, { ...data, duration_ms: durationMs });
 }
 
 /**

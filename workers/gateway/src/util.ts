@@ -12,6 +12,14 @@ export function generateRequestId(): string {
 }
 
 /**
+ * Validate that a request_id is a valid UUID v4.
+ */
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export function isValidRequestId(id: string): boolean {
+  return UUID_V4_RE.test(id);
+}
+
+/**
  * Check if a hostname resolves to a private/reserved IP range.
  * Blocks SSRF attempts against internal services and cloud metadata endpoints.
  */

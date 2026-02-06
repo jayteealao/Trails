@@ -7,6 +7,7 @@ import type {
 import {
   generateRequestId,
   isValidArchiveUrl,
+  isValidRequestId,
   withRequestId,
   createEvent
 } from './util.js';
@@ -89,6 +90,12 @@ export default {
 
         // Use client-provided request_id or generate one
         const requestId = body.request_id ?? generateRequestId();
+        if (body.request_id && !isValidRequestId(requestId)) {
+          return Response.json(
+            { error: 'Invalid request_id format (UUID v4 required)' },
+            { status: 400 }
+          );
+        }
         const optionsR2Key = getOptionsKey(requestId);
 
         // Extract options: remove request_id and strip fields that could enable script injection
@@ -130,11 +137,15 @@ export default {
 
         if (!workflowResponse.ok) {
           console.error('Failed to trigger workflow:', await workflowResponse.text());
-          // Log the failure but don't fail the request - workflow can be retried
           await appendLogEvent(
             env,
             requestId,
             createEvent('workflow.trigger_failed', 'error', 'Failed to trigger workflow')
+          );
+          // Return 202: request was created in logger but workflow did not start
+          return withRequestId(
+            Response.json({ requestId, warning: 'Workflow trigger failed' }, { status: 202 }),
+            requestId
           );
         }
 

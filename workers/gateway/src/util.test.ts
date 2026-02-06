@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   generateRequestId,
   isValidArchiveUrl,
+  isValidRequestId,
   withRequestId,
   createEvent
 } from './util.js';
@@ -91,6 +92,30 @@ describe('isValidArchiveUrl', () => {
     expect(isValidArchiveUrl('https://www.example.com')).toBe(true);
     expect(isValidArchiveUrl('https://news.ycombinator.com')).toBe(true);
     expect(isValidArchiveUrl('http://8.8.8.8')).toBe(true);
+  });
+});
+
+describe('isValidRequestId', () => {
+  it('accepts valid UUID v4', () => {
+    expect(isValidRequestId('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+    expect(isValidRequestId('6ba7b810-9dad-41d1-80b4-00c04fd430c8')).toBe(true);
+  });
+
+  it('accepts generated request IDs', () => {
+    const id = generateRequestId();
+    expect(isValidRequestId(id)).toBe(true);
+  });
+
+  it('rejects non-UUID strings', () => {
+    expect(isValidRequestId('not-a-uuid')).toBe(false);
+    expect(isValidRequestId('')).toBe(false);
+    expect(isValidRequestId('../../../etc/passwd')).toBe(false);
+    expect(isValidRequestId('a'.repeat(100))).toBe(false);
+  });
+
+  it('rejects UUID v1 format', () => {
+    // v1 has version nibble "1" not "4"
+    expect(isValidRequestId('550e8400-e29b-11d4-a716-446655440000')).toBe(false);
   });
 });
 
