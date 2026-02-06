@@ -19,6 +19,8 @@ export type {
   RequestFieldsPatch
 } from './logging.js';
 
+export { createEvent } from './logging.js';
+
 export { getR2Key, getOptionsKey } from './r2Keys.js';
 
 export { sha256, timingSafeEqual } from './crypto.js';

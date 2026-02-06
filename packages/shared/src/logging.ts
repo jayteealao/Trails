@@ -98,3 +98,23 @@ export interface RequestFieldsPatch {
   manifestR2Key?: string;
   externalJson?: Record<string, unknown>;
 }
+
+/**
+ * Create a log event with the given source.
+ */
+export function createEvent(
+  source: EventSource,
+  type: EventType,
+  level: LogLevel,
+  message: string,
+  data?: Record<string, unknown>
+): LogEvent {
+  return {
+    ts: new Date().toISOString(),
+    source,
+    type,
+    level,
+    message,
+    data
+  };
+}

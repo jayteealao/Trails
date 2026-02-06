@@ -574,9 +574,9 @@ export default {
 
         return Response.json({ instanceId: instance.id, status: 'started' });
       } catch (err) {
-        console.error('Error starting workflow:', err);
-        const message = err instanceof Error ? err.message : 'Internal error';
-        return Response.json({ error: message }, { status: 500 });
+        console.error('[workflow] Error starting workflow:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
       }
     }
 
@@ -592,9 +592,9 @@ export default {
         const status = await instance.status();
         return Response.json(status);
       } catch (err) {
-        console.error('Error getting workflow status:', err);
-        const message = err instanceof Error ? err.message : 'Internal error';
-        return Response.json({ error: message }, { status: 500 });
+        console.error('[workflow] Error getting workflow status:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
       }
     }
 

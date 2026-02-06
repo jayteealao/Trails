@@ -1,23 +1,5 @@
-import type { LogEvent, EventType, LogLevel } from '@warg/shared';
-
-/**
- * Create a log event for the workflow source.
- */
-function createEvent(
-  type: EventType,
-  level: LogLevel,
-  message: string,
-  data?: Record<string, unknown>
-): LogEvent {
-  return {
-    ts: new Date().toISOString(),
-    source: 'workflow',
-    type,
-    level,
-    message,
-    data
-  };
-}
+import type { EventType, LogLevel } from '@warg/shared';
+import { createEvent } from '@warg/shared';
 
 /**
  * Log an event to the logger service.
@@ -30,7 +12,7 @@ export async function logEvent(
   data?: Record<string, unknown>,
   level: LogLevel = 'info'
 ): Promise<void> {
-  const event = createEvent(type, level, message, data);
+  const event = createEvent('workflow', type, level, message, data);
 
   try {
     const response = await env.LOGGER.fetch('https://logger/event', {
@@ -43,11 +25,11 @@ export async function logEvent(
     });
 
     if (!response.ok) {
-      console.error(`Failed to log event: ${await response.text()}`);
+      console.error(`[workflow] Failed to log event: ${await response.text()}`);
     }
   } catch (err) {
     // Log to console but don't throw - logging should not block workflow
-    console.error('Error logging event:', err);
+    console.error('[workflow] Error logging event:', err);
   }
 }
 
@@ -194,9 +176,9 @@ export async function updateManifestKey(
     );
 
     if (!response.ok) {
-      console.error(`Failed to update manifest key: ${await response.text()}`);
+      console.error(`[workflow] Failed to update manifest key: ${await response.text()}`);
     }
   } catch (err) {
-    console.error('Error updating manifest key:', err);
+    console.error('[workflow] Error updating manifest key:', err);
   }
 }

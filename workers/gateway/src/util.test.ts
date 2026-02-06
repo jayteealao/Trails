@@ -4,9 +4,9 @@ import {
   isValidArchiveUrl,
   isPrivateHost,
   isValidRequestId,
-  withRequestId,
-  createEvent
+  withRequestId
 } from './util.js';
+import { createEvent } from '@warg/shared';
 
 describe('generateRequestId', () => {
   it('returns a string matching UUID v4 format', () => {
@@ -212,7 +212,7 @@ describe('createEvent', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-15T12:00:00Z'));
 
-    const event = createEvent('request.created', 'info', 'test message');
+    const event = createEvent('gateway', 'request.created', 'info', 'test message');
     expect(event).toEqual({
       ts: '2025-01-15T12:00:00.000Z',
       source: 'gateway',
@@ -226,12 +226,12 @@ describe('createEvent', () => {
   });
 
   it('includes optional data', () => {
-    const event = createEvent('step.started', 'debug', 'step', { url: 'https://example.com' });
+    const event = createEvent('gateway', 'step.started', 'debug', 'step', { url: 'https://example.com' });
     expect(event.data).toEqual({ url: 'https://example.com' });
   });
 
   it('always sets source to gateway', () => {
-    const event = createEvent('request.done', 'info', 'done');
+    const event = createEvent('gateway', 'request.done', 'info', 'done');
     expect(event.source).toBe('gateway');
   });
 });

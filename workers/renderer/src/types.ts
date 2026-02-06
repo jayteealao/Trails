@@ -1,4 +1,4 @@
-import type { ArtifactMeta } from '@warg/shared/types';
+import type { ArtifactMeta } from '@warg/shared';
 
 /**
  * Browser Rendering quota kind.

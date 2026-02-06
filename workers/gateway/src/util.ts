@@ -1,5 +1,3 @@
-import type { LogEvent } from '@warg/shared';
-
 /**
  * Generate a unique request ID (UUIDv4-like).
  */
@@ -140,21 +138,3 @@ export function withRequestId(response: Response, requestId: string): Response {
   });
 }
 
-/**
- * Create a log event helper.
- */
-export function createEvent(
-  type: LogEvent['type'],
-  level: LogEvent['level'],
-  message: string,
-  data?: Record<string, unknown>
-): LogEvent {
-  return {
-    ts: new Date().toISOString(),
-    source: 'gateway',
-    type,
-    level,
-    message,
-    data
-  };
-}

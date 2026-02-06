@@ -1,4 +1,4 @@
-import { getOptionsKey, timingSafeEqual } from '@warg/shared';
+import { getOptionsKey, timingSafeEqual, createEvent } from '@warg/shared';
 import type {
   ArchiveOptions,
   LogEvent,
@@ -8,8 +8,7 @@ import {
   generateRequestId,
   isValidArchiveUrl,
   isValidRequestId,
-  withRequestId,
-  createEvent
+  withRequestId
 } from './util.js';
 
 /**
@@ -44,7 +43,7 @@ async function initLoggerRequest(
 ): Promise<void> {
   const response = await loggerRequest(env, '/request/init', 'POST', payload);
   if (!response.ok) {
-    console.error('Failed to init logger request:', await response.text());
+    console.error('[gateway] Failed to init logger request:', await response.text());
   }
 }
 
@@ -58,7 +57,7 @@ async function appendLogEvent(
 ): Promise<void> {
   const response = await loggerRequest(env, '/event', 'POST', { requestId, event });
   if (!response.ok) {
-    console.error('Failed to append log event:', await response.text());
+    console.error('[gateway] Failed to append log event:', await response.text());
   }
 }
 
@@ -75,7 +74,12 @@ export default {
     // POST /begin - Start a new archive request
     if (method === 'POST' && path === '/begin') {
       try {
-        const body = (await request.json()) as ArchiveOptions & { request_id?: string };
+        let body: ArchiveOptions & { request_id?: string };
+        try {
+          body = (await request.json()) as ArchiveOptions & { request_id?: string };
+        } catch {
+          return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+        }
 
         if (!body.url) {
           return Response.json({ error: 'url is required' }, { status: 400 });
@@ -118,7 +122,7 @@ export default {
         await appendLogEvent(
           env,
           requestId,
-          createEvent('request.created', 'info', 'Archive request created', {
+          createEvent('gateway', 'request.created', 'info', 'Archive request created', {
             url: options.url,
             optionsR2Key
           })
@@ -136,11 +140,11 @@ export default {
         });
 
         if (!workflowResponse.ok) {
-          console.error('Failed to trigger workflow:', await workflowResponse.text());
+          console.error('[gateway] Failed to trigger workflow:', await workflowResponse.text());
           await appendLogEvent(
             env,
             requestId,
-            createEvent('workflow.trigger_failed', 'error', 'Failed to trigger workflow')
+            createEvent('gateway', 'workflow.trigger_failed', 'error', 'Failed to trigger workflow')
           );
           // Return 202: request was created in logger but workflow did not start
           return withRequestId(
@@ -151,9 +155,9 @@ export default {
 
         return withRequestId(Response.json({ requestId }, { status: 201 }), requestId);
       } catch (err) {
-        console.error('Error in /begin:', err);
-        const message = err instanceof Error ? err.message : 'Internal error';
-        return Response.json({ error: message }, { status: 500 });
+        console.error('[gateway] Error in /begin:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
       }
     }
 
@@ -192,9 +196,9 @@ export default {
           body.requestId
         );
       } catch (err) {
-        console.error('Error in /internal/log:', err);
-        const message = err instanceof Error ? err.message : 'Internal error';
-        return Response.json({ error: message }, { status: 500 });
+        console.error('[gateway] Error in /internal/log:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
       }
     }
 

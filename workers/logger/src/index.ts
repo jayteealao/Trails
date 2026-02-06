@@ -177,9 +177,9 @@ export default {
 
       return Response.json({ error: 'Not found' }, { status: 404 });
     } catch (err) {
-      console.error('Logger error:', err);
-      const message = err instanceof Error ? err.message : 'Internal error';
-      return Response.json({ error: message }, { status: 500 });
+      console.error('[logger] Unhandled error:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
     }
   }
 };
