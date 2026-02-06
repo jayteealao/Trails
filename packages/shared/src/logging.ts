@@ -19,6 +19,7 @@ export type EventType =
   | 'workflow.started'
   | 'workflow.completed'
   | 'workflow.failed'
+  | 'workflow.trigger_failed'
   | 'step.started'
   | 'step.completed'
   | 'step.failed'
