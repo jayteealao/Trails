@@ -4,6 +4,7 @@ import type {
   DerivativeParams,
   DerivativeResponse,
   ReadabilityResponse,
+  MonolithParams,
   GcsParams,
   GcsResponse,
   SinglefileParams
@@ -99,7 +100,7 @@ export function callReadability(
  */
 export function callMonolith(
   env: Env,
-  params: DerivativeParams
+  params: MonolithParams
 ): Promise<DerivativeResponse> {
   return serviceCall<DerivativeResponse>(
     env.MONOLITH,

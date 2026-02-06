@@ -120,7 +120,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const parallelResults = await this.runParallelDerivatives(
       step,
       request_id,
-      renderResult.renderedHtmlKey
+      renderResult.renderedHtmlKey,
+      url
     );
 
     // Combine derivative results
@@ -223,8 +224,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           return await callRenderer(this.env, {
             request_id: requestId,
             url,
-            includeScreenshot: options.includeScreenshot,
-            includePdf: options.includePdf
+            browser_quota_kind: 'rest_request',
+            include_screenshot: options.includeScreenshot,
+            include_pdf: options.includePdf
           });
         }
       );
@@ -358,7 +360,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   private async runParallelDerivatives(
     step: WorkflowStep,
     requestId: string,
-    renderedHtmlKey: string
+    renderedHtmlKey: string,
+    url: string
   ): Promise<{
     readabilityJson?: ArtifactMeta;
     readabilityMd?: ArtifactMeta;
@@ -397,7 +400,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           async () => {
             return await callMonolith(this.env, {
               request_id: requestId,
-              rendered_html_key: renderedHtmlKey
+              rendered_html_key: renderedHtmlKey,
+              base_url: url
             });
           }
         )
@@ -534,7 +538,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         'persist.completed',
         'GCS persistence completed',
         {
-          firestoreDocId: result.firestoreDocId,
+          firestore_doc_id: result.firestore_doc_id,
           duration_ms: durationMs,
           ...(result.meta ? { meta: result.meta } : {})
         }

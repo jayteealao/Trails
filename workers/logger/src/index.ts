@@ -93,7 +93,7 @@ export default {
       if (method === 'POST' && path === '/artifact') {
         const body = (await request.json()) as { requestId: string; artifact: ArtifactRecord };
         const stub = getLoggerStub(env, body.requestId);
-        stub.upsertArtifact(body.artifact);
+        await stub.upsertArtifact(body.artifact);
         return Response.json({ ok: true });
       }
 
@@ -110,7 +110,7 @@ export default {
         const cursor = params.get('cursor');
         const limit = params.get('limit');
         const stub = getLoggerStub(env, requestId);
-        const view = stub.getRequestView(
+        const view = await stub.getRequestView(
           cursor ? parseInt(cursor, 10) : undefined,
           limit ? parseInt(limit, 10) : 100
         );
@@ -125,7 +125,7 @@ export default {
         const cursor = params.get('cursor');
         const limit = params.get('limit');
         const stub = getLoggerStub(env, requestId);
-        const result = stub.getEvents(
+        const result = await stub.getEvents(
           cursor ? parseInt(cursor, 10) : undefined,
           limit ? parseInt(limit, 10) : 100
         );

@@ -55,10 +55,13 @@ export interface ReadabilityResponse {
 
 /**
  * Response from the GCS persistence service.
+ * Matches PersistResponse from workers/gcs/src/types.ts (snake_case convention).
  */
 export interface GcsResponse {
-  gcsKeys: Record<ArtifactKind, string>;
-  firestoreDocId: string;
+  success: boolean;
+  firestore_doc_id: string;
+  uploaded: number;
+  artifacts: Array<{ kind: ArtifactKind; gcs_path: string }>;
   meta?: {
     compressionStats: Array<{
       kind: string;
@@ -73,20 +76,32 @@ export interface GcsResponse {
 
 /**
  * Parameters for calling the renderer service.
+ * Matches RenderRequest from workers/renderer/src/types.ts (snake_case convention).
  */
 export interface RendererParams {
   request_id: string;
   url: string;
-  includeScreenshot?: boolean;
-  includePdf?: boolean;
+  browser_quota_kind: 'bindings_launch' | 'rest_request';
+  include_screenshot?: boolean;
+  include_pdf?: boolean;
 }
 
 /**
- * Parameters for calling derivative services (readability, monolith).
+ * Parameters for calling readability service.
  */
 export interface DerivativeParams {
   request_id: string;
   rendered_html_key: string;
+}
+
+/**
+ * Parameters for calling the monolith service.
+ * Monolith requires base_url for resolving relative links.
+ */
+export interface MonolithParams {
+  request_id: string;
+  rendered_html_key: string;
+  base_url: string;
 }
 
 /**
