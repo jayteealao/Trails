@@ -1,6 +1,7 @@
 packages:
   - workers/*
   - packages/*
+  - pages/*
   - cloud-functions/*
 
 onlyBuiltDependencies:
