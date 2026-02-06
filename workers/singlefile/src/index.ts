@@ -1,161 +1,14 @@
 import puppeteer from '@cloudflare/puppeteer';
 import { getR2Key, sha256 } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
+import { SINGLEFILE_SCRIPT, SINGLEFILE_HOOK } from './singlefile-bundle.js';
 import type {
   SinglefileRequest,
   SinglefileSuccessResponse,
   SinglefileRateLimitedResponse,
-  SinglefileOptions
+  SinglefileOptions,
+  SinglefileNativeOptions
 } from './types.js';
-
-/**
- * SingleFile hook script - must be injected before page load.
- * Sets up the window.singlefile namespace and frame tracking.
- */
-const SINGLEFILE_HOOK = `
-(function() {
-  if (window.singlefile) return;
-
-  const SINGLE_FILE_PREFIX = "single-file-";
-
-  window.singlefile = {
-    frames: new Map(),
-    sessionId: 0
-  };
-
-  // Track frames for resource capture
-  const originalAppendChild = Element.prototype.appendChild;
-  Element.prototype.appendChild = function(child) {
-    if (child.tagName === 'IFRAME') {
-      const frameId = SINGLE_FILE_PREFIX + (window.singlefile.sessionId++);
-      child.dataset.singleFileFrameId = frameId;
-    }
-    return originalAppendChild.call(this, child);
-  };
-})();
-`;
-
-/**
- * SingleFile main script - the core capture logic.
- * This is a simplified version for Cloudflare Workers Browser Rendering.
- */
-const SINGLEFILE_SCRIPT = `
-(function() {
-  if (window.singlefile && window.singlefile.getPageData) return;
-
-  window.singlefile = window.singlefile || {};
-
-  async function getPageData(options = {}) {
-    const doc = document;
-    const doctype = doc.doctype;
-    const doctypeStr = doctype
-      ? '<!DOCTYPE ' + doctype.name +
-        (doctype.publicId ? ' PUBLIC "' + doctype.publicId + '"' : '') +
-        (doctype.systemId ? ' "' + doctype.systemId + '"' : '') + '>'
-      : '<!DOCTYPE html>';
-
-    // Clone the document for processing
-    const clonedDoc = doc.cloneNode(true);
-
-    // Process the cloned document
-    await processDocument(clonedDoc, options);
-
-    // Serialize to string
-    const html = doctypeStr + '\\n' + clonedDoc.documentElement.outerHTML;
-
-    return { content: html };
-  }
-
-  async function processDocument(doc, options) {
-    // Remove scripts if requested
-    if (options.blockScripts) {
-      doc.querySelectorAll('script').forEach(el => el.remove());
-    }
-
-    // Inline stylesheets
-    await inlineStylesheets(doc);
-
-    // Inline images
-    if (!options.blockImages) {
-      await inlineImages(doc);
-    } else {
-      doc.querySelectorAll('img').forEach(el => el.remove());
-    }
-
-    // Remove videos if requested
-    if (options.blockVideos) {
-      doc.querySelectorAll('video, iframe[src*="youtube"], iframe[src*="vimeo"]').forEach(el => el.remove());
-    }
-
-    // Add base tag for relative URLs
-    const baseTag = doc.createElement('base');
-    baseTag.href = window.location.href;
-    const head = doc.querySelector('head');
-    if (head) {
-      head.insertBefore(baseTag, head.firstChild);
-    }
-
-    // Add meta charset
-    if (!doc.querySelector('meta[charset]')) {
-      const metaCharset = doc.createElement('meta');
-      metaCharset.setAttribute('charset', 'utf-8');
-      if (head) {
-        head.insertBefore(metaCharset, head.firstChild);
-      }
-    }
-  }
-
-  async function inlineStylesheets(doc) {
-    const styleSheets = doc.querySelectorAll('link[rel="stylesheet"]');
-    for (const link of styleSheets) {
-      try {
-        const href = link.href;
-        if (!href) continue;
-
-        const response = await fetch(href);
-        if (response.ok) {
-          const css = await response.text();
-          const style = doc.createElement('style');
-          style.textContent = css;
-          link.parentNode.replaceChild(style, link);
-        }
-      } catch (e) {
-        console.warn('Failed to inline stylesheet:', e);
-      }
-    }
-  }
-
-  async function inlineImages(doc) {
-    const images = doc.querySelectorAll('img[src]');
-    for (const img of images) {
-      try {
-        const src = img.src;
-        if (!src || src.startsWith('data:')) continue;
-
-        const response = await fetch(src);
-        if (response.ok) {
-          const blob = await response.blob();
-          const dataUrl = await blobToDataURL(blob);
-          img.src = dataUrl;
-        }
-      } catch (e) {
-        console.warn('Failed to inline image:', e);
-      }
-    }
-  }
-
-  function blobToDataURL(blob) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  window.singlefile.getPageData = getPageData;
-})();
-`;
 
 /**
  * Default cleanup script to remove modals, popovers, cookie banners.
@@ -232,7 +85,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 async function storeArtifact(
   env: Env,
   requestId: string,
-  data: ArrayBuffer,
+  data: ArrayBuffer
 ): Promise<ArtifactMeta> {
   const r2Key = getR2Key(requestId, 'singlefile.html');
   const hash = await sha256(data);
@@ -248,6 +101,23 @@ async function storeArtifact(
   };
 }
 
+/**
+ * Build SingleFile native options from our options interface.
+ */
+function buildNativeOptions(options: SinglefileOptions): SinglefileNativeOptions {
+  return {
+    removeHiddenElements: options.removeHiddenElements ?? true,
+    removeUnusedStyles: options.removeUnusedStyles ?? true,
+    removeUnusedFonts: options.removeUnusedFonts ?? true,
+    compressHTML: options.compressHTML ?? options.compressContent ?? true,
+    blockScripts: options.blockScripts ?? true,
+    blockVideos: options.blockVideos ?? true,
+    blockAudios: options.blockAudios ?? true,
+    removeFrames: options.removeFrames ?? false,
+    removeAlternativeImages: options.removeAlternativeImages ?? options.blockImages ?? false
+  };
+}
+
 export default {
   async fetch(
     request: Request,
@@ -255,9 +125,10 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      // Only accept POST /singlefile
       const url = new URL(request.url);
-      if (request.method !== 'POST' || url.pathname !== '/singlefile') {
+
+      // Accept both /singlefile and /extract for backward compatibility
+      if (request.method !== 'POST' || (url.pathname !== '/singlefile' && url.pathname !== '/extract')) {
         return jsonResponse({ error: 'Not found' }, 404);
       }
 
@@ -302,6 +173,9 @@ export default {
       const timeout = options.timeout ?? 60000;
       const cleanupScript = options.cleanupScript ?? DEFAULT_CLEANUP_SCRIPT;
 
+      // Build native options for SingleFile
+      const nativeOptions = buildNativeOptions(options);
+
       // Launch browser
       let browser;
       try {
@@ -310,7 +184,6 @@ export default {
         console.log('[singlefile] Browser launched successfully');
       } catch (err) {
         console.error('[singlefile] Browser launch failed:', err);
-        // Check if it's a rate limit error
         const errMsg = err instanceof Error ? err.message : String(err);
         if (errMsg.includes('limit') || errMsg.includes('quota')) {
           const rateLimited: SinglefileRateLimitedResponse = {
@@ -328,10 +201,9 @@ export default {
         const page = await browser.newPage();
         console.log('[singlefile] Page created');
 
-        // Inject hook script before navigation
-        console.log('[singlefile] Injecting scripts...');
+        // Inject SingleFile hook script before navigation (for frame tracking)
+        console.log('[singlefile] Injecting SingleFile hook script...');
         await page.evaluateOnNewDocument(SINGLEFILE_HOOK);
-        await page.evaluateOnNewDocument(SINGLEFILE_SCRIPT);
 
         // Navigate to the URL
         console.log('[singlefile] Navigating to:', targetUrl);
@@ -341,50 +213,80 @@ export default {
         });
         console.log('[singlefile] Navigation complete');
 
-        // Run cleanup script
+        // Run cleanup script to remove modals, banners, etc.
         console.log('[singlefile] Running cleanup script...');
         await page.evaluate(cleanupScript);
 
         // Scroll to trigger lazy loading
         if (scrollToBottom) {
-          console.log('[singlefile] Scrolling page...');
+          console.log('[singlefile] Scrolling page to trigger lazy loading...');
           await page.evaluate(SCROLL_SCRIPT);
         }
 
         // Wait a bit for any final resources to load
-        await page.evaluate(() => new Promise(r => setTimeout(r, 1000)));
+        await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
 
-        // Capture the page with SingleFile
-        console.log('[singlefile] Capturing page...');
-        const result = await page.evaluate(async (opts: { blockScripts?: boolean; blockImages?: boolean; blockVideos?: boolean }) => {
+        // Inject the main SingleFile script
+        console.log('[singlefile] Injecting SingleFile main script...');
+        await page.evaluate(SINGLEFILE_SCRIPT);
+
+        // Verify SingleFile is available
+        const singlefileAvailable = await page.evaluate(() => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const sf = (window as any).singlefile;
-          if (!sf || !sf.getPageData) {
-            throw new Error('SingleFile not available');
-          }
-          return sf.getPageData(opts);
-        }, {
-          blockScripts: options.blockScripts,
-          blockImages: options.blockImages,
-          blockVideos: options.blockVideos
+          return typeof (window as any).singlefile !== 'undefined' &&
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            typeof (window as any).singlefile.getPageData === 'function';
         });
 
-        if (!result || !result.content) {
+        if (!singlefileAvailable) {
+          return jsonResponse(
+            { error: 'SingleFile injection failed: singlefile.getPageData not available' },
+            502
+          );
+        }
+
+        // Capture the page with SingleFile (with timeout)
+        console.log('[singlefile] Capturing page with SingleFile...');
+        const captureTimeoutMs = 60000;
+
+        const result = await Promise.race([
+          page.evaluate(async (opts: SinglefileNativeOptions) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sf = (window as any).singlefile;
+            return await sf.getPageData(opts);
+          }, nativeOptions),
+          new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('SingleFile capture timeout')), captureTimeoutMs)
+          )
+        ]);
+
+        if (!result || typeof result !== 'object' || !('content' in result)) {
           return jsonResponse(
             { error: 'SingleFile capture failed: no content returned' },
             502
           );
         }
 
-        console.log('[singlefile] Storing artifact...');
+        const content = (result as { content: string }).content;
+
+        // Validate content
+        if (!content || content.length < 100) {
+          return jsonResponse(
+            { error: 'SingleFile capture failed: content too short', length: content?.length },
+            502
+          );
+        }
+
+        console.log('[singlefile] Capture complete, content length:', content.length);
+
         // Store the artifact
-        const htmlData = new TextEncoder().encode(result.content);
+        console.log('[singlefile] Storing artifact...');
+        const htmlData = new TextEncoder().encode(content);
         const artifact = await storeArtifact(env, request_id, htmlData.buffer as ArrayBuffer);
 
         console.log('[singlefile] Success!');
         const successResponse: SinglefileSuccessResponse = { artifact };
         return jsonResponse(successResponse);
-
       } finally {
         console.log('[singlefile] Closing browser...');
         await browser.close();

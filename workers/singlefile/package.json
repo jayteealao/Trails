@@ -7,7 +7,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "update-bundle": "curl -o lib/single-file-bundle.js https://raw.githubusercontent.com/gildas-lormeau/single-file-cli/master/lib/single-file-bundle.js"
   },
   "dependencies": {
     "@warg/shared": "workspace:*",
