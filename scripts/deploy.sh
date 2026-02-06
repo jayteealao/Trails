@@ -11,7 +11,7 @@ set -euo pipefail
 #   bash scripts/deploy.sh --skip-checks # skip typecheck/test pre-checks
 #
 # Required secrets (set once per worker via wrangler secret put):
-#   gateway:     INTERNAL_API_KEY
+#   gateway:     INTERNAL_API_KEY, PUBLIC_API_KEY
 #   workflow:    INTERNAL_API_KEY
 #   renderer:    INTERNAL_API_KEY, CF_ACCOUNT_ID, BR_API_TOKEN
 #   singlefile:  INTERNAL_API_KEY

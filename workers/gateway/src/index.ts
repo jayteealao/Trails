@@ -61,6 +61,15 @@ async function appendLogEvent(
   }
 }
 
+/**
+ * Verify the public API key from the X-API-Key header.
+ */
+function verifyPublicApiKey(request: Request, env: Env): boolean {
+  const apiKey = request.headers.get('X-API-Key');
+  if (!apiKey) return false;
+  return timingSafeEqual(apiKey, env.PUBLIC_API_KEY);
+}
+
 export default {
   async fetch(
     request: Request,
@@ -70,6 +79,16 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
+
+    // Public endpoints require X-API-Key authentication
+    if (
+      (method === 'POST' && path === '/begin') ||
+      (method === 'GET' && path.startsWith('/status/'))
+    ) {
+      if (!verifyPublicApiKey(request, env)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
 
     // POST /begin - Start a new archive request
     if (method === 'POST' && path === '/begin') {
