@@ -85,21 +85,39 @@ export function logStepCompleted(
 }
 
 /**
+ * Log a step completed event with duration tracking.
+ * Computes duration_ms from startedAt timestamp.
+ */
+export function logStepCompletedWithDuration(
+  env: Env,
+  requestId: string,
+  stepName: string,
+  startedAt: number,
+  data?: Record<string, unknown>
+): Promise<void> {
+  const durationMs = Date.now() - startedAt;
+  return logStepCompleted(env, requestId, stepName, { duration_ms: durationMs, ...data });
+}
+
+/**
  * Log a step failed event.
+ * Accepts string or Error. If Error, includes truncated stack trace.
  */
 export function logStepFailed(
   env: Env,
   requestId: string,
   stepName: string,
-  error: string,
+  error: string | Error,
   data?: Record<string, unknown>
 ): Promise<void> {
+  const errorMsg = error instanceof Error ? error.message : error;
+  const stack = error instanceof Error ? error.stack?.slice(0, 1000) : undefined;
   return logEvent(
     env,
     requestId,
     'step.failed',
-    `Step failed: ${stepName}: ${error}`,
-    { step: stepName, error, ...data },
+    `Step failed: ${stepName}: ${errorMsg}`,
+    { step: stepName, error: errorMsg, ...(stack ? { stack } : {}), ...data },
     'error'
   );
 }
@@ -119,6 +137,39 @@ export function logArtifactWritten(
     r2Key,
     bytes
   });
+}
+
+/**
+ * Log a terminal request.done event.
+ */
+export function logRequestDone(
+  env: Env,
+  requestId: string,
+  data?: Record<string, unknown>
+): Promise<void> {
+  return logEvent(env, requestId, 'request.done', 'Request completed', data);
+}
+
+/**
+ * Log a terminal request.failed event.
+ * Accepts string or Error. If Error, includes truncated stack trace.
+ */
+export function logRequestFailed(
+  env: Env,
+  requestId: string,
+  error: string | Error,
+  data?: Record<string, unknown>
+): Promise<void> {
+  const errorMsg = error instanceof Error ? error.message : error;
+  const stack = error instanceof Error ? error.stack?.slice(0, 1000) : undefined;
+  return logEvent(
+    env,
+    requestId,
+    'request.failed',
+    `Request failed: ${errorMsg}`,
+    { error: errorMsg, ...(stack ? { stack } : {}), ...data },
+    'error'
+  );
 }
 
 /**
