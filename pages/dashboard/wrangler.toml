@@ -1,0 +1,6 @@
+name = "warg-dashboard"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "."
+
+[vars]
+LOGGER_URL = "https://logger.warg.workers.dev"

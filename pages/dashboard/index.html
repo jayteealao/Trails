@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warg Observatory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="4"/>
+            <line x1="12" y1="2" x2="12" y2="6"/>
+            <line x1="12" y1="18" x2="12" y2="22"/>
+            <line x1="2" y1="12" x2="6" y2="12"/>
+            <line x1="18" y1="12" x2="22" y2="12"/>
+          </svg>
+          <span class="logo-text">Warg Observatory</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-view="requests">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          <span>Requests</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="settings-btn" id="settingsBtn">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span>Settings</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Requests List View -->
+      <div class="view" id="requestsView">
+        <header class="view-header">
+          <h1 class="view-title">Archive Requests</h1>
+          <div class="view-actions">
+            <button class="btn btn-icon" id="refreshBtn" title="Refresh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </button>
+            <label class="auto-refresh">
+              <input type="checkbox" id="autoRefreshToggle">
+              <span>Auto-refresh</span>
+            </label>
+          </div>
+        </header>
+
+        <!-- Filters -->
+        <div class="filters">
+          <div class="filter-group">
+            <label class="filter-label">Domain</label>
+            <input type="text" class="filter-input" id="domainFilter" placeholder="Filter by domain...">
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Status</label>
+            <select class="filter-select" id="statusFilter">
+              <option value="">All</option>
+              <option value="queued">Queued</option>
+              <option value="rendering">Rendering</option>
+              <option value="deriving">Deriving</option>
+              <option value="persisting">Persisting</option>
+              <option value="done">Done</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Request List -->
+        <div class="request-list" id="requestList">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" id="pagination">
+          <button class="btn btn-secondary" id="prevPage" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            Previous
+          </button>
+          <span class="pagination-info" id="paginationInfo">Showing 0-0 of 0</span>
+          <button class="btn btn-secondary" id="nextPage" disabled>
+            Next
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Request Detail View -->
+      <div class="view hidden" id="detailView">
+        <header class="view-header">
+          <button class="btn btn-back" id="backBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            Back to Requests
+          </button>
+        </header>
+
+        <div class="detail-content" id="detailContent">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Loading State -->
+      <div class="loading-overlay hidden" id="loadingOverlay">
+        <div class="loading-spinner">
+          <svg class="spinner" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="31.4 31.4"/>
+          </svg>
+          <span class="loading-text">Loading...</span>
+        </div>
+      </div>
+
+      <!-- Error State -->
+      <div class="error-banner hidden" id="errorBanner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span class="error-message" id="errorMessage">An error occurred</span>
+        <button class="btn btn-icon error-close" id="errorClose">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay hidden" id="settingsModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Settings</h2>
+        <button class="btn btn-icon modal-close" id="settingsClose">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="setting-group">
+          <label class="setting-label" for="refreshInterval">Auto-refresh interval (seconds)</label>
+          <input type="number" class="setting-input" id="refreshInterval" min="5" max="300" value="30">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="settingsCancel">Cancel</button>
+        <button class="btn btn-primary" id="settingsSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
