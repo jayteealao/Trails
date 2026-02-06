@@ -25,8 +25,11 @@ import {
   logEvent,
   logStepStarted,
   logStepCompleted,
+  logStepCompletedWithDuration,
   logStepFailed,
   logArtifactWritten,
+  logRequestDone,
+  logRequestFailed,
   updateManifestKey
 } from './logging.js';
 import { runMockPipeline } from './mock.js';
@@ -47,16 +50,19 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     try {
       return await this.executeWorkflow(event, step);
     } catch (err) {
-      // Log workflow.failed before re-throwing
+      // Log workflow.failed + terminal request.failed before re-throwing
       await step.do('log-workflow-failed', async () => {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack?.slice(0, 1000) : undefined;
         await logEvent(
           this.env,
           request_id,
           'workflow.failed',
-          `Workflow failed: ${err instanceof Error ? err.message : String(err)}`,
-          { error: err instanceof Error ? err.message : String(err) },
+          `Workflow failed: ${errorMsg}`,
+          { error: errorMsg, ...(stack ? { stack } : {}) },
           'error'
         );
+        await logRequestFailed(this.env, request_id, err instanceof Error ? err : String(err));
       });
       throw err;
     }
@@ -149,13 +155,14 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           'Workflow completed (dry run)',
           { dryRun: true }
         );
+        await logRequestDone(this.env, request_id, { dryRun: true });
       });
       return { status: 'done', dryRun: true, manifestKey };
     }
 
     const gcsResult = await this.persistToGcs(step, request_id, manifestKey);
 
-    // Step 10: Log completion
+    // Step 10: Log completion + terminal request.done
     await step.do('log-completed', async () => {
       await logEvent(
         this.env,
@@ -164,6 +171,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         'Workflow completed',
         { manifestKey }
       );
+      await logRequestDone(this.env, request_id, { manifestKey });
     });
 
     return { status: 'done', manifestKey, gcsResult };
@@ -198,7 +206,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     );
 
     try {
-      // Log step start
+      // Log step start + capture timing
+      const renderStartedAt = Date.now();
       await step.do('log-render-start', async () => {
         await logStepStarted(this.env, requestId, 'render', { url });
       });
@@ -220,7 +229,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         }
       );
 
-      // Log artifacts
+      // Log artifacts + duration + enriched meta
       await step.do('log-render-artifacts', async () => {
         for (const artifact of renderResult.artifacts) {
           await logArtifactWritten(
@@ -231,8 +240,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             artifact.bytes
           );
         }
-        await logStepCompleted(this.env, requestId, 'render', {
-          artifactCount: renderResult.artifacts.length
+        await logStepCompletedWithDuration(this.env, requestId, 'render', renderStartedAt, {
+          artifactCount: renderResult.artifacts.length,
+          ...(renderResult.meta ? { meta: renderResult.meta } : {})
         });
       });
 
@@ -295,7 +305,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     );
 
     try {
-      // Log step start
+      // Log step start + capture timing
+      const sfStartedAt = Date.now();
       await step.do('log-singlefile-start', async () => {
         await logStepStarted(this.env, requestId, 'singlefile');
       });
@@ -316,7 +327,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         }
       );
 
-      // Log artifact
+      // Log artifact + duration
       await step.do('log-singlefile-artifact', async () => {
         await logArtifactWritten(
           this.env,
@@ -325,7 +336,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           result.artifact.r2Key,
           result.artifact.bytes
         );
-        await logStepCompleted(this.env, requestId, 'singlefile');
+        await logStepCompletedWithDuration(this.env, requestId, 'singlefile', sfStartedAt);
       });
 
       return result.artifact;
@@ -353,7 +364,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     readabilityMd?: ArtifactMeta;
     monolith?: ArtifactMeta;
   }> {
-    // Log start
+    // Log start + capture timing
+    const derivStartedAt = Date.now();
     await step.do('log-derivatives-start', async () => {
       await logStepStarted(this.env, requestId, 'derivatives');
     });
@@ -395,12 +407,12 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         this.env,
         requestId,
         'derivatives',
-        err instanceof Error ? err.message : String(err)
+        err instanceof Error ? err : String(err)
       );
       throw err;
     }
 
-    // Log artifacts
+    // Log artifacts + duration + enriched meta
     await step.do('log-derivative-artifacts', async () => {
       await logArtifactWritten(
         this.env,
@@ -423,7 +435,10 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         monolithResult.artifact.r2Key,
         monolithResult.artifact.bytes
       );
-      await logStepCompleted(this.env, requestId, 'derivatives');
+      await logStepCompletedWithDuration(this.env, requestId, 'derivatives', derivStartedAt, {
+        ...(readabilityResult.meta ? { readabilityMeta: readabilityResult.meta } : {}),
+        ...(monolithResult.meta ? { monolithMeta: monolithResult.meta } : {})
+      });
     });
 
     return {
@@ -489,7 +504,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     requestId: string,
     manifestKey: string
   ) {
-    // Log start
+    // Log start + capture timing
+    const persistStartedAt = Date.now();
     await step.do('log-persist-start', async () => {
       await logEvent(this.env, requestId, 'persist.started', 'Starting GCS persistence');
     });
@@ -509,15 +525,18 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       }
     );
 
-    // Log completion
+    // Log completion + duration + enriched meta
     await step.do('log-persist-complete', async () => {
+      const durationMs = Date.now() - persistStartedAt;
       await logEvent(
         this.env,
         requestId,
         'persist.completed',
         'GCS persistence completed',
         {
-          firestoreDocId: result.firestoreDocId
+          firestoreDocId: result.firestoreDocId,
+          duration_ms: durationMs,
+          ...(result.meta ? { meta: result.meta } : {})
         }
       );
     });
