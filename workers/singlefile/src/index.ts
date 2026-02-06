@@ -75,13 +75,6 @@ const SCROLL_SCRIPT = `
 })();
 `;
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
 async function storeArtifact(
   env: Env,
   requestId: string,
@@ -128,13 +121,13 @@ export default {
       const url = new URL(request.url);
 
       if (request.method !== 'POST' || url.pathname !== '/singlefile') {
-        return jsonResponse({ error: 'Not found' }, 404);
+        return Response.json({ error: 'Not found' }, { status: 404 });
       }
 
       // Verify internal API key
       const apiKey = request.headers.get('X-Internal-API-Key');
       if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return jsonResponse({ error: 'Unauthorized' }, 401);
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
       // Parse request body
@@ -142,12 +135,12 @@ export default {
       try {
         body = (await request.json()) as SinglefileRequest;
       } catch {
-        return jsonResponse({ error: 'Invalid JSON' }, 400);
+        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
       }
 
       const { request_id, url: targetUrl, options_r2_key } = body;
       if (!request_id || !targetUrl) {
-        return jsonResponse(
+        return Response.json(
           { error: 'Missing required fields: request_id, url' },
           400
         );
@@ -190,9 +183,9 @@ export default {
             retry_after_ms: 5000,
             message: 'Browser session limit reached'
           };
-          return jsonResponse(rateLimited, 429);
+          return Response.json(rateLimited, { status: 429 });
         }
-        return jsonResponse({ error: 'Browser launch failed', details: errMsg }, 500);
+        return Response.json({ error: 'Browser launch failed', details: errMsg }, { status: 500 });
       }
 
       try {
@@ -238,9 +231,9 @@ export default {
         });
 
         if (!singlefileAvailable) {
-          return jsonResponse(
+          return Response.json(
             { error: 'SingleFile injection failed: singlefile.getPageData not available' },
-            502
+            { status: 502 }
           );
         }
 
@@ -260,9 +253,9 @@ export default {
         ]);
 
         if (!result || typeof result !== 'object' || !('content' in result)) {
-          return jsonResponse(
+          return Response.json(
             { error: 'SingleFile capture failed: no content returned' },
-            502
+            { status: 502 }
           );
         }
 
@@ -270,9 +263,9 @@ export default {
 
         // Validate content
         if (!content || content.length < 100) {
-          return jsonResponse(
+          return Response.json(
             { error: 'SingleFile capture failed: content too short', length: content?.length },
-            502
+            { status: 502 }
           );
         }
 
@@ -285,7 +278,7 @@ export default {
 
         console.log('[singlefile] Success!');
         const successResponse: SinglefileSuccessResponse = { artifact };
-        return jsonResponse(successResponse);
+        return Response.json(successResponse);
       } finally {
         console.log('[singlefile] Closing browser...');
         await browser.close();
@@ -293,7 +286,7 @@ export default {
     } catch (err) {
       console.error('[singlefile] Unhandled error:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      return jsonResponse({ error: 'Internal error', message: errMsg }, 500);
+      return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
     }
   }
 };

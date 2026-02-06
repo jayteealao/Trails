@@ -59,13 +59,6 @@ async function storeArtifact(
   };
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
 export default {
   async fetch(
     request: Request,
@@ -76,13 +69,13 @@ export default {
     // Only accept POST /render
     const url = new URL(request.url);
     if (request.method !== 'POST' || url.pathname !== '/render') {
-      return jsonResponse({ error: 'Not found' }, 404);
+      return Response.json({ error: 'Not found' }, { status: 404 });
     }
 
     // Verify internal API key
     const apiKey = request.headers.get('X-Internal-API-Key');
     if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Parse request body
@@ -90,12 +83,12 @@ export default {
     try {
       body = (await request.json()) as RenderRequest;
     } catch {
-      return jsonResponse({ error: 'Invalid JSON' }, 400);
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
     }
 
     const { request_id, url: targetUrl, options_r2_key, browser_quota_kind } = body;
     if (!request_id || !targetUrl || !browser_quota_kind) {
-      return jsonResponse(
+      return Response.json(
         { error: 'Missing required fields: request_id, url, browser_quota_kind' },
         400
       );
@@ -135,21 +128,21 @@ export default {
         retry_after_ms: retryMs,
         message: 'Browser Rendering rate limited'
       };
-      return jsonResponse(rateLimited, 429);
+      return Response.json(rateLimited, { status: 429 });
     }
     if (!contentResp.ok) {
       const errorText = await contentResp.text();
-      return jsonResponse(
+      return Response.json(
         { error: 'Browser Rendering /content failed', status: contentResp.status, details: errorText },
-        502
+        { status: 502 }
       );
     }
     // Browser Rendering /content returns JSON: { success: true, result: "html content", meta: {...} }
     const contentJson = (await contentResp.json()) as { success: boolean; result: string };
     if (!contentJson.success || !contentJson.result) {
-      return jsonResponse(
+      return Response.json(
         { error: 'Browser Rendering /content returned invalid response' },
-        502
+        { status: 502 }
       );
     }
     const htmlData = new TextEncoder().encode(contentJson.result);
@@ -167,7 +160,7 @@ export default {
           retry_after_ms: retryMs,
           message: 'Browser Rendering rate limited on screenshot'
         };
-        return jsonResponse(rateLimited, 429);
+        return Response.json(rateLimited, { status: 429 });
       }
       if (ssResp.ok) {
         const ssData = await ssResp.arrayBuffer();
@@ -191,7 +184,7 @@ export default {
           retry_after_ms: retryMs,
           message: 'Browser Rendering rate limited on PDF'
         };
-        return jsonResponse(rateLimited, 429);
+        return Response.json(rateLimited, { status: 429 });
       }
       if (pdfResp.ok) {
         const pdfData = await pdfResp.arrayBuffer();
@@ -215,7 +208,7 @@ export default {
           retry_after_ms: retryMs,
           message: 'Browser Rendering rate limited on markdown'
         };
-        return jsonResponse(rateLimited, 429);
+        return Response.json(rateLimited, { status: 429 });
       }
       if (mdResp.ok) {
         // Browser Rendering /markdown returns JSON: { success: true, result: "markdown content" }
@@ -241,11 +234,11 @@ export default {
       artifacts,
       meta: { skipped, browserApiMs }
     };
-    return jsonResponse(successResponse);
+    return Response.json(successResponse);
     } catch (err) {
       console.error('[renderer] Unhandled error:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      return jsonResponse({ error: 'Internal error', message: errMsg }, 500);
+      return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
     }
   }
 };

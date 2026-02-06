@@ -9,13 +9,6 @@ import type {
 } from './types.js';
 import { toMarkdown } from './markdown.js';
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
 async function storeArtifact(
   bucket: R2Bucket,
   requestId: string,
@@ -47,13 +40,13 @@ export default {
       const url = new URL(request.url);
 
       if (request.method !== 'POST' || url.pathname !== '/readability') {
-        return jsonResponse({ error: 'Not found' }, 404);
+        return Response.json({ error: 'Not found' }, { status: 404 });
       }
 
       // Verify internal API key
       const apiKey = request.headers.get('X-Internal-API-Key');
       if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return jsonResponse({ error: 'Unauthorized' }, 401);
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
       // Parse request body
@@ -61,12 +54,12 @@ export default {
       try {
         body = (await request.json()) as ReadabilityRequest;
       } catch {
-        return jsonResponse({ error: 'Invalid JSON' }, 400);
+        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
       }
 
       const { request_id, rendered_html_key } = body;
       if (!request_id || !rendered_html_key) {
-        return jsonResponse(
+        return Response.json(
           { error: 'Missing required fields: request_id, rendered_html_key' },
           400
         );
@@ -76,7 +69,7 @@ export default {
       console.log('[readability] Fetching HTML from R2:', rendered_html_key);
       const htmlObject = await env.ARCHIVE_BUCKET.get(rendered_html_key);
       if (!htmlObject) {
-        return jsonResponse(
+        return Response.json(
           { error: 'HTML not found in R2', key: rendered_html_key },
           404
         );
@@ -86,7 +79,7 @@ export default {
       console.log('[readability] HTML fetched, length:', html.length);
 
       if (html.length < 100) {
-        return jsonResponse(
+        return Response.json(
           { error: 'HTML content too short', length: html.length },
           400
         );
@@ -102,9 +95,9 @@ export default {
       const article = reader.parse();
 
       if (!article) {
-        return jsonResponse(
+        return Response.json(
           { error: 'Readability could not extract article content' },
-          422
+          { status: 422 }
         );
       }
 
@@ -163,11 +156,11 @@ export default {
           excerptLength: article.excerpt?.length ?? 0
         }
       };
-      return jsonResponse(response);
+      return Response.json(response);
     } catch (err) {
       console.error('[readability] Unhandled error:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      return jsonResponse({ error: 'Internal error', message: errMsg }, 500);
+      return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
     }
   }
 };

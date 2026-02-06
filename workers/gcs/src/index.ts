@@ -45,13 +45,6 @@ async function gzipCompress(data: ArrayBuffer): Promise<ArrayBuffer> {
   return result.buffer;
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' }
-  });
-}
-
 /**
  * Upload a single artifact from R2 to GCS using signed URL.
  */
@@ -171,13 +164,13 @@ export default {
       const url = new URL(request.url);
 
       if (request.method !== 'POST' || url.pathname !== '/persist') {
-        return jsonResponse({ error: 'Not found' }, 404);
+        return Response.json({ error: 'Not found' }, { status: 404 });
       }
 
       // Verify internal API key
       const apiKey = request.headers.get('X-Internal-API-Key');
       if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return jsonResponse({ error: 'Unauthorized' }, 401);
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
       // Parse request body
@@ -185,12 +178,12 @@ export default {
       try {
         body = (await request.json()) as PersistRequest;
       } catch {
-        return jsonResponse({ error: 'Invalid JSON' }, 400);
+        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
       }
 
       const { request_id, manifest_key, dryRun } = body;
       if (!request_id || !manifest_key) {
-        return jsonResponse(
+        return Response.json(
           { error: 'Missing required fields: request_id, manifest_key' },
           400
         );
@@ -202,7 +195,7 @@ export default {
       console.log('[gcs] Reading manifest from R2...');
       const manifestObj = await env.ARCHIVE_BUCKET.get(manifest_key);
       if (!manifestObj) {
-        return jsonResponse({ error: 'Manifest not found in R2', key: manifest_key }, 404);
+        return Response.json({ error: 'Manifest not found in R2', key: manifest_key }, { status: 404 });
       }
 
       const manifest = await manifestObj.json<ArchiveManifest>();
@@ -213,7 +206,7 @@ export default {
       console.log(`[gcs] Persisting ${artifacts.length} artifacts to GCS`);
 
       if (artifacts.length === 0) {
-        return jsonResponse({
+        return Response.json({
           success: true,
           firestore_doc_id: request_id,
           uploaded: 0,
@@ -228,7 +221,7 @@ export default {
           kind: a.kind,
           gcs_path: getGcsPath(request_id, a.kind).path
         }));
-        return jsonResponse({
+        return Response.json({
           success: true,
           firestore_doc_id: request_id,
           uploaded: artifacts.length,
@@ -319,11 +312,11 @@ export default {
         }
       };
 
-      return jsonResponse(response);
+      return Response.json(response);
     } catch (err) {
       console.error('[gcs] Unhandled error:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      return jsonResponse({ error: 'Internal error', message: errMsg }, 500);
+      return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
     }
   }
 };
