@@ -1,0 +1,19 @@
+{
+  "functions": {
+    "source": ".",
+    "runtime": "nodejs22",
+    "predeploy": ["npm run build"]
+  },
+  "emulators": {
+    "functions": {
+      "port": 8080
+    },
+    "firestore": {
+      "port": 8081
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    }
+  }
+}

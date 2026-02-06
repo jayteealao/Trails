@@ -7,12 +7,16 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "start": "functions-framework --target=handleRequest"
+    "start": "functions-framework --target=handleRequest",
+    "dev": "npm run build && functions-framework --target=handleRequest --port=8080"
   },
   "dependencies": {
-    "@google-cloud/functions-framework": "^3.4.5"
+    "@google-cloud/functions-framework": "^3.4.5",
+    "@google-cloud/storage": "^7.15.0",
+    "firebase-admin": "^13.0.2"
   },
   "devDependencies": {
-    "@types/node": "^22.10.7"
+    "@types/node": "^22.10.7",
+    "typescript": "^5.7.3"
   }
 }
