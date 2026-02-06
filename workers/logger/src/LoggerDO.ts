@@ -41,19 +41,28 @@ interface ArtifactRow {
 }
 
 /**
- * Derive stage from event type.
+ * Derive stage from event type and optional event data.
+ * step.started uses data.step to distinguish rendering vs deriving.
+ * step.completed/step.failed don't regress the stage.
  */
-function deriveStageFromEvent(eventType: string): RequestStage | TerminalState | undefined {
+function deriveStage(
+  eventType: string,
+  eventData?: Record<string, unknown>
+): RequestStage | TerminalState | undefined {
   if (eventType === 'request.done') return 'done';
   if (eventType === 'request.failed') return 'failed';
   if (eventType.startsWith('persist.')) return 'persisting';
-  if (
-    eventType.startsWith('step.') ||
-    eventType === 'artifact.written' ||
-    eventType.startsWith('workflow.')
-  ) {
-    return 'deriving';
+  if (eventType === 'step.started') {
+    const step = eventData?.step as string | undefined;
+    if (step === 'render' || step === 'singlefile') return 'rendering';
+    if (step === 'derivatives') return 'deriving';
+    return undefined;
   }
+  // step.completed / step.failed: don't change stage (keep current)
+  if (eventType === 'step.completed' || eventType === 'step.failed') return undefined;
+  if (eventType === 'artifact.written') return undefined;
+  if (eventType === 'workflow.started') return 'queued';
+  if (eventType === 'workflow.completed' || eventType === 'workflow.failed') return undefined;
   if (eventType === 'request.created') return 'queued';
   return undefined;
 }
@@ -135,7 +144,7 @@ export class LoggerDO extends DurableObject<Env> {
         )
         .run();
     } catch (err) {
-      console.error('D1 index insert failed (best-effort):', err);
+      console.error(`D1 index insert failed for ${payload.requestId}:`, err instanceof Error ? err.message : err);
     }
 
     return { created: true };
@@ -171,7 +180,7 @@ export class LoggerDO extends DurableObject<Env> {
       const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
 
       // Update stage if event implies a new stage
-      const newStage = deriveStageFromEvent(event.type);
+      const newStage = deriveStage(event.type, event.data);
       if (newStage) {
         derived.stage = newStage;
         derived.terminal = newStage === 'done' || newStage === 'failed';
@@ -208,7 +217,7 @@ export class LoggerDO extends DurableObject<Env> {
           )
           .run();
       } catch (err) {
-        console.error('D1 index update failed (best-effort):', err);
+        console.error(`D1 index update failed for ${requestRow.request_id}:`, err instanceof Error ? err.message : err);
       }
     }
 
@@ -273,7 +282,7 @@ export class LoggerDO extends DurableObject<Env> {
             .bind(patch.manifestR2Key, new Date().toISOString(), requestRow.request_id)
             .run();
         } catch (err) {
-          console.error('D1 index update failed (best-effort):', err);
+          console.error(`D1 index manifest update failed for ${requestRow.request_id}:`, err instanceof Error ? err.message : err);
         }
       }
     }
@@ -285,10 +294,11 @@ export class LoggerDO extends DurableObject<Env> {
   getRequestView(cursor?: number, limit = 100): CanonicalRequestView | null {
     this.ensureSchema();
 
-    const requestRow = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').one();
-    if (!requestRow) {
+    const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();
+    if (requestRows.length === 0) {
       return null;
     }
+    const requestRow = requestRows[0]!;
 
     // Get events with pagination
     const eventQuery = cursor !== undefined

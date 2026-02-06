@@ -1,5 +1,5 @@
-import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { env } from 'cloudflare:test';
+import { describe, it, expect } from 'vitest';
 import type {
   InitRequestPayload,
   LogEvent,
@@ -21,7 +21,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-1`;
       const stub = getStub(requestId);
 
-      const result = await stub.initRequest({
+      using result = await stub.initRequest({
         requestId,
         url: 'https://example.com/page',
         optionsR2Key: 'archives/test/input/options.json'
@@ -39,8 +39,8 @@ describe('LoggerDO', () => {
         url: 'https://example.com/page'
       };
 
-      const first = await stub.initRequest(payload);
-      const second = await stub.initRequest(payload);
+      using first = await stub.initRequest(payload);
+      using second = await stub.initRequest(payload);
 
       expect(first.created).toBe(true);
       expect(second.created).toBe(false);
@@ -62,7 +62,7 @@ describe('LoggerDO', () => {
         message: 'Request created'
       };
 
-      const result = await stub.appendEvent(event);
+      using result = await stub.appendEvent(event);
       expect(result.eventId).toBeGreaterThan(0);
     });
 
@@ -83,7 +83,7 @@ describe('LoggerDO', () => {
 
       await stub.appendEvent(errorEvent);
 
-      const view = stub.getRequestView();
+      using view = await stub.getRequestView();
       expect(view?.derived.errorCount).toBe(1);
     });
 
@@ -93,19 +93,40 @@ describe('LoggerDO', () => {
 
       await stub.initRequest({ requestId, url: 'https://example.com' });
 
-      const view1 = stub.getRequestView();
-      expect(view1?.derived.stage).toBe('queued');
+      {
+        using view1 = await stub.getRequestView();
+        expect(view1?.derived.stage).toBe('queued');
+      }
 
+      // step.started with step=render → rendering
       await stub.appendEvent({
         ts: new Date().toISOString(),
         source: 'workflow',
         type: 'step.started',
         level: 'info',
-        message: 'Renderer step started'
+        message: 'Renderer step started',
+        data: { step: 'render' }
       });
 
-      const view2 = stub.getRequestView();
-      expect(view2?.derived.stage).toBe('deriving');
+      {
+        using view2 = await stub.getRequestView();
+        expect(view2?.derived.stage).toBe('rendering');
+      }
+
+      // step.started with step=derivatives → deriving
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'step.started',
+        level: 'info',
+        message: 'Derivatives step started',
+        data: { step: 'derivatives' }
+      });
+
+      {
+        using view2b = await stub.getRequestView();
+        expect(view2b?.derived.stage).toBe('deriving');
+      }
 
       await stub.appendEvent({
         ts: new Date().toISOString(),
@@ -115,20 +136,24 @@ describe('LoggerDO', () => {
         message: 'Persisting to GCS'
       });
 
-      const view3 = stub.getRequestView();
-      expect(view3?.derived.stage).toBe('persisting');
+      {
+        using view3 = await stub.getRequestView();
+        expect(view3?.derived.stage).toBe('persisting');
+      }
 
       await stub.appendEvent({
         ts: new Date().toISOString(),
-        source: 'logger',
+        source: 'workflow',
         type: 'request.done',
         level: 'info',
         message: 'Request completed'
       });
 
-      const view4 = stub.getRequestView();
-      expect(view4?.derived.stage).toBe('done');
-      expect(view4?.derived.terminal).toBe(true);
+      {
+        using view4 = await stub.getRequestView();
+        expect(view4?.derived.stage).toBe('done');
+        expect(view4?.derived.terminal).toBe(true);
+      }
     });
   });
 
@@ -147,9 +172,9 @@ describe('LoggerDO', () => {
         sha256: 'abc123'
       };
 
-      stub.upsertArtifact(artifact);
+      await stub.upsertArtifact(artifact);
 
-      const view = stub.getRequestView();
+      using view = await stub.getRequestView();
       expect(view?.artifacts).toHaveLength(1);
       expect(view?.artifacts[0]?.kind).toBe('rendered.html');
       expect(view?.artifacts[0]?.bytes).toBe(12345);
@@ -177,10 +202,10 @@ describe('LoggerDO', () => {
         sha256: 'second'
       };
 
-      stub.upsertArtifact(artifact1);
-      stub.upsertArtifact(artifact2);
+      await stub.upsertArtifact(artifact1);
+      await stub.upsertArtifact(artifact2);
 
-      const view = stub.getRequestView();
+      using view = await stub.getRequestView();
       expect(view?.artifacts).toHaveLength(1);
       expect(view?.artifacts[0]?.bytes).toBe(200);
       expect(view?.artifacts[0]?.sha256).toBe('second');
@@ -198,7 +223,7 @@ describe('LoggerDO', () => {
         manifestR2Key: `archives/${requestId}/manifest.json`
       });
 
-      const view = stub.getRequestView();
+      using view = await stub.getRequestView();
       expect(view?.manifestR2Key).toBe(`archives/${requestId}/manifest.json`);
     });
 
@@ -212,7 +237,7 @@ describe('LoggerDO', () => {
         externalJson: { firestoreDocId: 'doc123', gcsPath: 'gs://bucket/path' }
       });
 
-      const view = stub.getRequestView();
+      using view = await stub.getRequestView();
       expect(view?.externalJson).toEqual({
         firestoreDocId: 'doc123',
         gcsPath: 'gs://bucket/path'
@@ -225,7 +250,7 @@ describe('LoggerDO', () => {
       const requestId = `test-nonexistent-${Date.now()}`;
       const stub = getStub(requestId);
 
-      const view = stub.getRequestView();
+      using view = await stub.getRequestView();
       expect(view).toBeNull();
     });
 
@@ -247,7 +272,7 @@ describe('LoggerDO', () => {
         message: 'Request created'
       });
 
-      stub.upsertArtifact({
+      await stub.upsertArtifact({
         kind: 'screenshot.png',
         r2Key: `archives/${requestId}/raw/screenshot.png`,
         contentType: 'image/png',
@@ -255,7 +280,7 @@ describe('LoggerDO', () => {
         sha256: 'screenshotsha'
       });
 
-      const view = stub.getRequestView();
+      using view = await stub.getRequestView();
 
       expect(view).not.toBeNull();
       expect(view?.requestId).toBe(requestId);
@@ -284,20 +309,30 @@ describe('LoggerDO', () => {
         });
       }
 
+      let nextCursor: number | undefined;
+
       // Get first page (limit 2)
-      const page1 = stub.getRequestView(undefined, 2);
-      expect(page1?.events).toHaveLength(2);
-      expect(page1?.nextCursor).toBeDefined();
+      {
+        using page1 = await stub.getRequestView(undefined, 2);
+        expect(page1?.events).toHaveLength(2);
+        expect(page1?.nextCursor).toBeDefined();
+        nextCursor = page1?.nextCursor;
+      }
 
       // Get second page
-      const page2 = stub.getRequestView(page1?.nextCursor, 2);
-      expect(page2?.events).toHaveLength(2);
-      expect(page2?.nextCursor).toBeDefined();
+      {
+        using page2 = await stub.getRequestView(nextCursor, 2);
+        expect(page2?.events).toHaveLength(2);
+        expect(page2?.nextCursor).toBeDefined();
+        nextCursor = page2?.nextCursor;
+      }
 
       // Get third page (only 1 remaining)
-      const page3 = stub.getRequestView(page2?.nextCursor, 2);
-      expect(page3?.events).toHaveLength(1);
-      expect(page3?.nextCursor).toBeUndefined();
+      {
+        using page3 = await stub.getRequestView(nextCursor, 2);
+        expect(page3?.events).toHaveLength(1);
+        expect(page3?.nextCursor).toBeUndefined();
+      }
     });
   });
 
@@ -318,13 +353,20 @@ describe('LoggerDO', () => {
         });
       }
 
-      const result = stub.getEvents(undefined, 2);
-      expect(result.events).toHaveLength(2);
-      expect(result.nextCursor).toBeDefined();
+      let nextCursor: number | undefined;
 
-      const result2 = stub.getEvents(result.nextCursor, 2);
-      expect(result2.events).toHaveLength(1);
-      expect(result2.nextCursor).toBeUndefined();
+      {
+        using result = await stub.getEvents(undefined, 2);
+        expect(result.events).toHaveLength(2);
+        expect(result.nextCursor).toBeDefined();
+        nextCursor = result.nextCursor;
+      }
+
+      {
+        using result2 = await stub.getEvents(nextCursor, 2);
+        expect(result2.events).toHaveLength(1);
+        expect(result2.nextCursor).toBeUndefined();
+      }
     });
   });
 });
