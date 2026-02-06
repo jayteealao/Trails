@@ -2,5 +2,12 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "readability",
   "main": "src/index.ts",
-  "compatibility_date": "2025-01-01"
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "r2_buckets": [
+    { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives", "preview_bucket_name": "warg-archives" }
+  ]
 }
+// Secrets (via `wrangler secret put`):
+// - INTERNAL_API_KEY: shared key for internal worker auth
