@@ -87,6 +87,16 @@ export interface UploadedArtifactResult {
 }
 
 /**
+ * Compression stats for a single artifact.
+ */
+export interface CompressionStat {
+  kind: string;
+  originalBytes: number;
+  compressedBytes: number;
+  ratio: number;
+}
+
+/**
  * Response from POST /persist.
  */
 export interface PersistResponse {
@@ -94,6 +104,11 @@ export interface PersistResponse {
   firestore_doc_id: string;
   uploaded: number;
   artifacts: UploadedArtifactResult[];
+  meta?: {
+    compressionStats: CompressionStat[];
+    uploadDurationMs: number;
+    skippedArtifacts: string[];
+  };
 }
 
 /**

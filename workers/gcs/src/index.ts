@@ -1,35 +1,21 @@
-import type { ArchiveManifest, ArtifactMeta, ArtifactKind } from '@warg/shared';
+import type { ArchiveManifest, ArtifactMeta } from '@warg/shared';
 import type {
   PersistRequest,
   PersistResponse,
+  CompressionStat,
   CreateUploadRequest,
   CreateUploadResponse,
   FinalizeRequest,
   FinalizeResponse,
-  ArtifactUploadInfo,
   UploadedArtifact,
   UploadedArtifactResult
 } from './types.js';
-import { ARTIFACT_PATH_MAP } from './types.js';
-
-/**
- * Artifact kinds that should be gzip-compressed before upload.
- * Excludes JSON (for easy access) and binary files (already compressed).
- */
-const COMPRESSIBLE_KINDS = new Set<ArtifactKind>([
-  'singlefile.html',
-  'monolith.html',
-  'rendered.html',
-  'rendered.md',
-  'readability.md'
-]);
-
-/**
- * Check if an artifact kind should be gzip-compressed.
- */
-function shouldCompress(kind: ArtifactKind): boolean {
-  return COMPRESSIBLE_KINDS.has(kind);
-}
+import {
+  shouldCompress,
+  getGcsPath,
+  filterPersistableArtifacts,
+  toUploadInfo
+} from './artifacts.js';
 
 /**
  * Compress data using gzip via CompressionStream.
@@ -66,45 +52,19 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 /**
- * Get the GCS path for an artifact.
- */
-function getGcsPath(requestId: string, kind: ArtifactKind): { folder: string; filename: string; path: string } {
-  const mapping = ARTIFACT_PATH_MAP[kind];
-  if (!mapping) {
-    throw new Error(`Unknown artifact kind: ${kind}`);
-  }
-  return {
-    folder: mapping.folder,
-    filename: mapping.filename,
-    path: `archives/${requestId}/${mapping.folder}/${mapping.filename}`
-  };
-}
-
-/**
- * Convert ArtifactMeta to ArtifactUploadInfo for Cloud Function.
- */
-function toUploadInfo(requestId: string, artifact: ArtifactMeta): ArtifactUploadInfo {
-  const { filename } = getGcsPath(requestId, artifact.kind);
-  const compressed = shouldCompress(artifact.kind);
-  return {
-    kind: artifact.kind,
-    filename,
-    bytes: artifact.bytes,
-    contentType: artifact.contentType,
-    sha256: artifact.sha256,
-    ...(compressed && { compressed })
-  };
-}
-
-/**
  * Upload a single artifact from R2 to GCS using signed URL.
  */
+interface UploadResult {
+  uploaded: UploadedArtifact;
+  compressionStat?: CompressionStat;
+}
+
 async function uploadArtifact(
   bucket: R2Bucket,
   artifact: ArtifactMeta,
   signedUrl: string,
   gcsPath: string
-): Promise<UploadedArtifact> {
+): Promise<UploadResult> {
   const compress = shouldCompress(artifact.kind);
   console.log(`[gcs] Uploading ${artifact.kind} from R2 (${artifact.r2Key}) to GCS (${gcsPath})${compress ? ' [gzip]' : ''}`);
 
@@ -146,13 +106,24 @@ async function uploadArtifact(
 
   console.log(`[gcs] Successfully uploaded ${artifact.kind} (${body.byteLength} bytes${compress ? ' compressed' : ''})`);
 
-  return {
+  const uploaded: UploadedArtifact = {
     kind: artifact.kind,
     gcs_path: gcsPath,
     bytes: artifact.bytes,
     sha256: artifact.sha256,
     content_type: artifact.contentType
   };
+
+  const compressionStat: CompressionStat | undefined = compress
+    ? {
+        kind: artifact.kind,
+        originalBytes,
+        compressedBytes: body.byteLength,
+        ratio: originalBytes > 0 ? Math.round((1 - body.byteLength / originalBytes) * 100) / 100 : 0
+      }
+    : undefined;
+
+  return { uploaded, compressionStat };
 }
 
 /**
@@ -179,14 +150,6 @@ async function callCloudFunction<T>(
   }
 
   return (await response.json()) as T;
-}
-
-/**
- * Filter artifacts to only those that should be persisted to GCS.
- * Excludes manifest.json (not persisted to GCS).
- */
-function filterPersistableArtifacts(artifacts: ArtifactMeta[]): ArtifactMeta[] {
-  return artifacts.filter((a) => a.kind !== 'manifest.json');
 }
 
 export default {
@@ -285,29 +248,37 @@ export default {
       // Step 3: Upload each artifact to GCS
       const uploadedArtifacts: UploadedArtifact[] = [];
       const uploadResults: UploadedArtifactResult[] = [];
+      const compressionStats: CompressionStat[] = [];
+      const skippedArtifacts: string[] = [];
+      const uploadStart = Date.now();
 
       for (const artifact of artifacts) {
         const uploadEntry = createUploadRes.uploads.find((u) => u.kind === artifact.kind);
         if (!uploadEntry) {
           console.warn(`[gcs] No signed URL for artifact kind: ${artifact.kind}, skipping`);
+          skippedArtifacts.push(artifact.kind);
           continue;
         }
 
-        const uploaded = await uploadArtifact(
+        const result = await uploadArtifact(
           env.ARCHIVE_BUCKET,
           artifact,
           uploadEntry.signed_url,
           uploadEntry.gcs_path
         );
 
-        uploadedArtifacts.push(uploaded);
+        uploadedArtifacts.push(result.uploaded);
         uploadResults.push({
-          kind: uploaded.kind,
-          gcs_path: uploaded.gcs_path
+          kind: result.uploaded.kind,
+          gcs_path: result.uploaded.gcs_path
         });
+        if (result.compressionStat) {
+          compressionStats.push(result.compressionStat);
+        }
       }
 
-      console.log(`[gcs] Uploaded ${uploadedArtifacts.length} artifacts to GCS`);
+      const uploadDurationMs = Date.now() - uploadStart;
+      console.log(`[gcs] Uploaded ${uploadedArtifacts.length} artifacts to GCS in ${uploadDurationMs}ms`);
 
       // Step 4: Call Cloud Function /finalize to update Firestore
       console.log('[gcs] Finalizing Firestore document...');
@@ -331,7 +302,12 @@ export default {
         success: true,
         firestore_doc_id: finalizeRes.firestore_doc_id,
         uploaded: uploadResults.length,
-        artifacts: uploadResults
+        artifacts: uploadResults,
+        meta: {
+          compressionStats,
+          uploadDurationMs,
+          skippedArtifacts
+        }
       };
 
       return jsonResponse(response);
