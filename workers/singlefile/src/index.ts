@@ -109,12 +109,12 @@ function buildNativeOptions(options: SinglefileOptions): SinglefileNativeOptions
     removeHiddenElements: options.removeHiddenElements ?? true,
     removeUnusedStyles: options.removeUnusedStyles ?? true,
     removeUnusedFonts: options.removeUnusedFonts ?? true,
-    compressHTML: options.compressHTML ?? options.compressContent ?? true,
+    compressHTML: options.compressHTML ?? true,
     blockScripts: options.blockScripts ?? true,
     blockVideos: options.blockVideos ?? true,
     blockAudios: options.blockAudios ?? true,
     removeFrames: options.removeFrames ?? false,
-    removeAlternativeImages: options.removeAlternativeImages ?? options.blockImages ?? false
+    removeAlternativeImages: options.removeAlternativeImages ?? false
   };
 }
 
@@ -127,8 +127,7 @@ export default {
     try {
       const url = new URL(request.url);
 
-      // Accept both /singlefile and /extract for backward compatibility
-      if (request.method !== 'POST' || (url.pathname !== '/singlefile' && url.pathname !== '/extract')) {
+      if (request.method !== 'POST' || url.pathname !== '/singlefile') {
         return jsonResponse({ error: 'Not found' }, 404);
       }
 

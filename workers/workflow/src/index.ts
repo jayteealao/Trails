@@ -24,7 +24,6 @@ import {
 import {
   logEvent,
   logStepStarted,
-  logStepCompleted,
   logStepCompletedWithDuration,
   logStepFailed,
   logArtifactWritten,

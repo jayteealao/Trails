@@ -46,13 +46,6 @@ export interface SinglefileOptions {
   removeFrames?: boolean;
   /** Remove alternative images (srcset) (default: false) */
   removeAlternativeImages?: boolean;
-
-  // --- Deprecated/mapped options (kept for backward compat) ---
-
-  /** @deprecated Use compressHTML instead */
-  compressContent?: boolean;
-  /** @deprecated Use removeAlternativeImages instead */
-  blockImages?: boolean;
 }
 
 /**
@@ -86,7 +79,3 @@ export interface SinglefileRateLimitedResponse {
   message: string;
 }
 
-/**
- * Union of possible singlefile responses.
- */
-export type SinglefileResponse = SinglefileSuccessResponse | SinglefileRateLimitedResponse;

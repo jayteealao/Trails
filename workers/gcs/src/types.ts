@@ -112,15 +112,6 @@ export interface PersistResponse {
 }
 
 /**
- * R2 to GCS path mapping config.
- */
-export interface PathMapping {
-  r2Prefix: string;
-  gcsFolder: string;
-  filename: string;
-}
-
-/**
  * Mapping from artifact kind to GCS path components.
  */
 export const ARTIFACT_PATH_MAP: Record<string, { folder: string; filename: string }> = {

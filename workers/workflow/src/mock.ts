@@ -1,6 +1,6 @@
 import type { WorkflowStep } from 'cloudflare:workers';
 import type { ArtifactMeta, ArchiveManifest, ArtifactKind } from '@warg/shared';
-import { getR2Key, sha256 } from '@warg/shared';
+import { getR2Key } from '@warg/shared';
 import type { ArchiveOptionsExtended, WorkflowResult } from './types.js';
 import { logEvent, logArtifactWritten, updateManifestKey } from './logging.js';
 

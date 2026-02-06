@@ -1,15 +1,4 @@
 /**
- * Request status for UI display (derived from events, not authoritative).
- */
-export type RequestStatus =
-  | 'queued'
-  | 'rendering'
-  | 'extracting'
-  | 'uploading'
-  | 'done'
-  | 'failed';
-
-/**
  * Artifact kinds produced by the pipeline.
  */
 export type ArtifactKind =
