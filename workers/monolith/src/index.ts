@@ -1,6 +1,5 @@
 import { getSandbox, type Sandbox } from '@cloudflare/sandbox';
-import { getR2Key, sha256, timingSafeEqual } from '@warg/shared';
-import type { ArtifactMeta } from '@warg/shared/types';
+import { storeArtifact, timingSafeEqual } from '@warg/shared';
 import type { MonolithRequest, MonolithSuccessResponse } from './types.js';
 
 // Re-export Sandbox for Durable Object binding
@@ -13,30 +12,6 @@ const MONOLITH_FLAGS = [
   '-v', // remove video
   '-F' // remove frames/iframes
 ];
-
-/**
- * Store artifact to R2 and return metadata.
- */
-async function storeArtifact(
-  bucket: R2Bucket,
-  requestId: string,
-  kind: 'monolith.html',
-  data: ArrayBuffer,
-  contentType: string
-): Promise<ArtifactMeta> {
-  const r2Key = getR2Key(requestId, kind);
-  const hash = await sha256(data);
-  await bucket.put(r2Key, data, {
-    httpMetadata: { contentType }
-  });
-  return {
-    kind,
-    r2Key,
-    bytes: data.byteLength,
-    sha256: hash,
-    contentType
-  };
-}
 
 /**
  * Validate base_url is a safe http/https URL with no shell metacharacters.

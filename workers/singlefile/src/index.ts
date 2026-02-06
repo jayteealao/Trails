@@ -1,6 +1,5 @@
 import puppeteer from '@cloudflare/puppeteer';
-import { getR2Key, sha256, timingSafeEqual } from '@warg/shared';
-import type { ArtifactMeta } from '@warg/shared';
+import { storeArtifact, timingSafeEqual } from '@warg/shared';
 import { SINGLEFILE_SCRIPT, SINGLEFILE_HOOK } from './singlefile-bundle.js';
 import type {
   SinglefileRequest,
@@ -74,25 +73,6 @@ const SCROLL_SCRIPT = `
   await delay(100);
 })();
 `;
-
-async function storeArtifact(
-  env: Env,
-  requestId: string,
-  data: ArrayBuffer
-): Promise<ArtifactMeta> {
-  const r2Key = getR2Key(requestId, 'singlefile.html');
-  const hash = await sha256(data);
-  await env.ARCHIVE_BUCKET.put(r2Key, data, {
-    httpMetadata: { contentType: 'text/html' }
-  });
-  return {
-    kind: 'singlefile.html',
-    r2Key,
-    bytes: data.byteLength,
-    sha256: hash,
-    contentType: 'text/html'
-  };
-}
 
 /**
  * Build SingleFile native options from our options interface.
@@ -274,7 +254,7 @@ export default {
         // Store the artifact
         console.log('[singlefile] Storing artifact...');
         const htmlData = new TextEncoder().encode(content);
-        const artifact = await storeArtifact(env, request_id, htmlData.buffer as ArrayBuffer);
+        const artifact = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'singlefile.html', htmlData.buffer as ArrayBuffer, 'text/html');
 
         console.log('[singlefile] Success!');
         const successResponse: SinglefileSuccessResponse = { artifact };

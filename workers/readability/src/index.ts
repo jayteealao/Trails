@@ -1,34 +1,12 @@
 import { parseHTML } from 'linkedom';
 import { Readability } from '@mozilla/readability';
-import { getR2Key, sha256, timingSafeEqual } from '@warg/shared';
-import type { ArtifactMeta } from '@warg/shared';
+import { storeArtifact, timingSafeEqual } from '@warg/shared';
 import type {
   ReadabilityRequest,
   ReadabilityResult,
   ReadabilitySuccessResponse
 } from './types.js';
 import { toMarkdown } from './markdown.js';
-
-async function storeArtifact(
-  bucket: R2Bucket,
-  requestId: string,
-  kind: 'readability.json' | 'readability.md',
-  data: ArrayBuffer,
-  contentType: string
-): Promise<ArtifactMeta> {
-  const r2Key = getR2Key(requestId, kind);
-  const hash = await sha256(data);
-  await bucket.put(r2Key, data, {
-    httpMetadata: { contentType }
-  });
-  return {
-    kind,
-    r2Key,
-    bytes: data.byteLength,
-    sha256: hash,
-    contentType
-  };
-}
 
 export default {
   async fetch(

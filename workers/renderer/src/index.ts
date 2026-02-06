@@ -1,4 +1,4 @@
-import { getR2Key, sha256, timingSafeEqual } from '@warg/shared';
+import { storeArtifact, timingSafeEqual } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -35,27 +35,6 @@ function buildBrPayload(url: string): BrowserRenderingRequest {
   return {
     url,
     gotoOptions: { waitUntil: 'networkidle0' }
-  };
-}
-
-async function storeArtifact(
-  env: Env,
-  requestId: string,
-  kind: 'rendered.html' | 'rendered.md' | 'screenshot.png' | 'page.pdf',
-  data: ArrayBuffer,
-  contentType: string
-): Promise<ArtifactMeta> {
-  const r2Key = getR2Key(requestId, kind);
-  const hash = await sha256(data);
-  await env.ARCHIVE_BUCKET.put(r2Key, data, {
-    httpMetadata: { contentType }
-  });
-  return {
-    kind,
-    r2Key,
-    bytes: data.byteLength,
-    sha256: hash,
-    contentType
   };
 }
 
@@ -145,7 +124,7 @@ export default {
         );
       }
       const htmlData = new TextEncoder().encode(contentJson.result);
-      const htmlMeta = await storeArtifact(env, request_id, 'rendered.html', htmlData.buffer, 'text/html');
+      const htmlMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'rendered.html', htmlData.buffer, 'text/html');
       artifacts.push(htmlMeta);
 
       // 2. Fetch screenshot if requested
@@ -163,7 +142,7 @@ export default {
         }
         if (ssResp.ok) {
           const ssData = await ssResp.arrayBuffer();
-          const ssMeta = await storeArtifact(env, request_id, 'screenshot.png', ssData, 'image/png');
+          const ssMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', ssData, 'image/png');
           artifacts.push(ssMeta);
         } else {
           skipped.push(`screenshot: API returned ${ssResp.status}`);
@@ -187,7 +166,7 @@ export default {
         }
         if (pdfResp.ok) {
           const pdfData = await pdfResp.arrayBuffer();
-          const pdfMeta = await storeArtifact(env, request_id, 'page.pdf', pdfData, 'application/pdf');
+          const pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
           artifacts.push(pdfMeta);
         } else {
           skipped.push(`pdf: API returned ${pdfResp.status}`);
@@ -214,7 +193,7 @@ export default {
           const mdJson = (await mdResp.json()) as { success: boolean; result: string };
           if (mdJson.success && mdJson.result) {
             const mdData = new TextEncoder().encode(mdJson.result);
-            const mdMeta = await storeArtifact(env, request_id, 'rendered.md', mdData.buffer, 'text/markdown');
+            const mdMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'rendered.md', mdData.buffer, 'text/markdown');
             artifacts.push(mdMeta);
           } else {
             skipped.push('markdown: API returned invalid response');

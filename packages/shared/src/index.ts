@@ -22,3 +22,6 @@ export type {
 export { getR2Key, getOptionsKey } from './r2Keys.js';
 
 export { sha256, timingSafeEqual } from './crypto.js';
+
+export type { ArtifactBucket } from './artifacts.js';
+export { storeArtifact } from './artifacts.js';
