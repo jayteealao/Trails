@@ -23,17 +23,30 @@ export function isValidRequestId(id: string): boolean {
  * Check if a hostname resolves to a private/reserved IP range.
  * Blocks SSRF attempts against internal services and cloud metadata endpoints.
  */
-function isPrivateHost(hostname: string): boolean {
+export function isPrivateHost(hostname: string): boolean {
   const lower = hostname.toLowerCase();
+
+  // Strip brackets from IPv6
+  const unbracketed = lower.startsWith('[') && lower.endsWith(']')
+    ? lower.slice(1, -1)
+    : lower;
 
   // Loopback and special addresses
   if (
-    lower === 'localhost' ||
-    lower === '0.0.0.0' ||
-    lower === '::1' ||
-    lower === '[::1]'
+    unbracketed === 'localhost' ||
+    unbracketed === '0.0.0.0' ||
+    unbracketed === '::1' ||
+    unbracketed === '::' ||
+    unbracketed === '0:0:0:0:0:0:0:1' ||
+    unbracketed === '0:0:0:0:0:0:0:0'
   ) {
     return true;
+  }
+
+  // IPv4-mapped IPv6 addresses (::ffff:127.0.0.1, ::ffff:10.0.0.1, etc.)
+  const v4MappedMatch = unbracketed.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (v4MappedMatch) {
+    return isPrivateIPv4(v4MappedMatch[1]!);
   }
 
   // Internal/local TLDs
@@ -42,25 +55,29 @@ function isPrivateHost(hostname: string): boolean {
   }
 
   // Cloud metadata endpoints
-  if (lower === '169.254.169.254' || lower === 'metadata.google.internal') {
+  if (unbracketed === '169.254.169.254' || lower === 'metadata.google.internal') {
     return true;
   }
 
-  // Check numeric IPv4 patterns
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(lower)) {
-    const parts = lower.split('.').map(Number);
-    // 127.0.0.0/8 (loopback)
-    if (parts[0] === 127) return true;
-    // 10.0.0.0/8 (private)
-    if (parts[0] === 10) return true;
-    // 172.16.0.0/12 (private)
-    if (parts[0] === 172 && parts[1]! >= 16 && parts[1]! <= 31) return true;
-    // 192.168.0.0/16 (private)
-    if (parts[0] === 192 && parts[1] === 168) return true;
-    // 169.254.0.0/16 (link-local)
-    if (parts[0] === 169 && parts[1] === 254) return true;
-    // 0.0.0.0/8
-    if (parts[0] === 0) return true;
+  // Reject non-standard IP encodings (octal 0177.0.0.1, hex 0x7f000001, decimal 2130706433)
+  // Only allow standard dotted-decimal: exactly 4 groups of 1-3 digits with no leading zeros
+  if (/^\d/.test(unbracketed)) {
+    // If it looks numeric but isn't standard dotted-decimal, reject it
+    if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(unbracketed)) {
+      // Could be decimal integer, hex, or other non-standard encoding
+      return true;
+    }
+    // Reject leading zeros in octets (octal bypass: 0177.0.0.01)
+    const octets = unbracketed.split('.');
+    if (octets.some((o) => o.length > 1 && o.startsWith('0'))) {
+      return true;
+    }
+    return isPrivateIPv4(unbracketed);
+  }
+
+  // Any IPv6 address (contains colons) — block all to prevent bypasses
+  if (unbracketed.includes(':')) {
+    return true;
   }
 
   // Bare hostnames (no dots) could be service binding names
@@ -68,6 +85,27 @@ function isPrivateHost(hostname: string): boolean {
     return true;
   }
 
+  return false;
+}
+
+/**
+ * Check if a standard dotted-decimal IPv4 address is in a private/reserved range.
+ */
+function isPrivateIPv4(ip: string): boolean {
+  const parts = ip.split('.').map(Number);
+  if (parts.some((p) => p > 255 || p < 0 || isNaN(p))) return true;
+  // 127.0.0.0/8 (loopback)
+  if (parts[0] === 127) return true;
+  // 10.0.0.0/8 (private)
+  if (parts[0] === 10) return true;
+  // 172.16.0.0/12 (private)
+  if (parts[0] === 172 && parts[1]! >= 16 && parts[1]! <= 31) return true;
+  // 192.168.0.0/16 (private)
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  // 169.254.0.0/16 (link-local)
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  // 0.0.0.0/8
+  if (parts[0] === 0) return true;
   return false;
 }
 

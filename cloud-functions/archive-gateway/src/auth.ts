@@ -1,4 +1,15 @@
+import { timingSafeEqual } from 'crypto';
 import type { Request, Response } from '@google-cloud/functions-framework';
+
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ */
+function safeEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, 'utf-8');
+  const bBuf = Buffer.from(b, 'utf-8');
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
 
 /**
  * Middleware to verify X-Internal-API-Key header.
@@ -16,7 +27,7 @@ export function verifyApiKey(
   }
 
   const providedKey = req.headers['x-internal-api-key'];
-  if (!providedKey || providedKey !== expectedKey) {
+  if (!providedKey || typeof providedKey !== 'string' || !safeEqual(providedKey, expectedKey)) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }

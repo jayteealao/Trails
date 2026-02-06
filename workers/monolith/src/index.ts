@@ -108,13 +108,17 @@ async function runMonolithInSandbox(
 async function runMonolithViaHttp(
   serviceUrl: string,
   html: string,
-  baseUrl: string
+  baseUrl: string,
+  apiKey: string
 ): Promise<string> {
   console.log('[monolith] Falling back to HTTP service:', serviceUrl);
 
   const response = await fetch(serviceUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-API-Key': apiKey
+    },
     body: JSON.stringify({ html, base_url: baseUrl })
   });
 
@@ -193,7 +197,7 @@ export default {
         if (env.MONOLITH_SERVICE_URL) {
           console.log('[monolith] Trying HTTP fallback...');
           method = 'http_fallback';
-          monolithHtml = await runMonolithViaHttp(env.MONOLITH_SERVICE_URL, html, base_url);
+          monolithHtml = await runMonolithViaHttp(env.MONOLITH_SERVICE_URL, html, base_url, env.INTERNAL_API_KEY);
         } else {
           throw sandboxError;
         }

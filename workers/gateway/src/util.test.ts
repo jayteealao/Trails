@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   generateRequestId,
   isValidArchiveUrl,
+  isPrivateHost,
   isValidRequestId,
   withRequestId,
   createEvent
@@ -92,6 +93,70 @@ describe('isValidArchiveUrl', () => {
     expect(isValidArchiveUrl('https://www.example.com')).toBe(true);
     expect(isValidArchiveUrl('https://news.ycombinator.com')).toBe(true);
     expect(isValidArchiveUrl('http://8.8.8.8')).toBe(true);
+  });
+
+  // SSRF bypass vectors
+  it('rejects IPv4-mapped IPv6 addresses', () => {
+    expect(isValidArchiveUrl('http://[::ffff:127.0.0.1]')).toBe(false);
+    expect(isValidArchiveUrl('http://[::ffff:10.0.0.1]')).toBe(false);
+    expect(isValidArchiveUrl('http://[::ffff:169.254.169.254]')).toBe(false);
+  });
+
+  it('rejects all IPv6 addresses', () => {
+    expect(isValidArchiveUrl('http://[::1]')).toBe(false);
+    expect(isValidArchiveUrl('http://[0:0:0:0:0:0:0:1]')).toBe(false);
+    expect(isValidArchiveUrl('http://[::ffff:192.168.1.1]')).toBe(false);
+  });
+
+  it('rejects octal IP encoding', () => {
+    expect(isValidArchiveUrl('http://0177.0.0.1')).toBe(false); // 127.0.0.1
+    expect(isValidArchiveUrl('http://012.0.0.1')).toBe(false); // 10.0.0.1
+  });
+
+  it('rejects non-standard IP formats', () => {
+    expect(isValidArchiveUrl('http://2130706433')).toBe(false); // decimal 127.0.0.1
+    expect(isValidArchiveUrl('http://0x7f000001')).toBe(false); // hex 127.0.0.1
+  });
+});
+
+describe('isPrivateHost', () => {
+  it('blocks loopback addresses', () => {
+    expect(isPrivateHost('localhost')).toBe(true);
+    expect(isPrivateHost('127.0.0.1')).toBe(true);
+    expect(isPrivateHost('::1')).toBe(true);
+    expect(isPrivateHost('[::1]')).toBe(true);
+    expect(isPrivateHost('0:0:0:0:0:0:0:1')).toBe(true);
+  });
+
+  it('blocks IPv4-mapped IPv6 private addresses', () => {
+    expect(isPrivateHost('::ffff:127.0.0.1')).toBe(true);
+    expect(isPrivateHost('::ffff:10.0.0.1')).toBe(true);
+    expect(isPrivateHost('::ffff:192.168.1.1')).toBe(true);
+  });
+
+  it('blocks octal-encoded IPs', () => {
+    expect(isPrivateHost('0177.0.0.1')).toBe(true);
+    expect(isPrivateHost('012.0.0.1')).toBe(true);
+  });
+
+  it('blocks non-dotted-decimal numeric formats', () => {
+    expect(isPrivateHost('2130706433')).toBe(true);
+    expect(isPrivateHost('0x7f000001')).toBe(true);
+  });
+
+  it('blocks invalid octets', () => {
+    expect(isPrivateHost('256.0.0.1')).toBe(true);
+  });
+
+  it('allows public hostnames', () => {
+    expect(isPrivateHost('example.com')).toBe(false);
+    expect(isPrivateHost('www.google.com')).toBe(false);
+  });
+
+  it('allows public IPs', () => {
+    expect(isPrivateHost('8.8.8.8')).toBe(false);
+    expect(isPrivateHost('1.1.1.1')).toBe(false);
+    expect(isPrivateHost('172.32.0.1')).toBe(false);
   });
 });
 
