@@ -46,11 +46,10 @@ export interface RenderRateLimitedResponse {
 export type RenderResponse = RenderSuccessResponse | RenderRateLimitedResponse;
 
 /**
- * Extended archive options with preScript support.
+ * Extended archive options for renderer.
  */
 export interface RendererOptions {
   url: string;
   includeScreenshot?: boolean;
   includePdf?: boolean;
-  preScript?: string;
 }

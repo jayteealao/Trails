@@ -46,6 +46,19 @@ async function storeArtifact(
 }
 
 /**
+ * Validate base_url is a safe http/https URL with no shell metacharacters.
+ */
+function validateBaseUrl(url: string): void {
+  const parsed = new URL(url); // throws if invalid
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('base_url must be http or https');
+  }
+  if (/[;&|$`'"\\(){}<>!#\n\r]/.test(url)) {
+    throw new Error('base_url contains invalid characters');
+  }
+}
+
+/**
  * Execute monolith in sandbox and return processed HTML.
  */
 async function runMonolithInSandbox(
@@ -54,6 +67,7 @@ async function runMonolithInSandbox(
   html: string,
   baseUrl: string
 ): Promise<string> {
+  validateBaseUrl(baseUrl);
   console.log('[monolith] Getting sandbox for request:', requestId);
   const sandbox = getSandbox(env.Sandbox, requestId);
 

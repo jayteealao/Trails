@@ -171,7 +171,7 @@ export default {
       const scrollToBottom = options.scrollToBottom ?? true;
       const waitUntil = options.waitUntil ?? 'load';
       const timeout = options.timeout ?? 60000;
-      const cleanupScript = options.cleanupScript ?? DEFAULT_CLEANUP_SCRIPT;
+      const cleanupScript = DEFAULT_CLEANUP_SCRIPT;
 
       // Build native options for SingleFile
       const nativeOptions = buildNativeOptions(options);

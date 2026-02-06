@@ -91,8 +91,9 @@ export default {
         const requestId = body.request_id ?? generateRequestId();
         const optionsR2Key = getOptionsKey(requestId);
 
-        // Extract options (remove request_id from stored options)
-        const { request_id: _, ...options } = body;
+        // Extract options: remove request_id and strip fields that could enable script injection
+        const { request_id: _, preScript: _ps, cleanupScript: _cs, ...options } = body as
+          ArchiveOptions & { request_id?: string; preScript?: unknown; cleanupScript?: unknown };
 
         // Store options in R2
         await env.ARCHIVE_BUCKET.put(optionsR2Key, JSON.stringify(options), {

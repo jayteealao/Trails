@@ -44,6 +44,54 @@ describe('isValidArchiveUrl', () => {
   it('rejects malformed URLs', () => {
     expect(isValidArchiveUrl('not a url')).toBe(false);
   });
+
+  // SSRF protection
+  it('rejects localhost', () => {
+    expect(isValidArchiveUrl('http://localhost')).toBe(false);
+    expect(isValidArchiveUrl('http://localhost:8080')).toBe(false);
+  });
+
+  it('rejects loopback IPs', () => {
+    expect(isValidArchiveUrl('http://127.0.0.1')).toBe(false);
+    expect(isValidArchiveUrl('http://127.0.0.99')).toBe(false);
+  });
+
+  it('rejects private RFC1918 ranges', () => {
+    expect(isValidArchiveUrl('http://10.0.0.1')).toBe(false);
+    expect(isValidArchiveUrl('http://172.16.0.1')).toBe(false);
+    expect(isValidArchiveUrl('http://172.31.255.255')).toBe(false);
+    expect(isValidArchiveUrl('http://192.168.1.1')).toBe(false);
+  });
+
+  it('rejects link-local and cloud metadata', () => {
+    expect(isValidArchiveUrl('http://169.254.169.254')).toBe(false);
+    expect(isValidArchiveUrl('http://169.254.0.1')).toBe(false);
+  });
+
+  it('rejects IPv6 loopback', () => {
+    expect(isValidArchiveUrl('http://[::1]')).toBe(false);
+  });
+
+  it('rejects bare hostnames (service binding names)', () => {
+    expect(isValidArchiveUrl('http://logger')).toBe(false);
+    expect(isValidArchiveUrl('http://workflow')).toBe(false);
+  });
+
+  it('rejects .local and .internal TLDs', () => {
+    expect(isValidArchiveUrl('http://myapp.local')).toBe(false);
+    expect(isValidArchiveUrl('http://metadata.google.internal')).toBe(false);
+  });
+
+  it('allows non-private 172.x addresses', () => {
+    expect(isValidArchiveUrl('http://172.15.0.1')).toBe(true);
+    expect(isValidArchiveUrl('http://172.32.0.1')).toBe(true);
+  });
+
+  it('allows public URLs', () => {
+    expect(isValidArchiveUrl('https://www.example.com')).toBe(true);
+    expect(isValidArchiveUrl('https://news.ycombinator.com')).toBe(true);
+    expect(isValidArchiveUrl('http://8.8.8.8')).toBe(true);
+  });
 });
 
 describe('withRequestId', () => {

@@ -13,7 +13,6 @@ const BR_BASE = 'https://api.cloudflare.com/client/v4/accounts';
 interface BrowserRenderingRequest {
   url: string;
   gotoOptions?: { waitUntil?: string };
-  addScriptTag?: Array<{ content: string }>;
 }
 
 async function callBrowserRendering(
@@ -32,15 +31,11 @@ async function callBrowserRendering(
   });
 }
 
-function buildBrPayload(url: string, preScript?: string): BrowserRenderingRequest {
-  const payload: BrowserRenderingRequest = {
+function buildBrPayload(url: string): BrowserRenderingRequest {
+  return {
     url,
     gotoOptions: { waitUntil: 'networkidle0' }
   };
-  if (preScript) {
-    payload.addScriptTag = [{ content: preScript }];
-  }
-  return payload;
 }
 
 async function storeArtifact(
@@ -123,7 +118,7 @@ export default {
     const includePdf = body.include_pdf ?? options.includePdf ?? false;
     const includeMarkdown = body.include_markdown ?? false;
 
-    const brPayload = buildBrPayload(targetUrl, options.preScript);
+    const brPayload = buildBrPayload(targetUrl);
     const artifacts: ArtifactMeta[] = [];
     const skipped: string[] = [];
     const quotaKindUsed: BrowserQuotaKind = browser_quota_kind;

@@ -12,12 +12,70 @@ export function generateRequestId(): string {
 }
 
 /**
- * Validate that a URL is http or https.
+ * Check if a hostname resolves to a private/reserved IP range.
+ * Blocks SSRF attempts against internal services and cloud metadata endpoints.
+ */
+function isPrivateHost(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+
+  // Loopback and special addresses
+  if (
+    lower === 'localhost' ||
+    lower === '0.0.0.0' ||
+    lower === '::1' ||
+    lower === '[::1]'
+  ) {
+    return true;
+  }
+
+  // Internal/local TLDs
+  if (lower.endsWith('.local') || lower.endsWith('.internal')) {
+    return true;
+  }
+
+  // Cloud metadata endpoints
+  if (lower === '169.254.169.254' || lower === 'metadata.google.internal') {
+    return true;
+  }
+
+  // Check numeric IPv4 patterns
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(lower)) {
+    const parts = lower.split('.').map(Number);
+    // 127.0.0.0/8 (loopback)
+    if (parts[0] === 127) return true;
+    // 10.0.0.0/8 (private)
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12 (private)
+    if (parts[0] === 172 && parts[1]! >= 16 && parts[1]! <= 31) return true;
+    // 192.168.0.0/16 (private)
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // 169.254.0.0/16 (link-local)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    // 0.0.0.0/8
+    if (parts[0] === 0) return true;
+  }
+
+  // Bare hostnames (no dots) could be service binding names
+  if (!lower.includes('.') && lower !== 'localhost') {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Validate that a URL is http or https and does not target private/internal hosts.
  */
 export function isValidArchiveUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    if (isPrivateHost(parsed.hostname)) {
+      return false;
+    }
+    return true;
   } catch {
     return false;
   }

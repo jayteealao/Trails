@@ -19,8 +19,6 @@ export interface SinglefileRequest {
 export interface SinglefileOptions {
   // --- Pre-capture (Puppeteer-level) options ---
 
-  /** Custom cleanup script to run before capture (removes modals, banners, etc.) */
-  cleanupScript?: string;
   /** Scroll to bottom to trigger lazy-loaded content (default: true) */
   scrollToBottom?: boolean;
   /** Navigation wait condition */
