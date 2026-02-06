@@ -21,6 +21,10 @@ export interface ArchiveOptionsExtended extends ArchiveOptions {
  */
 export interface RendererResponse {
   artifacts: ArtifactMeta[];
+  meta?: {
+    skipped: string[];
+    browserApiMs?: number;
+  };
 }
 
 /**
@@ -28,6 +32,11 @@ export interface RendererResponse {
  */
 export interface DerivativeResponse {
   artifact: ArtifactMeta;
+  meta?: {
+    method?: 'sandbox' | 'http_fallback';
+    exitCode?: number;
+    processingMs?: number;
+  };
 }
 
 /**
@@ -36,6 +45,12 @@ export interface DerivativeResponse {
 export interface ReadabilityResponse {
   json: ArtifactMeta;
   md: ArtifactMeta;
+  meta?: {
+    title: string | null;
+    byline: string | null;
+    textLength: number;
+    excerptLength: number;
+  };
 }
 
 /**
@@ -44,6 +59,16 @@ export interface ReadabilityResponse {
 export interface GcsResponse {
   gcsKeys: Record<ArtifactKind, string>;
   firestoreDocId: string;
+  meta?: {
+    compressionStats: Array<{
+      kind: string;
+      originalBytes: number;
+      compressedBytes: number;
+      ratio: number;
+    }>;
+    uploadDurationMs: number;
+    skippedArtifacts: string[];
+  };
 }
 
 /**
@@ -57,11 +82,22 @@ export interface RendererParams {
 }
 
 /**
- * Parameters for calling derivative services.
+ * Parameters for calling derivative services (readability, monolith).
  */
 export interface DerivativeParams {
   request_id: string;
   rendered_html_key: string;
+}
+
+/**
+ * Parameters for calling the singlefile service.
+ * SingleFile requires a live URL (not rendered HTML) because it navigates
+ * to the page and injects scripts to capture resources.
+ */
+export interface SinglefileParams {
+  request_id: string;
+  url: string;
+  options_r2_key?: string;
 }
 
 /**

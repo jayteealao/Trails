@@ -5,7 +5,8 @@ import type {
   DerivativeResponse,
   ReadabilityResponse,
   GcsParams,
-  GcsResponse
+  GcsResponse,
+  SinglefileParams
 } from './types.js';
 
 /**
@@ -62,14 +63,15 @@ export function callRenderer(
 
 /**
  * Call the singlefile service to extract a self-contained HTML.
+ * SingleFile navigates to the live URL and captures resources inline.
  */
 export function callSinglefile(
   env: Env,
-  params: DerivativeParams
+  params: SinglefileParams
 ): Promise<DerivativeResponse> {
   return serviceCall<DerivativeResponse>(
     env.SINGLEFILE,
-    '/extract',
+    '/singlefile',
     params,
     env.INTERNAL_API_KEY,
     180000 // 3 minute timeout
@@ -85,7 +87,7 @@ export function callReadability(
 ): Promise<ReadabilityResponse> {
   return serviceCall<ReadabilityResponse>(
     env.READABILITY,
-    '/extract',
+    '/readability',
     params,
     env.INTERNAL_API_KEY,
     120000 // 2 minute timeout
@@ -101,7 +103,7 @@ export function callMonolith(
 ): Promise<DerivativeResponse> {
   return serviceCall<DerivativeResponse>(
     env.MONOLITH,
-    '/extract',
+    '/monolith',
     params,
     env.INTERNAL_API_KEY,
     120000 // 2 minute timeout
