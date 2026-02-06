@@ -22,6 +22,6 @@ export type {
 
 export { getR2Key, getOptionsKey } from './r2Keys.js';
 
-export { sha256 } from './crypto.js';
+export { sha256, timingSafeEqual } from './crypto.js';
 
 export { fetchJson, postJson } from './http.js';

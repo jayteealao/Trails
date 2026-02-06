@@ -4,6 +4,7 @@ import type {
   ArtifactRecord,
   RequestFieldsPatch
 } from '@warg/shared';
+import { timingSafeEqual } from '@warg/shared';
 import { LoggerDO } from './LoggerDO.js';
 
 export { LoggerDO };
@@ -26,7 +27,8 @@ interface RequestsIndexRow {
  */
 function verifyApiKey(request: Request, env: Env): boolean {
   const apiKey = request.headers.get('X-Internal-API-Key');
-  return apiKey === env.INTERNAL_API_KEY;
+  if (!apiKey) return false;
+  return timingSafeEqual(apiKey, env.INTERNAL_API_KEY);
 }
 
 /**
@@ -108,11 +110,12 @@ export default {
       // GET /request/:id - Get full request view
       if (method === 'GET' && path === '/request/:id' && requestId) {
         const cursor = params.get('cursor');
-        const limit = params.get('limit');
+        const limitParam = params.get('limit');
         const stub = getLoggerStub(env, requestId);
+        const limitVal = Math.min(Math.max(parseInt(limitParam ?? '', 10) || 100, 1), 1000);
         const view = await stub.getRequestView(
           cursor ? parseInt(cursor, 10) : undefined,
-          limit ? parseInt(limit, 10) : 100
+          limitVal
         );
         if (!view) {
           return Response.json({ error: 'Request not found' }, { status: 404 });
@@ -123,11 +126,12 @@ export default {
       // GET /request/:id/events - Get paginated events
       if (method === 'GET' && path === '/request/:id/events' && requestId) {
         const cursor = params.get('cursor');
-        const limit = params.get('limit');
+        const limitParam = params.get('limit');
         const stub = getLoggerStub(env, requestId);
+        const limitVal = Math.min(Math.max(parseInt(limitParam ?? '', 10) || 100, 1), 1000);
         const result = await stub.getEvents(
           cursor ? parseInt(cursor, 10) : undefined,
-          limit ? parseInt(limit, 10) : 100
+          limitVal
         );
         return Response.json(result);
       }
@@ -135,8 +139,8 @@ export default {
       // GET /requests - List requests from D1 index
       if (method === 'GET' && path === '/requests') {
         const domain = params.get('domain');
-        const limit = params.get('limit') ?? '50';
-        const offset = params.get('offset') ?? '0';
+        const limitVal = Math.min(Math.max(parseInt(params.get('limit') ?? '', 10) || 50, 1), 1000);
+        const offsetVal = Math.min(Math.max(parseInt(params.get('offset') ?? '', 10) || 0, 0), 100000);
 
         let query = 'SELECT * FROM requests_index';
         const bindings: (string | number)[] = [];
@@ -147,7 +151,7 @@ export default {
         }
 
         query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-        bindings.push(parseInt(limit, 10), parseInt(offset, 10));
+        bindings.push(limitVal, offsetVal);
 
         const result = await env.INDEX_DB.prepare(query).bind(...bindings).all<RequestsIndexRow>();
 

@@ -1,6 +1,6 @@
 import { parseHTML } from 'linkedom';
 import { Readability } from '@mozilla/readability';
-import { getR2Key, sha256 } from '@warg/shared';
+import { getR2Key, sha256, timingSafeEqual } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   ReadabilityRequest,
@@ -52,7 +52,7 @@ export default {
 
       // Verify internal API key
       const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || apiKey !== env.INTERNAL_API_KEY) {
+      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
         return jsonResponse({ error: 'Unauthorized' }, 401);
       }
 
@@ -167,8 +167,7 @@ export default {
     } catch (err) {
       console.error('[readability] Unhandled error:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : undefined;
-      return jsonResponse({ error: 'Internal error', message: errMsg, stack }, 500);
+      return jsonResponse({ error: 'Internal error', message: errMsg }, 500);
     }
   }
 };

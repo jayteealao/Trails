@@ -1,4 +1,4 @@
-import { getOptionsKey } from '@warg/shared';
+import { getOptionsKey, timingSafeEqual } from '@warg/shared';
 import type {
   ArchiveOptions,
   LogEvent,
@@ -177,7 +177,7 @@ export default {
     // POST /internal/log - Forward event to logger (for external services)
     if (method === 'POST' && path === '/internal/log') {
       const apiKey = request.headers.get('X-Internal-API-Key');
-      if (apiKey !== env.INTERNAL_API_KEY) {
+      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 

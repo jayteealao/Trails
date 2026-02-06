@@ -1,3 +1,4 @@
+import { timingSafeEqual } from '@warg/shared';
 import type { ArchiveManifest, ArtifactMeta } from '@warg/shared';
 import type {
   PersistRequest,
@@ -135,21 +136,29 @@ async function callCloudFunction<T>(
   body: unknown,
   apiKey: string
 ): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Internal-API-Key': apiKey
-    },
-    body: JSON.stringify(body)
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Cloud Function ${path} failed: ${response.status} - ${text}`);
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-API-Key': apiKey
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Cloud Function ${path} failed: ${response.status} - ${text}`);
+    }
+
+    return (await response.json()) as T;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return (await response.json()) as T;
 }
 
 export default {
@@ -167,7 +176,7 @@ export default {
 
       // Verify internal API key
       const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || apiKey !== env.INTERNAL_API_KEY) {
+      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
         return jsonResponse({ error: 'Unauthorized' }, 401);
       }
 
@@ -314,8 +323,7 @@ export default {
     } catch (err) {
       console.error('[gcs] Unhandled error:', err);
       const errMsg = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : undefined;
-      return jsonResponse({ error: 'Internal error', message: errMsg, stack }, 500);
+      return jsonResponse({ error: 'Internal error', message: errMsg }, 500);
     }
   }
 };

@@ -1,4 +1,4 @@
-import { getR2Key, sha256 } from '@warg/shared';
+import { getR2Key, sha256, timingSafeEqual } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -72,6 +72,7 @@ export default {
     env: Env,
     _ctx: ExecutionContext
   ): Promise<Response> {
+    try {
     // Only accept POST /render
     const url = new URL(request.url);
     if (request.method !== 'POST' || url.pathname !== '/render') {
@@ -80,7 +81,7 @@ export default {
 
     // Verify internal API key
     const apiKey = request.headers.get('X-Internal-API-Key');
-    if (!apiKey || apiKey !== env.INTERNAL_API_KEY) {
+    if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
       return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
@@ -241,5 +242,10 @@ export default {
       meta: { skipped, browserApiMs }
     };
     return jsonResponse(successResponse);
+    } catch (err) {
+      console.error('[renderer] Unhandled error:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return jsonResponse({ error: 'Internal error', message: errMsg }, 500);
+    }
   }
 };
