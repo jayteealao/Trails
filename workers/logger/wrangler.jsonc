@@ -13,5 +13,6 @@
       "database_name": "warg-requests-index",
       "database_id": "ff077e87-293b-4434-ad9e-ab669c9cbabb"
     }
-  ]
+  ],
+  "observability": { "enabled": true }
 }

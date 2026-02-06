@@ -9,5 +9,6 @@
   ],
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
-  ]
+  ],
+  "observability": { "enabled": true }
 }
