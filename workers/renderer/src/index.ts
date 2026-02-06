@@ -90,7 +90,7 @@ export default {
     if (!request_id || !targetUrl || !browser_quota_kind) {
       return Response.json(
         { error: 'Missing required fields: request_id, url, browser_quota_kind' },
-        400
+        { status: 400 }
       );
     }
 

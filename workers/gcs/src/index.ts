@@ -185,7 +185,7 @@ export default {
       if (!request_id || !manifest_key) {
         return Response.json(
           { error: 'Missing required fields: request_id, manifest_key' },
-          400
+          { status: 400 }
         );
       }
 

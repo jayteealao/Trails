@@ -142,7 +142,7 @@ export default {
       if (!request_id || !targetUrl) {
         return Response.json(
           { error: 'Missing required fields: request_id, url' },
-          400
+          { status: 400 }
         );
       }
 

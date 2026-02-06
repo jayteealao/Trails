@@ -157,7 +157,7 @@ export default {
       if (!request_id || !rendered_html_key || !base_url) {
         return Response.json(
           { error: 'Missing required fields: request_id, rendered_html_key, base_url' },
-          400
+          { status: 400 }
         );
       }
 
@@ -167,7 +167,7 @@ export default {
       if (!htmlObject) {
         return Response.json(
           { error: 'HTML not found in R2', key: rendered_html_key },
-          404
+          { status: 404 }
         );
       }
 
@@ -177,7 +177,7 @@ export default {
       if (html.length < 100) {
         return Response.json(
           { error: 'HTML content too short', length: html.length },
-          400
+          { status: 400 }
         );
       }
 
