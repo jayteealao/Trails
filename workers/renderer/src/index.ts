@@ -12,7 +12,7 @@ const BR_BASE = 'https://api.cloudflare.com/client/v4/accounts';
 
 interface BrowserRenderingRequest {
   url: string;
-  gotoOptions?: { waitUntil?: string };
+  gotoOptions?: { waitUntil?: string; timeout?: number };
 }
 
 async function callBrowserRendering(
@@ -34,7 +34,7 @@ async function callBrowserRendering(
 function buildBrPayload(url: string): BrowserRenderingRequest {
   return {
     url,
-    gotoOptions: { waitUntil: 'networkidle0' }
+    gotoOptions: { waitUntil: 'load', timeout: 30000 }
   };
 }
 
