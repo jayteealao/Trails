@@ -175,7 +175,8 @@ export class LoggerDO extends DurableObject<Env> {
     const eventId = lastRow?.id ?? 0;
 
     // Update derived summary
-    const requestRow = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').one();
+    const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();
+    const requestRow = requestRows[0];
     if (requestRow) {
       const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
 
@@ -248,7 +249,8 @@ export class LoggerDO extends DurableObject<Env> {
   async updateRequestFields(patch: RequestFieldsPatch): Promise<void> {
     this.ensureSchema();
 
-    const requestRow = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').one();
+    const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();
+    const requestRow = requestRows[0];
     if (!requestRow) {
       throw new Error('Request not found');
     }

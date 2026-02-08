@@ -48,6 +48,12 @@ function parseRoute(
   const path = url.pathname;
   const params = url.searchParams;
 
+  // Literal routes take priority over parameterized ones
+  if (path === '/request/init' || path === '/event' || path === '/artifact' ||
+      path === '/stats' || path === '/requests') {
+    return { path, params };
+  }
+
   // Match /request/:id pattern
   const requestMatch = path.match(/^\/request\/([^/]+)$/);
   if (requestMatch) {
