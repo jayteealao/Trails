@@ -3,3 +3,7 @@
 
 LOGGER_URL=https://logger.warg.workers.dev
 INTERNAL_API_KEY=your-internal-api-key-here
+
+# For Infrastructure page (Cloudflare API metrics)
+CF_API_TOKEN=your-cf-api-token-here
+CF_ACCOUNT_ID=your-cf-account-id-here

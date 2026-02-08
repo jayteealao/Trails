@@ -136,18 +136,103 @@ export default {
         return Response.json(result);
       }
 
+      // GET /stats - Aggregate metrics from D1 index
+      if (method === 'GET' && path === '/stats') {
+        const [
+          stageResult,
+          totalResult,
+          recentResult,
+          domainsResult,
+          failuresResult,
+          stuckResult
+        ] = await Promise.all([
+          env.INDEX_DB.prepare(
+            'SELECT stage, COUNT(*) as count FROM requests_index GROUP BY stage'
+          ).all<{ stage: string | null; count: number }>(),
+          env.INDEX_DB.prepare(
+            'SELECT COUNT(*) as total FROM requests_index'
+          ).first<{ total: number }>(),
+          env.INDEX_DB.prepare(
+            `SELECT
+              SUM(CASE WHEN created_at > datetime('now', '-1 hour') THEN 1 ELSE 0 END) as last1h,
+              SUM(CASE WHEN created_at > datetime('now', '-24 hours') THEN 1 ELSE 0 END) as last24h
+            FROM requests_index`
+          ).first<{ last1h: number; last24h: number }>(),
+          env.INDEX_DB.prepare(
+            'SELECT domain, COUNT(*) as count FROM requests_index GROUP BY domain ORDER BY count DESC LIMIT 10'
+          ).all<{ domain: string; count: number }>(),
+          env.INDEX_DB.prepare(
+            `SELECT request_id, url, created_at FROM requests_index
+             WHERE stage = 'failed' ORDER BY created_at DESC LIMIT 5`
+          ).all<{ request_id: string; url: string; created_at: string }>(),
+          env.INDEX_DB.prepare(
+            `SELECT COUNT(*) as count FROM requests_index
+             WHERE terminal_state = 0 AND created_at < datetime('now', '-1 hour')`
+          ).first<{ count: number }>(),
+        ]);
+
+        const total = totalResult?.total ?? 0;
+        const byStage: Record<string, number> = {};
+        let doneCount = 0;
+        let failedCount = 0;
+        let activeCount = 0;
+
+        for (const row of stageResult.results) {
+          const stage = row.stage ?? 'unknown';
+          byStage[stage] = row.count;
+          if (stage === 'done') doneCount = row.count;
+          else if (stage === 'failed') failedCount = row.count;
+          else activeCount += row.count;
+        }
+
+        const terminal = doneCount + failedCount;
+        const successRate = terminal > 0 ? doneCount / terminal : 0;
+        const failureRate = terminal > 0 ? failedCount / terminal : 0;
+
+        return Response.json({
+          total,
+          byStage,
+          successRate: Math.round(successRate * 1000) / 1000,
+          failureRate: Math.round(failureRate * 1000) / 1000,
+          activeCount,
+          stuckCount: stuckResult?.count ?? 0,
+          recentActivity: {
+            last1h: recentResult?.last1h ?? 0,
+            last24h: recentResult?.last24h ?? 0,
+          },
+          topDomains: domainsResult.results.map((r: { domain: string; count: number }) => ({
+            domain: r.domain,
+            count: r.count,
+          })),
+          recentFailures: failuresResult.results.map((r: { request_id: string; url: string; created_at: string }) => ({
+            requestId: r.request_id,
+            url: r.url,
+            createdAt: r.created_at,
+          })),
+        });
+      }
+
       // GET /requests - List requests from D1 index
       if (method === 'GET' && path === '/requests') {
         const domain = params.get('domain');
+        const status = params.get('status');
         const limitVal = Math.min(Math.max(parseInt(params.get('limit') ?? '', 10) || 50, 1), 1000);
         const offsetVal = Math.min(Math.max(parseInt(params.get('offset') ?? '', 10) || 0, 0), 100000);
 
         let query = 'SELECT * FROM requests_index';
+        const conditions: string[] = [];
         const bindings: (string | number)[] = [];
 
         if (domain) {
-          query += ' WHERE domain = ?';
+          conditions.push('domain = ?');
           bindings.push(domain);
+        }
+        if (status) {
+          conditions.push('stage = ?');
+          bindings.push(status);
+        }
+        if (conditions.length > 0) {
+          query += ' WHERE ' + conditions.join(' AND ');
         }
 
         query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
@@ -156,7 +241,7 @@ export default {
         const result = await env.INDEX_DB.prepare(query).bind(...bindings).all<RequestsIndexRow>();
 
         return Response.json({
-          requests: result.results.map((row) => ({
+          requests: result.results.map((row: RequestsIndexRow) => ({
             requestId: row.request_id,
             url: row.url,
             domain: row.domain,

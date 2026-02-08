@@ -28,7 +28,16 @@
       </div>
 
       <nav class="sidebar-nav">
-        <button class="nav-item active" data-view="requests">
+        <button class="nav-item active" data-view="overview">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+          <span>Overview</span>
+        </button>
+        <button class="nav-item" data-view="requests">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
@@ -37,6 +46,15 @@
             <polyline points="10 9 9 9 8 9"/>
           </svg>
           <span>Requests</span>
+        </button>
+        <button class="nav-item" data-view="infra">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            <line x1="6" y1="6" x2="6.01" y2="6"/>
+            <line x1="6" y1="18" x2="6.01" y2="18"/>
+          </svg>
+          <span>Infrastructure</span>
         </button>
       </nav>
 
@@ -53,8 +71,170 @@
 
     <!-- Main Content -->
     <main class="main">
+      <!-- Overview View -->
+      <div class="view" id="overviewView">
+        <header class="view-header">
+          <h1 class="view-title">Overview</h1>
+          <div class="view-actions">
+            <button class="btn btn-icon" id="refreshStatsBtn" title="Refresh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <!-- Summary Cards -->
+        <div class="stats-cards" id="statsCards">
+          <div class="stat-card">
+            <div class="stat-label">Total Requests</div>
+            <div class="stat-value" id="statTotal">--</div>
+          </div>
+          <div class="stat-card stat-card-success">
+            <div class="stat-label">Success Rate</div>
+            <div class="stat-value" id="statSuccessRate">--</div>
+          </div>
+          <div class="stat-card stat-card-active">
+            <div class="stat-label">Active</div>
+            <div class="stat-value" id="statActive">--</div>
+          </div>
+          <div class="stat-card stat-card-stuck">
+            <div class="stat-label">Stuck (&gt;1h)</div>
+            <div class="stat-value" id="statStuck">--</div>
+          </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="stats-row">
+          <div class="stat-card stat-card-wide">
+            <div class="stat-label">Last Hour</div>
+            <div class="stat-value" id="statLast1h">--</div>
+          </div>
+          <div class="stat-card stat-card-wide">
+            <div class="stat-label">Last 24 Hours</div>
+            <div class="stat-value" id="statLast24h">--</div>
+          </div>
+        </div>
+
+        <!-- Stage Distribution -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Stage Distribution</span>
+          </div>
+          <div class="section-body">
+            <div class="stage-bars" id="stageBars">
+              <div class="empty-state"><div class="empty-state-text">Loading...</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Two-column: Top Domains + Recent Failures -->
+        <div class="stats-grid-2col">
+          <div class="section">
+            <div class="section-header">
+              <span class="section-title">Top Domains</span>
+            </div>
+            <div class="section-body">
+              <div class="domain-list" id="topDomains">
+                <div class="empty-state"><div class="empty-state-text">Loading...</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <span class="section-title">Recent Failures</span>
+            </div>
+            <div class="section-body">
+              <div class="failures-list" id="recentFailures">
+                <div class="empty-state"><div class="empty-state-text">Loading...</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Infrastructure View -->
+      <div class="view hidden" id="infraView">
+        <header class="view-header">
+          <h1 class="view-title">Infrastructure</h1>
+          <div class="view-actions">
+            <button class="btn btn-icon" id="refreshInfraBtn" title="Refresh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <!-- Workers Section -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Workers</span>
+          </div>
+          <div class="section-body">
+            <div class="infra-grid" id="workersGrid">
+              <div class="empty-state"><div class="empty-state-text">Loading...</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Workflows Section -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Workflows</span>
+          </div>
+          <div class="section-body">
+            <div class="infra-grid" id="workflowsGrid">
+              <div class="empty-state"><div class="empty-state-text">Loading...</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Storage Section -->
+        <div class="stats-grid-2col">
+          <div class="section">
+            <div class="section-header">
+              <span class="section-title">D1 Database</span>
+            </div>
+            <div class="section-body">
+              <div id="d1Panel">
+                <div class="empty-state"><div class="empty-state-text">Loading...</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <span class="section-title">R2 Storage</span>
+            </div>
+            <div class="section-body">
+              <div id="r2Panel">
+                <div class="empty-state"><div class="empty-state-text">Loading...</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- DO Section -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Durable Objects</span>
+          </div>
+          <div class="section-body">
+            <div id="doPanel">
+              <div class="empty-state"><div class="empty-state-text">Loading...</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Requests List View -->
-      <div class="view" id="requestsView">
+      <div class="view hidden" id="requestsView">
         <header class="view-header">
           <h1 class="view-title">Archive Requests</h1>
           <div class="view-actions">

@@ -994,6 +994,300 @@ body::before {
   font-size: 0.875rem;
 }
 
+/* ===== Stats Cards ===== */
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.stat-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.stat-card-wide {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-xs);
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-card-success .stat-value {
+  color: var(--accent-emerald);
+}
+
+.stat-card-active .stat-value {
+  color: var(--accent-cyan);
+}
+
+.stat-card-stuck .stat-value {
+  color: var(--text-muted);
+}
+
+.stat-card-warning .stat-value {
+  color: var(--accent-amber);
+}
+
+/* ===== Stats Grid ===== */
+.stats-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+  margin-top: var(--space-lg);
+}
+
+/* ===== Stage Bars ===== */
+.stage-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.stage-bar-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 60px;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.stage-bar-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.stage-bar-count {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.stage-bar-track {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stage-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--transition-normal);
+}
+
+.stage-bar-pct {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* ===== Domain List ===== */
+.domain-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.domain-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 50px;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.domain-name {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.domain-bar-track {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.domain-bar-fill {
+  height: 100%;
+  background: var(--accent-cyan);
+  border-radius: 3px;
+  opacity: 0.6;
+}
+
+.domain-count {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* ===== Failures List ===== */
+.failures-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.failure-row {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--accent-rose);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.failure-row:hover {
+  background: var(--bg-elevated);
+}
+
+.failure-url {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: var(--space-xs);
+}
+
+.failure-meta {
+  display: flex;
+  gap: var(--space-md);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.failure-id {
+  font-family: var(--font-mono);
+}
+
+/* ===== Infrastructure ===== */
+.infra-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-md);
+}
+
+.infra-card {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.infra-card-wide {
+  grid-column: 1 / -1;
+}
+
+.infra-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+}
+
+.infra-card-name {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.infra-card-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.infra-card-indicator.infra-metric-ok {
+  background: var(--accent-emerald);
+}
+
+.infra-card-indicator.infra-metric-warn {
+  background: var(--accent-amber);
+}
+
+.infra-card-indicator.infra-metric-bad {
+  background: var(--accent-rose);
+}
+
+.infra-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: var(--space-md);
+}
+
+.infra-metrics-vertical {
+  grid-template-columns: 1fr;
+}
+
+.infra-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.infra-metric-value {
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.infra-metric-value.infra-metric-ok {
+  color: var(--accent-emerald);
+}
+
+.infra-metric-value.infra-metric-warn {
+  color: var(--accent-amber);
+}
+
+.infra-metric-value.infra-metric-bad {
+  color: var(--accent-rose);
+}
+
+.infra-metric-value.infra-metric-active {
+  color: var(--accent-cyan);
+}
+
+.infra-metric-label {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
   .sidebar {
@@ -1039,6 +1333,30 @@ body::before {
   }
 
   .artifacts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-grid-2col {
+    grid-template-columns: 1fr;
+  }
+
+  .stage-bar-row {
+    grid-template-columns: 120px 1fr 50px;
+  }
+
+  .domain-row {
+    grid-template-columns: 100px 1fr 40px;
+  }
+
+  .infra-grid {
     grid-template-columns: 1fr;
   }
 }

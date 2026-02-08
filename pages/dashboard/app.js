@@ -10,11 +10,23 @@
     defaultRefreshInterval: 30,
   };
 
+  // Stage color mapping for charts
+  const STAGE_COLORS = {
+    done: 'var(--accent-emerald)',
+    failed: 'var(--accent-rose)',
+    rendering: 'var(--accent-cyan)',
+    deriving: 'var(--accent-violet)',
+    persisting: 'var(--accent-amber)',
+    queued: 'var(--accent-slate)',
+  };
+
   // ===== State =====
   const state = {
-    currentView: 'requests',
+    currentView: 'overview',
     requests: [],
     selectedRequest: null,
+    stats: null,
+    infra: null,
     filters: {
       domain: '',
       status: '',
@@ -37,8 +49,30 @@
   // ===== DOM Elements =====
   const elements = {
     // Views
+    overviewView: document.getElementById('overviewView'),
     requestsView: document.getElementById('requestsView'),
     detailView: document.getElementById('detailView'),
+    infraView: document.getElementById('infraView'),
+    // Nav
+    navItems: document.querySelectorAll('.nav-item[data-view]'),
+    // Overview
+    statTotal: document.getElementById('statTotal'),
+    statSuccessRate: document.getElementById('statSuccessRate'),
+    statActive: document.getElementById('statActive'),
+    statStuck: document.getElementById('statStuck'),
+    statLast1h: document.getElementById('statLast1h'),
+    statLast24h: document.getElementById('statLast24h'),
+    stageBars: document.getElementById('stageBars'),
+    topDomains: document.getElementById('topDomains'),
+    recentFailures: document.getElementById('recentFailures'),
+    refreshStatsBtn: document.getElementById('refreshStatsBtn'),
+    // Infra
+    workersGrid: document.getElementById('workersGrid'),
+    workflowsGrid: document.getElementById('workflowsGrid'),
+    d1Panel: document.getElementById('d1Panel'),
+    r2Panel: document.getElementById('r2Panel'),
+    doPanel: document.getElementById('doPanel'),
+    refreshInfraBtn: document.getElementById('refreshInfraBtn'),
     // Request list
     requestList: document.getElementById('requestList'),
     domainFilter: document.getElementById('domainFilter'),
@@ -98,7 +132,267 @@
     return data;
   }
 
+  async function fetchStats() {
+    const data = await apiRequest('/stats');
+    return data;
+  }
+
+  async function fetchInfra() {
+    const data = await apiRequest('/infra');
+    return data;
+  }
+
   // ===== Render Functions =====
+
+  // --- Overview ---
+  function renderStats() {
+    const s = state.stats;
+    if (!s) return;
+
+    elements.statTotal.textContent = s.total.toLocaleString();
+    elements.statSuccessRate.textContent = (s.successRate * 100).toFixed(1) + '%';
+    elements.statActive.textContent = s.activeCount.toLocaleString();
+    elements.statStuck.textContent = s.stuckCount.toLocaleString();
+    elements.statLast1h.textContent = s.recentActivity.last1h.toLocaleString();
+    elements.statLast24h.textContent = s.recentActivity.last24h.toLocaleString();
+
+    // Highlight stuck count if non-zero
+    const stuckCard = elements.statStuck.closest('.stat-card');
+    if (stuckCard) {
+      stuckCard.classList.toggle('stat-card-warning', s.stuckCount > 0);
+    }
+
+    renderStageBars(s.byStage, s.total);
+    renderTopDomains(s.topDomains);
+    renderRecentFailures(s.recentFailures);
+  }
+
+  function renderStageBars(byStage, total) {
+    if (!byStage || total === 0) {
+      elements.stageBars.innerHTML = '<div class="empty-state"><div class="empty-state-text">No data</div></div>';
+      return;
+    }
+
+    const stages = Object.entries(byStage).sort((a, b) => b[1] - a[1]);
+
+    elements.stageBars.innerHTML = stages.map(([stage, count]) => {
+      const pct = total > 0 ? (count / total * 100).toFixed(1) : 0;
+      const color = STAGE_COLORS[stage] || 'var(--text-muted)';
+      return `
+        <div class="stage-bar-row">
+          <div class="stage-bar-label">
+            <span class="status-badge status-${escapeHtml(stage)}">${escapeHtml(stage)}</span>
+            <span class="stage-bar-count">${count.toLocaleString()}</span>
+          </div>
+          <div class="stage-bar-track">
+            <div class="stage-bar-fill" style="width:${pct}%;background:${color}"></div>
+          </div>
+          <span class="stage-bar-pct">${pct}%</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderTopDomains(domains) {
+    if (!domains || domains.length === 0) {
+      elements.topDomains.innerHTML = '<div class="empty-state"><div class="empty-state-text">No domains</div></div>';
+      return;
+    }
+
+    const maxCount = domains[0].count;
+
+    elements.topDomains.innerHTML = domains.map(d => {
+      const pct = maxCount > 0 ? (d.count / maxCount * 100) : 0;
+      return `
+        <div class="domain-row">
+          <span class="domain-name">${escapeHtml(d.domain)}</span>
+          <div class="domain-bar-track">
+            <div class="domain-bar-fill" style="width:${pct}%"></div>
+          </div>
+          <span class="domain-count">${d.count.toLocaleString()}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderRecentFailures(failures) {
+    if (!failures || failures.length === 0) {
+      elements.recentFailures.innerHTML = '<div class="empty-state"><div class="empty-state-text">No recent failures</div></div>';
+      return;
+    }
+
+    elements.recentFailures.innerHTML = failures.map(f => `
+      <div class="failure-row" data-id="${escapeHtml(f.requestId)}">
+        <div class="failure-url">${escapeHtml(f.url)}</div>
+        <div class="failure-meta">
+          <span class="failure-time">${formatTime(f.createdAt)}</span>
+          <span class="failure-id">${escapeHtml(f.requestId.slice(0, 8))}...</span>
+        </div>
+      </div>
+    `).join('');
+
+    // Click to navigate to detail
+    elements.recentFailures.querySelectorAll('.failure-row').forEach(row => {
+      row.addEventListener('click', () => {
+        loadRequestDetail(row.dataset.id);
+      });
+    });
+  }
+
+  // --- Infrastructure ---
+  function renderInfra() {
+    const infra = state.infra;
+    if (!infra) return;
+
+    renderWorkersGrid(infra.workers);
+    renderWorkflowsGrid(infra.workflows);
+    renderD1Panel(infra.d1);
+    renderR2Panel(infra.r2);
+    renderDOPanel(infra.durableObjects);
+  }
+
+  function renderWorkersGrid(workers) {
+    if (!workers || workers.length === 0) {
+      elements.workersGrid.innerHTML = '<div class="empty-state"><div class="empty-state-text">No worker data</div></div>';
+      return;
+    }
+
+    elements.workersGrid.innerHTML = workers.map(w => {
+      const errorRate = w.requests > 0 ? (w.errors / w.requests * 100).toFixed(1) : '0.0';
+      const errorClass = parseFloat(errorRate) > 5 ? 'infra-metric-bad' : parseFloat(errorRate) > 1 ? 'infra-metric-warn' : 'infra-metric-ok';
+
+      return `
+        <div class="infra-card">
+          <div class="infra-card-header">
+            <span class="infra-card-name">${escapeHtml(w.scriptName)}</span>
+            <span class="infra-card-indicator ${errorClass}"></span>
+          </div>
+          <div class="infra-metrics">
+            <div class="infra-metric">
+              <span class="infra-metric-value">${formatNumber(w.requests)}</span>
+              <span class="infra-metric-label">Requests</span>
+            </div>
+            <div class="infra-metric">
+              <span class="infra-metric-value ${errorClass}">${errorRate}%</span>
+              <span class="infra-metric-label">Error Rate</span>
+            </div>
+            <div class="infra-metric">
+              <span class="infra-metric-value">${w.cpuP50 != null ? w.cpuP50 + 'ms' : '--'}</span>
+              <span class="infra-metric-label">CPU p50</span>
+            </div>
+            <div class="infra-metric">
+              <span class="infra-metric-value">${w.cpuP99 != null ? w.cpuP99 + 'ms' : '--'}</span>
+              <span class="infra-metric-label">CPU p99</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderWorkflowsGrid(workflows) {
+    if (!workflows) {
+      elements.workflowsGrid.innerHTML = '<div class="empty-state"><div class="empty-state-text">No workflow data</div></div>';
+      return;
+    }
+
+    const statuses = workflows.statusCounts || {};
+    const entries = Object.entries(statuses);
+
+    if (entries.length === 0) {
+      elements.workflowsGrid.innerHTML = '<div class="empty-state"><div class="empty-state-text">No workflow instances</div></div>';
+      return;
+    }
+
+    elements.workflowsGrid.innerHTML = `
+      <div class="infra-card infra-card-wide">
+        <div class="infra-card-header">
+          <span class="infra-card-name">Archive Workflow</span>
+        </div>
+        <div class="infra-metrics">
+          ${entries.map(([status, count]) => {
+            const cls = status === 'errored' ? 'infra-metric-bad' : status === 'running' || status === 'queued' ? 'infra-metric-active' : '';
+            return `
+              <div class="infra-metric">
+                <span class="infra-metric-value ${cls}">${count}</span>
+                <span class="infra-metric-label">${escapeHtml(status)}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderD1Panel(d1) {
+    if (!d1) {
+      elements.d1Panel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No D1 data</div></div>';
+      return;
+    }
+
+    elements.d1Panel.innerHTML = `
+      <div class="infra-metrics infra-metrics-vertical">
+        <div class="infra-metric">
+          <span class="infra-metric-value">${formatNumber(d1.queryCount)}</span>
+          <span class="infra-metric-label">Queries (24h)</span>
+        </div>
+        <div class="infra-metric">
+          <span class="infra-metric-value">${formatNumber(d1.rowsRead)}</span>
+          <span class="infra-metric-label">Rows Read</span>
+        </div>
+        <div class="infra-metric">
+          <span class="infra-metric-value">${d1.databaseSize ? formatBytes(d1.databaseSize) : '--'}</span>
+          <span class="infra-metric-label">DB Size</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderR2Panel(r2) {
+    if (!r2) {
+      elements.r2Panel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No R2 data</div></div>';
+      return;
+    }
+
+    elements.r2Panel.innerHTML = `
+      <div class="infra-metrics infra-metrics-vertical">
+        <div class="infra-metric">
+          <span class="infra-metric-value">${r2.bucketSize ? formatBytes(r2.bucketSize) : '--'}</span>
+          <span class="infra-metric-label">Bucket Size</span>
+        </div>
+        <div class="infra-metric">
+          <span class="infra-metric-value">${formatNumber(r2.objectCount)}</span>
+          <span class="infra-metric-label">Objects</span>
+        </div>
+        <div class="infra-metric">
+          <span class="infra-metric-value">${formatNumber(r2.operationCount)}</span>
+          <span class="infra-metric-label">Ops (24h)</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderDOPanel(doData) {
+    if (!doData) {
+      elements.doPanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No DO data</div></div>';
+      return;
+    }
+
+    elements.doPanel.innerHTML = `
+      <div class="infra-metrics">
+        <div class="infra-metric">
+          <span class="infra-metric-value">${doData.storageBytes ? formatBytes(doData.storageBytes) : '--'}</span>
+          <span class="infra-metric-label">Storage</span>
+        </div>
+        <div class="infra-metric">
+          <span class="infra-metric-value">${formatNumber(doData.requestCount)}</span>
+          <span class="infra-metric-label">Requests (24h)</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- Request List ---
   function renderRequestList() {
     if (state.requests.length === 0) {
       elements.requestList.innerHTML = `
@@ -308,11 +602,48 @@
   function showView(viewName) {
     state.currentView = viewName;
 
+    elements.overviewView.classList.toggle('hidden', viewName !== 'overview');
     elements.requestsView.classList.toggle('hidden', viewName !== 'requests');
     elements.detailView.classList.toggle('hidden', viewName !== 'detail');
+    elements.infraView.classList.toggle('hidden', viewName !== 'infra');
+
+    // Update nav active state
+    elements.navItems.forEach(item => {
+      item.classList.toggle('active', item.dataset.view === viewName);
+    });
   }
 
   // ===== Data Loading =====
+  async function loadStats() {
+    setLoading(true);
+    clearError();
+
+    try {
+      const data = await fetchStats();
+      state.stats = data;
+      renderStats();
+    } catch (err) {
+      showError(`Failed to load stats: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadInfra() {
+    setLoading(true);
+    clearError();
+
+    try {
+      const data = await fetchInfra();
+      state.infra = data;
+      renderInfra();
+    } catch (err) {
+      showError(`Failed to load infrastructure data: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function loadRequests() {
     setLoading(true);
     clearError();
@@ -391,9 +722,9 @@
   // ===== Auto Refresh =====
   function startAutoRefresh() {
     stopAutoRefresh();
-    if (state.settings.autoRefresh && state.currentView === 'requests') {
+    if (state.settings.autoRefresh) {
       refreshTimer = setInterval(() => {
-        loadRequests();
+        refreshCurrentView();
       }, state.settings.refreshInterval * 1000);
     }
   }
@@ -402,6 +733,18 @@
     if (refreshTimer) {
       clearInterval(refreshTimer);
       refreshTimer = null;
+    }
+  }
+
+  function refreshCurrentView() {
+    if (state.currentView === 'overview') {
+      loadStats();
+    } else if (state.currentView === 'requests') {
+      loadRequests();
+    } else if (state.currentView === 'infra') {
+      loadInfra();
+    } else if (state.currentView === 'detail' && state.selectedRequest) {
+      loadRequestDetail(state.selectedRequest.requestId);
     }
   }
 
@@ -458,10 +801,16 @@
 
   function formatBytes(bytes) {
     if (bytes === 0) return '0 B';
+    if (bytes == null) return '--';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  function formatNumber(n) {
+    if (n == null) return '--';
+    return n.toLocaleString();
   }
 
   function debounce(fn, ms) {
@@ -474,13 +823,37 @@
 
   // ===== Event Handlers =====
   function setupEventHandlers() {
-    // Refresh button
+    // Navigation
+    elements.navItems.forEach(item => {
+      item.addEventListener('click', () => {
+        const view = item.dataset.view;
+        showView(view);
+        // Load data for the view if needed
+        if (view === 'overview' && !state.stats) {
+          loadStats();
+        } else if (view === 'requests' && state.requests.length === 0) {
+          loadRequests();
+        } else if (view === 'infra' && !state.infra) {
+          loadInfra();
+        }
+      });
+    });
+
+    // Refresh buttons
     elements.refreshBtn.addEventListener('click', () => {
       if (state.currentView === 'requests') {
         loadRequests();
       } else if (state.currentView === 'detail' && state.selectedRequest) {
         loadRequestDetail(state.selectedRequest.requestId);
       }
+    });
+
+    elements.refreshStatsBtn.addEventListener('click', () => {
+      loadStats();
+    });
+
+    elements.refreshInfraBtn.addEventListener('click', () => {
+      loadInfra();
     });
 
     // Auto-refresh toggle
@@ -577,7 +950,7 @@
       }
       // R to refresh
       if (e.key === 'r' && !e.ctrlKey && !e.metaKey && e.target.tagName !== 'INPUT') {
-        elements.refreshBtn.click();
+        refreshCurrentView();
       }
     });
   }
@@ -586,7 +959,10 @@
   function init() {
     loadSettings();
     setupEventHandlers();
-    loadRequests();
+
+    // Start on overview
+    showView('overview');
+    loadStats();
 
     if (state.settings.autoRefresh) {
       startAutoRefresh();
