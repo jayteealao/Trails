@@ -1,4 +1,4 @@
-import type { Request, Response } from '@google-cloud/functions-framework';
+import type { Request, Response } from 'express';
 import type { GetSignedUrlConfig } from '@google-cloud/storage';
 import { Storage } from '@google-cloud/storage';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';

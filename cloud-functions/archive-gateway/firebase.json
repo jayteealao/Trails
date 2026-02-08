@@ -1,9 +1,12 @@
 {
-  "functions": {
-    "source": ".",
-    "runtime": "nodejs22",
-    "predeploy": ["npm run build"]
-  },
+  "functions": [
+    {
+      "source": ".",
+      "codebase": "archive-gateway",
+      "runtime": "nodejs22",
+      "predeploy": ["npm run build"]
+    }
+  ],
   "emulators": {
     "functions": {
       "port": 8080

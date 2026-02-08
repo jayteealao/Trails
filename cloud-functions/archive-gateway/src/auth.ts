@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'crypto';
-import type { Request, Response } from '@google-cloud/functions-framework';
+import type { Request, Response } from 'express';
 
 /**
  * Constant-time string comparison to prevent timing attacks.
