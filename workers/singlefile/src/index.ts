@@ -44,7 +44,7 @@ const DEFAULT_CLEANUP_SCRIPT = `
 const SCROLL_SCRIPT = `
 (async function() {
   const delay = ms => new Promise(r => setTimeout(r, ms));
-  const maxScrollTime = 5000;
+  const maxScrollTime = 3000;
   const scrollStep = 400;
   const scrollDelay = 150;
   const startTime = Date.now();
@@ -152,7 +152,7 @@ export default {
       let browser;
       try {
         console.log('[singlefile] Launching browser...');
-        browser = await puppeteer.launch(env.MYBROWSER);
+        browser = await puppeteer.launch(env.MYBROWSER, { keep_alive: 120000 });
         console.log('[singlefile] Browser launched successfully');
       } catch (err) {
         console.error('[singlefile] Browser launch failed:', err);
@@ -171,13 +171,16 @@ export default {
       try {
         console.log('[singlefile] Creating new page...');
         const page = await browser.newPage();
+        page.setDefaultTimeout(30000);
+        page.on('error', (err) => {
+          console.error('[singlefile] Page crashed:', err.message);
+        });
         console.log('[singlefile] Page created');
 
-        // Inject SingleFile hook script before navigation (for frame tracking)
+        // Step 1: Navigate
         console.log('[singlefile] Injecting SingleFile hook script...');
         await page.evaluateOnNewDocument(SINGLEFILE_HOOK);
 
-        // Navigate to the URL
         console.log('[singlefile] Navigating to:', targetUrl);
         await page.goto(targetUrl, {
           waitUntil: waitUntil as 'load' | 'domcontentloaded' | 'networkidle0' | 'networkidle2',
@@ -185,24 +188,20 @@ export default {
         });
         console.log('[singlefile] Navigation complete');
 
-        // Run cleanup script to remove modals, banners, etc.
+        // Step 2: Cleanup + scroll
         console.log('[singlefile] Running cleanup script...');
         await page.evaluate(cleanupScript);
 
-        // Scroll to trigger lazy loading
         if (scrollToBottom) {
           console.log('[singlefile] Scrolling page to trigger lazy loading...');
           await page.evaluate(SCROLL_SCRIPT);
         }
 
-        // Wait a bit for any final resources to load
-        await page.evaluate(() => new Promise((r) => setTimeout(r, 1000)));
-
-        // Inject the main SingleFile script
+        // Step 3: Inject SingleFile
         console.log('[singlefile] Injecting SingleFile main script...');
         await page.evaluate(SINGLEFILE_SCRIPT);
 
-        // Verify SingleFile is available
+        // Step 4: Verify + Capture
         const singlefileAvailable = await page.evaluate(() => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return typeof (window as any).singlefile !== 'undefined' &&
@@ -217,9 +216,8 @@ export default {
           );
         }
 
-        // Capture the page with SingleFile (with timeout)
         console.log('[singlefile] Capturing page with SingleFile...');
-        const captureTimeoutMs = 60000;
+        const captureTimeoutMs = 45000;
 
         const result = await Promise.race([
           page.evaluate(async (opts: SinglefileNativeOptions) => {
@@ -251,7 +249,7 @@ export default {
 
         console.log('[singlefile] Capture complete, content length:', content.length);
 
-        // Store the artifact
+        // Step 5: Store artifact
         console.log('[singlefile] Storing artifact...');
         const htmlData = new TextEncoder().encode(content);
         const artifact = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'singlefile.html', htmlData.buffer as ArrayBuffer, 'text/html');
@@ -260,8 +258,11 @@ export default {
         const successResponse: SinglefileSuccessResponse = { artifact };
         return Response.json(successResponse);
       } finally {
-        console.log('[singlefile] Closing browser...');
-        await browser.close();
+        try {
+          await browser.close();
+        } catch {
+          // Browser already closed — expected after TargetCloseError
+        }
       }
     } catch (err) {
       console.error('[singlefile] Unhandled error:', err);
