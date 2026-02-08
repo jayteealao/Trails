@@ -12,7 +12,7 @@ if (getApps().length === 0) {
 const GATEWAY_URL = defineString('GATEWAY_URL', {
   default: 'https://gateway.warg.workers.dev',
 });
-const INTERNAL_API_KEY = defineString('INTERNAL_API_KEY');
+const PUBLIC_API_KEY = defineString('PUBLIC_API_KEY');
 
 /**
  * Extract domain from URL (hostname without www.)
@@ -114,7 +114,7 @@ export const onUserArticleSave = onDocumentCreated(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Internal-API-Key': INTERNAL_API_KEY.value(),
+          'X-API-Key': PUBLIC_API_KEY.value(),
         },
         body: JSON.stringify({
           url,
@@ -128,14 +128,14 @@ export const onUserArticleSave = onDocumentCreated(
         throw new Error(`Gateway error: ${errorText}`);
       }
 
-      const { request_id } = (await gatewayResponse.json()) as {
-        request_id: string;
+      const { requestId } = (await gatewayResponse.json()) as {
+        requestId: string;
       };
-      console.log(`[onUserArticleSave] Warg archive started: ${request_id}`);
+      console.log(`[onUserArticleSave] Warg archive started: ${requestId}`);
 
       // 5. Update shared article with Warg request ID
       await articleRef.update({
-        warg_request_id: request_id,
+        warg_request_id: requestId,
         status: 'processing',
         processing_started_at: Timestamp.now(),
       });
