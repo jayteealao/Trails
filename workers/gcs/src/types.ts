@@ -1,3 +1,4 @@
+// Cloud-function contract — keep in sync with cloud-functions/archive-gateway/src/types.ts
 import type { ArtifactKind } from '@warg/shared';
 
 /**
@@ -74,11 +75,10 @@ export interface FinalizeRequest {
     excerpt: string;
     published_time: string | null;
     site_name: string | null;
-    text_content: string | null;
     title: string;
     word_count: number;
   };
-  images?: Array<{ src: string; height: number; width?: number }>;
+  images?: Array<{ src: string; height?: number; width?: number }>;
 }
 
 /**

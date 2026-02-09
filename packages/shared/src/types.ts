@@ -42,3 +42,19 @@ export interface ArchiveOptions {
   includeScreenshot?: boolean;
   includePdf?: boolean;
 }
+
+/**
+ * Readability extraction result from @mozilla/readability.
+ */
+export interface ReadabilityResult {
+  title: string | null;
+  byline: string | null;
+  dir: string | null;
+  lang: string | null;
+  content: string | null;
+  textContent: string | null;
+  length: number;
+  excerpt: string | null;
+  siteName: string | null;
+  publishedTime: string | null;
+}

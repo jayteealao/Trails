@@ -40,7 +40,10 @@ export async function handleFinalize(
 
     for (const artifact of uploaded) {
       const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
-      if (!archiveKey) continue;
+      if (!archiveKey) {
+        console.log(`[finalize] Skipping ${artifact.kind} (no archive entry)`);
+        continue;
+      }
 
       updates[archiveKey] = {
         status: 'success',

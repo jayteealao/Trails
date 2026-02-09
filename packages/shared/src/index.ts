@@ -2,7 +2,8 @@ export type {
   ArtifactKind,
   ArtifactMeta,
   ArchiveManifest,
-  ArchiveOptions
+  ArchiveOptions,
+  ReadabilityResult
 } from './types.js';
 
 export type {

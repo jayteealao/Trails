@@ -1,3 +1,5 @@
+// GCS worker contract — keep in sync with workers/gcs/src/types.ts
+
 /**
  * Log level for events.
  */
@@ -127,11 +129,10 @@ export interface FinalizeRequest {
     excerpt: string;
     published_time: string | null;
     site_name: string | null;
-    text_content: string | null;
     title: string;
     word_count: number;
   };
-  images?: Array<{ src: string; height: number; width?: number }>;
+  images?: Array<{ src: string; height?: number; width?: number }>;
 }
 
 /**
@@ -176,7 +177,6 @@ export interface ArticleDocument {
     excerpt: string;
     published_time: string | null;
     site_name: string | null;
-    text_content: string | null;
     title: string;
     word_count: number;
   };
@@ -186,19 +186,20 @@ export interface ArticleDocument {
     total_saves: number;
     total_views: number;
   };
-  images: Array<{ src: string; height: number; width?: number }>;
+  images: Array<{ src: string; height?: number; width?: number }>;
 }
 
 /**
  * Mapping from artifact kind to archive key in Firestore.
  * Only artifact kinds that produce archive entries are listed.
  * readability.json → metadata (no archive entry)
- * rendered.md, manifest.json → no archive entry
+ * manifest.json → not persisted to GCS
  */
 export const KIND_TO_ARCHIVE_KEY: Partial<Record<ArtifactKind, string>> = {
   'singlefile.html': 'singlefile',
   'monolith.html': 'monolith',
   'readability.md': 'readability',
+  'rendered.md': 'markdown',
   'page.pdf': 'pdf',
   'screenshot.png': 'screenshot',
   'rendered.html': 'rendered',

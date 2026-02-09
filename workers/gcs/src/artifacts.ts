@@ -37,8 +37,10 @@ export function getGcsPath(requestId: string, kind: ArtifactKind): { folder: str
 }
 
 /**
- * Filter artifacts to only those that should be persisted to GCS.
+ * Filter artifacts to those persisted to GCS.
  * Excludes manifest.json (not persisted to GCS).
+ * Note: readability.json IS uploaded to GCS (for archival) but has no Firestore
+ * archive entry — its data populates the metadata field instead.
  */
 export function filterPersistableArtifacts(artifacts: ArtifactMeta[]): ArtifactMeta[] {
   return artifacts.filter((a) => a.kind !== 'manifest.json');

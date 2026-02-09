@@ -1,5 +1,5 @@
 import { timingSafeEqual } from '@warg/shared';
-import type { ArchiveManifest, ArtifactMeta } from '@warg/shared';
+import type { ArchiveManifest, ArtifactMeta, ReadabilityResult } from '@warg/shared';
 import type {
   PersistRequest,
   PersistResponse,
@@ -117,7 +117,7 @@ async function uploadArtifact(
         kind: artifact.kind,
         originalBytes,
         compressedBytes: body.byteLength,
-        ratio: originalBytes > 0 ? Math.round((1 - body.byteLength / originalBytes) * 100) / 100 : 0
+        ratio: originalBytes > 0 ? Math.round((body.byteLength / originalBytes) * 1000) / 1000 : 1.0
       }
     : undefined;
 
@@ -159,34 +159,21 @@ async function callCloudFunction<T>(
 }
 
 /**
- * Readability extraction result (matches readability worker output stored in R2).
- */
-interface ReadabilityResult {
-  title: string | null;
-  byline: string | null;
-  content: string | null;
-  textContent: string | null;
-  excerpt: string | null;
-  siteName: string | null;
-  publishedTime: string | null;
-}
-
-/**
  * Extract image src/height/width from readability HTML content using HTMLRewriter.
  */
 async function extractImages(
   html: string | null
-): Promise<Array<{ src: string; height: number; width?: number }>> {
+): Promise<Array<{ src: string; height?: number; width?: number }>> {
   if (!html) return [];
-  const images: Array<{ src: string; height: number; width?: number }> = [];
+  const images: Array<{ src: string; height?: number; width?: number }> = [];
   const res = new HTMLRewriter()
     .on('img', {
       element(el: Element) {
         const src = el.getAttribute('src');
         if (!src) return;
-        const h = parseInt(el.getAttribute('height') ?? '0', 10);
+        const h = parseInt(el.getAttribute('height') ?? '', 10);
         const w = parseInt(el.getAttribute('width') ?? '', 10);
-        images.push({ src, height: h, ...(w ? { width: w } : {}) });
+        images.push({ src, ...(h ? { height: h } : {}), ...(w ? { width: w } : {}) });
       },
     })
     .transform(new Response(html, { headers: { 'content-type': 'text/html' } }));
@@ -258,7 +245,6 @@ export default {
             excerpt: readability.excerpt ?? '',
             published_time: readability.publishedTime ?? null,
             site_name: readability.siteName ?? null,
-            text_content: readability.textContent ?? null,
             title: readability.title ?? '',
             word_count: readability.textContent?.split(/\s+/).filter(Boolean).length ?? 0,
           };
