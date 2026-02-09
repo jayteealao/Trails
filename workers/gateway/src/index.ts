@@ -115,7 +115,7 @@ export default {
         const requestId = body.request_id ?? generateRequestId();
         if (body.request_id && !isValidRequestId(requestId)) {
           return Response.json(
-            { error: 'Invalid request_id format (UUID v4 required)' },
+            { error: 'Invalid request_id format (UUID v4 or 20-char alphanumeric required)' },
             { status: 400 }
           );
         }

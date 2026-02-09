@@ -182,6 +182,24 @@ describe('isValidRequestId', () => {
     // v1 has version nibble "1" not "4"
     expect(isValidRequestId('550e8400-e29b-11d4-a716-446655440000')).toBe(false);
   });
+
+  it('accepts Firestore auto-generated IDs (20-char alphanumeric)', () => {
+    expect(isValidRequestId('abc12345678901234567')).toBe(true);
+    expect(isValidRequestId('Abc12345DEF901234567')).toBe(true);
+    expect(isValidRequestId('ABCDEFGHIJKLMNOPQRST')).toBe(true);
+    expect(isValidRequestId('01234567890123456789')).toBe(true);
+  });
+
+  it('rejects Firestore-like IDs with wrong length', () => {
+    expect(isValidRequestId('abc1234567890123456')).toBe(false);  // 19 chars
+    expect(isValidRequestId('abc123456789012345678')).toBe(false); // 21 chars
+  });
+
+  it('rejects Firestore-like IDs with special characters', () => {
+    expect(isValidRequestId('abc12345678901234_67')).toBe(false);
+    expect(isValidRequestId('abc12345678901234-67')).toBe(false);
+    expect(isValidRequestId('abc12345678901234.67')).toBe(false);
+  });
 });
 
 describe('withRequestId', () => {

@@ -118,6 +118,7 @@ export const onUserArticleSave = onDocumentCreated(
         },
         body: JSON.stringify({
           url,
+          request_id: itemId,
           includeScreenshot: true,
           includePdf: true,
         }),

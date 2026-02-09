@@ -10,11 +10,12 @@ export function generateRequestId(): string {
 }
 
 /**
- * Validate that a request_id is a valid UUID v4.
+ * Validate that a request_id is a valid UUID v4 or Firestore auto-generated ID (20-char alphanumeric).
  */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const FIRESTORE_ID_RE = /^[a-zA-Z0-9]{20}$/;
 export function isValidRequestId(id: string): boolean {
-  return UUID_V4_RE.test(id);
+  return UUID_V4_RE.test(id) || FIRESTORE_ID_RE.test(id);
 }
 
 /**
