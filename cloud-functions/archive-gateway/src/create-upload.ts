@@ -75,13 +75,13 @@ export async function handleCreateUpload(
     const bucket = storage.bucket(GCS_BUCKET);
     const db = getFirestore();
 
-    // Create initial archives map with pending status
+    // Create initial archives map with pending status (only for kinds that get archive entries)
     const archives: Record<string, ArchiveEntry> = {};
     for (const artifact of artifacts) {
       const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
-      archives[archiveKey] = {
-        status: 'pending'
-      };
+      if (archiveKey) {
+        archives[archiveKey] = { status: 'pending' };
+      }
     }
 
     // Create or update Firestore document

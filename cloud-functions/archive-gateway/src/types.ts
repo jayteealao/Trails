@@ -111,6 +111,8 @@ export interface UploadedArtifact {
   bytes: number;
   sha256: string;
   content_type: string;
+  compressed_size: number;
+  compression_ratio: number;
 }
 
 /**
@@ -120,6 +122,16 @@ export interface FinalizeRequest {
   request_id: string;
   firestore_doc_id: string;
   uploaded: UploadedArtifact[];
+  metadata?: {
+    byline: string;
+    excerpt: string;
+    published_time: string | null;
+    site_name: string | null;
+    text_content: string | null;
+    title: string;
+    word_count: number;
+  };
+  images?: Array<{ src: string; height: number; width?: number }>;
 }
 
 /**
@@ -138,9 +150,9 @@ export interface ArchiveEntry {
   status: 'pending' | 'success' | 'failed';
   gcs_path?: string;
   gcs_bucket?: string;
-  file_size?: number;
-  sha256?: string;
-  content_type?: string;
+  compressed_size?: number;
+  compression_ratio?: number;
+  created_at?: string;
 }
 
 /**
@@ -150,32 +162,46 @@ export interface ArticleDocument {
   item_id: string;
   url: string;
   domain: string;
-  title?: string;
   created_at: FirebaseFirestore.Timestamp;
   updated_at: FirebaseFirestore.Timestamp;
-  archives: Record<string, ArchiveEntry>;
-  metadata?: {
-    title?: string;
-    byline?: string;
-    excerpt?: string;
-    siteName?: string;
-    wordCount?: number;
+  pocket: {
+    favorite: string;
+    resolved_id: string;
+    status: string;
+    time_added: number;
+    time_read: number;
   };
+  metadata: {
+    byline: string;
+    excerpt: string;
+    published_time: string | null;
+    site_name: string | null;
+    text_content: string | null;
+    title: string;
+    word_count: number;
+  };
+  archives: Record<string, ArchiveEntry>;
+  stats: {
+    last_accessed: string;
+    total_saves: number;
+    total_views: number;
+  };
+  images: Array<{ src: string; height: number; width?: number }>;
 }
 
 /**
  * Mapping from artifact kind to archive key in Firestore.
+ * Only artifact kinds that produce archive entries are listed.
+ * readability.json → metadata (no archive entry)
+ * rendered.md, manifest.json → no archive entry
  */
-export const KIND_TO_ARCHIVE_KEY: Record<ArtifactKind, string> = {
+export const KIND_TO_ARCHIVE_KEY: Partial<Record<ArtifactKind, string>> = {
   'singlefile.html': 'singlefile',
   'monolith.html': 'monolith',
-  'readability.json': 'readability_json',
-  'readability.md': 'readability_md',
+  'readability.md': 'readability',
   'page.pdf': 'pdf',
   'screenshot.png': 'screenshot',
   'rendered.html': 'rendered',
-  'rendered.md': 'rendered_md',
-  'manifest.json': 'manifest'
 };
 
 /**

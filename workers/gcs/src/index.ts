@@ -105,7 +105,11 @@ async function uploadArtifact(
     gcs_path: gcsPath,
     bytes: artifact.bytes,
     sha256: artifact.sha256,
-    content_type: artifact.contentType
+    content_type: artifact.contentType,
+    compressed_size: compress ? body.byteLength : artifact.bytes,
+    compression_ratio: compress && originalBytes > 0
+      ? Math.round((body.byteLength / originalBytes) * 1000) / 1000
+      : 1.0,
   };
 
   const compressionStat: CompressionStat | undefined = compress
@@ -152,6 +156,42 @@ async function callCloudFunction<T>(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Readability extraction result (matches readability worker output stored in R2).
+ */
+interface ReadabilityResult {
+  title: string | null;
+  byline: string | null;
+  content: string | null;
+  textContent: string | null;
+  excerpt: string | null;
+  siteName: string | null;
+  publishedTime: string | null;
+}
+
+/**
+ * Extract image src/height/width from readability HTML content using HTMLRewriter.
+ */
+async function extractImages(
+  html: string | null
+): Promise<Array<{ src: string; height: number; width?: number }>> {
+  if (!html) return [];
+  const images: Array<{ src: string; height: number; width?: number }> = [];
+  const res = new HTMLRewriter()
+    .on('img', {
+      element(el: Element) {
+        const src = el.getAttribute('src');
+        if (!src) return;
+        const h = parseInt(el.getAttribute('height') ?? '0', 10);
+        const w = parseInt(el.getAttribute('width') ?? '', 10);
+        images.push({ src, height: h, ...(w ? { width: w } : {}) });
+      },
+    })
+    .transform(new Response(html, { headers: { 'content-type': 'text/html' } }));
+  await res.text(); // drain the stream to trigger element handlers
+  return images;
 }
 
 export default {
@@ -204,6 +244,28 @@ export default {
       // Filter to persistable artifacts
       const artifacts = filterPersistableArtifacts(manifest.artifacts);
       console.log(`[gcs] Persisting ${artifacts.length} artifacts to GCS`);
+
+      // Extract metadata + images from readability.json in R2
+      let metadata: FinalizeRequest['metadata'];
+      let images: FinalizeRequest['images'];
+      const readabilityArtifact = manifest.artifacts.find((a: ArtifactMeta) => a.kind === 'readability.json');
+      if (readabilityArtifact) {
+        const readabilityObj = await env.ARCHIVE_BUCKET.get(readabilityArtifact.r2Key);
+        if (readabilityObj) {
+          const readability = await readabilityObj.json<ReadabilityResult>();
+          metadata = {
+            byline: readability.byline ?? '',
+            excerpt: readability.excerpt ?? '',
+            published_time: readability.publishedTime ?? null,
+            site_name: readability.siteName ?? null,
+            text_content: readability.textContent ?? null,
+            title: readability.title ?? '',
+            word_count: readability.textContent?.split(/\s+/).filter(Boolean).length ?? 0,
+          };
+          images = await extractImages(readability.content);
+          console.log(`[gcs] Extracted metadata (${metadata.word_count} words) and ${images.length} images from readability.json`);
+        }
+      }
 
       if (artifacts.length === 0) {
         return Response.json({
@@ -287,7 +349,9 @@ export default {
       const finalizeReq: FinalizeRequest = {
         request_id,
         firestore_doc_id: createUploadRes.firestore_doc_id,
-        uploaded: uploadedArtifacts
+        uploaded: uploadedArtifacts,
+        metadata,
+        images,
       };
 
       const finalizeRes = await callCloudFunction<FinalizeResponse>(

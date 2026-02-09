@@ -35,35 +35,36 @@ export async function handleFinalize(
     const db = getFirestore();
     const docRef = db.collection('articles').doc(firestore_doc_id);
 
-    // Build update object for archives
+    // Build update object for archives (only kinds with archive entries)
     const updates: Record<string, ArchiveEntry> = {};
 
     for (const artifact of uploaded) {
       const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
-      if (!archiveKey) {
-        console.warn(`[finalize] Unknown artifact kind: ${artifact.kind}, skipping`);
-        continue;
-      }
+      if (!archiveKey) continue;
 
       updates[archiveKey] = {
         status: 'success',
         gcs_path: `gs://${GCS_BUCKET}/${artifact.gcs_path}`,
         gcs_bucket: GCS_BUCKET,
-        file_size: artifact.bytes,
-        sha256: artifact.sha256,
-        content_type: artifact.content_type
+        compressed_size: artifact.compressed_size,
+        compression_ratio: artifact.compression_ratio,
+        created_at: new Date().toISOString(),
       };
 
       console.log(`[finalize] Updated ${archiveKey} with success status`);
     }
 
-    // Update Firestore document
-    await docRef.update({
+    // Update Firestore document with archives, metadata, and images
+    const firestoreUpdate: Record<string, unknown> = {
       ...Object.fromEntries(
         Object.entries(updates).map(([key, value]) => [`archives.${key}`, value])
       ),
-      updated_at: Timestamp.now()
-    });
+      updated_at: Timestamp.now(),
+    };
+    if (body.metadata) firestoreUpdate['metadata'] = body.metadata;
+    if (body.images) firestoreUpdate['images'] = body.images;
+
+    await docRef.update(firestoreUpdate);
 
     console.log(`[finalize] Firestore document updated: ${firestore_doc_id}`);
 

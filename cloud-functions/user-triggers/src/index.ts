@@ -88,8 +88,13 @@ export const onUserArticleSave = onDocumentCreated(
 
       // 3b. Create new shared article
       const domain = extractDomain(url);
-      const pocketData =
-        userArticle['pocket_data'] ?? userArticle['pocket'] ?? {};
+      const pocket = {
+        favorite: String(userArticle['favorite'] ?? ''),
+        resolved_id: String(userArticle['resolvedId'] ?? ''),
+        status: String(userArticle['status'] ?? ''),
+        time_added: Number(userArticle['timeAdded'] ?? 0),
+        time_read: Number(userArticle['timeRead'] ?? 0),
+      };
 
       const articleRef = db.collection('articles').doc(itemId);
       await articleRef.set({
@@ -100,8 +105,9 @@ export const onUserArticleSave = onDocumentCreated(
         status: 'pending',
         archives: {},
         metadata: {},
-        pocket: pocketData,
+        pocket,
         stats: {
+          last_accessed: '',
           total_saves: 1,
           total_views: 0,
         },

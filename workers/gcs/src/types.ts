@@ -58,6 +58,8 @@ export interface UploadedArtifact {
   bytes: number;
   sha256: string;
   content_type: string;
+  compressed_size: number;
+  compression_ratio: number;
 }
 
 /**
@@ -67,6 +69,16 @@ export interface FinalizeRequest {
   request_id: string;
   firestore_doc_id: string;
   uploaded: UploadedArtifact[];
+  metadata?: {
+    byline: string;
+    excerpt: string;
+    published_time: string | null;
+    site_name: string | null;
+    text_content: string | null;
+    title: string;
+    word_count: number;
+  };
+  images?: Array<{ src: string; height: number; width?: number }>;
 }
 
 /**
