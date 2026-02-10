@@ -62,6 +62,8 @@
       newCount: 0,
       polling: false,
     },
+    // Backfill state
+    backfill: null,
     // Sort state for requests table
     sort: {
       column: 'created',
@@ -130,6 +132,10 @@
     // Errors
     errorsContent: document.getElementById('errorsContent'),
     refreshErrorsBtn: document.getElementById('refreshErrorsBtn'),
+    // Backfill
+    backfillView: document.getElementById('backfillView'),
+    backfillContent: document.getElementById('backfillContent'),
+    refreshBackfillBtn: document.getElementById('refreshBackfillBtn'),
     // Loading & Error
     loadingOverlay: document.getElementById('loadingOverlay'),
     errorBanner: document.getElementById('errorBanner'),
@@ -896,6 +902,7 @@
     el.infraView.classList.toggle('hidden', viewName !== 'infra');
     el.feedView.classList.toggle('hidden', viewName !== 'feed');
     el.errorsView.classList.toggle('hidden', viewName !== 'errors');
+    el.backfillView.classList.toggle('hidden', viewName !== 'backfill');
 
     el.navItems.forEach(item => {
       item.classList.toggle('active', item.dataset.view === viewName);
@@ -1027,6 +1034,172 @@
     } finally {
       setLoading(false);
     }
+  }
+
+  // ===== Backfill =====
+  async function fetchBackfill() {
+    return apiRequest('/backfill');
+  }
+
+  async function loadBackfill() {
+    setLoading(true);
+    clearError();
+    try {
+      state.backfill = await fetchBackfill();
+      renderBackfill();
+    } catch (err) {
+      showError(`Backfill: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderBackfill() {
+    const data = state.backfill;
+    if (!data) {
+      el.backfillContent.innerHTML = '<div class="empty-state"><div class="empty-state-text">Loading</div></div>';
+      return;
+    }
+
+    if (data.status === 'not_initialized') {
+      el.backfillContent.innerHTML = '<div class="empty-state"><div class="empty-state-text">Backfill not initialized — no runs yet</div></div>';
+      return;
+    }
+
+    const t = data.tracker;
+    if (!t) {
+      el.backfillContent.innerHTML = '<div class="empty-state"><div class="empty-state-text">No tracker data</div></div>';
+      return;
+    }
+
+    // Determine LED color based on last_run_result
+    const resultLedMap = {
+      sent_batch: 'led-on',
+      waiting: 'led-amber',
+      settled: 'led-on',
+      idle: 'led-off',
+      backoff: 'led-red',
+    };
+    const ledClass = resultLedMap[t.last_run_result] || 'led-off';
+    const isPaused = t.consecutive_all_failed >= 2;
+
+    // Format timestamps (Firestore timestamps come as {_seconds, _nanoseconds} or ISO strings)
+    function fmtTimestamp(ts) {
+      if (!ts) return '--';
+      if (ts._seconds) return formatTime(new Date(ts._seconds * 1000).toISOString());
+      return formatTime(ts);
+    }
+
+    let html = '';
+
+    // Pause banner
+    if (isPaused) {
+      html += `
+        <div class="readout-strip" style="border-color: var(--red);">
+          <div class="readout-cell" style="flex: 1;">
+            <div class="readout-label">Status</div>
+            <div class="readout-value readout-red"><span class="led led-red"></span> PAUSED</div>
+          </div>
+          <div class="readout-cell" style="flex: 2;">
+            <div class="readout-label">Consecutive All-Failed</div>
+            <div class="readout-value readout-red">${t.consecutive_all_failed}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Main readout strip
+    html += `
+      <div class="readout-strip">
+        <div class="readout-cell">
+          <div class="readout-label">Run Result</div>
+          <div class="readout-value"><span class="led ${ledClass}"></span> ${escapeHtml(t.last_run_result || '--')}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Batch #</div>
+          <div class="readout-value">${t.batch_number != null ? t.batch_number : '--'}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Batch Size</div>
+          <div class="readout-value readout-cyan">${t.batch ? t.batch.length : 0}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Total Sent</div>
+          <div class="readout-value">${formatNumber(t.total_sent)}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Total Complete</div>
+          <div class="readout-value readout-green">${formatNumber(t.total_completed)}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Total Failed</div>
+          <div class="readout-value ${t.total_failed > 0 ? 'readout-red' : ''}">${formatNumber(t.total_failed)}</div>
+        </div>
+      </div>
+    `;
+
+    // Last run time
+    html += `
+      <div class="readout-strip">
+        <div class="readout-cell">
+          <div class="readout-label">Last Run</div>
+          <div class="readout-value">${fmtTimestamp(t.last_run_at)}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Batch Started</div>
+          <div class="readout-value">${fmtTimestamp(t.batch_started_at)}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Consecutive Failures</div>
+          <div class="readout-value ${t.consecutive_all_failed > 0 ? 'readout-amber' : ''}">${t.consecutive_all_failed}</div>
+        </div>
+      </div>
+    `;
+
+    // Current batch items
+    if (t.batch && t.batch.length > 0) {
+      html += `
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Current Batch Items</span>
+            <span class="section-count">${t.batch.length} items</span>
+          </div>
+          <div class="section-body" style="padding: 0;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>URL</th>
+                  <th style="text-align:right">Retries</th>
+                  <th>Sent At</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${t.batch.map(entry => `
+                  <tr>
+                    <td class="td-url">${escapeHtml(truncateUrl(entry.url, 60))}</td>
+                    <td class="td-right">${entry.retry_count}</td>
+                    <td>${fmtTimestamp(entry.sent_at)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Current Batch</span>
+          </div>
+          <div class="section-body">
+            <div class="empty-state"><div class="empty-state-text">No active batch</div></div>
+          </div>
+        </div>
+      `;
+    }
+
+    el.backfillContent.innerHTML = html;
   }
 
   // ===== Feed Polling =====
@@ -1197,6 +1370,7 @@
     else if (state.currentView === 'requests') loadRequests();
     else if (state.currentView === 'infra') loadInfra();
     else if (state.currentView === 'errors') loadErrors();
+    else if (state.currentView === 'backfill') loadBackfill();
     else if (state.currentView === 'detail' && state.selectedRequest) {
       loadRequestDetail(state.selectedRequest.requestId);
     }
@@ -1231,6 +1405,7 @@
         else if (view === 'infra' && !state.infra) loadInfra();
         else if (view === 'feed') renderFeed();
         else if (view === 'errors' && !state.errors) loadErrors();
+        else if (view === 'backfill' && !state.backfill) loadBackfill();
       });
     });
 
@@ -1245,6 +1420,7 @@
     el.refreshStatsBtn.addEventListener('click', () => loadStats());
     el.refreshInfraBtn.addEventListener('click', () => loadInfra());
     el.refreshErrorsBtn.addEventListener('click', () => loadErrors());
+    el.refreshBackfillBtn.addEventListener('click', () => loadBackfill());
 
     // Auto-refresh toggle
     el.autoRefreshToggle.addEventListener('change', (e) => {

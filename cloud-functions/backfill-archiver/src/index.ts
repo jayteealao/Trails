@@ -2,6 +2,7 @@ import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import type { DocumentReference, DocumentData } from 'firebase-admin/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onRequest } from 'firebase-functions/v2/https';
 import { defineString, defineInt } from 'firebase-functions/params';
 
 // Initialize Firebase Admin
@@ -15,6 +16,7 @@ const GATEWAY_URL = defineString('GATEWAY_URL', {
   default: 'https://gateway.jayteealao.workers.dev',
 });
 const PUBLIC_API_KEY = defineString('PUBLIC_API_KEY');
+const INTERNAL_API_KEY = defineString('INTERNAL_API_KEY');
 const USER_ID = 'TGtRF6GrQaSmfjGk9GEYJ8YZc0v1';
 const BATCH_SIZE = defineInt('BACKFILL_BATCH_SIZE', { default: 25 });
 const STAGGER_MS = 2000;
@@ -640,5 +642,35 @@ export const backfillArchiver = onSchedule(
       last_run_at: Timestamp.now(),
       last_run_result: batchEntries.length > 0 ? 'sent_batch' : 'idle',
     });
+  }
+);
+
+/**
+ * HTTP endpoint: returns the current backfill tracker state.
+ * Used by the dashboard to display backfill progress.
+ */
+export const backfillStatus = onRequest(
+  { cors: true },
+  async (req, res) => {
+    if (req.method !== 'GET') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const apiKey = req.headers['x-internal-api-key'];
+    if (!apiKey || apiKey !== INTERNAL_API_KEY.value()) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const db = getFirestore();
+    const trackerSnap = await db.doc(TRACKER_DOC_PATH).get();
+
+    if (!trackerSnap.exists) {
+      res.json({ status: 'not_initialized', tracker: null });
+      return;
+    }
+
+    res.json({ status: 'ok', tracker: trackerSnap.data() });
   }
 );

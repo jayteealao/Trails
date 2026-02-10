@@ -26,6 +26,7 @@
         <button class="nav-item" data-view="feed">Feed<span class="nav-badge hidden" id="feedBadge">0</span></button>
         <button class="nav-item" data-view="infra">Infra</button>
         <button class="nav-item" data-view="errors">Errors</button>
+        <button class="nav-item" data-view="backfill">Backfill</button>
       </nav>
 
       <div class="sidebar-footer">
@@ -289,6 +290,26 @@
         </header>
 
         <div class="errors-grid" id="errorsContent">
+          <div class="empty-state"><div class="empty-state-text">Loading</div></div>
+        </div>
+      </div>
+
+      <!-- Backfill View -->
+      <div class="view hidden" id="backfillView">
+        <header class="view-header">
+          <h1 class="view-title">Backfill</h1>
+          <div class="view-actions">
+            <button class="btn btn-icon" id="refreshBackfillBtn" title="Refresh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <div id="backfillContent">
           <div class="empty-state"><div class="empty-state-text">Loading</div></div>
         </div>
       </div>
