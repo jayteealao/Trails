@@ -1646,6 +1646,79 @@ body::before {
   margin-top: var(--sp-1);
 }
 
+/* ===== Archive Classification Badges ===== */
+.status-unarchived {
+  background: var(--stage-queued-dim);
+  color: var(--stage-queued);
+}
+.status-unarchived .led {
+  background: var(--stage-queued);
+}
+
+.status-incomplete {
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+.status-incomplete .led {
+  background: var(--amber);
+  box-shadow: 0 0 4px rgba(255, 184, 0, 0.3);
+}
+
+.status-complete {
+  background: var(--green-dim);
+  color: var(--green);
+}
+.status-complete .led {
+  background: var(--green);
+  box-shadow: 0 0 4px var(--green-glow);
+}
+
+.status-processing {
+  background: var(--cyan-dim);
+  color: var(--cyan);
+}
+.status-processing .led {
+  background: var(--cyan);
+  box-shadow: 0 0 4px rgba(0, 212, 255, 0.3);
+  animation: led-blink 1.5s step-start infinite;
+}
+
+/* ===== Archive Dot Indicators ===== */
+.archive-indicators {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.archive-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.archive-dot[title] {
+  cursor: help;
+}
+
+.archive-dot-success {
+  background: var(--green);
+  box-shadow: 0 0 3px var(--green-glow);
+}
+
+.archive-dot-pending {
+  background: var(--cyan);
+  animation: led-blink 1.5s step-start infinite;
+}
+
+.archive-dot-failed {
+  background: var(--red);
+}
+
+.archive-dot-absent {
+  background: var(--text-dim);
+}
+
 /* ===== Toast ===== */
 .toast-banner {
   background: var(--green-dim);

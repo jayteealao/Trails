@@ -1,0 +1,10 @@
+{
+  "functions": [
+    {
+      "source": ".",
+      "codebase": "dashboard-api",
+      "runtime": "nodejs22",
+      "predeploy": ["npm run build"]
+    }
+  ]
+}

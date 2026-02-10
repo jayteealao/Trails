@@ -64,6 +64,13 @@
     },
     // Backfill state
     backfill: null,
+    // Articles state
+    articles: {
+      items: [],
+      selectedArticle: null,
+      filters: { status: '', search: '' },
+      pagination: { page: 1, limit: 50, total: 0, hasMore: false },
+    },
     // Sort state for requests table
     sort: {
       column: 'created',
@@ -136,6 +143,18 @@
     backfillView: document.getElementById('backfillView'),
     backfillContent: document.getElementById('backfillContent'),
     refreshBackfillBtn: document.getElementById('refreshBackfillBtn'),
+    // Articles
+    articlesView: document.getElementById('articlesView'),
+    articleDetailView: document.getElementById('articleDetailView'),
+    articleTableBody: document.getElementById('articleTableBody'),
+    articleStatusFilter: document.getElementById('articleStatusFilter'),
+    articleSearchFilter: document.getElementById('articleSearchFilter'),
+    articlePrevPage: document.getElementById('articlePrevPage'),
+    articleNextPage: document.getElementById('articleNextPage'),
+    articlePaginationInfo: document.getElementById('articlePaginationInfo'),
+    refreshArticlesBtn: document.getElementById('refreshArticlesBtn'),
+    articleBackBtn: document.getElementById('articleBackBtn'),
+    articleDetailContent: document.getElementById('articleDetailContent'),
     // Loading & Error
     loadingOverlay: document.getElementById('loadingOverlay'),
     errorBanner: document.getElementById('errorBanner'),
@@ -903,6 +922,8 @@
     el.feedView.classList.toggle('hidden', viewName !== 'feed');
     el.errorsView.classList.toggle('hidden', viewName !== 'errors');
     el.backfillView.classList.toggle('hidden', viewName !== 'backfill');
+    el.articlesView.classList.toggle('hidden', viewName !== 'articles');
+    el.articleDetailView.classList.toggle('hidden', viewName !== 'articleDetail');
 
     el.navItems.forEach(item => {
       item.classList.toggle('active', item.dataset.view === viewName);
@@ -1202,6 +1223,187 @@
     el.backfillContent.innerHTML = html;
   }
 
+  // ===== Articles =====
+  async function fetchArticles() {
+    const params = new URLSearchParams();
+    params.set('page', state.articles.pagination.page);
+    params.set('limit', state.articles.pagination.limit);
+    if (state.articles.filters.status) params.set('filter', state.articles.filters.status);
+    if (state.articles.filters.search) params.set('search', state.articles.filters.search);
+    return apiRequest(`/articles?${params}`);
+  }
+
+  async function loadArticles() {
+    setLoading(true);
+    clearError();
+    try {
+      const data = await fetchArticles();
+      state.articles.items = data.articles || [];
+      state.articles.pagination.total = data.total || 0;
+      state.articles.pagination.hasMore = data.hasMore || false;
+      renderArticleTable();
+      renderArticlePagination();
+    } catch (err) {
+      showError(`Articles: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function classificationBadgeHtml(classification) {
+    return `<span class="status-badge status-${escapeHtml(classification)}"><span class="led"></span>${escapeHtml(classification)}</span>`;
+  }
+
+  function renderArchiveIndicators(archives) {
+    if (!archives || archives.length === 0) return '<span style="color:var(--text-dim)">--</span>';
+    return `<div class="archive-indicators">${archives.map(a =>
+      `<div class="archive-dot archive-dot-${escapeHtml(a.status)}" title="${escapeHtml(a.key)}: ${escapeHtml(a.status)}"></div>`
+    ).join('')}</div>`;
+  }
+
+  function renderArticleTable() {
+    if (state.articles.items.length === 0) {
+      el.articleTableBody.innerHTML = `
+        <tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-muted)">No articles found</td></tr>
+      `;
+      return;
+    }
+
+    el.articleTableBody.innerHTML = state.articles.items.map(article => {
+      const display = article.title
+        ? escapeHtml(truncateUrl(article.title, 60))
+        : escapeHtml(truncateUrl(article.url, 60));
+      return `
+        <tr class="clickable" data-item-id="${escapeHtml(article.item_id)}">
+          <td class="td-url" title="${escapeHtml(article.url)}">${display}</td>
+          <td>${escapeHtml(article.domain)}</td>
+          <td>${classificationBadgeHtml(article.archive_classification)}</td>
+          <td>${renderArchiveIndicators(article.archives)}</td>
+          <td>${formatTimeShort(article.created_at)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    el.articleTableBody.querySelectorAll('tr.clickable').forEach(row => {
+      row.addEventListener('click', () => loadArticleDetail(row.dataset.itemId));
+    });
+  }
+
+  function renderArticlePagination() {
+    const p = state.articles.pagination;
+    const start = (p.page - 1) * p.limit + 1;
+    const end = start + state.articles.items.length - 1;
+
+    el.articlePaginationInfo.textContent = state.articles.items.length > 0
+      ? `${start}-${end} of ${p.total}`
+      : 'No results';
+
+    el.articlePrevPage.disabled = p.page <= 1;
+    el.articleNextPage.disabled = !p.hasMore;
+  }
+
+  async function loadArticleDetail(itemId) {
+    // Placeholder — will be implemented in Milestone 2
+    // For now, show basic info from the list item
+    const article = state.articles.items.find(a => a.item_id === itemId);
+    if (!article) {
+      showError('Article not found in current list');
+      return;
+    }
+
+    state.articles.selectedArticle = article;
+    showView('articleDetail');
+
+    el.articleDetailContent.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-url">${escapeHtml(article.url)}</div>
+        <div class="detail-meta">
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Item ID</span>
+            <span class="detail-meta-value copyable" data-copy="${escapeHtml(article.item_id)}" title="Click to copy">
+              ${escapeHtml(article.item_id)}
+            </span>
+          </div>
+          ${article.title ? `
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Title</span>
+            <span class="detail-meta-value">${escapeHtml(article.title)}</span>
+          </div>
+          ` : ''}
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Domain</span>
+            <span class="detail-meta-value">${escapeHtml(article.domain)}</span>
+          </div>
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Classification</span>
+            ${classificationBadgeHtml(article.archive_classification)}
+          </div>
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Has Canonical</span>
+            <span class="detail-meta-value">${article.has_canonical ? 'Yes' : 'No'}</span>
+          </div>
+          ${article.warg_request_id ? `
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Warg Request ID</span>
+            <span class="detail-meta-value copyable" data-copy="${escapeHtml(article.warg_request_id)}" title="Click to copy">
+              ${escapeHtml(article.warg_request_id)}
+            </span>
+          </div>
+          ` : ''}
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Created</span>
+            <span class="detail-meta-value">${formatTime(article.created_at)}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Archives Grid -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Archives</span>
+          <span class="section-count">${article.archives.filter(a => a.status === 'success').length}/${article.archives.length} available</span>
+        </div>
+        <div class="section-body">
+          <div class="artifacts-grid">
+            ${article.archives.map(a => {
+              const ledClass = a.status === 'success' ? 'led-on' : a.status === 'pending' ? 'led-cyan' : a.status === 'failed' ? 'led-red' : 'led-off';
+              return `
+                <div class="artifact-card">
+                  <div class="artifact-kind"><span class="led ${ledClass}"></span> ${escapeHtml(a.key)}</div>
+                  <div class="artifact-meta">
+                    <span>Status: ${escapeHtml(a.status)}</span>
+                    ${a.compressed_size ? `<span>${formatBytes(a.compressed_size)}</span>` : ''}
+                    ${a.created_at ? `<span>${formatTimeShort(a.created_at)}</span>` : ''}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Cross-system Link (Milestone 2 placeholder) -->
+      ${article.warg_request_id ? `
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Cloudflare Pipeline</span>
+        </div>
+        <div class="section-body">
+          <div class="empty-state"><div class="empty-state-text">Pipeline view coming in Milestone 2.<br>Request ID: ${escapeHtml(article.warg_request_id)}</div></div>
+        </div>
+      </div>
+      ` : ''}
+    `;
+
+    el.articleDetailContent.querySelectorAll('.copyable').forEach(copyEl => {
+      copyEl.addEventListener('click', () => {
+        navigator.clipboard.writeText(copyEl.dataset.copy).then(() => {
+          showToast('Copied to clipboard');
+        });
+      });
+    });
+  }
+
   // ===== Feed Polling =====
   async function pollFeed() {
     try {
@@ -1371,6 +1573,7 @@
     else if (state.currentView === 'infra') loadInfra();
     else if (state.currentView === 'errors') loadErrors();
     else if (state.currentView === 'backfill') loadBackfill();
+    else if (state.currentView === 'articles') loadArticles();
     else if (state.currentView === 'detail' && state.selectedRequest) {
       loadRequestDetail(state.selectedRequest.requestId);
     }
@@ -1406,6 +1609,7 @@
         else if (view === 'feed') renderFeed();
         else if (view === 'errors' && !state.errors) loadErrors();
         else if (view === 'backfill' && !state.backfill) loadBackfill();
+        else if (view === 'articles' && state.articles.items.length === 0) loadArticles();
       });
     });
 
@@ -1421,6 +1625,41 @@
     el.refreshInfraBtn.addEventListener('click', () => loadInfra());
     el.refreshErrorsBtn.addEventListener('click', () => loadErrors());
     el.refreshBackfillBtn.addEventListener('click', () => loadBackfill());
+    el.refreshArticlesBtn.addEventListener('click', () => loadArticles());
+
+    // Article filters
+    el.articleStatusFilter.addEventListener('change', (e) => {
+      state.articles.filters.status = e.target.value;
+      state.articles.pagination.page = 1;
+      loadArticles();
+    });
+
+    el.articleSearchFilter.addEventListener('input', debounce((e) => {
+      state.articles.filters.search = e.target.value.trim();
+      state.articles.pagination.page = 1;
+      loadArticles();
+    }, 300));
+
+    // Article pagination
+    el.articlePrevPage.addEventListener('click', () => {
+      if (state.articles.pagination.page > 1) {
+        state.articles.pagination.page--;
+        loadArticles();
+      }
+    });
+
+    el.articleNextPage.addEventListener('click', () => {
+      if (state.articles.pagination.hasMore) {
+        state.articles.pagination.page++;
+        loadArticles();
+      }
+    });
+
+    // Article back button
+    el.articleBackBtn.addEventListener('click', () => {
+      showView('articles');
+      state.articles.selectedArticle = null;
+    });
 
     // Auto-refresh toggle
     el.autoRefreshToggle.addEventListener('change', (e) => {
@@ -1515,6 +1754,9 @@
       if (e.key === 'Escape') {
         if (!el.settingsModal.classList.contains('hidden')) {
           el.settingsModal.classList.add('hidden');
+        } else if (state.currentView === 'articleDetail') {
+          showView('articles');
+          state.articles.selectedArticle = null;
         } else if (state.currentView === 'detail') {
           const backTo = state.previousView === 'feed' ? 'feed' : 'requests';
           showView(backTo);

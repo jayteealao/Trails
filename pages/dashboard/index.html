@@ -27,6 +27,7 @@
         <button class="nav-item" data-view="infra">Infra</button>
         <button class="nav-item" data-view="errors">Errors</button>
         <button class="nav-item" data-view="backfill">Backfill</button>
+        <button class="nav-item" data-view="articles">Articles</button>
       </nav>
 
       <div class="sidebar-footer">
@@ -311,6 +312,79 @@
 
         <div id="backfillContent">
           <div class="empty-state"><div class="empty-state-text">Loading</div></div>
+        </div>
+      </div>
+
+      <!-- Articles View -->
+      <div class="view hidden" id="articlesView">
+        <header class="view-header">
+          <h1 class="view-title">Articles</h1>
+          <div class="view-actions">
+            <button class="btn btn-icon" id="refreshArticlesBtn" title="Refresh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <!-- Filters -->
+        <div class="filters">
+          <div class="filter-group">
+            <label class="filter-label">Status</label>
+            <select class="filter-select" id="articleStatusFilter">
+              <option value="">All</option>
+              <option value="unarchived">Unarchived</option>
+              <option value="incomplete">Incomplete</option>
+              <option value="complete">Complete</option>
+              <option value="failed">Failed</option>
+              <option value="processing">Processing</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Search</label>
+            <input type="text" class="filter-input" id="articleSearchFilter" placeholder="Search URL, domain, title...">
+          </div>
+        </div>
+
+        <!-- Articles Table -->
+        <div class="data-table-container">
+          <table class="data-table" id="articleTable">
+            <thead>
+              <tr>
+                <th>Title / URL</th>
+                <th>Domain</th>
+                <th>Status</th>
+                <th>Archives</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody id="articleTableBody">
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination">
+          <button class="btn btn-secondary" id="articlePrevPage" disabled>Prev</button>
+          <span class="pagination-info" id="articlePaginationInfo">--</span>
+          <button class="btn btn-secondary" id="articleNextPage" disabled>Next</button>
+        </div>
+      </div>
+
+      <!-- Article Detail View -->
+      <div class="view hidden" id="articleDetailView">
+        <header class="view-header">
+          <button class="btn btn-back" id="articleBackBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+            Back
+          </button>
+        </header>
+        <div class="detail-content" id="articleDetailContent">
         </div>
       </div>
 
