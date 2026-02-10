@@ -1,4 +1,4 @@
-// Warg Observatory - Dashboard Application
+// Warg Observatory - Industrial Monitor Dashboard
 
 (function () {
   'use strict';
@@ -8,25 +8,38 @@
     apiBase: '/api',
     pageSize: 50,
     defaultRefreshInterval: 30,
+    feedPollInterval: 10000,
+    feedMaxItems: 200,
   };
 
-  // Stage color mapping for charts
+  // Stage colors for segmented bar
   const STAGE_COLORS = {
-    done: 'var(--accent-emerald)',
-    failed: 'var(--accent-rose)',
-    rendering: 'var(--accent-cyan)',
-    deriving: 'var(--accent-violet)',
-    persisting: 'var(--accent-amber)',
-    queued: 'var(--accent-slate)',
+    done: 'var(--stage-done)',
+    failed: 'var(--stage-failed)',
+    rendering: 'var(--stage-rendering)',
+    deriving: 'var(--stage-deriving)',
+    persisting: 'var(--stage-persisting)',
+    queued: 'var(--stage-queued)',
   };
+
+  // Pipeline step definitions (maps to EventSource in logging.ts)
+  const PIPELINE_STEPS = [
+    { id: 'render', label: 'Render', source: 'renderer' },
+    { id: 'singlefile', label: 'Singlefile', source: 'singlefile' },
+    { id: 'readability', label: 'Readability', source: 'readability' },
+    { id: 'monolith', label: 'Monolith', source: 'monolith' },
+    { id: 'persist', label: 'Persist', source: 'gcs' },
+  ];
 
   // ===== State =====
   const state = {
     currentView: 'overview',
+    previousView: null,
     requests: [],
     selectedRequest: null,
     stats: null,
     infra: null,
+    errors: null,
     filters: {
       domain: '',
       status: '',
@@ -42,19 +55,44 @@
     },
     loading: false,
     error: null,
+    // Feed state
+    feed: {
+      items: [],
+      knownIds: new Set(),
+      newCount: 0,
+      polling: false,
+    },
+    // Sort state for requests table
+    sort: {
+      column: 'created',
+      direction: 'desc',
+    },
   };
 
   let refreshTimer = null;
+  let feedTimer = null;
+  let clockTimer = null;
 
   // ===== DOM Elements =====
-  const elements = {
+  const el = {
     // Views
     overviewView: document.getElementById('overviewView'),
     requestsView: document.getElementById('requestsView'),
     detailView: document.getElementById('detailView'),
     infraView: document.getElementById('infraView'),
+    feedView: document.getElementById('feedView'),
+    errorsView: document.getElementById('errorsView'),
     // Nav
     navItems: document.querySelectorAll('.nav-item[data-view]'),
+    feedBadge: document.getElementById('feedBadge'),
+    // System bar
+    connLed: document.getElementById('connLed'),
+    refreshLed: document.getElementById('refreshLed'),
+    systemClock: document.getElementById('systemClock'),
+    // Archive form
+    archiveInput: document.getElementById('archiveInput'),
+    archiveBtn: document.getElementById('archiveBtn'),
+    archiveStatus: document.getElementById('archiveStatus'),
     // Overview
     statTotal: document.getElementById('statTotal'),
     statSuccessRate: document.getElementById('statSuccessRate'),
@@ -62,38 +100,42 @@
     statStuck: document.getElementById('statStuck'),
     statLast1h: document.getElementById('statLast1h'),
     statLast24h: document.getElementById('statLast24h'),
-    stageBars: document.getElementById('stageBars'),
+    segmentedBar: document.getElementById('segmentedBar'),
+    segmentedLegend: document.getElementById('segmentedLegend'),
     topDomains: document.getElementById('topDomains'),
     recentFailures: document.getElementById('recentFailures'),
     refreshStatsBtn: document.getElementById('refreshStatsBtn'),
     // Infra
-    workersGrid: document.getElementById('workersGrid'),
-    workflowsGrid: document.getElementById('workflowsGrid'),
-    d1Panel: document.getElementById('d1Panel'),
-    r2Panel: document.getElementById('r2Panel'),
-    doPanel: document.getElementById('doPanel'),
+    workersPanel: document.getElementById('workersPanel'),
+    workflowsPanel: document.getElementById('workflowsPanel'),
+    storagePanel: document.getElementById('storagePanel'),
     refreshInfraBtn: document.getElementById('refreshInfraBtn'),
-    // Request list
-    requestList: document.getElementById('requestList'),
+    // Requests
+    requestTableBody: document.getElementById('requestTableBody'),
+    requestTable: document.getElementById('requestTable'),
     domainFilter: document.getElementById('domainFilter'),
     statusFilter: document.getElementById('statusFilter'),
-    // Pagination
-    pagination: document.getElementById('pagination'),
     prevPage: document.getElementById('prevPage'),
     nextPage: document.getElementById('nextPage'),
     paginationInfo: document.getElementById('paginationInfo'),
-    // Actions
     refreshBtn: document.getElementById('refreshBtn'),
     autoRefreshToggle: document.getElementById('autoRefreshToggle'),
     backBtn: document.getElementById('backBtn'),
     // Detail
     detailContent: document.getElementById('detailContent'),
+    // Feed
+    feedContainer: document.getElementById('feedContainer'),
+    feedCount: document.getElementById('feedCount'),
+    feedLed: document.getElementById('feedLed'),
+    // Errors
+    errorsContent: document.getElementById('errorsContent'),
+    refreshErrorsBtn: document.getElementById('refreshErrorsBtn'),
     // Loading & Error
     loadingOverlay: document.getElementById('loadingOverlay'),
     errorBanner: document.getElementById('errorBanner'),
     errorMessage: document.getElementById('errorMessage'),
     errorClose: document.getElementById('errorClose'),
-    // Settings modal
+    // Settings
     settingsBtn: document.getElementById('settingsBtn'),
     settingsModal: document.getElementById('settingsModal'),
     settingsClose: document.getElementById('settingsClose'),
@@ -103,8 +145,8 @@
   };
 
   // ===== API Client =====
-  async function apiRequest(endpoint) {
-    const response = await fetch(`${CONFIG.apiBase}${endpoint}`);
+  async function apiRequest(endpoint, options) {
+    const response = await fetch(`${CONFIG.apiBase}${endpoint}`, options);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || `HTTP ${response.status}`);
@@ -114,185 +156,272 @@
 
   async function fetchRequests() {
     const params = new URLSearchParams();
-    if (state.filters.domain) {
-      params.set('domain', state.filters.domain);
-    }
-    if (state.filters.status) {
-      params.set('status', state.filters.status);
-    }
+    if (state.filters.domain) params.set('domain', state.filters.domain);
+    if (state.filters.status) params.set('status', state.filters.status);
     params.set('limit', CONFIG.pageSize);
     params.set('offset', state.pagination.offset);
-
-    const data = await apiRequest(`/requests?${params}`);
-    return data;
+    return apiRequest(`/requests?${params}`);
   }
 
   async function fetchRequestDetail(requestId) {
-    const data = await apiRequest(`/${requestId}`);
-    return data;
+    return apiRequest(`/${requestId}`);
   }
 
   async function fetchStats() {
-    const data = await apiRequest('/stats');
-    return data;
+    return apiRequest('/stats');
   }
 
   async function fetchInfra() {
-    const data = await apiRequest('/infra');
-    return data;
+    return apiRequest('/infra');
   }
 
-  // ===== Render Functions =====
+  async function submitArchive(url) {
+    return apiRequest('/begin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+  }
 
-  // --- Overview ---
+  // ===== Utility Functions =====
+  function escapeHtml(str) {
+    if (str === undefined || str === null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+  }
+
+  function truncateUrl(url, max = 60) {
+    if (!url || url.length <= max) return url || '';
+    return url.slice(0, max - 1) + '\u2026';
+  }
+
+  function formatTimeShort(timestamp) {
+    if (!timestamp) return '--';
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return timestamp;
+    const now = new Date();
+    const diff = now - date;
+    if (diff < 60000) return 'now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function formatTimeFeedLine(timestamp) {
+    if (!timestamp) return '--:--:--';
+    const d = new Date(timestamp);
+    if (isNaN(d.getTime())) return '--:--:--';
+    return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function formatDuration(ms) {
+    if (ms == null || ms < 0) return '--';
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${(ms / 60000).toFixed(1)}m`;
+  }
+
+  function formatTime(timestamp) {
+    if (!timestamp) return '--';
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return timestamp;
+    const now = new Date();
+    const diff = now - date;
+    if (diff < 86400000) {
+      if (diff < 60000) return 'just now';
+      if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+      return `${Math.floor(diff / 3600000)}h ago`;
+    }
+    return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    if (bytes == null) return '--';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  function formatNumber(n) {
+    if (n == null) return '--';
+    return n.toLocaleString();
+  }
+
+  function debounce(fn, ms) {
+    let timeout;
+    return function (...args) {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
+  function getDomain(url) {
+    try { return new URL(url).hostname; } catch { return 'unknown'; }
+  }
+
+  function startSystemClock() {
+    function update() {
+      const now = new Date();
+      el.systemClock.textContent = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    update();
+    clockTimer = setInterval(update, 1000);
+  }
+
+  // ===== Status Badge Helper =====
+  function statusBadgeHtml(stage) {
+    return `<span class="status-badge status-${escapeHtml(stage)}"><span class="led"></span>${escapeHtml(stage)}</span>`;
+  }
+
+  // ===== Render: Overview =====
   function renderStats() {
     const s = state.stats;
     if (!s) return;
 
-    elements.statTotal.textContent = s.total.toLocaleString();
-    elements.statSuccessRate.textContent = (s.successRate * 100).toFixed(1) + '%';
-    elements.statActive.textContent = s.activeCount.toLocaleString();
-    elements.statStuck.textContent = s.stuckCount.toLocaleString();
-    elements.statLast1h.textContent = s.recentActivity.last1h.toLocaleString();
-    elements.statLast24h.textContent = s.recentActivity.last24h.toLocaleString();
+    el.statTotal.textContent = s.total.toLocaleString();
+    el.statSuccessRate.textContent = (s.successRate * 100).toFixed(1) + '%';
+    el.statActive.textContent = s.activeCount.toLocaleString();
+    el.statStuck.textContent = s.stuckCount.toLocaleString();
+    el.statLast1h.textContent = s.recentActivity.last1h.toLocaleString();
+    el.statLast24h.textContent = s.recentActivity.last24h.toLocaleString();
 
-    // Highlight stuck count if non-zero
-    const stuckCard = elements.statStuck.closest('.stat-card');
-    if (stuckCard) {
-      stuckCard.classList.toggle('stat-card-warning', s.stuckCount > 0);
+    // Color stuck value
+    const stuckEl = el.statStuck;
+    if (s.stuckCount > 0) {
+      stuckEl.classList.add('readout-amber');
+    } else {
+      stuckEl.classList.remove('readout-amber');
     }
 
-    renderStageBars(s.byStage, s.total);
+    renderSegmentedBar(s.byStage, s.total);
     renderTopDomains(s.topDomains);
     renderRecentFailures(s.recentFailures);
   }
 
-  function renderStageBars(byStage, total) {
+  function renderSegmentedBar(byStage, total) {
     if (!byStage || total === 0) {
-      elements.stageBars.innerHTML = '<div class="empty-state"><div class="empty-state-text">No data</div></div>';
+      el.segmentedBar.innerHTML = '';
+      el.segmentedLegend.innerHTML = '<span class="legend-item" style="color:var(--text-muted)">No data</span>';
       return;
     }
 
     const stages = Object.entries(byStage).sort((a, b) => b[1] - a[1]);
 
-    elements.stageBars.innerHTML = stages.map(([stage, count]) => {
-      const pct = total > 0 ? (count / total * 100).toFixed(1) : 0;
+    el.segmentedBar.innerHTML = stages.map(([stage, count]) => {
+      const pct = (count / total * 100);
       const color = STAGE_COLORS[stage] || 'var(--text-muted)';
-      return `
-        <div class="stage-bar-row">
-          <div class="stage-bar-label">
-            <span class="status-badge status-${escapeHtml(stage)}">${escapeHtml(stage)}</span>
-            <span class="stage-bar-count">${count.toLocaleString()}</span>
-          </div>
-          <div class="stage-bar-track">
-            <div class="stage-bar-fill" style="width:${pct}%;background:${color}"></div>
-          </div>
-          <span class="stage-bar-pct">${pct}%</span>
-        </div>
-      `;
+      return `<div class="segmented-bar-segment" style="width:${pct}%;background:${color}" title="${stage}: ${count} (${pct.toFixed(1)}%)"></div>`;
+    }).join('');
+
+    el.segmentedLegend.innerHTML = stages.map(([stage, count]) => {
+      const color = STAGE_COLORS[stage] || 'var(--text-muted)';
+      const pct = (count / total * 100).toFixed(1);
+      return `<span class="legend-item"><span class="legend-swatch" style="background:${color}"></span>${stage} ${count} (${pct}%)</span>`;
     }).join('');
   }
 
   function renderTopDomains(domains) {
     if (!domains || domains.length === 0) {
-      elements.topDomains.innerHTML = '<div class="empty-state"><div class="empty-state-text">No domains</div></div>';
+      el.topDomains.innerHTML = '<div class="empty-state"><div class="empty-state-text">No domains</div></div>';
       return;
     }
 
-    const maxCount = domains[0].count;
-
-    elements.topDomains.innerHTML = domains.map(d => {
-      const pct = maxCount > 0 ? (d.count / maxCount * 100) : 0;
-      return `
-        <div class="domain-row">
-          <span class="domain-name">${escapeHtml(d.domain)}</span>
-          <div class="domain-bar-track">
-            <div class="domain-bar-fill" style="width:${pct}%"></div>
-          </div>
-          <span class="domain-count">${d.count.toLocaleString()}</span>
-        </div>
-      `;
-    }).join('');
+    el.topDomains.innerHTML = `
+      <table class="data-table domain-table">
+        <thead><tr><th>Domain</th><th style="text-align:right">Count</th></tr></thead>
+        <tbody>
+          ${domains.map(d => `
+            <tr>
+              <td>${escapeHtml(d.domain)}</td>
+              <td class="td-right">${d.count.toLocaleString()}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
   }
 
   function renderRecentFailures(failures) {
     if (!failures || failures.length === 0) {
-      elements.recentFailures.innerHTML = '<div class="empty-state"><div class="empty-state-text">No recent failures</div></div>';
+      el.recentFailures.innerHTML = '<div class="empty-state"><div class="empty-state-text">No failures</div></div>';
       return;
     }
 
-    elements.recentFailures.innerHTML = failures.map(f => `
-      <div class="failure-row" data-id="${escapeHtml(f.requestId)}">
-        <div class="failure-url">${escapeHtml(f.url)}</div>
-        <div class="failure-meta">
-          <span class="failure-time">${formatTime(f.createdAt)}</span>
-          <span class="failure-id">${escapeHtml(f.requestId.slice(0, 8))}...</span>
-        </div>
-      </div>
-    `).join('');
+    el.recentFailures.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>URL</th><th>ID</th><th>Time</th></tr></thead>
+        <tbody>
+          ${failures.map(f => `
+            <tr class="clickable" data-id="${escapeHtml(f.requestId)}">
+              <td class="td-url">${escapeHtml(truncateUrl(f.url, 40))}</td>
+              <td class="td-id">${escapeHtml(f.requestId.slice(0, 8))}</td>
+              <td>${formatTimeShort(f.createdAt)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
 
-    // Click to navigate to detail
-    elements.recentFailures.querySelectorAll('.failure-row').forEach(row => {
-      row.addEventListener('click', () => {
-        loadRequestDetail(row.dataset.id);
-      });
+    el.recentFailures.querySelectorAll('tr.clickable').forEach(row => {
+      row.addEventListener('click', () => loadRequestDetail(row.dataset.id));
     });
   }
 
-  // --- Infrastructure ---
+  // ===== Render: Infrastructure =====
   function renderInfra() {
     const infra = state.infra;
     if (!infra) return;
 
-    renderWorkersGrid(infra.workers);
-    renderWorkflowsGrid(infra.workflows);
-    renderD1Panel(infra.d1);
-    renderR2Panel(infra.r2);
-    renderDOPanel(infra.durableObjects);
+    renderWorkersTable(infra.workers);
+    renderWorkflowsPanel(infra.workflows);
+    renderStoragePanel(infra);
   }
 
-  function renderWorkersGrid(workers) {
+  function renderWorkersTable(workers) {
     if (!workers || workers.length === 0) {
-      elements.workersGrid.innerHTML = '<div class="empty-state"><div class="empty-state-text">No worker data</div></div>';
+      el.workersPanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No worker data</div></div>';
       return;
     }
 
-    elements.workersGrid.innerHTML = workers.map(w => {
-      const errorRate = w.requests > 0 ? (w.errors / w.requests * 100).toFixed(1) : '0.0';
-      const errorClass = parseFloat(errorRate) > 5 ? 'infra-metric-bad' : parseFloat(errorRate) > 1 ? 'infra-metric-warn' : 'infra-metric-ok';
-
-      return `
-        <div class="infra-card">
-          <div class="infra-card-header">
-            <span class="infra-card-name">${escapeHtml(w.scriptName)}</span>
-            <span class="infra-card-indicator ${errorClass}"></span>
-          </div>
-          <div class="infra-metrics">
-            <div class="infra-metric">
-              <span class="infra-metric-value">${formatNumber(w.requests)}</span>
-              <span class="infra-metric-label">Requests</span>
-            </div>
-            <div class="infra-metric">
-              <span class="infra-metric-value ${errorClass}">${errorRate}%</span>
-              <span class="infra-metric-label">Error Rate</span>
-            </div>
-            <div class="infra-metric">
-              <span class="infra-metric-value">${w.cpuP50 != null ? w.cpuP50 + 'ms' : '--'}</span>
-              <span class="infra-metric-label">CPU p50</span>
-            </div>
-            <div class="infra-metric">
-              <span class="infra-metric-value">${w.cpuP99 != null ? w.cpuP99 + 'ms' : '--'}</span>
-              <span class="infra-metric-label">CPU p99</span>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
+    el.workersPanel.innerHTML = `
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Worker</th>
+            <th style="text-align:right">Requests</th>
+            <th style="text-align:right">Error Rate</th>
+            <th style="text-align:right">CPU p50</th>
+            <th style="text-align:right">CPU p99</th>
+            <th>Health</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${workers.map(w => {
+            const errorRate = w.requests > 0 ? (w.errors / w.requests * 100).toFixed(1) : '0.0';
+            const healthClass = parseFloat(errorRate) > 5 ? 'metric-bad' : parseFloat(errorRate) > 1 ? 'metric-warn' : 'metric-ok';
+            const healthLed = parseFloat(errorRate) > 5 ? 'led-red' : parseFloat(errorRate) > 1 ? 'led-amber' : 'led-on';
+            return `
+              <tr>
+                <td>${escapeHtml(w.scriptName)}</td>
+                <td class="td-right">${formatNumber(w.requests)}</td>
+                <td class="td-right ${healthClass}">${errorRate}%</td>
+                <td class="td-right">${w.cpuP50 != null ? w.cpuP50 + 'ms' : '--'}</td>
+                <td class="td-right">${w.cpuP99 != null ? w.cpuP99 + 'ms' : '--'}</td>
+                <td><span class="led ${healthLed}"></span></td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
   }
 
-  function renderWorkflowsGrid(workflows) {
+  function renderWorkflowsPanel(workflows) {
     if (!workflows) {
-      elements.workflowsGrid.innerHTML = '<div class="empty-state"><div class="empty-state-text">No workflow data</div></div>';
+      el.workflowsPanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No workflow data</div></div>';
       return;
     }
 
@@ -300,152 +429,92 @@
     const entries = Object.entries(statuses);
 
     if (entries.length === 0) {
-      elements.workflowsGrid.innerHTML = '<div class="empty-state"><div class="empty-state-text">No workflow instances</div></div>';
+      el.workflowsPanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No workflow instances</div></div>';
       return;
     }
 
-    elements.workflowsGrid.innerHTML = `
-      <div class="infra-card infra-card-wide">
-        <div class="infra-card-header">
-          <span class="infra-card-name">Archive Workflow</span>
-        </div>
-        <div class="infra-metrics">
-          ${entries.map(([status, count]) => {
-            const cls = status === 'errored' ? 'infra-metric-bad' : status === 'running' || status === 'queued' ? 'infra-metric-active' : '';
-            return `
-              <div class="infra-metric">
-                <span class="infra-metric-value ${cls}">${count}</span>
-                <span class="infra-metric-label">${escapeHtml(status)}</span>
-              </div>
-            `;
-          }).join('')}
-        </div>
+    el.workflowsPanel.innerHTML = `
+      <div class="infra-metrics-strip">
+        ${entries.map(([status, count]) => {
+          const cls = status === 'errored' ? 'metric-bad' : (status === 'running' || status === 'queued') ? 'metric-active' : '';
+          return `
+            <div class="infra-metric-cell">
+              <div class="infra-metric-value ${cls}">${count}</div>
+              <div class="infra-metric-label">${escapeHtml(status)}</div>
+            </div>
+          `;
+        }).join('')}
       </div>
     `;
   }
 
-  function renderD1Panel(d1) {
-    if (!d1) {
-      elements.d1Panel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No D1 data</div></div>';
+  function renderStoragePanel(infra) {
+    const d1 = infra.d1;
+    const r2 = infra.r2;
+    const doData = infra.durableObjects;
+
+    const cells = [];
+
+    if (d1) {
+      cells.push({ label: 'D1 Queries', value: formatNumber(d1.queryCount) });
+      cells.push({ label: 'D1 Rows', value: formatNumber(d1.rowsRead) });
+      cells.push({ label: 'D1 Size', value: d1.databaseSize ? formatBytes(d1.databaseSize) : '--' });
+    }
+    if (r2) {
+      cells.push({ label: 'R2 Size', value: r2.bucketSize ? formatBytes(r2.bucketSize) : '--' });
+      cells.push({ label: 'R2 Objects', value: formatNumber(r2.objectCount) });
+      cells.push({ label: 'R2 Ops', value: formatNumber(r2.operationCount) });
+    }
+    if (doData) {
+      cells.push({ label: 'DO Storage', value: doData.storageBytes ? formatBytes(doData.storageBytes) : '--' });
+      cells.push({ label: 'DO Requests', value: formatNumber(doData.requestCount) });
+    }
+
+    if (cells.length === 0) {
+      el.storagePanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No storage data</div></div>';
       return;
     }
 
-    elements.d1Panel.innerHTML = `
-      <div class="infra-metrics infra-metrics-vertical">
-        <div class="infra-metric">
-          <span class="infra-metric-value">${formatNumber(d1.queryCount)}</span>
-          <span class="infra-metric-label">Queries (24h)</span>
-        </div>
-        <div class="infra-metric">
-          <span class="infra-metric-value">${formatNumber(d1.rowsRead)}</span>
-          <span class="infra-metric-label">Rows Read</span>
-        </div>
-        <div class="infra-metric">
-          <span class="infra-metric-value">${d1.databaseSize ? formatBytes(d1.databaseSize) : '--'}</span>
-          <span class="infra-metric-label">DB Size</span>
-        </div>
+    el.storagePanel.innerHTML = `
+      <div class="infra-metrics-strip">
+        ${cells.map(c => `
+          <div class="infra-metric-cell">
+            <div class="infra-metric-value">${c.value}</div>
+            <div class="infra-metric-label">${escapeHtml(c.label)}</div>
+          </div>
+        `).join('')}
       </div>
     `;
   }
 
-  function renderR2Panel(r2) {
-    if (!r2) {
-      elements.r2Panel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No R2 data</div></div>';
-      return;
-    }
-
-    elements.r2Panel.innerHTML = `
-      <div class="infra-metrics infra-metrics-vertical">
-        <div class="infra-metric">
-          <span class="infra-metric-value">${r2.bucketSize ? formatBytes(r2.bucketSize) : '--'}</span>
-          <span class="infra-metric-label">Bucket Size</span>
-        </div>
-        <div class="infra-metric">
-          <span class="infra-metric-value">${formatNumber(r2.objectCount)}</span>
-          <span class="infra-metric-label">Objects</span>
-        </div>
-        <div class="infra-metric">
-          <span class="infra-metric-value">${formatNumber(r2.operationCount)}</span>
-          <span class="infra-metric-label">Ops (24h)</span>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderDOPanel(doData) {
-    if (!doData) {
-      elements.doPanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No DO data</div></div>';
-      return;
-    }
-
-    elements.doPanel.innerHTML = `
-      <div class="infra-metrics">
-        <div class="infra-metric">
-          <span class="infra-metric-value">${doData.storageBytes ? formatBytes(doData.storageBytes) : '--'}</span>
-          <span class="infra-metric-label">Storage</span>
-        </div>
-        <div class="infra-metric">
-          <span class="infra-metric-value">${formatNumber(doData.requestCount)}</span>
-          <span class="infra-metric-label">Requests (24h)</span>
-        </div>
-      </div>
-    `;
-  }
-
-  // --- Request List ---
-  function renderRequestList() {
+  // ===== Render: Requests Table =====
+  function renderRequestTable() {
     if (state.requests.length === 0) {
-      elements.requestList.innerHTML = `
-        <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-          </svg>
-          <div class="empty-state-title">No requests found</div>
-          <div class="empty-state-text">Try adjusting your filters or check back later</div>
-        </div>
+      el.requestTableBody.innerHTML = `
+        <tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted)">No requests found</td></tr>
       `;
       return;
     }
 
-    elements.requestList.innerHTML = state.requests.map(req => {
+    el.requestTableBody.innerHTML = state.requests.map(req => {
       const errorCount = req.errorCount || 0;
       const stage = req.stage || 'queued';
-      const createdAt = formatTime(req.createdAt);
+      const domain = req.domain || getDomain(req.url);
 
       return `
-        <div class="request-card" data-id="${escapeHtml(req.requestId)}">
-          <div class="request-info">
-            <div class="request-url">${escapeHtml(req.url || 'Unknown URL')}</div>
-            <div class="request-meta">
-              <span class="request-domain">${escapeHtml(req.domain || 'unknown')}</span>
-              <span class="request-time">${createdAt}</span>
-            </div>
-          </div>
-          <span class="status-badge status-${stage}">${stage}</span>
-          ${errorCount > 0 ? `
-            <span class="error-count">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="8" x2="12" y2="12"/>
-                <line x1="12" y1="16" x2="12.01" y2="16"/>
-              </svg>
-              ${errorCount}
-            </span>
-          ` : ''}
-          <svg class="request-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;color:var(--text-muted)">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-        </div>
+        <tr class="clickable" data-id="${escapeHtml(req.requestId)}">
+          <td class="td-id">${escapeHtml(req.requestId.slice(0, 8))}</td>
+          <td class="td-url">${escapeHtml(truncateUrl(req.url, 60))}</td>
+          <td>${escapeHtml(domain)}</td>
+          <td>${statusBadgeHtml(stage)}</td>
+          <td>${errorCount > 0 ? `<span class="error-count">${errorCount}</span>` : '<span style="color:var(--text-dim)">0</span>'}</td>
+          <td>${formatTimeShort(req.createdAt)}</td>
+        </tr>
       `;
     }).join('');
 
-    // Attach click handlers
-    elements.requestList.querySelectorAll('.request-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const requestId = card.dataset.id;
-        loadRequestDetail(requestId);
-      });
+    el.requestTableBody.querySelectorAll('tr.clickable').forEach(row => {
+      row.addEventListener('click', () => loadRequestDetail(row.dataset.id));
     });
   }
 
@@ -454,27 +523,33 @@
     const end = state.pagination.offset + state.requests.length;
     const total = state.pagination.total || '?';
 
-    elements.paginationInfo.textContent = state.requests.length > 0
-      ? `Showing ${start}-${end} of ${total}`
+    el.paginationInfo.textContent = state.requests.length > 0
+      ? `${start}-${end} of ${total}`
       : 'No results';
 
-    elements.prevPage.disabled = state.pagination.offset === 0;
-    elements.nextPage.disabled = !state.pagination.hasMore;
+    el.prevPage.disabled = state.pagination.offset === 0;
+    el.nextPage.disabled = !state.pagination.hasMore;
   }
 
+  // ===== Render: Detail View =====
   function renderDetailView() {
     const req = state.selectedRequest;
     if (!req) {
-      elements.detailContent.innerHTML = '<div class="empty-state">Request not found</div>';
+      el.detailContent.innerHTML = '<div class="empty-state">Request not found</div>';
       return;
     }
 
     const stage = req.derived?.stage || 'queued';
     const events = req.events || [];
     const artifacts = req.artifacts || [];
-    const domain = req.url ? new URL(req.url).hostname : 'unknown';
+    const domain = req.url ? getDomain(req.url) : 'unknown';
 
-    elements.detailContent.innerHTML = `
+    // Pipeline visualizer
+    const pipelineHtml = renderPipeline(events);
+
+    el.detailContent.innerHTML = `
+      ${pipelineHtml}
+
       <!-- Header -->
       <div class="detail-header">
         <div class="detail-url">${escapeHtml(req.url || 'Unknown URL')}</div>
@@ -491,7 +566,7 @@
           </div>
           <div class="detail-meta-item">
             <span class="detail-meta-label">Status</span>
-            <span class="status-badge status-${stage}">${stage}</span>
+            ${statusBadgeHtml(stage)}
           </div>
           <div class="detail-meta-item">
             <span class="detail-meta-label">Created</span>
@@ -523,38 +598,101 @@
       </div>
     `;
 
-    // Attach copy handlers
-    elements.detailContent.querySelectorAll('.copyable').forEach(el => {
-      el.addEventListener('click', () => {
-        const text = el.dataset.copy;
-        navigator.clipboard.writeText(text).then(() => {
+    el.detailContent.querySelectorAll('.copyable').forEach(copyEl => {
+      copyEl.addEventListener('click', () => {
+        navigator.clipboard.writeText(copyEl.dataset.copy).then(() => {
           showToast('Copied to clipboard');
         });
       });
     });
   }
 
-  function renderTimeline(events) {
-    if (events.length === 0) {
-      return `
-        <div class="empty-state">
-          <div class="empty-state-text">No events recorded</div>
-        </div>
-      `;
+  // ===== Render: Pipeline Visualizer =====
+  function derivePipelineState(events) {
+    const steps = {};
+    for (const step of PIPELINE_STEPS) {
+      steps[step.id] = {
+        status: 'pending',
+        startedAt: null,
+        completedAt: null,
+        elapsed: null,
+        attempts: 0,
+        error: null,
+      };
     }
 
-    // Sort events by timestamp (oldest first for timeline)
-    const sortedEvents = [...events].sort((a, b) =>
-      new Date(a.ts) - new Date(b.ts)
-    );
+    for (const event of events) {
+      const step = PIPELINE_STEPS.find(s => s.source === event.source);
+      if (!step) continue;
+
+      const s = steps[step.id];
+
+      if (event.type === 'step.started') {
+        s.status = 'running';
+        s.startedAt = s.startedAt || event.ts;
+        s.attempts++;
+      } else if (event.type === 'step.completed') {
+        s.status = 'complete';
+        s.completedAt = event.ts;
+        if (s.startedAt) {
+          s.elapsed = new Date(event.ts) - new Date(s.startedAt);
+        }
+      } else if (event.type === 'step.failed') {
+        s.status = 'failed';
+        s.completedAt = event.ts;
+        s.error = event.message || 'Failed';
+        if (s.startedAt) {
+          s.elapsed = new Date(event.ts) - new Date(s.startedAt);
+        }
+      }
+    }
+
+    return steps;
+  }
+
+  function renderPipeline(events) {
+    const steps = derivePipelineState(events);
+
+    const parts = [];
+    for (let i = 0; i < PIPELINE_STEPS.length; i++) {
+      const def = PIPELINE_STEPS[i];
+      const s = steps[def.id];
+      const ledClass = `pipeline-led-${s.status}`;
+      const stepClass = `step-${s.status}`;
+
+      parts.push(`
+        <div class="pipeline-step ${stepClass}">
+          <div class="pipeline-led ${ledClass}"></div>
+          <div class="pipeline-label">${def.label}</div>
+          ${s.elapsed != null ? `<div class="pipeline-timing">${formatDuration(s.elapsed)}</div>` : ''}
+          ${s.attempts > 1 ? `<div class="pipeline-attempts">x${s.attempts}</div>` : ''}
+        </div>
+      `);
+
+      if (i < PIPELINE_STEPS.length - 1) {
+        const nextDef = PIPELINE_STEPS[i + 1];
+        const nextS = steps[nextDef.id];
+        const connActive = s.status === 'complete' && nextS.status !== 'pending';
+        parts.push(`<div class="pipeline-connector ${connActive ? 'connector-active' : ''}"></div>`);
+      }
+    }
+
+    return `<div class="pipeline">${parts.join('')}</div>`;
+  }
+
+  function renderTimeline(events) {
+    if (events.length === 0) {
+      return '<div class="empty-state"><div class="empty-state-text">No events recorded</div></div>';
+    }
+
+    const sorted = [...events].sort((a, b) => new Date(a.ts) - new Date(b.ts));
 
     return `
       <div class="timeline">
-        ${sortedEvents.map(event => {
-      const level = event.level || 'info';
-      const data = event.data ? JSON.stringify(event.data, null, 2) : null;
-
-      return `
+        ${sorted.map(event => {
+          const level = event.level || 'info';
+          const data = event.data ? JSON.stringify(event.data, null, 2) : null;
+          return `
             <div class="timeline-item" data-level="${level}">
               <div class="timeline-node"></div>
               <div class="timeline-time">${formatTime(event.ts)}</div>
@@ -568,62 +706,226 @@
               </div>
             </div>
           `;
-    }).join('')}
+        }).join('')}
       </div>
     `;
   }
 
   function renderArtifacts(artifacts) {
     if (artifacts.length === 0) {
-      return `
-        <div class="empty-state">
-          <div class="empty-state-text">No artifacts generated</div>
-        </div>
-      `;
+      return '<div class="empty-state"><div class="empty-state-text">No artifacts generated</div></div>';
     }
 
     return `
       <div class="artifacts-grid">
-        ${artifacts.map(artifact => `
+        ${artifacts.map(a => `
           <div class="artifact-card">
-            <div class="artifact-kind">${escapeHtml(artifact.kind || 'unknown')}</div>
+            <div class="artifact-kind">${escapeHtml(a.kind || 'unknown')}</div>
             <div class="artifact-meta">
-              ${artifact.bytes ? `<span>${formatBytes(artifact.bytes)}</span>` : ''}
-              ${artifact.contentType ? `<span>${escapeHtml(artifact.contentType)}</span>` : ''}
+              ${a.bytes ? `<span>${formatBytes(a.bytes)}</span>` : ''}
+              ${a.contentType ? `<span>${escapeHtml(a.contentType)}</span>` : ''}
             </div>
-            ${artifact.r2Key ? `<div class="artifact-key">${escapeHtml(artifact.r2Key)}</div>` : ''}
+            ${a.r2Key ? `<div class="artifact-key">${escapeHtml(a.r2Key)}</div>` : ''}
           </div>
         `).join('')}
       </div>
     `;
   }
 
+  // ===== Render: Feed =====
+  function renderFeed() {
+    if (state.feed.items.length === 0) {
+      el.feedContainer.innerHTML = '<div class="empty-state"><div class="empty-state-text">Waiting for requests</div></div>';
+      return;
+    }
+
+    el.feedContainer.innerHTML = state.feed.items.map(item => {
+      const stage = item.stage || 'queued';
+      const domain = item.domain || getDomain(item.url);
+      const isNew = item._new;
+      return `
+        <div class="feed-line ${isNew ? 'feed-new' : ''}" data-id="${escapeHtml(item.requestId)}">
+          <span class="feed-time">${formatTimeFeedLine(item.createdAt)}</span>
+          <span class="feed-id">${escapeHtml(item.requestId.slice(0, 8))}</span>
+          <span class="feed-status">${statusBadgeHtml(stage)}</span>
+          <span class="feed-domain">${escapeHtml(domain)}</span>
+          <span class="feed-url">${escapeHtml(truncateUrl(item.url, 80))}</span>
+        </div>
+      `;
+    }).join('');
+
+    el.feedContainer.querySelectorAll('.feed-line').forEach(line => {
+      line.addEventListener('click', () => loadRequestDetail(line.dataset.id));
+    });
+
+    el.feedCount.textContent = `${state.feed.items.length} requests`;
+  }
+
+  // ===== Render: Errors View =====
+  function renderErrors() {
+    const data = state.errors;
+    if (!data) {
+      el.errorsContent.innerHTML = '<div class="empty-state"><div class="empty-state-text">Loading</div></div>';
+      return;
+    }
+
+    const { stats, failedRequests, errorsBySource, errorPatterns } = data;
+
+    // Error readout strip
+    const total = stats?.total || 0;
+    const failed = failedRequests?.length || 0;
+    const failureRate = total > 0 ? ((stats?.byStage?.failed || 0) / total * 100).toFixed(1) : '0.0';
+
+    let html = `
+      <div class="readout-strip">
+        <div class="readout-cell">
+          <div class="readout-label">Total Failed</div>
+          <div class="readout-value readout-red">${stats?.byStage?.failed || 0}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Failure Rate</div>
+          <div class="readout-value readout-red">${failureRate}%</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Error Sources</div>
+          <div class="readout-value">${Object.keys(errorsBySource).length}</div>
+        </div>
+        <div class="readout-cell">
+          <div class="readout-label">Patterns</div>
+          <div class="readout-value">${errorPatterns.length}</div>
+        </div>
+      </div>
+    `;
+
+    // Errors by source
+    const sourceEntries = Object.entries(errorsBySource).sort((a, b) => b[1] - a[1]);
+    const maxSourceCount = sourceEntries.length > 0 ? sourceEntries[0][1] : 1;
+
+    if (sourceEntries.length > 0) {
+      html += `
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Errors by Source</span>
+          </div>
+          <div class="section-body" style="padding: 0;">
+            <table class="data-table">
+              <thead><tr><th>Source</th><th style="text-align:right">Count</th><th style="min-width:120px">Frequency</th></tr></thead>
+              <tbody>
+                ${sourceEntries.map(([source, count]) => {
+                  const pct = (count / maxSourceCount * 100).toFixed(0);
+                  return `
+                    <tr>
+                      <td>${escapeHtml(source)}</td>
+                      <td class="td-right">${count}</td>
+                      <td><div class="error-source-bar"><div class="error-source-fill" style="width:${pct}%"></div></div></td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    // Error patterns
+    if (errorPatterns.length > 0) {
+      html += `
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Error Patterns</span>
+          </div>
+          <div class="section-body" style="padding: 0;">
+            ${errorPatterns.map(p => `
+              <div class="error-pattern-item">
+                <div class="error-pattern-msg">${escapeHtml(p.message)}</div>
+                <div class="error-pattern-meta">
+                  <span>Count: ${p.count}</span>
+                  <span>Requests: ${p.requestIds.slice(0, 3).map(id => id.slice(0, 8)).join(', ')}${p.requestIds.length > 3 ? '...' : ''}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Affected requests table
+    if (failedRequests && failedRequests.length > 0) {
+      html += `
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Failed Requests</span>
+            <span class="section-count">${failedRequests.length}</span>
+          </div>
+          <div class="section-body" style="padding: 0;">
+            <table class="data-table">
+              <thead><tr><th>ID</th><th>URL</th><th>Created</th></tr></thead>
+              <tbody>
+                ${failedRequests.map(r => `
+                  <tr class="clickable" data-id="${escapeHtml(r.requestId)}">
+                    <td class="td-id">${escapeHtml(r.requestId.slice(0, 8))}</td>
+                    <td class="td-url">${escapeHtml(truncateUrl(r.url, 50))}</td>
+                    <td>${formatTimeShort(r.createdAt)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    el.errorsContent.innerHTML = html;
+
+    el.errorsContent.querySelectorAll('tr.clickable').forEach(row => {
+      row.addEventListener('click', () => loadRequestDetail(row.dataset.id));
+    });
+  }
+
   // ===== View Management =====
   function showView(viewName) {
+    if (state.currentView !== viewName) {
+      state.previousView = state.currentView;
+    }
     state.currentView = viewName;
 
-    elements.overviewView.classList.toggle('hidden', viewName !== 'overview');
-    elements.requestsView.classList.toggle('hidden', viewName !== 'requests');
-    elements.detailView.classList.toggle('hidden', viewName !== 'detail');
-    elements.infraView.classList.toggle('hidden', viewName !== 'infra');
+    el.overviewView.classList.toggle('hidden', viewName !== 'overview');
+    el.requestsView.classList.toggle('hidden', viewName !== 'requests');
+    el.detailView.classList.toggle('hidden', viewName !== 'detail');
+    el.infraView.classList.toggle('hidden', viewName !== 'infra');
+    el.feedView.classList.toggle('hidden', viewName !== 'feed');
+    el.errorsView.classList.toggle('hidden', viewName !== 'errors');
 
-    // Update nav active state
-    elements.navItems.forEach(item => {
+    el.navItems.forEach(item => {
       item.classList.toggle('active', item.dataset.view === viewName);
     });
+
+    // Reset feed badge when viewing feed
+    if (viewName === 'feed') {
+      state.feed.newCount = 0;
+      updateFeedBadge();
+    }
+  }
+
+  function updateFeedBadge() {
+    if (state.feed.newCount > 0 && state.currentView !== 'feed') {
+      el.feedBadge.textContent = state.feed.newCount > 99 ? '99+' : state.feed.newCount;
+      el.feedBadge.classList.remove('hidden');
+    } else {
+      el.feedBadge.classList.add('hidden');
+    }
   }
 
   // ===== Data Loading =====
   async function loadStats() {
     setLoading(true);
     clearError();
-
     try {
-      const data = await fetchStats();
-      state.stats = data;
+      state.stats = await fetchStats();
       renderStats();
     } catch (err) {
-      showError(`Failed to load stats: ${err.message}`);
+      showError(`Stats: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -632,13 +934,11 @@
   async function loadInfra() {
     setLoading(true);
     clearError();
-
     try {
-      const data = await fetchInfra();
-      state.infra = data;
+      state.infra = await fetchInfra();
       renderInfra();
     } catch (err) {
-      showError(`Failed to load infrastructure data: ${err.message}`);
+      showError(`Infra: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -647,22 +947,18 @@
   async function loadRequests() {
     setLoading(true);
     clearError();
-
     try {
       const data = await fetchRequests();
       state.requests = data.requests || [];
-      // Logger returns meta.count for current page, not total
       const count = data.meta?.count || state.requests.length;
       state.pagination.hasMore = count >= CONFIG.pageSize;
-      // Calculate approximate total from offset + count
       state.pagination.total = state.pagination.hasMore
         ? state.pagination.offset + count + '+'
         : state.pagination.offset + count;
-
-      renderRequestList();
+      renderRequestTable();
       renderPagination();
     } catch (err) {
-      showError(`Failed to load requests: ${err.message}`);
+      showError(`Requests: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -671,51 +967,211 @@
   async function loadRequestDetail(requestId) {
     setLoading(true);
     clearError();
-
     try {
-      const data = await fetchRequestDetail(requestId);
-      state.selectedRequest = data;
+      state.selectedRequest = await fetchRequestDetail(requestId);
       showView('detail');
       renderDetailView();
     } catch (err) {
-      showError(`Failed to load request: ${err.message}`);
+      showError(`Detail: ${err.message}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadErrors() {
+    setLoading(true);
+    clearError();
+    try {
+      // Fetch stats and failed requests in parallel
+      const [stats, failedData] = await Promise.all([
+        fetchStats(),
+        apiRequest('/requests?status=failed&limit=50'),
+      ]);
+
+      const failedRequests = failedData.requests || [];
+
+      // Fetch detail for up to 10 recent failures to extract error events
+      const detailPromises = failedRequests.slice(0, 10).map(r =>
+        fetchRequestDetail(r.requestId).catch(() => null)
+      );
+      const details = await Promise.all(detailPromises);
+
+      // Aggregate errors by source
+      const errorsBySource = {};
+      const patternMap = {};
+
+      for (const detail of details) {
+        if (!detail) continue;
+        const errorEvents = (detail.events || []).filter(e => e.level === 'error');
+        for (const ev of errorEvents) {
+          const src = ev.source || 'unknown';
+          errorsBySource[src] = (errorsBySource[src] || 0) + 1;
+
+          const key = (ev.message || 'Unknown error').slice(0, 80);
+          if (!patternMap[key]) {
+            patternMap[key] = { message: key, count: 0, requestIds: [] };
+          }
+          patternMap[key].count++;
+          if (!patternMap[key].requestIds.includes(detail.requestId)) {
+            patternMap[key].requestIds.push(detail.requestId);
+          }
+        }
+      }
+
+      const errorPatterns = Object.values(patternMap).sort((a, b) => b.count - a.count);
+
+      state.errors = { stats, failedRequests, errorsBySource, errorPatterns };
+      renderErrors();
+    } catch (err) {
+      showError(`Errors: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ===== Feed Polling =====
+  async function pollFeed() {
+    try {
+      const data = await apiRequest('/requests?limit=20');
+      const requests = data.requests || [];
+
+      let newItems = 0;
+      for (const req of requests) {
+        if (!state.feed.knownIds.has(req.requestId)) {
+          state.feed.knownIds.add(req.requestId);
+          state.feed.items.unshift({ ...req, _new: true });
+          newItems++;
+        } else {
+          // Update existing item's stage
+          const existing = state.feed.items.find(i => i.requestId === req.requestId);
+          if (existing) {
+            existing.stage = req.stage;
+            existing.errorCount = req.errorCount;
+          }
+        }
+      }
+
+      // Trim to max
+      if (state.feed.items.length > CONFIG.feedMaxItems) {
+        const removed = state.feed.items.splice(CONFIG.feedMaxItems);
+        for (const r of removed) {
+          state.feed.knownIds.delete(r.requestId);
+        }
+      }
+
+      if (newItems > 0) {
+        state.feed.newCount += newItems;
+        updateFeedBadge();
+        if (state.currentView === 'feed') {
+          state.feed.newCount = 0;
+          updateFeedBadge();
+          renderFeed();
+        }
+      } else if (state.currentView === 'feed') {
+        // Still update to reflect status changes
+        renderFeed();
+      }
+
+      // Clear _new flag after render
+      setTimeout(() => {
+        for (const item of state.feed.items) {
+          item._new = false;
+        }
+      }, 1200);
+
+      // Update connection LED
+      el.connLed.className = 'led led-on';
+    } catch {
+      el.connLed.className = 'led led-red';
+    }
+  }
+
+  function startFeedPolling() {
+    if (feedTimer) return;
+    state.feed.polling = true;
+    pollFeed();
+    feedTimer = setInterval(pollFeed, CONFIG.feedPollInterval);
+  }
+
+  function stopFeedPolling() {
+    if (feedTimer) {
+      clearInterval(feedTimer);
+      feedTimer = null;
+    }
+    state.feed.polling = false;
+  }
+
+  // ===== Archive Submission =====
+  async function handleArchiveSubmit() {
+    const url = el.archiveInput.value.trim();
+    if (!url) return;
+
+    // Basic URL validation
+    try {
+      new URL(url);
+    } catch {
+      el.archiveStatus.textContent = 'ERR: invalid URL';
+      el.archiveStatus.className = 'archive-status archive-err';
+      return;
+    }
+
+    el.archiveBtn.disabled = true;
+    el.archiveStatus.textContent = 'SUBMITTING...';
+    el.archiveStatus.className = 'archive-status';
+
+    try {
+      const result = await submitArchive(url);
+      const id = result.requestId || result.request_id || 'unknown';
+      el.archiveStatus.textContent = `OK: ${id.slice(0, 8)}`;
+      el.archiveStatus.className = 'archive-status archive-ok';
+      el.archiveInput.value = '';
+
+      // Auto-navigate to detail after brief delay
+      setTimeout(() => {
+        loadRequestDetail(id);
+        el.archiveStatus.textContent = '';
+        el.archiveStatus.className = 'archive-status';
+      }, 800);
+    } catch (err) {
+      el.archiveStatus.textContent = `ERR: ${err.message}`;
+      el.archiveStatus.className = 'archive-status archive-err';
+    } finally {
+      el.archiveBtn.disabled = false;
     }
   }
 
   // ===== UI State =====
   function setLoading(loading) {
     state.loading = loading;
-    elements.loadingOverlay.classList.toggle('hidden', !loading);
+    el.loadingOverlay.classList.toggle('hidden', !loading);
   }
 
   function showError(message) {
     state.error = message;
-    elements.errorMessage.textContent = message;
-    elements.errorBanner.classList.remove('hidden');
+    el.errorMessage.textContent = message;
+    el.errorBanner.classList.remove('hidden');
+    el.errorBanner.style.background = '';
+    el.errorBanner.style.borderColor = '';
+    el.errorBanner.style.color = '';
   }
 
   function clearError() {
     state.error = null;
-    elements.errorBanner.classList.add('hidden');
+    el.errorBanner.classList.add('hidden');
   }
 
   function showToast(message) {
-    // Simple toast implementation - reuse error banner briefly
-    const originalMessage = elements.errorMessage.textContent;
-    elements.errorMessage.textContent = message;
-    elements.errorBanner.style.background = 'var(--accent-emerald-dim)';
-    elements.errorBanner.style.borderColor = 'var(--accent-emerald)';
-    elements.errorBanner.style.color = 'var(--accent-emerald)';
-    elements.errorBanner.classList.remove('hidden');
+    el.errorMessage.textContent = message;
+    el.errorBanner.style.background = 'var(--green-dim)';
+    el.errorBanner.style.borderColor = 'var(--green)';
+    el.errorBanner.style.color = 'var(--green)';
+    el.errorBanner.classList.remove('hidden');
 
     setTimeout(() => {
-      elements.errorBanner.classList.add('hidden');
-      elements.errorBanner.style.background = '';
-      elements.errorBanner.style.borderColor = '';
-      elements.errorBanner.style.color = '';
-      elements.errorMessage.textContent = originalMessage;
+      el.errorBanner.classList.add('hidden');
+      el.errorBanner.style.background = '';
+      el.errorBanner.style.borderColor = '';
+      el.errorBanner.style.color = '';
     }, 2000);
   }
 
@@ -723,9 +1179,8 @@
   function startAutoRefresh() {
     stopAutoRefresh();
     if (state.settings.autoRefresh) {
-      refreshTimer = setInterval(() => {
-        refreshCurrentView();
-      }, state.settings.refreshInterval * 1000);
+      refreshTimer = setInterval(refreshCurrentView, state.settings.refreshInterval * 1000);
+      el.refreshLed.className = 'led led-on';
     }
   }
 
@@ -734,16 +1189,15 @@
       clearInterval(refreshTimer);
       refreshTimer = null;
     }
+    el.refreshLed.className = 'led led-off';
   }
 
   function refreshCurrentView() {
-    if (state.currentView === 'overview') {
-      loadStats();
-    } else if (state.currentView === 'requests') {
-      loadRequests();
-    } else if (state.currentView === 'infra') {
-      loadInfra();
-    } else if (state.currentView === 'detail' && state.selectedRequest) {
+    if (state.currentView === 'overview') loadStats();
+    else if (state.currentView === 'requests') loadRequests();
+    else if (state.currentView === 'infra') loadInfra();
+    else if (state.currentView === 'errors') loadErrors();
+    else if (state.currentView === 'detail' && state.selectedRequest) {
       loadRequestDetail(state.selectedRequest.requestId);
     }
   }
@@ -755,141 +1209,74 @@
       try {
         const parsed = JSON.parse(saved);
         state.settings = { ...state.settings, ...parsed };
-      } catch {
-        // Ignore invalid settings
-      }
+      } catch { /* ignore */ }
     }
-    elements.autoRefreshToggle.checked = state.settings.autoRefresh;
-    elements.refreshInterval.value = state.settings.refreshInterval;
+    el.autoRefreshToggle.checked = state.settings.autoRefresh;
+    el.refreshInterval.value = state.settings.refreshInterval;
   }
 
   function saveSettings() {
     localStorage.setItem('warg-dashboard-settings', JSON.stringify(state.settings));
   }
 
-  // ===== Utilities =====
-  function escapeHtml(str) {
-    if (str === undefined || str === null) return '';
-    const div = document.createElement('div');
-    div.textContent = String(str);
-    return div.innerHTML;
-  }
-
-  function formatTime(timestamp) {
-    if (!timestamp) return 'Unknown';
-    const date = new Date(timestamp);
-    if (isNaN(date.getTime())) return timestamp;
-
-    const now = new Date();
-    const diff = now - date;
-
-    // If within last 24 hours, show relative time
-    if (diff < 86400000) {
-      if (diff < 60000) return 'just now';
-      if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-      return `${Math.floor(diff / 3600000)}h ago`;
-    }
-
-    // Otherwise show date and time
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
-
-  function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    if (bytes == null) return '--';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  }
-
-  function formatNumber(n) {
-    if (n == null) return '--';
-    return n.toLocaleString();
-  }
-
-  function debounce(fn, ms) {
-    let timeout;
-    return function (...args) {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => fn.apply(this, args), ms);
-    };
-  }
-
   // ===== Event Handlers =====
   function setupEventHandlers() {
     // Navigation
-    elements.navItems.forEach(item => {
+    el.navItems.forEach(item => {
       item.addEventListener('click', () => {
         const view = item.dataset.view;
         showView(view);
-        // Load data for the view if needed
-        if (view === 'overview' && !state.stats) {
-          loadStats();
-        } else if (view === 'requests' && state.requests.length === 0) {
-          loadRequests();
-        } else if (view === 'infra' && !state.infra) {
-          loadInfra();
-        }
+        if (view === 'overview' && !state.stats) loadStats();
+        else if (view === 'requests' && state.requests.length === 0) loadRequests();
+        else if (view === 'infra' && !state.infra) loadInfra();
+        else if (view === 'feed') renderFeed();
+        else if (view === 'errors' && !state.errors) loadErrors();
       });
     });
 
     // Refresh buttons
-    elements.refreshBtn.addEventListener('click', () => {
-      if (state.currentView === 'requests') {
-        loadRequests();
-      } else if (state.currentView === 'detail' && state.selectedRequest) {
+    el.refreshBtn.addEventListener('click', () => {
+      if (state.currentView === 'requests') loadRequests();
+      else if (state.currentView === 'detail' && state.selectedRequest) {
         loadRequestDetail(state.selectedRequest.requestId);
       }
     });
 
-    elements.refreshStatsBtn.addEventListener('click', () => {
-      loadStats();
-    });
-
-    elements.refreshInfraBtn.addEventListener('click', () => {
-      loadInfra();
-    });
+    el.refreshStatsBtn.addEventListener('click', () => loadStats());
+    el.refreshInfraBtn.addEventListener('click', () => loadInfra());
+    el.refreshErrorsBtn.addEventListener('click', () => loadErrors());
 
     // Auto-refresh toggle
-    elements.autoRefreshToggle.addEventListener('change', (e) => {
+    el.autoRefreshToggle.addEventListener('change', (e) => {
       state.settings.autoRefresh = e.target.checked;
       saveSettings();
-      if (e.target.checked) {
-        startAutoRefresh();
-      } else {
-        stopAutoRefresh();
-      }
+      if (e.target.checked) startAutoRefresh();
+      else stopAutoRefresh();
     });
 
     // Domain filter
-    elements.domainFilter.addEventListener('input', debounce((e) => {
+    el.domainFilter.addEventListener('input', debounce((e) => {
       state.filters.domain = e.target.value.trim();
       state.pagination.offset = 0;
       loadRequests();
     }, 300));
 
     // Status filter
-    elements.statusFilter.addEventListener('change', (e) => {
+    el.statusFilter.addEventListener('change', (e) => {
       state.filters.status = e.target.value;
       state.pagination.offset = 0;
       loadRequests();
     });
 
     // Pagination
-    elements.prevPage.addEventListener('click', () => {
+    el.prevPage.addEventListener('click', () => {
       if (state.pagination.offset > 0) {
         state.pagination.offset = Math.max(0, state.pagination.offset - CONFIG.pageSize);
         loadRequests();
       }
     });
 
-    elements.nextPage.addEventListener('click', () => {
+    el.nextPage.addEventListener('click', () => {
       if (state.pagination.hasMore) {
         state.pagination.offset += CONFIG.pageSize;
         loadRequests();
@@ -897,78 +1284,120 @@
     });
 
     // Back button
-    elements.backBtn.addEventListener('click', () => {
-      showView('requests');
+    el.backBtn.addEventListener('click', () => {
+      const backTo = state.previousView === 'feed' ? 'feed' : 'requests';
+      showView(backTo);
       state.selectedRequest = null;
-      startAutoRefresh();
     });
 
     // Error close
-    elements.errorClose.addEventListener('click', clearError);
+    el.errorClose.addEventListener('click', clearError);
 
     // Settings modal
-    elements.settingsBtn.addEventListener('click', () => {
-      elements.refreshInterval.value = state.settings.refreshInterval;
-      elements.settingsModal.classList.remove('hidden');
+    el.settingsBtn.addEventListener('click', () => {
+      el.refreshInterval.value = state.settings.refreshInterval;
+      el.settingsModal.classList.remove('hidden');
     });
 
-    elements.settingsClose.addEventListener('click', () => {
-      elements.settingsModal.classList.add('hidden');
-    });
+    el.settingsClose.addEventListener('click', () => el.settingsModal.classList.add('hidden'));
+    el.settingsCancel.addEventListener('click', () => el.settingsModal.classList.add('hidden'));
 
-    elements.settingsCancel.addEventListener('click', () => {
-      elements.settingsModal.classList.add('hidden');
-    });
-
-    elements.settingsSave.addEventListener('click', () => {
-      state.settings.refreshInterval = parseInt(elements.refreshInterval.value, 10) || CONFIG.defaultRefreshInterval;
+    el.settingsSave.addEventListener('click', () => {
+      state.settings.refreshInterval = parseInt(el.refreshInterval.value, 10) || CONFIG.defaultRefreshInterval;
       saveSettings();
-      if (state.settings.autoRefresh) {
-        startAutoRefresh();
-      }
-      elements.settingsModal.classList.add('hidden');
+      if (state.settings.autoRefresh) startAutoRefresh();
+      el.settingsModal.classList.add('hidden');
     });
 
-    // Close modal on overlay click
-    elements.settingsModal.addEventListener('click', (e) => {
-      if (e.target === elements.settingsModal) {
-        elements.settingsModal.classList.add('hidden');
-      }
+    el.settingsModal.addEventListener('click', (e) => {
+      if (e.target === el.settingsModal) el.settingsModal.classList.add('hidden');
+    });
+
+    // Archive form
+    el.archiveBtn.addEventListener('click', handleArchiveSubmit);
+    el.archiveInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleArchiveSubmit();
+    });
+
+    // Sort headers
+    el.requestTable.querySelectorAll('th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (state.sort.column === col) {
+          state.sort.direction = state.sort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          state.sort.column = col;
+          state.sort.direction = 'asc';
+        }
+        updateSortHeaders();
+        sortAndRenderRequests();
+      });
     });
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      // Escape to go back or close modal
       if (e.key === 'Escape') {
-        if (!elements.settingsModal.classList.contains('hidden')) {
-          elements.settingsModal.classList.add('hidden');
+        if (!el.settingsModal.classList.contains('hidden')) {
+          el.settingsModal.classList.add('hidden');
         } else if (state.currentView === 'detail') {
-          showView('requests');
+          const backTo = state.previousView === 'feed' ? 'feed' : 'requests';
+          showView(backTo);
           state.selectedRequest = null;
-          startAutoRefresh();
         }
       }
-      // R to refresh
       if (e.key === 'r' && !e.ctrlKey && !e.metaKey && e.target.tagName !== 'INPUT') {
         refreshCurrentView();
       }
     });
   }
 
+  function updateSortHeaders() {
+    el.requestTable.querySelectorAll('th.sortable').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (th.dataset.sort === state.sort.column) {
+        th.classList.add(state.sort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+      }
+    });
+  }
+
+  function sortAndRenderRequests() {
+    const col = state.sort.column;
+    const dir = state.sort.direction === 'asc' ? 1 : -1;
+
+    state.requests.sort((a, b) => {
+      let aVal, bVal;
+      if (col === 'id') { aVal = a.requestId; bVal = b.requestId; }
+      else if (col === 'url') { aVal = a.url || ''; bVal = b.url || ''; }
+      else if (col === 'domain') { aVal = a.domain || getDomain(a.url); bVal = b.domain || getDomain(b.url); }
+      else if (col === 'status') { aVal = a.stage || ''; bVal = b.stage || ''; }
+      else if (col === 'created') { aVal = a.createdAt || ''; bVal = b.createdAt || ''; }
+      else { aVal = ''; bVal = ''; }
+
+      if (aVal < bVal) return -1 * dir;
+      if (aVal > bVal) return 1 * dir;
+      return 0;
+    });
+
+    renderRequestTable();
+  }
+
   // ===== Initialize =====
   function init() {
     loadSettings();
     setupEventHandlers();
+    startSystemClock();
 
     // Start on overview
     showView('overview');
     loadStats();
+
+    // Start feed polling (always runs in background)
+    startFeedPolling();
 
     if (state.settings.autoRefresh) {
       startAutoRefresh();
     }
   }
 
-  // Start the app
   init();
 })();

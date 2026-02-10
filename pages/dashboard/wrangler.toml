@@ -4,3 +4,4 @@ pages_build_output_dir = "."
 
 [vars]
 LOGGER_URL = "https://logger.jayteealao.workers.dev"
+GATEWAY_URL = "https://gateway.jayteealao.workers.dev"
