@@ -100,25 +100,33 @@ export default {
           return Response.json({ error: 'Invalid JSON' }, { status: 400 });
         }
 
-        if (!body.url) {
-          return Response.json({ error: 'url is required' }, { status: 400 });
-        }
-
-        if (!isValidArchiveUrl(body.url)) {
-          return Response.json(
-            { error: 'Invalid URL: only http and https URLs are supported' },
-            { status: 400 }
-          );
-        }
-
         // Use client-provided request_id or generate one
         const requestId = body.request_id ?? generateRequestId();
         if (body.request_id && !isValidRequestId(requestId)) {
           return Response.json(
-            { error: 'Invalid request_id format (UUID v4 or 20-char alphanumeric required)' },
+            { error: 'Invalid request_id format (UUID v4 or 8-40 char alphanumeric required)' },
             { status: 400 }
           );
         }
+
+        // Validate URL presence and format
+        const urlError = !body.url
+          ? 'url is required'
+          : !isValidArchiveUrl(body.url)
+            ? 'Invalid URL: only http and https URLs are supported'
+            : undefined;
+
+        if (urlError) {
+          // We have a valid request_id — init logger so this failure is visible
+          await initLoggerRequest(env, { requestId, url: body.url ?? '' });
+          await appendLogEvent(
+            env,
+            requestId,
+            createEvent('gateway', 'request.failed', 'error', urlError, { url: body.url })
+          );
+          return withRequestId(Response.json({ error: urlError }, { status: 400 }), requestId);
+        }
+
         const optionsR2Key = getOptionsKey(requestId);
 
         // Extract options: remove request_id and strip fields that could enable script injection

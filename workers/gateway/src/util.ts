@@ -10,12 +10,13 @@ export function generateRequestId(): string {
 }
 
 /**
- * Validate that a request_id is a valid UUID v4 or Firestore auto-generated ID (20-char alphanumeric).
+ * Validate that a request_id is a valid UUID v4 or alphanumeric ID (8-40 chars).
+ * Accepts Firestore auto-generated IDs (20 chars), Pocket item IDs (~14 chars), etc.
  */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const FIRESTORE_ID_RE = /^[a-zA-Z0-9]{20}$/;
+const ALPHANUMERIC_ID_RE = /^[a-zA-Z0-9]{8,40}$/;
 export function isValidRequestId(id: string): boolean {
-  return UUID_V4_RE.test(id) || FIRESTORE_ID_RE.test(id);
+  return UUID_V4_RE.test(id) || ALPHANUMERIC_ID_RE.test(id);
 }
 
 /**

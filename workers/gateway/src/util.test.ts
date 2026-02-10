@@ -183,19 +183,25 @@ describe('isValidRequestId', () => {
     expect(isValidRequestId('550e8400-e29b-11d4-a716-446655440000')).toBe(false);
   });
 
-  it('accepts Firestore auto-generated IDs (20-char alphanumeric)', () => {
-    expect(isValidRequestId('abc12345678901234567')).toBe(true);
+  it('accepts alphanumeric IDs (8-40 chars)', () => {
+    expect(isValidRequestId('abc12345678901234567')).toBe(true);  // 20 chars (Firestore)
     expect(isValidRequestId('Abc12345DEF901234567')).toBe(true);
     expect(isValidRequestId('ABCDEFGHIJKLMNOPQRST')).toBe(true);
     expect(isValidRequestId('01234567890123456789')).toBe(true);
+    expect(isValidRequestId('abcd1234')).toBe(true);              // 8 chars (minimum)
   });
 
-  it('rejects Firestore-like IDs with wrong length', () => {
-    expect(isValidRequestId('abc1234567890123456')).toBe(false);  // 19 chars
-    expect(isValidRequestId('abc123456789012345678')).toBe(false); // 21 chars
+  it('accepts Pocket-style item IDs', () => {
+    expect(isValidRequestId('Vk1N2zlexyGkB1')).toBe(true);       // 14 chars
+    expect(isValidRequestId('Ab3Xp9QrTm2nYz')).toBe(true);       // 14 chars
   });
 
-  it('rejects Firestore-like IDs with special characters', () => {
+  it('rejects IDs shorter than 8 or longer than 40 chars', () => {
+    expect(isValidRequestId('abc1234')).toBe(false);              // 7 chars
+    expect(isValidRequestId('a'.repeat(41))).toBe(false);         // 41 chars
+  });
+
+  it('rejects alphanumeric IDs with special characters', () => {
     expect(isValidRequestId('abc12345678901234_67')).toBe(false);
     expect(isValidRequestId('abc12345678901234-67')).toBe(false);
     expect(isValidRequestId('abc12345678901234.67')).toBe(false);
