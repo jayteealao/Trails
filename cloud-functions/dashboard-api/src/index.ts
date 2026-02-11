@@ -17,7 +17,7 @@ if (getApps().length === 0) {
  *   GET /signed-url         → signed GCS download URL (Milestone 3)
  */
 export const dashboardApi = onRequest(
-  { cors: true },
+  { cors: true, memory: '1GiB', maxInstances: 20, timeoutSeconds: 120 },
   async (req, res) => {
     // Auth middleware
     verifyApiKey(req, res, () => {

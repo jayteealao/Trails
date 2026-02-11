@@ -254,6 +254,7 @@ export const backfillArchiver = onSchedule(
     timeZone: 'UTC',
     retryCount: 0,
     timeoutSeconds: 540,
+    memory: '1GiB',
   },
   async () => {
     const db = getFirestore();
@@ -650,7 +651,7 @@ export const backfillArchiver = onSchedule(
  * Used by the dashboard to display backfill progress.
  */
 export const backfillStatus = onRequest(
-  { cors: true },
+  { cors: true, memory: '512MiB' },
   async (req, res) => {
     if (req.method !== 'GET') {
       res.status(405).json({ error: 'Method not allowed' });

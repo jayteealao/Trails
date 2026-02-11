@@ -18,7 +18,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   // Forward all query params to the cloud function
   const incomingUrl = new URL(request.url);
-  const target = new URL('/articles', baseUrl);
+  const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
+  const target = new URL('articles', base);
   target.search = incomingUrl.search;
 
   try {

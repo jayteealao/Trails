@@ -1,4 +1,4 @@
-// Warg Observatory - Industrial Monitor Dashboard
+// Warg Observatory Dashboard
 
 (function () {
   'use strict';
@@ -12,7 +12,6 @@
     feedMaxItems: 200,
   };
 
-  // Stage colors for segmented bar
   const STAGE_COLORS = {
     done: 'var(--stage-done)',
     failed: 'var(--stage-failed)',
@@ -22,7 +21,6 @@
     queued: 'var(--stage-queued)',
   };
 
-  // Pipeline step definitions (maps to EventSource in logging.ts)
   const PIPELINE_STEPS = [
     { id: 'render', label: 'Render', source: 'renderer' },
     { id: 'singlefile', label: 'Singlefile', source: 'singlefile' },
@@ -30,6 +28,29 @@
     { id: 'monolith', label: 'Monolith', source: 'monolith' },
     { id: 'persist', label: 'Persist', source: 'gcs' },
   ];
+
+  // Maps archive keys to workflow steps (for selective re-archiving)
+  const ARCHIVE_KEY_TO_STEP = {
+    rendered: 'render',
+    screenshot: 'render',
+    pdf: 'render',
+    singlefile: 'singlefile',
+    readability: 'readability',
+    markdown: 'readability',
+    monolith: 'monolith',
+  };
+
+  const VIEW_TITLES = {
+    overview: 'Overview',
+    feed: 'Live Feed',
+    requests: 'Requests',
+    errors: 'Errors',
+    articles: 'Articles',
+    backfill: 'Backfill',
+    infra: 'Infrastructure',
+    detail: 'Request Detail',
+    articleDetail: 'Article Detail',
+  };
 
   // ===== State =====
   const state = {
@@ -40,42 +61,20 @@
     stats: null,
     infra: null,
     errors: null,
-    filters: {
-      domain: '',
-      status: '',
-    },
-    pagination: {
-      offset: 0,
-      total: 0,
-      hasMore: false,
-    },
-    settings: {
-      autoRefresh: false,
-      refreshInterval: CONFIG.defaultRefreshInterval,
-    },
+    filters: { domain: '', status: '' },
+    pagination: { offset: 0, total: 0, hasMore: false },
+    settings: { autoRefresh: false, refreshInterval: CONFIG.defaultRefreshInterval },
     loading: false,
     error: null,
-    // Feed state
-    feed: {
-      items: [],
-      knownIds: new Set(),
-      newCount: 0,
-      polling: false,
-    },
-    // Backfill state
+    feed: { items: [], knownIds: new Set(), newCount: 0, polling: false },
     backfill: null,
-    // Articles state
     articles: {
       items: [],
       selectedArticle: null,
       filters: { status: '', search: '' },
       pagination: { page: 1, limit: 50, total: 0, hasMore: false },
     },
-    // Sort state for requests table
-    sort: {
-      column: 'created',
-      direction: 'desc',
-    },
+    sort: { column: 'created', direction: 'desc' },
   };
 
   let refreshTimer = null;
@@ -84,24 +83,29 @@
 
   // ===== DOM Elements =====
   const el = {
-    // Views
     overviewView: document.getElementById('overviewView'),
     requestsView: document.getElementById('requestsView'),
     detailView: document.getElementById('detailView'),
     infraView: document.getElementById('infraView'),
     feedView: document.getElementById('feedView'),
     errorsView: document.getElementById('errorsView'),
-    // Nav
+    backfillView: document.getElementById('backfillView'),
+    articlesView: document.getElementById('articlesView'),
+    articleDetailView: document.getElementById('articleDetailView'),
     navItems: document.querySelectorAll('.nav-item[data-view]'),
     feedBadge: document.getElementById('feedBadge'),
-    // System bar
-    connLed: document.getElementById('connLed'),
-    refreshLed: document.getElementById('refreshLed'),
+    pageTitle: document.getElementById('pageTitle'),
+    // Connection
+    connDot: document.getElementById('connDot'),
+    connLabel: document.getElementById('connLabel'),
     systemClock: document.getElementById('systemClock'),
     // Archive form
     archiveInput: document.getElementById('archiveInput'),
     archiveBtn: document.getElementById('archiveBtn'),
     archiveStatus: document.getElementById('archiveStatus'),
+    // Top bar
+    refreshCurrentBtn: document.getElementById('refreshCurrentBtn'),
+    autoRefreshToggle: document.getElementById('autoRefreshToggle'),
     // Overview
     statTotal: document.getElementById('statTotal'),
     statSuccessRate: document.getElementById('statSuccessRate'),
@@ -113,12 +117,10 @@
     segmentedLegend: document.getElementById('segmentedLegend'),
     topDomains: document.getElementById('topDomains'),
     recentFailures: document.getElementById('recentFailures'),
-    refreshStatsBtn: document.getElementById('refreshStatsBtn'),
     // Infra
     workersPanel: document.getElementById('workersPanel'),
     workflowsPanel: document.getElementById('workflowsPanel'),
     storagePanel: document.getElementById('storagePanel'),
-    refreshInfraBtn: document.getElementById('refreshInfraBtn'),
     // Requests
     requestTableBody: document.getElementById('requestTableBody'),
     requestTable: document.getElementById('requestTable'),
@@ -127,10 +129,7 @@
     prevPage: document.getElementById('prevPage'),
     nextPage: document.getElementById('nextPage'),
     paginationInfo: document.getElementById('paginationInfo'),
-    refreshBtn: document.getElementById('refreshBtn'),
-    autoRefreshToggle: document.getElementById('autoRefreshToggle'),
     backBtn: document.getElementById('backBtn'),
-    // Detail
     detailContent: document.getElementById('detailContent'),
     // Feed
     feedContainer: document.getElementById('feedContainer'),
@@ -138,24 +137,18 @@
     feedLed: document.getElementById('feedLed'),
     // Errors
     errorsContent: document.getElementById('errorsContent'),
-    refreshErrorsBtn: document.getElementById('refreshErrorsBtn'),
     // Backfill
-    backfillView: document.getElementById('backfillView'),
     backfillContent: document.getElementById('backfillContent'),
-    refreshBackfillBtn: document.getElementById('refreshBackfillBtn'),
     // Articles
-    articlesView: document.getElementById('articlesView'),
-    articleDetailView: document.getElementById('articleDetailView'),
     articleTableBody: document.getElementById('articleTableBody'),
     articleStatusFilter: document.getElementById('articleStatusFilter'),
     articleSearchFilter: document.getElementById('articleSearchFilter'),
     articlePrevPage: document.getElementById('articlePrevPage'),
     articleNextPage: document.getElementById('articleNextPage'),
     articlePaginationInfo: document.getElementById('articlePaginationInfo'),
-    refreshArticlesBtn: document.getElementById('refreshArticlesBtn'),
     articleBackBtn: document.getElementById('articleBackBtn'),
     articleDetailContent: document.getElementById('articleDetailContent'),
-    // Loading & Error
+    // UI
     loadingOverlay: document.getElementById('loadingOverlay'),
     errorBanner: document.getElementById('errorBanner'),
     errorMessage: document.getElementById('errorMessage'),
@@ -200,11 +193,13 @@
     return apiRequest('/infra');
   }
 
-  async function submitArchive(url) {
+  async function submitArchive(url, options) {
+    const body = { url };
+    if (options) Object.assign(body, options);
     return apiRequest('/begin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(body),
     });
   }
 
@@ -290,13 +285,13 @@
   function startSystemClock() {
     function update() {
       const now = new Date();
-      el.systemClock.textContent = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      el.systemClock.textContent = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
     }
     update();
     clockTimer = setInterval(update, 1000);
   }
 
-  // ===== Status Badge Helper =====
+  // ===== Status Badge =====
   function statusBadgeHtml(stage) {
     return `<span class="status-badge status-${escapeHtml(stage)}"><span class="led"></span>${escapeHtml(stage)}</span>`;
   }
@@ -313,14 +308,6 @@
     el.statLast1h.textContent = s.recentActivity.last1h.toLocaleString();
     el.statLast24h.textContent = s.recentActivity.last24h.toLocaleString();
 
-    // Color stuck value
-    const stuckEl = el.statStuck;
-    if (s.stuckCount > 0) {
-      stuckEl.classList.add('readout-amber');
-    } else {
-      stuckEl.classList.remove('readout-amber');
-    }
-
     renderSegmentedBar(s.byStage, s.total);
     renderTopDomains(s.topDomains);
     renderRecentFailures(s.recentFailures);
@@ -329,7 +316,7 @@
   function renderSegmentedBar(byStage, total) {
     if (!byStage || total === 0) {
       el.segmentedBar.innerHTML = '';
-      el.segmentedLegend.innerHTML = '<span class="legend-item" style="color:var(--text-muted)">No data</span>';
+      el.segmentedLegend.innerHTML = '<span class="legend-item" style="color:var(--text-3)">No data</span>';
       return;
     }
 
@@ -337,12 +324,12 @@
 
     el.segmentedBar.innerHTML = stages.map(([stage, count]) => {
       const pct = (count / total * 100);
-      const color = STAGE_COLORS[stage] || 'var(--text-muted)';
-      return `<div class="segmented-bar-segment" style="width:${pct}%;background:${color}" title="${stage}: ${count} (${pct.toFixed(1)}%)"></div>`;
+      const color = STAGE_COLORS[stage] || 'var(--text-3)';
+      return `<div class="stage-bar-segment" style="width:${pct}%;background:${color}" title="${stage}: ${count} (${pct.toFixed(1)}%)"></div>`;
     }).join('');
 
     el.segmentedLegend.innerHTML = stages.map(([stage, count]) => {
-      const color = STAGE_COLORS[stage] || 'var(--text-muted)';
+      const color = STAGE_COLORS[stage] || 'var(--text-3)';
       const pct = (count / total * 100).toFixed(1);
       return `<span class="legend-item"><span class="legend-swatch" style="background:${color}"></span>${stage} ${count} (${pct}%)</span>`;
     }).join('');
@@ -350,13 +337,13 @@
 
   function renderTopDomains(domains) {
     if (!domains || domains.length === 0) {
-      el.topDomains.innerHTML = '<div class="empty-state"><div class="empty-state-text">No domains</div></div>';
+      el.topDomains.innerHTML = '<div class="empty-state">No domains</div>';
       return;
     }
 
     el.topDomains.innerHTML = `
-      <table class="data-table domain-table">
-        <thead><tr><th>Domain</th><th style="text-align:right">Count</th></tr></thead>
+      <table class="data-table">
+        <thead><tr><th>Domain</th><th class="td-right">Count</th></tr></thead>
         <tbody>
           ${domains.map(d => `
             <tr>
@@ -371,7 +358,7 @@
 
   function renderRecentFailures(failures) {
     if (!failures || failures.length === 0) {
-      el.recentFailures.innerHTML = '<div class="empty-state"><div class="empty-state-text">No failures</div></div>';
+      el.recentFailures.innerHTML = '<div class="empty-state">No failures</div>';
       return;
     }
 
@@ -399,7 +386,6 @@
   function renderInfra() {
     const infra = state.infra;
     if (!infra) return;
-
     renderWorkersTable(infra.workers);
     renderWorkflowsPanel(infra.workflows);
     renderStoragePanel(infra);
@@ -407,7 +393,7 @@
 
   function renderWorkersTable(workers) {
     if (!workers || workers.length === 0) {
-      el.workersPanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No worker data</div></div>';
+      el.workersPanel.innerHTML = '<div class="empty-state">No worker data</div>';
       return;
     }
 
@@ -416,10 +402,10 @@
         <thead>
           <tr>
             <th>Worker</th>
-            <th style="text-align:right">Requests</th>
-            <th style="text-align:right">Error Rate</th>
-            <th style="text-align:right">CPU p50</th>
-            <th style="text-align:right">CPU p99</th>
+            <th class="td-right">Requests</th>
+            <th class="td-right">Error Rate</th>
+            <th class="td-right">CPU p50</th>
+            <th class="td-right">CPU p99</th>
             <th>Health</th>
           </tr>
         </thead>
@@ -427,7 +413,6 @@
           ${workers.map(w => {
             const errorRate = w.requests > 0 ? (w.errors / w.requests * 100).toFixed(1) : '0.0';
             const healthClass = parseFloat(errorRate) > 5 ? 'metric-bad' : parseFloat(errorRate) > 1 ? 'metric-warn' : 'metric-ok';
-            const healthLed = parseFloat(errorRate) > 5 ? 'led-red' : parseFloat(errorRate) > 1 ? 'led-amber' : 'led-on';
             return `
               <tr>
                 <td>${escapeHtml(w.scriptName)}</td>
@@ -435,7 +420,7 @@
                 <td class="td-right ${healthClass}">${errorRate}%</td>
                 <td class="td-right">${w.cpuP50 != null ? w.cpuP50 + 'ms' : '--'}</td>
                 <td class="td-right">${w.cpuP99 != null ? w.cpuP99 + 'ms' : '--'}</td>
-                <td><span class="led ${healthLed}"></span></td>
+                <td><span class="archive-dot archive-dot-${parseFloat(errorRate) > 5 ? 'failed' : parseFloat(errorRate) > 1 ? 'pending' : 'success'}"></span></td>
               </tr>
             `;
           }).join('')}
@@ -446,7 +431,7 @@
 
   function renderWorkflowsPanel(workflows) {
     if (!workflows) {
-      el.workflowsPanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No workflow data</div></div>';
+      el.workflowsPanel.innerHTML = '<div class="empty-state">No workflow data</div>';
       return;
     }
 
@@ -454,7 +439,7 @@
     const entries = Object.entries(statuses);
 
     if (entries.length === 0) {
-      el.workflowsPanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No workflow instances</div></div>';
+      el.workflowsPanel.innerHTML = '<div class="empty-state">No workflow instances</div>';
       return;
     }
 
@@ -479,7 +464,6 @@
     const doData = infra.durableObjects;
 
     const cells = [];
-
     if (d1) {
       cells.push({ label: 'D1 Queries', value: formatNumber(d1.queryCount) });
       cells.push({ label: 'D1 Rows', value: formatNumber(d1.rowsRead) });
@@ -496,7 +480,7 @@
     }
 
     if (cells.length === 0) {
-      el.storagePanel.innerHTML = '<div class="empty-state"><div class="empty-state-text">No storage data</div></div>';
+      el.storagePanel.innerHTML = '<div class="empty-state">No storage data</div>';
       return;
     }
 
@@ -515,9 +499,7 @@
   // ===== Render: Requests Table =====
   function renderRequestTable() {
     if (state.requests.length === 0) {
-      el.requestTableBody.innerHTML = `
-        <tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted)">No requests found</td></tr>
-      `;
+      el.requestTableBody.innerHTML = `<tr><td colspan="6" class="empty-state">No requests found</td></tr>`;
       return;
     }
 
@@ -532,7 +514,7 @@
           <td class="td-url">${escapeHtml(truncateUrl(req.url, 60))}</td>
           <td>${escapeHtml(domain)}</td>
           <td>${statusBadgeHtml(stage)}</td>
-          <td>${errorCount > 0 ? `<span class="error-count">${errorCount}</span>` : '<span style="color:var(--text-dim)">0</span>'}</td>
+          <td>${errorCount > 0 ? `<span class="error-count">${errorCount}</span>` : '<span style="color:var(--text-3)">0</span>'}</td>
           <td>${formatTimeShort(req.createdAt)}</td>
         </tr>
       `;
@@ -569,56 +551,54 @@
     const artifacts = req.artifacts || [];
     const domain = req.url ? getDomain(req.url) : 'unknown';
 
-    // Pipeline visualizer
     const pipelineHtml = renderPipeline(events);
 
     el.detailContent.innerHTML = `
-      ${pipelineHtml}
+      <div class="detail-grid">
+        ${pipelineHtml}
 
-      <!-- Header -->
-      <div class="detail-header">
-        <div class="detail-url">${escapeHtml(req.url || 'Unknown URL')}</div>
-        <div class="detail-meta">
-          <div class="detail-meta-item">
-            <span class="detail-meta-label">Request ID</span>
-            <span class="detail-meta-value copyable" data-copy="${escapeHtml(req.requestId)}" title="Click to copy">
-              ${escapeHtml(req.requestId)}
-            </span>
-          </div>
-          <div class="detail-meta-item">
-            <span class="detail-meta-label">Domain</span>
-            <span class="detail-meta-value">${escapeHtml(domain)}</span>
-          </div>
-          <div class="detail-meta-item">
-            <span class="detail-meta-label">Status</span>
-            ${statusBadgeHtml(stage)}
-          </div>
-          <div class="detail-meta-item">
-            <span class="detail-meta-label">Created</span>
-            <span class="detail-meta-value">${formatTime(req.createdAt)}</span>
+        <div class="detail-header">
+          <div class="detail-url">${escapeHtml(req.url || 'Unknown URL')}</div>
+          <div class="detail-meta">
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Request ID</span>
+              <span class="detail-meta-value copyable" data-copy="${escapeHtml(req.requestId)}" title="Click to copy">
+                ${escapeHtml(req.requestId)}
+              </span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Domain</span>
+              <span class="detail-meta-value">${escapeHtml(domain)}</span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Status</span>
+              ${statusBadgeHtml(stage)}
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Created</span>
+              <span class="detail-meta-value">${formatTime(req.createdAt)}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Events Timeline -->
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">Events Timeline</span>
-          <span class="section-count">${events.length} events</span>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Events Timeline</span>
+            <span class="card-count">${events.length} events</span>
+          </div>
+          <div class="card-body">
+            ${renderTimeline(events)}
+          </div>
         </div>
-        <div class="section-body">
-          ${renderTimeline(events)}
-        </div>
-      </div>
 
-      <!-- Artifacts -->
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">Artifacts</span>
-          <span class="section-count">${artifacts.length} artifacts</span>
-        </div>
-        <div class="section-body">
-          ${renderArtifacts(artifacts)}
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Artifacts</span>
+            <span class="card-count">${artifacts.length}</span>
+          </div>
+          <div class="card-body">
+            ${renderArtifacts(artifacts)}
+          </div>
         </div>
       </div>
     `;
@@ -632,7 +612,7 @@
     });
   }
 
-  // ===== Render: Pipeline Visualizer =====
+  // ===== Pipeline Visualizer =====
   function derivePipelineState(events) {
     const steps = {};
     for (const step of PIPELINE_STEPS) {
@@ -682,12 +662,11 @@
     for (let i = 0; i < PIPELINE_STEPS.length; i++) {
       const def = PIPELINE_STEPS[i];
       const s = steps[def.id];
-      const ledClass = `pipeline-led-${s.status}`;
       const stepClass = `step-${s.status}`;
 
       parts.push(`
         <div class="pipeline-step ${stepClass}">
-          <div class="pipeline-led ${ledClass}"></div>
+          <div class="pipeline-node"><div class="pipeline-node-inner"></div></div>
           <div class="pipeline-label">${def.label}</div>
           ${s.elapsed != null ? `<div class="pipeline-timing">${formatDuration(s.elapsed)}</div>` : ''}
           ${s.attempts > 1 ? `<div class="pipeline-attempts">x${s.attempts}</div>` : ''}
@@ -707,7 +686,7 @@
 
   function renderTimeline(events) {
     if (events.length === 0) {
-      return '<div class="empty-state"><div class="empty-state-text">No events recorded</div></div>';
+      return '<div class="empty-state">No events recorded</div>';
     }
 
     const sorted = [...events].sort((a, b) => new Date(a.ts) - new Date(b.ts));
@@ -738,7 +717,7 @@
 
   function renderArtifacts(artifacts) {
     if (artifacts.length === 0) {
-      return '<div class="empty-state"><div class="empty-state-text">No artifacts generated</div></div>';
+      return '<div class="empty-state">No artifacts generated</div>';
     }
 
     return `
@@ -760,7 +739,7 @@
   // ===== Render: Feed =====
   function renderFeed() {
     if (state.feed.items.length === 0) {
-      el.feedContainer.innerHTML = '<div class="empty-state"><div class="empty-state-text">Waiting for requests</div></div>';
+      el.feedContainer.innerHTML = '<div class="empty-state">Waiting for requests</div>';
       return;
     }
 
@@ -786,19 +765,17 @@
     el.feedCount.textContent = `${state.feed.items.length} requests`;
   }
 
-  // ===== Render: Errors View =====
+  // ===== Render: Errors =====
   function renderErrors() {
     const data = state.errors;
     if (!data) {
-      el.errorsContent.innerHTML = '<div class="empty-state"><div class="empty-state-text">Loading</div></div>';
+      el.errorsContent.innerHTML = '<div class="empty-state">Loading</div>';
       return;
     }
 
     const { stats, failedRequests, errorsBySource, errorPatterns } = data;
 
-    // Error readout strip
     const total = stats?.total || 0;
-    const failed = failedRequests?.length || 0;
     const failureRate = total > 0 ? ((stats?.byStage?.failed || 0) / total * 100).toFixed(1) : '0.0';
 
     let html = `
@@ -822,19 +799,16 @@
       </div>
     `;
 
-    // Errors by source
     const sourceEntries = Object.entries(errorsBySource).sort((a, b) => b[1] - a[1]);
     const maxSourceCount = sourceEntries.length > 0 ? sourceEntries[0][1] : 1;
 
     if (sourceEntries.length > 0) {
       html += `
-        <div class="section">
-          <div class="section-header">
-            <span class="section-title">Errors by Source</span>
-          </div>
-          <div class="section-body" style="padding: 0;">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Errors by Source</span></div>
+          <div class="card-body card-body-flush">
             <table class="data-table">
-              <thead><tr><th>Source</th><th style="text-align:right">Count</th><th style="min-width:120px">Frequency</th></tr></thead>
+              <thead><tr><th>Source</th><th class="td-right">Count</th><th style="min-width:100px">Frequency</th></tr></thead>
               <tbody>
                 ${sourceEntries.map(([source, count]) => {
                   const pct = (count / maxSourceCount * 100).toFixed(0);
@@ -853,14 +827,11 @@
       `;
     }
 
-    // Error patterns
     if (errorPatterns.length > 0) {
       html += `
-        <div class="section">
-          <div class="section-header">
-            <span class="section-title">Error Patterns</span>
-          </div>
-          <div class="section-body" style="padding: 0;">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Error Patterns</span></div>
+          <div class="card-body card-body-flush">
             ${errorPatterns.map(p => `
               <div class="error-pattern-item">
                 <div class="error-pattern-msg">${escapeHtml(p.message)}</div>
@@ -875,15 +846,14 @@
       `;
     }
 
-    // Affected requests table
     if (failedRequests && failedRequests.length > 0) {
       html += `
-        <div class="section">
-          <div class="section-header">
-            <span class="section-title">Failed Requests</span>
-            <span class="section-count">${failedRequests.length}</span>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Failed Requests</span>
+            <span class="card-count">${failedRequests.length}</span>
           </div>
-          <div class="section-body" style="padding: 0;">
+          <div class="card-body card-body-flush">
             <table class="data-table">
               <thead><tr><th>ID</th><th>URL</th><th>Created</th></tr></thead>
               <tbody>
@@ -929,7 +899,9 @@
       item.classList.toggle('active', item.dataset.view === viewName);
     });
 
-    // Reset feed badge when viewing feed
+    // Update page title
+    el.pageTitle.textContent = VIEW_TITLES[viewName] || viewName;
+
     if (viewName === 'feed') {
       state.feed.newCount = 0;
       updateFeedBadge();
@@ -1010,7 +982,6 @@
     setLoading(true);
     clearError();
     try {
-      // Fetch stats and failed requests in parallel
       const [stats, failedData] = await Promise.all([
         fetchStats(),
         apiRequest('/requests?status=failed&limit=50'),
@@ -1018,13 +989,11 @@
 
       const failedRequests = failedData.requests || [];
 
-      // Fetch detail for up to 10 recent failures to extract error events
       const detailPromises = failedRequests.slice(0, 10).map(r =>
         fetchRequestDetail(r.requestId).catch(() => null)
       );
       const details = await Promise.all(detailPromises);
 
-      // Aggregate errors by source
       const errorsBySource = {};
       const patternMap = {};
 
@@ -1078,33 +1047,31 @@
   function renderBackfill() {
     const data = state.backfill;
     if (!data) {
-      el.backfillContent.innerHTML = '<div class="empty-state"><div class="empty-state-text">Loading</div></div>';
+      el.backfillContent.innerHTML = '<div class="empty-state">Loading</div>';
       return;
     }
 
     if (data.status === 'not_initialized') {
-      el.backfillContent.innerHTML = '<div class="empty-state"><div class="empty-state-text">Backfill not initialized — no runs yet</div></div>';
+      el.backfillContent.innerHTML = '<div class="empty-state">Backfill not initialized</div>';
       return;
     }
 
     const t = data.tracker;
     if (!t) {
-      el.backfillContent.innerHTML = '<div class="empty-state"><div class="empty-state-text">No tracker data</div></div>';
+      el.backfillContent.innerHTML = '<div class="empty-state">No tracker data</div>';
       return;
     }
 
-    // Determine LED color based on last_run_result
     const resultLedMap = {
-      sent_batch: 'led-on',
-      waiting: 'led-amber',
-      settled: 'led-on',
-      idle: 'led-off',
-      backoff: 'led-red',
+      sent_batch: 'archive-dot-success',
+      waiting: 'archive-dot-pending',
+      settled: 'archive-dot-success',
+      idle: 'archive-dot-absent',
+      backoff: 'archive-dot-failed',
     };
-    const ledClass = resultLedMap[t.last_run_result] || 'led-off';
+    const dotClass = resultLedMap[t.last_run_result] || 'archive-dot-absent';
     const isPaused = t.consecutive_all_failed >= 2;
 
-    // Format timestamps (Firestore timestamps come as {_seconds, _nanoseconds} or ISO strings)
     function fmtTimestamp(ts) {
       if (!ts) return '--';
       if (ts._seconds) return formatTime(new Date(ts._seconds * 1000).toISOString());
@@ -1113,13 +1080,12 @@
 
     let html = '';
 
-    // Pause banner
     if (isPaused) {
       html += `
         <div class="readout-strip" style="border-color: var(--red);">
           <div class="readout-cell" style="flex: 1;">
             <div class="readout-label">Status</div>
-            <div class="readout-value readout-red"><span class="led led-red"></span> PAUSED</div>
+            <div class="readout-value readout-red">PAUSED</div>
           </div>
           <div class="readout-cell" style="flex: 2;">
             <div class="readout-label">Consecutive All-Failed</div>
@@ -1129,12 +1095,11 @@
       `;
     }
 
-    // Main readout strip
     html += `
       <div class="readout-strip">
         <div class="readout-cell">
           <div class="readout-label">Run Result</div>
-          <div class="readout-value"><span class="led ${ledClass}"></span> ${escapeHtml(t.last_run_result || '--')}</div>
+          <div class="readout-value"><span class="archive-dot ${dotClass}" style="display:inline-block;vertical-align:middle;margin-right:6px"></span>${escapeHtml(t.last_run_result || '--')}</div>
         </div>
         <div class="readout-cell">
           <div class="readout-label">Batch #</div>
@@ -1159,7 +1124,6 @@
       </div>
     `;
 
-    // Last run time
     html += `
       <div class="readout-strip">
         <div class="readout-cell">
@@ -1177,23 +1141,16 @@
       </div>
     `;
 
-    // Current batch items
     if (t.batch && t.batch.length > 0) {
       html += `
-        <div class="section">
-          <div class="section-header">
-            <span class="section-title">Current Batch Items</span>
-            <span class="section-count">${t.batch.length} items</span>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Current Batch Items</span>
+            <span class="card-count">${t.batch.length} items</span>
           </div>
-          <div class="section-body" style="padding: 0;">
+          <div class="card-body card-body-flush">
             <table class="data-table">
-              <thead>
-                <tr>
-                  <th>URL</th>
-                  <th style="text-align:right">Retries</th>
-                  <th>Sent At</th>
-                </tr>
-              </thead>
+              <thead><tr><th>URL</th><th class="td-right">Retries</th><th>Sent At</th></tr></thead>
               <tbody>
                 ${t.batch.map(entry => `
                   <tr>
@@ -1208,16 +1165,7 @@
         </div>
       `;
     } else {
-      html += `
-        <div class="section">
-          <div class="section-header">
-            <span class="section-title">Current Batch</span>
-          </div>
-          <div class="section-body">
-            <div class="empty-state"><div class="empty-state-text">No active batch</div></div>
-          </div>
-        </div>
-      `;
+      html += `<div class="card"><div class="card-header"><span class="card-title">Current Batch</span></div><div class="card-body"><div class="empty-state">No active batch</div></div></div>`;
     }
 
     el.backfillContent.innerHTML = html;
@@ -1255,7 +1203,7 @@
   }
 
   function renderArchiveIndicators(archives) {
-    if (!archives || archives.length === 0) return '<span style="color:var(--text-dim)">--</span>';
+    if (!archives || archives.length === 0) return '<span style="color:var(--text-3)">--</span>';
     return `<div class="archive-indicators">${archives.map(a =>
       `<div class="archive-dot archive-dot-${escapeHtml(a.status)}" title="${escapeHtml(a.key)}: ${escapeHtml(a.status)}"></div>`
     ).join('')}</div>`;
@@ -1263,9 +1211,7 @@
 
   function renderArticleTable() {
     if (state.articles.items.length === 0) {
-      el.articleTableBody.innerHTML = `
-        <tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-muted)">No articles found</td></tr>
-      `;
+      el.articleTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">No articles found</td></tr>`;
       return;
     }
 
@@ -1302,9 +1248,8 @@
     el.articleNextPage.disabled = !p.hasMore;
   }
 
+  // ===== Article Detail with Pipeline + Archive Triggers =====
   async function loadArticleDetail(itemId) {
-    // Placeholder — will be implemented in Milestone 2
-    // For now, show basic info from the list item
     const article = state.articles.items.find(a => a.item_id === itemId);
     if (!article) {
       showError('Article not found in current list');
@@ -1314,7 +1259,36 @@
     state.articles.selectedArticle = article;
     showView('articleDetail');
 
-    el.articleDetailContent.innerHTML = `
+    // Render the basic detail immediately
+    renderArticleDetailContent(article, null);
+
+    // If article has a warg_request_id, fetch pipeline data
+    if (article.warg_request_id) {
+      try {
+        const pipelineData = await fetchRequestDetail(article.warg_request_id);
+        renderArticleDetailContent(article, pipelineData);
+      } catch {
+        // Pipeline data optional — keep showing without it
+      }
+    }
+  }
+
+  function renderArticleDetailContent(article, pipelineData) {
+    const events = pipelineData?.events || [];
+    const hasPipeline = pipelineData !== null;
+    const classification = article.archive_classification;
+    const successCount = article.archives.filter(a => a.status === 'success').length;
+    const totalArchives = article.archives.length;
+
+    let html = '<div class="detail-grid">';
+
+    // Pipeline visualization (if pipeline data available)
+    if (hasPipeline && events.length > 0) {
+      html += renderPipeline(events);
+    }
+
+    // Header
+    html += `
       <div class="detail-header">
         <div class="detail-url">${escapeHtml(article.url)}</div>
         <div class="detail-meta">
@@ -1336,15 +1310,11 @@
           </div>
           <div class="detail-meta-item">
             <span class="detail-meta-label">Classification</span>
-            ${classificationBadgeHtml(article.archive_classification)}
-          </div>
-          <div class="detail-meta-item">
-            <span class="detail-meta-label">Has Canonical</span>
-            <span class="detail-meta-value">${article.has_canonical ? 'Yes' : 'No'}</span>
+            ${classificationBadgeHtml(classification)}
           </div>
           ${article.warg_request_id ? `
           <div class="detail-meta-item">
-            <span class="detail-meta-label">Warg Request ID</span>
+            <span class="detail-meta-label">Request ID</span>
             <span class="detail-meta-value copyable" data-copy="${escapeHtml(article.warg_request_id)}" title="Click to copy">
               ${escapeHtml(article.warg_request_id)}
             </span>
@@ -1356,45 +1326,97 @@
           </div>
         </div>
       </div>
+    `;
 
-      <!-- Archives Grid -->
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">Archives</span>
-          <span class="section-count">${article.archives.filter(a => a.status === 'success').length}/${article.archives.length} available</span>
+    // Action button: Archive / Re-archive All
+    if (classification === 'unarchived') {
+      html += `
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-archive-full" data-action="archive-full" data-url="${escapeHtml(article.url)}" data-item-id="${escapeHtml(article.item_id)}">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M3 10l7-7 7 7M10 3v14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Archive This Article
+          </button>
         </div>
-        <div class="section-body">
+      `;
+    } else if (classification === 'incomplete' || classification === 'failed') {
+      html += `
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-rearchive-all" data-action="rearchive-all" data-url="${escapeHtml(article.url)}" data-item-id="${escapeHtml(article.item_id)}">
+            Re-archive All
+          </button>
+        </div>
+      `;
+    }
+
+    // Archives grid with per-archive action buttons
+    html += `
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Archives</span>
+          <span class="card-count">${successCount}/${totalArchives} available</span>
+        </div>
+        <div class="card-body">
           <div class="artifacts-grid">
             ${article.archives.map(a => {
-              const ledClass = a.status === 'success' ? 'led-on' : a.status === 'pending' ? 'led-cyan' : a.status === 'failed' ? 'led-red' : 'led-off';
+              const dotClass = a.status === 'success' ? 'archive-dot-success' : a.status === 'pending' ? 'archive-dot-pending' : a.status === 'failed' ? 'archive-dot-failed' : 'archive-dot-absent';
+              const step = ARCHIVE_KEY_TO_STEP[a.key];
+              const canRearchive = (a.status === 'failed' || a.status === 'absent') && step;
+
               return `
                 <div class="artifact-card">
-                  <div class="artifact-kind"><span class="led ${ledClass}"></span> ${escapeHtml(a.key)}</div>
+                  <div class="artifact-kind">
+                    <span class="archive-dot ${dotClass}"></span>
+                    ${escapeHtml(a.key)}
+                  </div>
                   <div class="artifact-meta">
-                    <span>Status: ${escapeHtml(a.status)}</span>
+                    <span>${escapeHtml(a.status)}</span>
                     ${a.compressed_size ? `<span>${formatBytes(a.compressed_size)}</span>` : ''}
                     ${a.created_at ? `<span>${formatTimeShort(a.created_at)}</span>` : ''}
                   </div>
+                  ${canRearchive ? `
+                    <button class="artifact-action artifact-action-archive"
+                            data-action="rearchive-step"
+                            data-url="${escapeHtml(article.url)}"
+                            data-item-id="${escapeHtml(article.item_id)}"
+                            data-step="${escapeHtml(step)}">
+                      Re-archive
+                    </button>
+                  ` : ''}
                 </div>
               `;
             }).join('')}
           </div>
         </div>
       </div>
-
-      <!-- Cross-system Link (Milestone 2 placeholder) -->
-      ${article.warg_request_id ? `
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">Cloudflare Pipeline</span>
-        </div>
-        <div class="section-body">
-          <div class="empty-state"><div class="empty-state-text">Pipeline view coming in Milestone 2.<br>Request ID: ${escapeHtml(article.warg_request_id)}</div></div>
-        </div>
-      </div>
-      ` : ''}
     `;
 
+    // Pipeline events timeline (if available)
+    if (hasPipeline && events.length > 0) {
+      html += `
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Pipeline Events</span>
+            <span class="card-count">${events.length} events</span>
+          </div>
+          <div class="card-body">
+            ${renderTimeline(events)}
+          </div>
+        </div>
+      `;
+    } else if (article.warg_request_id && !hasPipeline) {
+      html += `
+        <div class="card">
+          <div class="card-header"><span class="card-title">Pipeline</span></div>
+          <div class="card-body"><div class="empty-state">Loading pipeline data...</div></div>
+        </div>
+      `;
+    }
+
+    html += '</div>';
+
+    el.articleDetailContent.innerHTML = html;
+
+    // Wire copyable elements
     el.articleDetailContent.querySelectorAll('.copyable').forEach(copyEl => {
       copyEl.addEventListener('click', () => {
         navigator.clipboard.writeText(copyEl.dataset.copy).then(() => {
@@ -1402,6 +1424,46 @@
         });
       });
     });
+
+    // Wire archive action buttons
+    el.articleDetailContent.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => handleArchiveAction(btn));
+    });
+  }
+
+  // ===== Archive Actions from Article Detail =====
+  async function handleArchiveAction(btn) {
+    const action = btn.dataset.action;
+    const url = btn.dataset.url;
+    const itemId = btn.dataset.itemId;
+    const step = btn.dataset.step;
+
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Submitting...';
+
+    try {
+      const options = { request_id: itemId };
+      if (action === 'rearchive-step' && step) {
+        options.steps = [step];
+      }
+
+      const result = await submitArchive(url, options);
+      const id = result.requestId || result.request_id || 'unknown';
+      showToast(`Submitted: ${id.slice(0, 8)}`);
+
+      // Poll article detail to refresh status
+      setTimeout(() => {
+        if (state.articles.selectedArticle?.item_id === itemId) {
+          loadArticleDetail(itemId);
+        }
+      }, 5000);
+    } catch (err) {
+      showError(`Archive failed: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
   }
 
   // ===== Feed Polling =====
@@ -1417,7 +1479,6 @@
           state.feed.items.unshift({ ...req, _new: true });
           newItems++;
         } else {
-          // Update existing item's stage
           const existing = state.feed.items.find(i => i.requestId === req.requestId);
           if (existing) {
             existing.stage = req.stage;
@@ -1426,7 +1487,6 @@
         }
       }
 
-      // Trim to max
       if (state.feed.items.length > CONFIG.feedMaxItems) {
         const removed = state.feed.items.splice(CONFIG.feedMaxItems);
         for (const r of removed) {
@@ -1443,21 +1503,20 @@
           renderFeed();
         }
       } else if (state.currentView === 'feed') {
-        // Still update to reflect status changes
         renderFeed();
       }
 
-      // Clear _new flag after render
       setTimeout(() => {
         for (const item of state.feed.items) {
           item._new = false;
         }
       }, 1200);
 
-      // Update connection LED
-      el.connLed.className = 'led led-on';
+      el.connDot.classList.remove('disconnected');
+      el.connLabel.textContent = 'Connected';
     } catch {
-      el.connLed.className = 'led led-red';
+      el.connDot.classList.add('disconnected');
+      el.connLabel.textContent = 'Disconnected';
     }
   }
 
@@ -1476,22 +1535,21 @@
     state.feed.polling = false;
   }
 
-  // ===== Archive Submission =====
+  // ===== Archive Submission (Top Bar) =====
   async function handleArchiveSubmit() {
     const url = el.archiveInput.value.trim();
     if (!url) return;
 
-    // Basic URL validation
     try {
       new URL(url);
     } catch {
-      el.archiveStatus.textContent = 'ERR: invalid URL';
+      el.archiveStatus.textContent = 'Invalid URL';
       el.archiveStatus.className = 'archive-status archive-err';
       return;
     }
 
     el.archiveBtn.disabled = true;
-    el.archiveStatus.textContent = 'SUBMITTING...';
+    el.archiveStatus.textContent = 'Submitting...';
     el.archiveStatus.className = 'archive-status';
 
     try {
@@ -1501,14 +1559,13 @@
       el.archiveStatus.className = 'archive-status archive-ok';
       el.archiveInput.value = '';
 
-      // Auto-navigate to detail after brief delay
       setTimeout(() => {
         loadRequestDetail(id);
         el.archiveStatus.textContent = '';
         el.archiveStatus.className = 'archive-status';
       }, 800);
     } catch (err) {
-      el.archiveStatus.textContent = `ERR: ${err.message}`;
+      el.archiveStatus.textContent = err.message;
       el.archiveStatus.className = 'archive-status archive-err';
     } finally {
       el.archiveBtn.disabled = false;
@@ -1524,30 +1581,21 @@
   function showError(message) {
     state.error = message;
     el.errorMessage.textContent = message;
-    el.errorBanner.classList.remove('hidden');
-    el.errorBanner.style.background = '';
-    el.errorBanner.style.borderColor = '';
-    el.errorBanner.style.color = '';
+    el.errorBanner.className = 'toast toast-error';
   }
 
   function clearError() {
     state.error = null;
-    el.errorBanner.classList.add('hidden');
+    el.errorBanner.className = 'toast hidden';
   }
 
   function showToast(message) {
     el.errorMessage.textContent = message;
-    el.errorBanner.style.background = 'var(--green-dim)';
-    el.errorBanner.style.borderColor = 'var(--green)';
-    el.errorBanner.style.color = 'var(--green)';
-    el.errorBanner.classList.remove('hidden');
+    el.errorBanner.className = 'toast toast-success';
 
     setTimeout(() => {
-      el.errorBanner.classList.add('hidden');
-      el.errorBanner.style.background = '';
-      el.errorBanner.style.borderColor = '';
-      el.errorBanner.style.color = '';
-    }, 2000);
+      el.errorBanner.className = 'toast hidden';
+    }, 2500);
   }
 
   // ===== Auto Refresh =====
@@ -1555,7 +1603,6 @@
     stopAutoRefresh();
     if (state.settings.autoRefresh) {
       refreshTimer = setInterval(refreshCurrentView, state.settings.refreshInterval * 1000);
-      el.refreshLed.className = 'led led-on';
     }
   }
 
@@ -1564,7 +1611,6 @@
       clearInterval(refreshTimer);
       refreshTimer = null;
     }
-    el.refreshLed.className = 'led led-off';
   }
 
   function refreshCurrentView() {
@@ -1613,19 +1659,8 @@
       });
     });
 
-    // Refresh buttons
-    el.refreshBtn.addEventListener('click', () => {
-      if (state.currentView === 'requests') loadRequests();
-      else if (state.currentView === 'detail' && state.selectedRequest) {
-        loadRequestDetail(state.selectedRequest.requestId);
-      }
-    });
-
-    el.refreshStatsBtn.addEventListener('click', () => loadStats());
-    el.refreshInfraBtn.addEventListener('click', () => loadInfra());
-    el.refreshErrorsBtn.addEventListener('click', () => loadErrors());
-    el.refreshBackfillBtn.addEventListener('click', () => loadBackfill());
-    el.refreshArticlesBtn.addEventListener('click', () => loadArticles());
+    // Unified refresh button
+    el.refreshCurrentBtn.addEventListener('click', refreshCurrentView);
 
     // Article filters
     el.articleStatusFilter.addEventListener('change', (e) => {
@@ -1804,12 +1839,8 @@
     loadSettings();
     setupEventHandlers();
     startSystemClock();
-
-    // Start on overview
     showView('overview');
     loadStats();
-
-    // Start feed polling (always runs in background)
     startFeedPolling();
 
     if (state.settings.autoRefresh) {

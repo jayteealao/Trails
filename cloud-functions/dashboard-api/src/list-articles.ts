@@ -104,12 +104,14 @@ export async function handleListArticles(
   const filter = (req.query['filter'] as string) || '';
   const search = (req.query['search'] as string)?.toLowerCase() || '';
 
-  // Fetch all user articles ordered by timeAdded desc
+  // Fetch user articles ordered by timeAdded desc (hard cap to prevent OOM)
+  const MAX_ARTICLES = 2000;
   const userArticlesSnap = await db
     .collection('users')
     .doc(USER_ID)
     .collection('articles')
     .orderBy('timeAdded', 'desc')
+    .limit(MAX_ARTICLES)
     .get();
 
   if (userArticlesSnap.empty) {
