@@ -4,11 +4,13 @@ set -euo pipefail
 # ============================================================================
 # Warg Deploy Script
 #
-# Deploys all Cloudflare Workers in dependency order.
+# Deploys Cloudflare Workers, Cloud Functions, and Pages in dependency order.
 # Usage:
-#   bash scripts/deploy.sh              # deploy all workers
-#   bash scripts/deploy.sh --with-pages # deploy workers + Pages dashboard
-#   bash scripts/deploy.sh --skip-checks # skip typecheck/test pre-checks
+#   bash scripts/deploy.sh                   # deploy workers only
+#   bash scripts/deploy.sh --with-pages      # deploy workers + Pages dashboard
+#   bash scripts/deploy.sh --with-functions  # deploy workers + Cloud Functions
+#   bash scripts/deploy.sh --all             # deploy everything
+#   bash scripts/deploy.sh --skip-checks     # skip typecheck/test pre-checks
 #
 # Required secrets (set once per worker via wrangler secret put):
 #   gateway:     INTERNAL_API_KEY, PUBLIC_API_KEY
@@ -19,29 +21,43 @@ set -euo pipefail
 #   monolith:    INTERNAL_API_KEY
 #   gcs:         INTERNAL_API_KEY, CLOUD_FN_BASE_URL
 #
-# Cloud Functions (archive-gateway, user-triggers) are deployed separately
-# via Firebase CLI. See project docs.
+# Cloud Functions require .env files with runtime secrets.
+# Copy from .env.example in each cloud-functions/ subdirectory.
 # ============================================================================
 
 WITH_PAGES=false
+WITH_FUNCTIONS=false
 SKIP_CHECKS=false
 
 for arg in "$@"; do
   case "$arg" in
     --with-pages) WITH_PAGES=true ;;
+    --with-functions) WITH_FUNCTIONS=true ;;
+    --all) WITH_PAGES=true; WITH_FUNCTIONS=true ;;
     --skip-checks) SKIP_CHECKS=true ;;
+    --) ;; # ignore pnpm's -- separator
     *) echo "Unknown flag: $arg"; exit 1 ;;
   esac
 done
 
+CLOUD_FUNCTIONS=(archive-gateway user-triggers backfill-archiver dashboard-api)
 DEPLOYED=()
 
 deploy_worker() {
   local worker="$1"
   echo "--- Deploying $worker..."
   pnpm exec wrangler deploy --config "workers/$worker/wrangler.jsonc"
-  DEPLOYED+=("$worker")
+  DEPLOYED+=("worker:$worker")
   echo "--- $worker deployed."
+  echo
+}
+
+deploy_cloud_fn() {
+  local fn="$1"
+  echo "--- Deploying cloud function $fn..."
+  (cd "cloud-functions/$fn" && npx firebase deploy --only functions --project trails-e428e)
+  DEPLOYED+=("cf:$fn")
+  echo "--- $fn deployed."
   echo
 }
 
@@ -56,6 +72,19 @@ if [ "$SKIP_CHECKS" = false ]; then
   echo
 else
   echo "=== Skipping pre-checks (--skip-checks) ==="
+  echo
+fi
+
+# --- Validate .env files for cloud functions ---
+if [ "$WITH_FUNCTIONS" = true ]; then
+  echo "=== Validating cloud function .env files ==="
+  for fn in "${CLOUD_FUNCTIONS[@]}"; do
+    if [ ! -f "cloud-functions/$fn/.env" ]; then
+      echo "ERROR: cloud-functions/$fn/.env is missing. Copy from .env.example and fill in secrets."
+      exit 1
+    fi
+  done
+  echo "=== All .env files present ==="
   echo
 fi
 
@@ -75,12 +104,22 @@ deploy_worker "gateway"
 
 echo "=== All workers deployed ==="
 
-# --- Optional: Pages dashboard ---
+# --- Cloud Functions ---
+if [ "$WITH_FUNCTIONS" = true ]; then
+  echo
+  echo "=== Deploying Cloud Functions ==="
+  for fn in "${CLOUD_FUNCTIONS[@]}"; do
+    deploy_cloud_fn "$fn"
+  done
+  echo "=== All Cloud Functions deployed ==="
+fi
+
+# --- Pages dashboard ---
 if [ "$WITH_PAGES" = true ]; then
   echo
   echo "=== Deploying Pages dashboard ==="
-  pnpm exec wrangler pages deploy pages/dashboard --project-name=warg-dashboard
-  DEPLOYED+=("pages/dashboard")
+  (cd pages/dashboard && ../../node_modules/.bin/wrangler pages deploy)
+  DEPLOYED+=("pages:dashboard")
   echo "=== Dashboard deployed ==="
 fi
 
