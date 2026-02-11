@@ -43,6 +43,7 @@ export interface ArchiveOptions {
   url: string;
   includeScreenshot?: boolean;
   includePdf?: boolean;
+  includeMarkdown?: boolean;
   steps?: WorkflowStep[];
 }
 

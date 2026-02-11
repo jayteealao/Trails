@@ -171,16 +171,18 @@ describe('isValidRequestId', () => {
     expect(isValidRequestId(id)).toBe(true);
   });
 
-  it('rejects non-UUID strings', () => {
-    expect(isValidRequestId('not-a-uuid')).toBe(false);
+  it('rejects invalid strings', () => {
     expect(isValidRequestId('')).toBe(false);
-    expect(isValidRequestId('../../../etc/passwd')).toBe(false);
-    expect(isValidRequestId('a'.repeat(100))).toBe(false);
+    expect(isValidRequestId('../../../etc/passwd')).toBe(false);  // dots and slashes
+    expect(isValidRequestId('a'.repeat(100))).toBe(false);        // too long
+    expect(isValidRequestId('short')).toBe(false);                 // too short (5 chars)
   });
 
-  it('rejects UUID v1 format', () => {
-    // v1 has version nibble "1" not "4"
-    expect(isValidRequestId('550e8400-e29b-11d4-a716-446655440000')).toBe(false);
+  it('accepts safe short hyphenated IDs (previously rejected)', () => {
+    // 'not-a-uuid' is 10 chars of [a-z-] — valid under relaxed rules
+    expect(isValidRequestId('not-a-uuid')).toBe(true);
+    // UUID v1 is 36 chars of [0-9a-f-] — valid under relaxed rules
+    expect(isValidRequestId('550e8400-e29b-11d4-a716-446655440000')).toBe(true);
   });
 
   it('accepts alphanumeric IDs (8-40 chars)', () => {
@@ -191,9 +193,13 @@ describe('isValidRequestId', () => {
     expect(isValidRequestId('abcd1234')).toBe(true);              // 8 chars (minimum)
   });
 
-  it('accepts Pocket-style item IDs', () => {
+  it('accepts Pocket-style item IDs (base64url with hyphens/underscores)', () => {
     expect(isValidRequestId('Vk1N2zlexyGkB1')).toBe(true);       // 14 chars
     expect(isValidRequestId('Ab3Xp9QrTm2nYz')).toBe(true);       // 14 chars
+    expect(isValidRequestId('--sXdODznPvlco')).toBe(true);        // starts with --
+    expect(isValidRequestId('-1eylBHpm-jV-l')).toBe(true);        // multiple hyphens
+    expect(isValidRequestId('-4OJ19CJdt89_A')).toBe(true);        // underscore
+    expect(isValidRequestId('-D_whhy04nrNwD')).toBe(true);        // hyphen + underscore
   });
 
   it('rejects IDs shorter than 8 or longer than 40 chars', () => {
@@ -201,10 +207,10 @@ describe('isValidRequestId', () => {
     expect(isValidRequestId('a'.repeat(41))).toBe(false);         // 41 chars
   });
 
-  it('rejects alphanumeric IDs with special characters', () => {
-    expect(isValidRequestId('abc12345678901234_67')).toBe(false);
-    expect(isValidRequestId('abc12345678901234-67')).toBe(false);
-    expect(isValidRequestId('abc12345678901234.67')).toBe(false);
+  it('rejects IDs with disallowed special characters', () => {
+    expect(isValidRequestId('abc12345678901234.67')).toBe(false); // dots
+    expect(isValidRequestId('abc123456789 1234567')).toBe(false); // spaces
+    expect(isValidRequestId('abc12345678@1234567')).toBe(false);  // @
   });
 });
 

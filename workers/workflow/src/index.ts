@@ -283,7 +283,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             url,
             browser_quota_kind: 'rest_request',
             include_screenshot: options.includeScreenshot,
-            include_pdf: options.includePdf
+            include_pdf: options.includePdf,
+            include_markdown: options.includeMarkdown ?? true
           });
         }
       );
