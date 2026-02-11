@@ -1079,16 +1079,6 @@ body {
   border-color: var(--amber);
 }
 
-.artifact-action-view {
-  color: var(--accent);
-  border-color: rgba(45, 212, 191, 0.3);
-}
-
-.artifact-action-view:hover {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-}
-
 /* Re-archive all button */
 .btn-rearchive-all {
   padding: var(--sp-2) var(--sp-3);
@@ -1635,7 +1625,7 @@ body {
   width: 90vw;
   height: 85vh;
   background: var(--bg-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-1);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -1647,7 +1637,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: var(--sp-3) var(--sp-4);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-1);
   flex-shrink: 0;
 }
 
@@ -1720,7 +1710,7 @@ body {
 .artifact-action-view {
   background: var(--bg-3);
   color: var(--text-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-1);
   border-radius: var(--radius-sm);
   padding: 2px 8px;
   font-size: 0.75rem;

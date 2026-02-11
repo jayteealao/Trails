@@ -3,6 +3,24 @@
 (function () {
   'use strict';
 
+  /*
+   * API Routing:
+   * All requests go to /api/* via CONFIG.apiBase.
+   *
+   * Pages Functions (proxy to dashboard-api Cloud Function):
+   *   GET /api/articles          -> list articles
+   *   GET /api/articles/:itemId  -> article detail
+   *   GET /api/signed-url        -> GCS signed URL for archive viewing
+   *
+   * Gateway Worker (via Pages Functions catch-all or direct binding):
+   *   GET  /api/stats            -> pipeline statistics
+   *   GET  /api/requests         -> request list/search
+   *   GET  /api/:requestId       -> request detail
+   *   POST /api/begin            -> start archive
+   *   GET  /api/infra            -> infrastructure status
+   *   GET  /api/backfill         -> backfill status
+   */
+
   // ===== Configuration =====
   const CONFIG = {
     apiBase: '/api',
@@ -153,6 +171,8 @@
     errorBanner: document.getElementById('errorBanner'),
     errorMessage: document.getElementById('errorMessage'),
     errorClose: document.getElementById('errorClose'),
+    toastBanner: document.getElementById('toastBanner'),
+    toastMessage: document.getElementById('toastMessage'),
     // Settings
     settingsBtn: document.getElementById('settingsBtn'),
     settingsModal: document.getElementById('settingsModal'),
@@ -206,9 +226,12 @@
   // ===== Utility Functions =====
   function escapeHtml(str) {
     if (str === undefined || str === null) return '';
-    const div = document.createElement('div');
-    div.textContent = String(str);
-    return div.innerHTML;
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   function truncateUrl(url, max = 60) {
@@ -257,11 +280,11 @@
   }
 
   function formatBytes(bytes) {
+    if (bytes == null || bytes < 0) return '--';
     if (bytes === 0) return '0 B';
-    if (bytes == null) return '--';
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 
@@ -902,9 +925,13 @@
     // Update page title
     el.pageTitle.textContent = VIEW_TITLES[viewName] || viewName;
 
+    // Start/stop feed polling based on active view
     if (viewName === 'feed') {
       state.feed.newCount = 0;
       updateFeedBadge();
+      startFeedPolling();
+    } else {
+      stopFeedPolling();
     }
   }
 
@@ -989,6 +1016,8 @@
 
       const failedRequests = failedData.requests || [];
 
+      // TODO: Replace with batch endpoint (POST /batch-status) to reduce 10 HTTP calls to 1.
+      // Current approach fires up to 10 parallel requests for individual request details.
       const detailPromises = failedRequests.slice(0, 10).map(r =>
         fetchRequestDetail(r.requestId).catch(() => null)
       );
@@ -1264,17 +1293,21 @@
     // Fetch full detail from API (enriched with metadata)
     try {
       const detail = await fetchArticleDetail(itemId);
+      if (state.articles.selectedArticle?.item_id !== itemId) return; // stale
       state.articles.selectedArticle = detail;
       renderArticleDetailContent(detail, null);
     } catch {
       // Keep showing list data if detail fetch fails
     }
 
+    if (state.articles.selectedArticle?.item_id !== itemId) return; // stale
+
     // If article has a warg_request_id, fetch pipeline data
     const current = state.articles.selectedArticle;
     if (current.warg_request_id) {
       try {
         const pipelineData = await fetchRequestDetail(current.warg_request_id);
+        if (state.articles.selectedArticle?.item_id !== itemId) return; // stale
         renderArticleDetailContent(current, pipelineData);
       } catch {
         // Pipeline data optional — keep showing without it
@@ -1550,7 +1583,7 @@
     if (htmlTypes.includes(archiveKey)) {
       contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}" sandbox="allow-same-origin"></iframe>`;
     } else if (archiveKey === 'pdf') {
-      contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}"></iframe>`;
+      contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}" sandbox="allow-same-origin allow-scripts"></iframe>`;
     } else if (archiveKey === 'screenshot') {
       contentHtml = `<img class="content-viewer-image" src="${escapeHtml(url)}" alt="Screenshot">`;
     } else if (textTypes.includes(archiveKey)) {
@@ -1723,11 +1756,11 @@
   }
 
   function showToast(message) {
-    el.errorMessage.textContent = message;
-    el.errorBanner.className = 'toast toast-success';
+    el.toastMessage.textContent = message;
+    el.toastBanner.className = 'toast toast-success';
 
     setTimeout(() => {
-      el.errorBanner.className = 'toast hidden';
+      el.toastBanner.className = 'toast hidden';
     }, 2500);
   }
 
@@ -1974,7 +2007,6 @@
     startSystemClock();
     showView('overview');
     loadStats();
-    startFeedPolling();
 
     if (state.settings.autoRefresh) {
       startAutoRefresh();

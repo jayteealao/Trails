@@ -1,56 +1,5 @@
-// Proxy for GET /api/signed-url?itemId=X&archiveKey=Y -> dashboard-api cloud function
-
-interface Env {
-  DASHBOARD_API_URL: string;
-  INTERNAL_API_KEY: string;
-}
+import { proxyToApi, type Env } from './_proxy.js';
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
-  const { env, request } = context;
-
-  const baseUrl = env.DASHBOARD_API_URL;
-  if (!baseUrl) {
-    return new Response(
-      JSON.stringify({ error: 'DASHBOARD_API_URL not configured' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
-  // Forward query params to the cloud function
-  const incomingUrl = new URL(request.url);
-  const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
-  const target = new URL('signed-url', base);
-  target.search = incomingUrl.search;
-
-  try {
-    const response = await fetch(target.toString(), {
-      headers: {
-        'X-Internal-API-Key': env.INTERNAL_API_KEY,
-      },
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      return new Response(
-        JSON.stringify({ error: text || `Dashboard API returned ${response.status}` }),
-        { status: response.status, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const data = await response.json();
-
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store',
-      },
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+  return proxyToApi(context.env, 'signed-url', new URL(context.request.url).search);
 };
