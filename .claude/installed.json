@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "installedAt": "2026-01-30T18:04:11.823Z",
-  "updatedAt": "2026-01-30T18:06:14.745Z",
+  "updatedAt": "2026-02-11T19:14:08.889Z",
   "plugins": [
     {
       "name": "cloudflare",
@@ -33,108 +33,6 @@
             "durable-objects",
             "web-perf",
             "wrangler"
-          ],
-          "isSymlinked": false
-        }
-      }
-    },
-    {
-      "name": "session-workflow",
-      "version": "1.9.0",
-      "sourcePath": "C:\\Users\\jayte\\Documents\\dev\\agent-skills",
-      "installedAt": "2026-01-30T18:06:14.745Z",
-      "components": {
-        "agents": 18,
-        "commands": 45,
-        "skills": 12,
-        "mcpServers": 0,
-        "variants": 0
-      },
-      "installedTo": [
-        "claude"
-      ],
-      "installedFiles": {
-        "claude": {
-          "agents": [
-            "research\\best-practices-researcher.md",
-            "research\\codebase-mapper.md",
-            "research\\design-options.md",
-            "research\\edge-case-generator.md",
-            "research\\framework-docs-researcher.md",
-            "research\\git-history-analyzer.md",
-            "research\\repo-research-analyst.md",
-            "research\\risk-analyzer.md",
-            "research\\web-research.md",
-            "review\\architecture-strategist.md",
-            "review\\code-simplicity-reviewer.md",
-            "review\\framework-conventions-reviewer.md",
-            "review\\pattern-recognition-specialist.md",
-            "review\\performance-oracle.md",
-            "review\\security-sentinel.md",
-            "review\\senior-code-reviewer.md",
-            "senior-review-specialist.md",
-            "workflow\\spec-flow-analyzer.md"
-          ],
-          "commands": [
-            "compat-check.md",
-            "debt-register.md",
-            "decision-record.md",
-            "handoff.md",
-            "prod-readiness.md",
-            "refactor-followups.md",
-            "repro-harness.md",
-            "review\\accessibility.md",
-            "review\\api-contracts.md",
-            "review\\architecture.md",
-            "review\\backend-concurrency.md",
-            "review\\ci.md",
-            "review\\correctness.md",
-            "review\\cost.md",
-            "review\\data-integrity.md",
-            "review\\docs.md",
-            "review\\dx.md",
-            "review\\frontend-accessibility.md",
-            "review\\frontend-performance.md",
-            "review\\infra-security.md",
-            "review\\infra.md",
-            "review\\logging.md",
-            "review\\maintainability.md",
-            "review\\migrations.md",
-            "review\\observability.md",
-            "review\\overengineering.md",
-            "review\\performance.md",
-            "review\\privacy.md",
-            "review\\refactor-safety.md",
-            "review\\release.md",
-            "review\\reliability.md",
-            "review\\scalability.md",
-            "review\\security.md",
-            "review\\style-consistency.md",
-            "review\\supply-chain.md",
-            "review\\testing.md",
-            "review\\ux-copy.md",
-            "scope-triage.md",
-            "setup-wide-logging.md",
-            "test-matrix.md",
-            "workflows\\deepen-plan.md",
-            "workflows\\plan-review.md",
-            "workflows\\plan.md",
-            "workflows\\work.md",
-            "write-docs.md"
-          ],
-          "skills": [
-            "error-analysis",
-            "framework-conventions-guide",
-            "refactoring-patterns",
-            "review-all",
-            "review-architecture",
-            "review-infra",
-            "review-pre-merge",
-            "review-quick",
-            "review-security",
-            "review-ux",
-            "test-patterns",
-            "wide-event-observability"
           ],
           "isSymlinked": false
         }
