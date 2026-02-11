@@ -3,28 +3,10 @@ import type { DocumentReference, DocumentData } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import type { ArchiveClassification, ArticleListItem, ArticleListResponse } from './types.js';
 import { classifyArchiveStatus, buildArchiveStatuses } from './classify.js';
+import { USER_ID } from './config.js';
+import { extractDomain, timestampToIso } from './util.js';
 
-const USER_ID = 'TGtRF6GrQaSmfjGk9GEYJ8YZc0v1';
 const CHUNK_SIZE = 500;
-
-function extractDomain(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return 'unknown';
-  }
-}
-
-function timestampToIso(ts: unknown): string {
-  if (!ts) return '';
-  // Firestore Timestamp object
-  if (typeof ts === 'object' && ts !== null && 'toDate' in ts) {
-    return (ts as { toDate: () => Date }).toDate().toISOString();
-  }
-  // Already a string
-  if (typeof ts === 'string') return ts;
-  return '';
-}
 
 /**
  * Batch-fetch canonical article docs for a list of item IDs.
@@ -56,7 +38,7 @@ async function batchFetchCanonicals(
 /**
  * Merge a user article doc + optional canonical doc into an ArticleListItem.
  */
-function mergeArticle(
+export function mergeArticle(
   itemId: string,
   userDoc: DocumentData,
   canonicalDoc: DocumentData | undefined

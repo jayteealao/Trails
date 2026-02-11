@@ -1,26 +1,9 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import type { ArticleDetail } from './types.js';
-import { classifyArchiveStatus, buildArchiveStatuses } from './classify.js';
-
-const USER_ID = 'TGtRF6GrQaSmfjGk9GEYJ8YZc0v1';
-
-function extractDomain(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return 'unknown';
-  }
-}
-
-function timestampToIso(ts: unknown): string {
-  if (!ts) return '';
-  if (typeof ts === 'object' && ts !== null && 'toDate' in ts) {
-    return (ts as { toDate: () => Date }).toDate().toISOString();
-  }
-  if (typeof ts === 'string') return ts;
-  return '';
-}
+import { USER_ID } from './config.js';
+import { timestampToIso } from './util.js';
+import { mergeArticle } from './list-articles.js';
 
 /**
  * GET /articles/:itemId handler.
@@ -47,37 +30,14 @@ export async function handleGetArticle(
   const userDoc = userSnap.data()!;
   const canonicalDoc = canonicalSnap.exists ? canonicalSnap.data()! : undefined;
 
-  const url = (userDoc['url'] as string) ?? '';
+  // Reuse base fields from mergeArticle
+  const base = mergeArticle(itemId, userDoc, canonicalDoc);
+
+  // Enriched detail fields
   const canonicalMeta = canonicalDoc?.['metadata'] as Record<string, unknown> | undefined;
 
-  const title =
-    (canonicalMeta?.['title'] as string | undefined) ??
-    (userDoc['title'] as string | undefined) ??
-    (userDoc['resolvedTitle'] as string | undefined);
-
-  const domain =
-    (canonicalDoc?.['domain'] as string | undefined) ?? extractDomain(url);
-
-  const createdAt =
-    timestampToIso(canonicalDoc?.['created_at']) ||
-    timestampToIso(userDoc['timeAdded']);
-
-  const archives = canonicalDoc?.['archives'] as
-    | Record<string, { status?: string; gcs_path?: string; compressed_size?: number; created_at?: string }>
-    | undefined;
-
   const detail: ArticleDetail = {
-    // Base ArticleListItem fields
-    item_id: itemId,
-    url,
-    title: title ?? undefined,
-    domain,
-    created_at: createdAt,
-    archive_classification: classifyArchiveStatus(canonicalDoc),
-    archives: buildArchiveStatuses(archives),
-    warg_request_id: canonicalDoc?.['warg_request_id'] as string | undefined,
-    has_canonical: canonicalDoc !== undefined,
-    // Enriched detail fields
+    ...base,
     metadata: canonicalMeta
       ? {
           byline: canonicalMeta['byline'] as string | undefined,

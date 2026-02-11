@@ -3,8 +3,8 @@ import { Storage } from '@google-cloud/storage';
 import type { Request, Response } from 'express';
 import { ALL_ARCHIVE_KEYS } from './types.js';
 
-const GCS_BUCKET = process.env['GCS_BUCKET'] ?? 'htbase-archives-standard';
-const GCS_PROJECT_ID = process.env['GCS_PROJECT_ID'] ?? 'trails-414917';
+const GCS_BUCKET = process.env['GCS_BUCKET'] || 'htbase-archives-standard';
+const GCS_PROJECT_ID = process.env['GCS_PROJECT_ID'] || 'trails-414917';
 const SIGNED_URL_EXPIRY_MINUTES = 15;
 
 /**
@@ -23,8 +23,14 @@ export async function handleSignedUrl(
     return;
   }
 
+  const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
+  if (!SAFE_ID_RE.test(itemId)) {
+    res.status(400).json({ error: 'Invalid itemId format' });
+    return;
+  }
+
   if (!ALL_ARCHIVE_KEYS.includes(archiveKey as typeof ALL_ARCHIVE_KEYS[number])) {
-    res.status(400).json({ error: `Invalid archiveKey: ${archiveKey}` });
+    res.status(400).json({ error: 'Invalid archiveKey' });
     return;
   }
 

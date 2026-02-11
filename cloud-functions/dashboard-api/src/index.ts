@@ -23,40 +23,45 @@ export const dashboardApi = onRequest(
   async (req, res) => {
     // Auth middleware
     verifyApiKey(req, res, () => {
-      // Route based on path
-      const path = req.path.replace(/^\/+|\/+$/g, '');
-      const segments = path.split('/');
+      try {
+        // Route based on path
+        const path = req.path.replace(/^\/+|\/+$/g, '');
+        const segments = path.split('/');
 
-      if (req.method === 'GET' && segments[0] === 'articles') {
-        if (segments.length === 1) {
-          // GET /articles
-          handleListArticles(req, res).catch((err) => {
-            console.error('[dashboard-api] Error in handleListArticles:', err);
+        if (req.method === 'GET' && segments[0] === 'articles') {
+          if (segments.length === 1) {
+            // GET /articles
+            handleListArticles(req, res).catch((err) => {
+              console.error('[dashboard-api] Error in handleListArticles:', err);
+              res.status(500).json({ error: 'Internal server error' });
+            });
+            return;
+          }
+
+          // GET /articles/:itemId
+          if (segments.length === 2 && segments[1]) {
+            handleGetArticle(req, res, segments[1]).catch((err) => {
+              console.error('[dashboard-api] Error in handleGetArticle:', err);
+              res.status(500).json({ error: 'Internal server error' });
+            });
+            return;
+          }
+        }
+
+        // GET /signed-url?itemId=X&archiveKey=Y
+        if (req.method === 'GET' && segments[0] === 'signed-url') {
+          handleSignedUrl(req, res).catch((err) => {
+            console.error('[dashboard-api] Error in handleSignedUrl:', err);
             res.status(500).json({ error: 'Internal server error' });
           });
           return;
         }
 
-        // GET /articles/:itemId
-        if (segments.length === 2 && segments[1]) {
-          handleGetArticle(req, res, segments[1]).catch((err) => {
-            console.error('[dashboard-api] Error in handleGetArticle:', err);
-            res.status(500).json({ error: 'Internal server error' });
-          });
-          return;
-        }
+        res.status(404).json({ error: 'Not found' });
+      } catch (err) {
+        console.error('[dashboard-api] Unhandled routing error:', err);
+        res.status(500).json({ error: 'Internal server error' });
       }
-
-      // GET /signed-url?itemId=X&archiveKey=Y
-      if (req.method === 'GET' && segments[0] === 'signed-url') {
-        handleSignedUrl(req, res).catch((err) => {
-          console.error('[dashboard-api] Error in handleSignedUrl:', err);
-          res.status(500).json({ error: 'Internal server error' });
-        });
-        return;
-      }
-
-      res.status(404).json({ error: 'Not found' });
     });
   }
 );
