@@ -2,6 +2,8 @@ import { initializeApp, getApps } from 'firebase-admin/app';
 import { onRequest } from 'firebase-functions/v2/https';
 import { verifyApiKey } from './auth.js';
 import { handleListArticles } from './list-articles.js';
+import { handleGetArticle } from './get-article.js';
+import { handleSignedUrl } from './signed-url.js';
 
 // Initialize Firebase Admin
 if (getApps().length === 0) {
@@ -35,16 +37,22 @@ export const dashboardApi = onRequest(
           return;
         }
 
-        // GET /articles/:itemId (Milestone 2)
+        // GET /articles/:itemId
         if (segments.length === 2 && segments[1]) {
-          res.status(501).json({ error: 'Article detail not yet implemented' });
+          handleGetArticle(req, res, segments[1]).catch((err) => {
+            console.error('[dashboard-api] Error in handleGetArticle:', err);
+            res.status(500).json({ error: 'Internal server error' });
+          });
           return;
         }
       }
 
-      // GET /signed-url (Milestone 3)
+      // GET /signed-url?itemId=X&archiveKey=Y
       if (req.method === 'GET' && segments[0] === 'signed-url') {
-        res.status(501).json({ error: 'Signed URL not yet implemented' });
+        handleSignedUrl(req, res).catch((err) => {
+          console.error('[dashboard-api] Error in handleSignedUrl:', err);
+          res.status(500).json({ error: 'Internal server error' });
+        });
         return;
       }
 

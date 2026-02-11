@@ -1616,4 +1616,119 @@ body {
   .readout-strip { flex-wrap: wrap; }
   .readout-cell { flex: 0 0 33.33%; }
   .detail-meta { flex-direction: column; gap: var(--sp-3); }
+  .content-viewer-panel { width: 95vw; height: 90vh; }
+}
+
+/* ===== Content Viewer Overlay ===== */
+.content-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+}
+
+.content-viewer-panel {
+  width: 90vw;
+  height: 85vh;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.content-viewer-title {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-1);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.content-viewer-close {
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 var(--sp-2);
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.content-viewer-close:hover {
+  color: var(--text-1);
+}
+
+.content-viewer-body {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.content-viewer-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: white;
+}
+
+.content-viewer-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+  margin: auto;
+  padding: var(--sp-4);
+}
+
+.content-viewer-text {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: var(--sp-4);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.artifact-actions {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.artifact-action-view {
+  background: var(--bg-3);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.artifact-action-view:hover {
+  background: var(--accent);
+  color: var(--bg-1);
 }

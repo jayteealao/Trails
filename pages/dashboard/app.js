@@ -1248,25 +1248,34 @@
     el.articleNextPage.disabled = !p.hasMore;
   }
 
+  async function fetchArticleDetail(itemId) {
+    return apiRequest(`/articles/${encodeURIComponent(itemId)}`);
+  }
+
   // ===== Article Detail with Pipeline + Archive Triggers =====
   async function loadArticleDetail(itemId) {
-    const article = state.articles.items.find(a => a.item_id === itemId);
-    if (!article) {
-      showError('Article not found in current list');
-      return;
-    }
-
+    // Show immediately from list data if available
+    const listArticle = state.articles.items.find(a => a.item_id === itemId);
+    const article = listArticle || { item_id: itemId, url: '', domain: '', created_at: '', archive_classification: 'unarchived', archives: [], has_canonical: false };
     state.articles.selectedArticle = article;
     showView('articleDetail');
-
-    // Render the basic detail immediately
     renderArticleDetailContent(article, null);
 
+    // Fetch full detail from API (enriched with metadata)
+    try {
+      const detail = await fetchArticleDetail(itemId);
+      state.articles.selectedArticle = detail;
+      renderArticleDetailContent(detail, null);
+    } catch {
+      // Keep showing list data if detail fetch fails
+    }
+
     // If article has a warg_request_id, fetch pipeline data
-    if (article.warg_request_id) {
+    const current = state.articles.selectedArticle;
+    if (current.warg_request_id) {
       try {
-        const pipelineData = await fetchRequestDetail(article.warg_request_id);
-        renderArticleDetailContent(article, pipelineData);
+        const pipelineData = await fetchRequestDetail(current.warg_request_id);
+        renderArticleDetailContent(current, pipelineData);
       } catch {
         // Pipeline data optional — keep showing without it
       }
@@ -1324,9 +1333,40 @@
             <span class="detail-meta-label">Created</span>
             <span class="detail-meta-value">${formatTime(article.created_at)}</span>
           </div>
+          ${article.firestore_status ? `
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Processing</span>
+            <span class="detail-meta-value">${escapeHtml(article.firestore_status)}</span>
+          </div>
+          ` : ''}
+          ${article.error ? `
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Error</span>
+            <span class="detail-meta-value" style="color:var(--red)">${escapeHtml(article.error)}</span>
+          </div>
+          ` : ''}
         </div>
       </div>
     `;
+
+    // Metadata panel (from ArticleDetail enrichment)
+    const meta = article.metadata;
+    if (meta && (meta.byline || meta.excerpt || meta.word_count || meta.site_name)) {
+      html += `
+        <div class="card">
+          <div class="card-header"><span class="card-title">Metadata</span></div>
+          <div class="card-body">
+            <div class="detail-meta">
+              ${meta.byline ? `<div class="detail-meta-item"><span class="detail-meta-label">Author</span><span class="detail-meta-value">${escapeHtml(meta.byline)}</span></div>` : ''}
+              ${meta.site_name ? `<div class="detail-meta-item"><span class="detail-meta-label">Site</span><span class="detail-meta-value">${escapeHtml(meta.site_name)}</span></div>` : ''}
+              ${meta.word_count ? `<div class="detail-meta-item"><span class="detail-meta-label">Words</span><span class="detail-meta-value">${meta.word_count.toLocaleString()}</span></div>` : ''}
+              ${meta.published_time ? `<div class="detail-meta-item"><span class="detail-meta-label">Published</span><span class="detail-meta-value">${formatTime(meta.published_time)}</span></div>` : ''}
+              ${meta.excerpt ? `<div class="detail-meta-item" style="grid-column:1/-1"><span class="detail-meta-label">Excerpt</span><span class="detail-meta-value">${escapeHtml(meta.excerpt)}</span></div>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     // Action button: Archive / Re-archive All
     if (classification === 'unarchived') {
@@ -1361,6 +1401,7 @@
               const dotClass = a.status === 'success' ? 'archive-dot-success' : a.status === 'pending' ? 'archive-dot-pending' : a.status === 'failed' ? 'archive-dot-failed' : 'archive-dot-absent';
               const step = ARCHIVE_KEY_TO_STEP[a.key];
               const canRearchive = (a.status === 'failed' || a.status === 'absent') && step;
+              const canView = a.status === 'success';
 
               return `
                 <div class="artifact-card">
@@ -1373,15 +1414,25 @@
                     ${a.compressed_size ? `<span>${formatBytes(a.compressed_size)}</span>` : ''}
                     ${a.created_at ? `<span>${formatTimeShort(a.created_at)}</span>` : ''}
                   </div>
-                  ${canRearchive ? `
-                    <button class="artifact-action artifact-action-archive"
-                            data-action="rearchive-step"
-                            data-url="${escapeHtml(article.url)}"
-                            data-item-id="${escapeHtml(article.item_id)}"
-                            data-step="${escapeHtml(step)}">
-                      Re-archive
-                    </button>
-                  ` : ''}
+                  <div class="artifact-actions">
+                    ${canView ? `
+                      <button class="artifact-action artifact-action-view"
+                              data-action="view-archive"
+                              data-item-id="${escapeHtml(article.item_id)}"
+                              data-archive-key="${escapeHtml(a.key)}">
+                        View
+                      </button>
+                    ` : ''}
+                    ${canRearchive ? `
+                      <button class="artifact-action artifact-action-archive"
+                              data-action="rearchive-step"
+                              data-url="${escapeHtml(article.url)}"
+                              data-item-id="${escapeHtml(article.item_id)}"
+                              data-step="${escapeHtml(step)}">
+                        Re-archive
+                      </button>
+                    ` : ''}
+                  </div>
                 </div>
               `;
             }).join('')}
@@ -1437,6 +1488,13 @@
     const url = btn.dataset.url;
     const itemId = btn.dataset.itemId;
     const step = btn.dataset.step;
+    const archiveKey = btn.dataset.archiveKey;
+
+    // View archive content (M3)
+    if (action === 'view-archive' && itemId && archiveKey) {
+      viewArchive(itemId, archiveKey);
+      return;
+    }
 
     btn.disabled = true;
     const originalText = btn.textContent;
@@ -1463,6 +1521,81 @@
     } finally {
       btn.disabled = false;
       btn.textContent = originalText;
+    }
+  }
+
+  // ===== Content Viewer =====
+  async function viewArchive(itemId, archiveKey) {
+    try {
+      const data = await apiRequest(`/signed-url?itemId=${encodeURIComponent(itemId)}&archiveKey=${encodeURIComponent(archiveKey)}`);
+      if (!data.url) throw new Error('No signed URL returned');
+      showContentViewer(archiveKey, data.url);
+    } catch (err) {
+      showError(`Failed to load archive: ${err.message}`);
+    }
+  }
+
+  function showContentViewer(archiveKey, url) {
+    // Remove existing overlay if any
+    const existing = document.querySelector('.content-viewer-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'content-viewer-overlay';
+
+    let contentHtml;
+    const htmlTypes = ['rendered', 'singlefile', 'monolith'];
+    const textTypes = ['readability', 'markdown'];
+
+    if (htmlTypes.includes(archiveKey)) {
+      contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}" sandbox="allow-same-origin"></iframe>`;
+    } else if (archiveKey === 'pdf') {
+      contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}"></iframe>`;
+    } else if (archiveKey === 'screenshot') {
+      contentHtml = `<img class="content-viewer-image" src="${escapeHtml(url)}" alt="Screenshot">`;
+    } else if (textTypes.includes(archiveKey)) {
+      contentHtml = `<pre class="content-viewer-text">Loading...</pre>`;
+    } else {
+      contentHtml = `<div class="content-viewer-text">Unsupported archive type: ${escapeHtml(archiveKey)}</div>`;
+    }
+
+    overlay.innerHTML = `
+      <div class="content-viewer-panel">
+        <div class="content-viewer-header">
+          <span class="content-viewer-title">${escapeHtml(archiveKey)}</span>
+          <button class="content-viewer-close">&times;</button>
+        </div>
+        <div class="content-viewer-body">
+          ${contentHtml}
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Close handlers
+    const close = () => overlay.remove();
+    overlay.querySelector('.content-viewer-close').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+    const escHandler = (e) => {
+      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escHandler); }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    // For text types, fetch and render content
+    if (textTypes.includes(archiveKey)) {
+      fetch(url)
+        .then(r => r.text())
+        .then(text => {
+          const pre = overlay.querySelector('.content-viewer-text');
+          if (pre) pre.textContent = text;
+        })
+        .catch(() => {
+          const pre = overlay.querySelector('.content-viewer-text');
+          if (pre) pre.textContent = 'Failed to load content';
+        });
     }
   }
 

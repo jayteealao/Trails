@@ -4,7 +4,7 @@ import {
   type WorkflowEvent
 } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
-import type { ArtifactMeta, ArchiveManifest } from '@warg/shared';
+import type { ArtifactMeta, ArchiveManifest, WorkflowStep as WorkflowStepType } from '@warg/shared';
 import { getR2Key } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import type {
@@ -103,25 +103,83 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       return await runMockPipeline(this.env, step, request_id, url, options);
     }
 
-    // Step 4: Render (with quota)
-    const renderResult = await this.renderWithQuota(step, request_id, url, options);
+    // Selective step execution: if options.steps is set, only run those steps
+    const requestedSteps = options.steps;
+    const shouldRun = (s: WorkflowStepType) => !requestedSteps || requestedSteps.includes(s);
 
-    // Step 5: Run singlefile (with quota)
-    // SingleFile navigates to the live URL (not rendered HTML) to capture resources
-    const singlefileResult = await this.singlefileWithQuota(
-      step,
-      request_id,
-      url,
-      options_r2_key
-    );
+    // Step 4: Render (with quota) — or reuse existing rendered.html from R2
+    let renderResult: RenderStepResult;
+    if (shouldRun('render')) {
+      renderResult = await this.renderWithQuota(step, request_id, url, options);
+    } else {
+      // Check R2 for existing rendered.html (needed by derivatives)
+      renderResult = await step.do('check-existing-render', async () => {
+        const renderedKey = getR2Key(request_id, 'rendered.html');
+        const existing = await this.env.ARCHIVE_BUCKET.head(renderedKey);
+        if (existing) {
+          return { artifacts: [], renderedHtmlKey: renderedKey };
+        }
+        // No existing render and render not requested — derivatives will be skipped
+        return { artifacts: [], renderedHtmlKey: '' };
+      });
+    }
 
-    // Step 6: Parallel derivatives (readability + monolith - no browser needed)
-    const parallelResults = await this.runParallelDerivatives(
-      step,
-      request_id,
-      renderResult.renderedHtmlKey,
-      url
-    );
+    // Step 5: Run singlefile (with quota) — conditional
+    let singlefileResult: ArtifactMeta | undefined;
+    if (shouldRun('singlefile')) {
+      singlefileResult = await this.singlefileWithQuota(
+        step,
+        request_id,
+        url,
+        options_r2_key
+      );
+    }
+
+    // Step 6: Parallel derivatives (readability + monolith - no browser needed) — conditional
+    const wantReadability = shouldRun('readability');
+    const wantMonolith = shouldRun('monolith');
+    let parallelResults: {
+      readabilityJson?: ArtifactMeta;
+      readabilityMd?: ArtifactMeta;
+      monolith?: ArtifactMeta;
+    } = {};
+
+    if ((wantReadability || wantMonolith) && renderResult.renderedHtmlKey) {
+      if (wantReadability && wantMonolith) {
+        // Both — use existing parallel method
+        parallelResults = await this.runParallelDerivatives(
+          step,
+          request_id,
+          renderResult.renderedHtmlKey,
+          url
+        );
+      } else if (wantReadability) {
+        parallelResults = await this.runReadabilityOnly(
+          step,
+          request_id,
+          renderResult.renderedHtmlKey
+        );
+      } else {
+        parallelResults = await this.runMonolithOnly(
+          step,
+          request_id,
+          renderResult.renderedHtmlKey,
+          url
+        );
+      }
+    } else if ((wantReadability || wantMonolith) && !renderResult.renderedHtmlKey) {
+      // Derivatives requested but no rendered HTML available
+      await step.do('log-skip-derivatives', async () => {
+        await logEvent(
+          this.env,
+          request_id,
+          'step.completed',
+          'Skipping derivatives: no rendered.html available',
+          { skipped: true, reason: 'render step not run and no existing artifact found' },
+          'warn'
+        );
+      });
+    }
 
     // Combine derivative results
     const derivativeResults: DerivativeStepResults = {
@@ -449,6 +507,86 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       readabilityMd: readabilityResult.md,
       monolith: monolithResult.artifact
     };
+  }
+
+  /**
+   * Run readability only (when monolith is not requested).
+   */
+  private async runReadabilityOnly(
+    step: WorkflowStep,
+    requestId: string,
+    renderedHtmlKey: string
+  ): Promise<{ readabilityJson?: ArtifactMeta; readabilityMd?: ArtifactMeta }> {
+    const startedAt = Date.now();
+    await step.do('log-readability-start', async () => {
+      await logStepStarted(this.env, requestId, 'readability');
+    });
+
+    const readabilityResult = await step.do(
+      'readability',
+      {
+        retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
+        timeout: '2 minutes'
+      },
+      async () => {
+        return await callReadability(this.env, {
+          request_id: requestId,
+          rendered_html_key: renderedHtmlKey
+        });
+      }
+    );
+
+    await step.do('log-readability-artifacts', async () => {
+      await logArtifactWritten(this.env, requestId, readabilityResult.json.kind, readabilityResult.json.r2Key, readabilityResult.json.bytes);
+      await logArtifactWritten(this.env, requestId, readabilityResult.md.kind, readabilityResult.md.r2Key, readabilityResult.md.bytes);
+      await logStepCompletedWithDuration(this.env, requestId, 'readability', startedAt, {
+        ...(readabilityResult.meta ? { readabilityMeta: readabilityResult.meta } : {})
+      });
+    });
+
+    return {
+      readabilityJson: readabilityResult.json,
+      readabilityMd: readabilityResult.md
+    };
+  }
+
+  /**
+   * Run monolith only (when readability is not requested).
+   */
+  private async runMonolithOnly(
+    step: WorkflowStep,
+    requestId: string,
+    renderedHtmlKey: string,
+    url: string
+  ): Promise<{ monolith?: ArtifactMeta }> {
+    const startedAt = Date.now();
+    await step.do('log-monolith-start', async () => {
+      await logStepStarted(this.env, requestId, 'monolith');
+    });
+
+    const monolithResult = await step.do(
+      'monolith',
+      {
+        retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
+        timeout: '2 minutes'
+      },
+      async () => {
+        return await callMonolith(this.env, {
+          request_id: requestId,
+          rendered_html_key: renderedHtmlKey,
+          base_url: url
+        });
+      }
+    );
+
+    await step.do('log-monolith-artifact', async () => {
+      await logArtifactWritten(this.env, requestId, monolithResult.artifact.kind, monolithResult.artifact.r2Key, monolithResult.artifact.bytes);
+      await logStepCompletedWithDuration(this.env, requestId, 'monolith', startedAt, {
+        ...(monolithResult.meta ? { monolithMeta: monolithResult.meta } : {})
+      });
+    });
+
+    return { monolith: monolithResult.artifact };
   }
 
   /**

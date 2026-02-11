@@ -37,10 +37,13 @@ export interface ArchiveManifest {
 /**
  * Options for starting an archive request.
  */
+export type WorkflowStep = 'render' | 'singlefile' | 'readability' | 'monolith';
+
 export interface ArchiveOptions {
   url: string;
   includeScreenshot?: boolean;
   includePdf?: boolean;
+  steps?: WorkflowStep[];
 }
 
 /**

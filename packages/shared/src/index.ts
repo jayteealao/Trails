@@ -3,6 +3,7 @@ export type {
   ArtifactMeta,
   ArchiveManifest,
   ArchiveOptions,
+  WorkflowStep,
   ReadabilityResult
 } from './types.js';
 
