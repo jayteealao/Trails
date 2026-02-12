@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "wrangler pages dev . --port 8788",
     "deploy": "wrangler pages deploy . --project-name=warg-dashboard",
-    "typecheck": "tsc --noEmit -p functions/tsconfig.json"
+    "typecheck": "tsc --noEmit -p functions/tsconfig.json",
+    "test": "vitest run"
   }
 }
