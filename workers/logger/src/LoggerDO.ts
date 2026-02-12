@@ -353,6 +353,61 @@ export class LoggerDO extends DurableObject<Env> {
   }
 
   /**
+   * Get events with their auto-increment IDs, plus derived state and artifacts.
+   * Used by the SSE stream handler — IDs become SSE `id:` fields for reconnection.
+   */
+  getEventsForStream(cursor?: number, limit = 100): {
+    events: Array<{
+      id: number;
+      ts: string;
+      source: string;
+      type: string;
+      level: string;
+      message: string;
+      attempt?: number;
+      data?: Record<string, unknown>;
+    }>;
+    derived: DerivedSummary;
+    artifacts: ArtifactRecord[];
+  } | null {
+    this.ensureSchema();
+
+    const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();
+    if (requestRows.length === 0) return null;
+    const requestRow = requestRows[0]!;
+
+    const eventQuery = cursor !== undefined
+      ? 'SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?'
+      : 'SELECT * FROM events ORDER BY id ASC LIMIT ?';
+    const eventArgs = cursor !== undefined ? [cursor, limit] : [limit];
+    const eventRows = this.sql.exec<EventRow>(eventQuery, ...eventArgs).toArray();
+
+    const artifactRows = this.sql.exec<ArtifactRow>('SELECT * FROM artifacts').toArray();
+    const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
+
+    return {
+      events: eventRows.map((row) => ({
+        id: row.id,
+        ts: row.ts,
+        source: row.source,
+        type: row.type,
+        level: row.level,
+        message: row.message,
+        attempt: row.attempt ?? undefined,
+        data: row.data_json ? (JSON.parse(row.data_json) as Record<string, unknown>) : undefined,
+      })),
+      derived,
+      artifacts: artifactRows.map((row) => ({
+        kind: row.kind as ArtifactRecord['kind'],
+        r2Key: row.r2_key,
+        contentType: row.content_type,
+        bytes: row.bytes,
+        sha256: row.sha256,
+      })),
+    };
+  }
+
+  /**
    * Get paginated events only.
    */
   getEvents(cursor?: number, limit = 100): { events: LogEvent[]; nextCursor?: number } {

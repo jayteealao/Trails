@@ -50,8 +50,14 @@ function parseRoute(
 
   // Literal routes take priority over parameterized ones
   if (path === '/request/init' || path === '/event' || path === '/artifact' ||
-      path === '/stats' || path === '/requests') {
+      path === '/stats' || path === '/requests' || path === '/requests/batch') {
     return { path, params };
+  }
+
+  // Match /request/:id/stream pattern (before /request/:id to avoid ambiguity)
+  const streamMatch = path.match(/^\/request\/([^/]+)\/stream$/);
+  if (streamMatch) {
+    return { path: '/request/:id/stream', requestId: streamMatch[1], params };
   }
 
   // Match /request/:id pattern
@@ -127,6 +133,143 @@ export default {
           return Response.json({ error: 'Request not found' }, { status: 404 });
         }
         return Response.json(view);
+      }
+
+      // GET /request/:id/stream - SSE event stream
+      if (method === 'GET' && path === '/request/:id/stream' && requestId) {
+        const stub = getLoggerStub(env, requestId);
+
+        // Check request exists
+        const initial = await stub.getEventsForStream(undefined, 1);
+        if (!initial) {
+          return Response.json({ error: 'Request not found' }, { status: 404 });
+        }
+
+        // Read reconnection cursor from Last-Event-ID header
+        const lastEventIdHeader = request.headers.get('Last-Event-ID');
+        const parsed = lastEventIdHeader ? parseInt(lastEventIdHeader, 10) : undefined;
+        const reconnectCursor = parsed !== undefined && !Number.isNaN(parsed) ? parsed : undefined;
+
+        const MAX_STREAM_MS = 2 * 60 * 1000; // 2 minutes
+        const requestIdCapture = requestId;
+        const abortFlag = { stopped: false };
+        const stream = new ReadableStream({
+          async start(controller) {
+            const encoder = new TextEncoder();
+            const streamStart = Date.now();
+            let lastCursor = reconnectCursor;
+
+            const send = (event: string, data: unknown, id?: number) => {
+              let msg = `event: ${event}\n`;
+              if (id !== undefined) msg += `id: ${id}\n`;
+              msg += `data: ${JSON.stringify(data)}\n\n`;
+              controller.enqueue(encoder.encode(msg));
+            };
+
+            try {
+              // Initial state: fetch request view for metadata
+              const view = await stub.getRequestView();
+              if (!view) {
+                send('stream-error', { message: 'Request not found' });
+                controller.close();
+                return;
+              }
+
+              // Send init event with request metadata
+              send('init', {
+                requestId: view.requestId,
+                url: view.url,
+                createdAt: view.createdAt,
+                derived: view.derived,
+                artifacts: view.artifacts,
+              });
+
+              // Fetch events from cursor (or all events)
+              const data = await stub.getEventsForStream(lastCursor, 500);
+              if (data) {
+                for (const event of data.events) {
+                  send('log', {
+                    ts: event.ts,
+                    source: event.source,
+                    type: event.type,
+                    level: event.level,
+                    message: event.message,
+                    attempt: event.attempt,
+                    data: event.data,
+                  }, event.id);
+                  lastCursor = event.id;
+                }
+              }
+
+              // If already terminal, close immediately
+              if (view.derived.terminal) {
+                send('done', {});
+                controller.close();
+                return;
+              }
+
+              // Poll loop: check for new events every 3 seconds
+              while (!abortFlag.stopped) {
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+                if (abortFlag.stopped) break;
+
+                // Enforce max stream duration
+                if (Date.now() - streamStart > MAX_STREAM_MS) {
+                  send('timeout', {});
+                  controller.close();
+                  return;
+                }
+
+                const update = await stub.getEventsForStream(lastCursor, 100);
+                if (!update) break;
+
+                // Send new events
+                for (const event of update.events) {
+                  send('log', {
+                    ts: event.ts,
+                    source: event.source,
+                    type: event.type,
+                    level: event.level,
+                    message: event.message,
+                    attempt: event.attempt,
+                    data: event.data,
+                  }, event.id);
+                  lastCursor = event.id;
+                }
+
+                // Send state update if there were new events or state changed
+                if (update.events.length > 0) {
+                  send('state', {
+                    derived: update.derived,
+                    artifacts: update.artifacts,
+                  });
+                }
+
+                // Close on terminal
+                if (update.derived.terminal) {
+                  send('done', {});
+                  controller.close();
+                  return;
+                }
+              }
+            } catch (err) {
+              console.error(`[logger] SSE stream error for ${requestIdCapture}:`, err);
+            }
+
+            try { controller.close(); } catch { /* already closed */ }
+          },
+          cancel() {
+            abortFlag.stopped = true;
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+          },
+        });
       }
 
       // GET /request/:id/events - Get paginated events
@@ -218,10 +361,42 @@ export default {
         });
       }
 
+      // POST /requests/batch - Batch fetch request summaries from D1 index
+      if (method === 'POST' && path === '/requests/batch') {
+        const body = (await request.json()) as { requestIds: string[] };
+        const ids = body.requestIds;
+        if (!Array.isArray(ids) || ids.length === 0) {
+          return Response.json({ error: 'requestIds must be a non-empty array' }, { status: 400 });
+        }
+        const capped = ids.slice(0, 50);
+        const placeholders = capped.map(() => '?').join(',');
+        const result = await env.INDEX_DB.prepare(
+          `SELECT * FROM requests_index WHERE request_id IN (${placeholders})`
+        ).bind(...capped).all<RequestsIndexRow>();
+
+        return Response.json({
+          requests: result.results.map((row: RequestsIndexRow) => ({
+            requestId: row.request_id,
+            url: row.url,
+            domain: row.domain,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            lastEventTs: row.last_event_ts,
+            terminal: row.terminal_state === 1,
+            errorCount: row.error_count,
+            stage: row.stage,
+            manifestR2Key: row.manifest_r2_key
+          })),
+        });
+      }
+
       // GET /requests - List requests from D1 index
       if (method === 'GET' && path === '/requests') {
         const domain = params.get('domain');
         const status = params.get('status');
+        const q = params.get('q');
+        const from = params.get('from');
+        const to = params.get('to');
         const limitVal = Math.min(Math.max(parseInt(params.get('limit') ?? '', 10) || 50, 1), 1000);
         const offsetVal = Math.min(Math.max(parseInt(params.get('offset') ?? '', 10) || 0, 0), 100000);
 
@@ -236,6 +411,18 @@ export default {
         if (status) {
           conditions.push('stage = ?');
           bindings.push(status);
+        }
+        if (q) {
+          conditions.push("url LIKE '%' || ? || '%'");
+          bindings.push(q);
+        }
+        if (from) {
+          conditions.push('created_at >= ?');
+          bindings.push(from);
+        }
+        if (to) {
+          conditions.push('created_at <= ?');
+          bindings.push(to);
         }
         if (conditions.length > 0) {
           query += ' WHERE ' + conditions.join(' AND ');
