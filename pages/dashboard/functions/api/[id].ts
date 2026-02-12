@@ -1,7 +1,7 @@
-// Proxy for GET /api/:id -> logger /request/:id
+// Proxy for GET /api/:id -> logger /request/:id (service binding)
 
 interface Env {
-  LOGGER_URL: string;
+  LOGGER: Fetcher;
   INTERNAL_API_KEY: string;
 }
 
@@ -16,10 +16,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     });
   }
 
-  const loggerUrl = `${env.LOGGER_URL}/request/${requestId}`;
-
   try {
-    const response = await fetch(loggerUrl, {
+    const response = await env.LOGGER.fetch(`https://logger/request/${requestId}`, {
       headers: {
         'X-Internal-API-Key': env.INTERNAL_API_KEY,
       },

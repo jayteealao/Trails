@@ -1,25 +1,17 @@
-// Proxy for POST /api/begin -> gateway /begin
+// Proxy for POST /api/begin -> gateway /begin (service binding)
 
 interface Env {
-  GATEWAY_URL: string;
+  GATEWAY: Fetcher;
   PUBLIC_API_KEY: string;
 }
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { env, request } = context;
 
-  if (!env.GATEWAY_URL) {
-    return new Response(JSON.stringify({ error: 'GATEWAY_URL not configured' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
   try {
     const body = await request.text();
-    const gatewayUrl = `${env.GATEWAY_URL}/begin`;
 
-    const response = await fetch(gatewayUrl, {
+    const response = await env.GATEWAY.fetch('https://gateway/begin', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
