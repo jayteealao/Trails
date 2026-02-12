@@ -169,6 +169,7 @@
           <div class="toolbar">
             <div class="filter-row">
               <input type="text" class="filter-input" id="domainFilter" placeholder="Filter by domain...">
+              <input type="text" class="filter-input" id="urlSearchFilter" placeholder="Search URL...">
               <select class="filter-select" id="statusFilter">
                 <option value="">All statuses</option>
                 <option value="queued">Queued</option>
@@ -177,6 +178,12 @@
                 <option value="persisting">Persisting</option>
                 <option value="done">Done</option>
                 <option value="failed">Failed</option>
+              </select>
+              <select class="filter-select" id="dateRangeFilter">
+                <option value="">All time</option>
+                <option value="1h">Last hour</option>
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7 days</option>
               </select>
             </div>
           </div>
@@ -356,6 +363,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

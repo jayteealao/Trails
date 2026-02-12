@@ -661,6 +661,8 @@ body {
 .data-table tr.clickable { cursor: pointer; }
 .data-table tr.clickable:hover { background: var(--bg-3); }
 .data-table tr.clickable:hover td { color: var(--text-0); }
+.data-table tr.clickable.selected { background: var(--bg-4); outline: 1px solid var(--cyan); outline-offset: -1px; }
+.data-table tr.clickable.selected td { color: var(--text-0); }
 
 .data-table .td-url { max-width: 400px; color: var(--text-0); }
 .data-table .td-id { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-3); }
@@ -1721,4 +1723,20 @@ body {
 .artifact-action-view:hover {
   background: var(--accent);
   color: var(--bg-1);
+}
+
+.artifact-action-download {
+  background: var(--bg-3);
+  color: var(--text-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.artifact-action-download:hover {
+  background: var(--bg-4);
+  color: var(--text-0);
 }
