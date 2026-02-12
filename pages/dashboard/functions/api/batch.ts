@@ -1,38 +1,23 @@
-// Proxy for GET /api/requests -> logger /requests (service binding)
+// Proxy for POST /api/batch -> logger /requests/batch (service binding)
 
 interface Env {
   LOGGER: Fetcher;
   INTERNAL_API_KEY: string;
 }
 
-export const onRequestGet: PagesFunction<Env> = async (context) => {
+export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { env, request } = context;
 
-  const url = new URL(request.url);
-  const params = new URLSearchParams();
-
-  // Forward supported query params
-  const domain = url.searchParams.get('domain');
-  const status = url.searchParams.get('status');
-  const limit = url.searchParams.get('limit');
-  const offset = url.searchParams.get('offset');
-  const q = url.searchParams.get('q');
-  const from = url.searchParams.get('from');
-  const to = url.searchParams.get('to');
-
-  if (domain) params.set('domain', domain);
-  if (status) params.set('status', status);
-  if (limit) params.set('limit', limit);
-  if (offset) params.set('offset', offset);
-  if (q) params.set('q', q);
-  if (from) params.set('from', from);
-  if (to) params.set('to', to);
-
   try {
-    const response = await env.LOGGER.fetch(`https://logger/requests?${params}`, {
+    const body = await request.text();
+
+    const response = await env.LOGGER.fetch('https://logger/requests/batch', {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'X-Internal-API-Key': env.INTERNAL_API_KEY,
       },
+      body,
     });
 
     if (!response.ok) {
