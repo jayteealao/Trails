@@ -64,6 +64,7 @@ import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
+import com.jayteealao.trails.screens.articleList.components.AdaptiveArticleGrid
 import com.jayteealao.trails.screens.articleList.components.ArticleDialog
 import com.jayteealao.trails.screens.articleList.components.ArticleListItem
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
@@ -355,55 +356,13 @@ internal fun ArticleListScreenContent(
     onOpenTagManagement: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
 ) {
-    val listState = rememberLazyListState()
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-    ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = 16.dp,
-                bottom = 16.dp,
-                start = if (useCardLayout) 16.dp else 0.dp,
-                end = if (useCardLayout) 16.dp else 0.dp
-            )
-        ) {
-            items(
-                count = lazyItems.itemCount,
-                key = lazyItems.itemKey { it-> it.itemId },
-                contentType = lazyItems.itemContentType { "article" }
-            ) { index ->
-                val article = lazyItems[index]
-                if (article != null) {
-                    ArticleListItem<ArticleListState, ArticleListEvent, ArticleListViewModel>(
-                        article = article,
-                        viewStore = viewStore,
-                        modifier = Modifier.animateItem().then(
-                            if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier
-                        ),
-                        onClick = { onSelectArticle(article) },
-                        onOpenTagManagement = { onOpenTagManagement(article) },
-                        useCardLayout = useCardLayout,
-                        tags = viewStore.state.tags,
-                        onSetFavorite = { itemId, isFavorite -> viewStore.action { setFavorite(itemId, isFavorite) } },
-                        onSetReadStatus = { itemId, isRead -> viewStore.action { setReadStatus(itemId, isRead) } },
-                        onArchiveArticle = { itemId -> viewStore.action { archiveArticle(itemId) } },
-                        onDeleteArticle = { itemId -> viewStore.action { deleteArticle(itemId) } },
-                        onRegenerateDetails = { itemId -> viewStore.action { regenerateArticleDetails(itemId) } },
-                        onCopyLink = { url, label -> viewStore.action { copyLink(url, label) } },
-                        onShareArticle = { title, url -> viewStore.action { shareArticle(title, url) } }
-                    )
-                }
-            }
-        }
-
-
-    }
+    AdaptiveArticleGrid(
+        lazyItems = lazyItems,
+        viewStore = viewStore,
+        onSelectArticle = onSelectArticle,
+        onOpenTagManagement = onOpenTagManagement,
+        useCardLayout = useCardLayout
+    )
 }
 
 
