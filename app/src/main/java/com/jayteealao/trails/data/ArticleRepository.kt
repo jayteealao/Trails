@@ -192,8 +192,9 @@ class ArticleRepositoryImpl @Inject constructor(
     }
 
     override suspend fun setReadStatus(itemId: String, isRead: Boolean) {
-        val timestamp = if (isRead) System.currentTimeMillis() else null
-        articleDao.updateReadStatus(itemId, isRead, timestamp)
+        val now = System.currentTimeMillis()
+        val readTimestamp = if (isRead) now else null
+        articleDao.updateReadStatus(itemId, isRead, readTimestamp, now)
     }
 
     override suspend fun addTag(itemId: String, tag: String) {

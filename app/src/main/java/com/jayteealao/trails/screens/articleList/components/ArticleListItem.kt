@@ -187,7 +187,10 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
                 markReadIcon = markReadIcon,
                 markUnreadIcon = markUnreadIcon,
                 animationTrigger = animationTrigger,
-                onSetReadStatus = onSetReadStatus,
+                onSetReadStatus = { itemId, newState ->
+                    isRead = newState
+                    onSetReadStatus(itemId, newState)
+                },
                 onArchiveArticle = onArchiveArticle,
                 onDeleteArticle = onDeleteArticle,
                 onRegenerateDetails = onRegenerateDetails,

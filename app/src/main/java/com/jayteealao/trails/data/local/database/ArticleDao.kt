@@ -233,12 +233,12 @@ interface ArticleDao {
     @Query(
         """
         UPDATE article
-        SET timeRead = CASE WHEN :isRead THEN :timestamp ELSE NULL END,
-            timeUpdated = :timestamp
+        SET timeRead = CASE WHEN :isRead THEN :readTimestamp ELSE NULL END,
+            timeUpdated = :currentTime
         WHERE itemId = :itemId
         """
     )
-    suspend fun updateReadStatus(itemId: String, isRead: Boolean, timestamp: Long?)
+    suspend fun updateReadStatus(itemId: String, isRead: Boolean, readTimestamp: Long?, currentTime: Long)
 
     @Query(
         """
