@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -53,7 +54,9 @@ import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @AndroidEntryPoint
@@ -70,9 +73,7 @@ class IntentActivity : ComponentActivity() {
 
 
         if (givenUrl != null) {
-//            Timber.d("save url called next in intent activity")
             viewModel.saveUrl(givenUrl, givenTitle)
-//            Timber.d("save call complete in intent activity")
         }
 
         setContent {
@@ -82,7 +83,7 @@ class IntentActivity : ComponentActivity() {
                 val savedArticleId by viewModel.savedArticleId.collectAsState()
 
                 val scope = rememberCoroutineScope()
-                val shouldShow by viewModel.shouldShow.collectAsState()
+                val isSaving by viewModel.isSaving.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
 
                 // Show undo snackbar when article is saved
@@ -102,11 +103,11 @@ class IntentActivity : ComponentActivity() {
                 }
 
                 LaunchedEffect(Unit) {
-//                    while(shouldShow) {
-//                        delay(3000)
-//                    }
-                    delay(8000)
-//                    Timber.d("given url at intent: $url")
+                    // Wait for save to complete (max 15s), then give user time to interact with undo snackbar
+                    withTimeoutOrNull(15_000L) {
+                        viewModel.isSaving.first { !it }
+                    }
+                    delay(5000)
                     finish()
                 }
 
@@ -120,7 +121,7 @@ class IntentActivity : ComponentActivity() {
                             Dialog(
                                 onDismissRequest = {
                                     scope.launch {
-                                        while (shouldShow) {
+                                        while (isSaving) {
                                             delay(1000)
                                         }
                                         delay(1000)
@@ -153,23 +154,32 @@ class IntentActivity : ComponentActivity() {
                                         )
                                     )
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .wrapContentHeight()
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Content(
-                                            url = url,
-                                            title = title
-                                        )
-
+                                    Column {
+                                        Row(
+                                            modifier = Modifier
+                                                .wrapContentHeight()
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Content(
+                                                url = url,
+                                                title = title
+                                            )
+                                        }
+                                        if (isSaving) {
+                                            LinearProgressIndicator(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp)
+                                                    .padding(bottom = 12.dp),
+                                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                            )
+                                        }
                                     }
                                 }
                             }
-//                        }
                     }
 
                     // SnackbarHost at the bottom of the Box

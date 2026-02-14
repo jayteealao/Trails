@@ -368,17 +368,12 @@ interface ArticleDao {
      */
     @Transaction
     suspend fun upsertNewArticle(newArticle: Article): String {
-//        Timber.d("insert article: ${newArticle.itemId}")
         var existingArticle: Article? = null
         if (newArticle.givenUrl != null) {
-//            Timber.d("givenUrl is not null, checking for existing article")
             existingArticle = getArticleByUrl(newArticle.givenUrl)
-//            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
         }
         if (existingArticle == null && newArticle.url != null) {
-//            Timber.d("url is not null and existing article is still null, checking for existing article")
             existingArticle = getArticleByUrl(newArticle.url)
-//            Timber.d("is there an existingArticle: ${existingArticle?.itemId}")
         }
         if (existingArticle != null) {
             val normalizedFavorite = when {
@@ -414,15 +409,12 @@ interface ArticleDao {
                     timeFavorited = if (newArticle.timeFavorited == 0L) existingArticle.timeFavorited else newArticle.timeFavorited,
                     timeToRead = if (newArticle.timeToRead == 0) existingArticle.timeToRead else newArticle.timeToRead,
                     text = if (newArticle.text.isNullOrBlank()) existingArticle.text else newArticle.text,
+                    deletedAt = null,
+                    archivedAt = null,
                 )
-//                existingArticle.copy(
-//                    timeUpdated = newArticle.timeAdded,
-//                    timeAdded = newArticle.timeAdded
-//                )
             )
             return existingArticle.itemId
         } else {
-//            Timber.d("existingArticle is null, inserting article")
             upsertArticle(newArticle)
             return newArticle.itemId
         }

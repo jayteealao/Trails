@@ -23,7 +23,8 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import com.jayteealao.trails.common.ContentMetricsCalculator
+// TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
+// import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.common.generateId
@@ -33,7 +34,6 @@ import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
-import com.jayteealao.trails.services.jina.JinaClient
 import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -52,6 +53,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.saket.unfurl.Unfurler
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -61,8 +63,8 @@ class ArticleListViewModel @Inject constructor(
     private val articleRepository: ArticleRepository,
     private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
     private val articleDao: ArticleDao,
-    private val jinaClient: JinaClient,
-    private val contentMetricsCalculator: ContentMetricsCalculator,
+    // TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
+    // private val contentMetricsCalculator: ContentMetricsCalculator,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel(), Store<ArticleListState, ArticleListEvent> {
 
@@ -132,8 +134,6 @@ class ArticleListViewModel @Inject constructor(
 //            synchronizePocketUseCase()
         }
     }
-
-    val test = MutableStateFlow("")
 
     private var _articles = MutableStateFlow(emptyList<Article>())
     val articles: StateFlow<PagingData<ArticleItem>> = Pager(
@@ -263,7 +263,8 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
-    var shouldShow: MutableStateFlow<Boolean> = MutableStateFlow(true)
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
 
     private val _intentUrl = MutableStateFlow("")
     val intentUrl: StateFlow<String>
@@ -280,12 +281,13 @@ class ArticleListViewModel @Inject constructor(
     val unfurler = Unfurler()
 
     fun saveUrl(givenUrl: Uri, givenTitle: String?) {
-        var id = generateId()
-//        Timber.d("id: $id")
-//        Timber.d("givenUrl in saveUrl: $givenUrl")
-//        Timber.d("givenTitle: $givenTitle")
+        // Reset state from any previous share
+        _isSaving.value = true
+        _savedArticleId.value = null
+
+        val id = generateId()
         val (title, url) = if (givenTitle == null) {
-            extractTitleAndUrl(givenUrl.toString()) ?: Pair(givenTitle, givenUrl.toString()) // Handle parsing failure
+            extractTitleAndUrl(givenUrl.toString()) ?: Pair(givenTitle, givenUrl.toString())
         } else {
             Pair(givenTitle, givenUrl.toString())
         }
@@ -294,15 +296,23 @@ class ArticleListViewModel @Inject constructor(
         _intentTitle.value = title ?: ""
 
         viewModelScope.launch(ioDispatcher) {
-            val timeNow = System.currentTimeMillis()
-            if (url.isBlank()) {
-                shouldShow.value = false
-                return@launch
-            }
-
-            var articleId = id
             try {
-                articleId = articleDao.upsertNewArticle(
+                if (url.isBlank()) {
+                    _event.emit(ArticleListEvent.ShowError(
+                        IllegalArgumentException("No valid URL found in shared content")
+                    ))
+                    return@launch
+                }
+
+                if (url.toHttpUrlOrNull() == null) {
+                    _event.emit(ArticleListEvent.ShowError(
+                        IllegalArgumentException("Only HTTP and HTTPS URLs are supported")
+                    ))
+                    return@launch
+                }
+
+                val timeNow = System.currentTimeMillis()
+                val articleId = articleDao.upsertNewArticle(
                     Article(
                         itemId = id,
                         resolvedId = null,
@@ -315,8 +325,12 @@ class ArticleListViewModel @Inject constructor(
                     )
                 )
 
-                // Emit the saved article ID for undo functionality
+                val isNewArticle = (articleId == id)
                 _savedArticleId.value = articleId
+
+                if (!isNewArticle) {
+                    _event.emit(ArticleListEvent.ShowSnackbar("Article already saved — details refreshed"))
+                }
 
                 var resolvedTitle = title ?: ""
                 var resolvedUrl = url
@@ -340,6 +354,13 @@ class ArticleListViewModel @Inject constructor(
                     _intentTitle.value = resolvedTitle
                 }
 
+                // Guard against undo race: skip update if article was deleted during unfurl
+                val currentArticle = articleDao.getArticleById(articleId)
+                if (currentArticle?.deletedAt != null) {
+                    Timber.d("Article %s was deleted during save, skipping metadata update", articleId)
+                    return@launch
+                }
+
                 articleDao.updateUnfurledDetails(
                     itemId = articleId,
                     title = resolvedTitle,
@@ -349,25 +370,16 @@ class ArticleListViewModel @Inject constructor(
                     excerpt = resolvedExcerpt,
                 )
 
-                val jinaResult = runCatching { jinaClient.getReader(url) }
-                    .onFailure { Timber.w(it, "Failed to fetch reader content for %s", url) }
-                    .getOrNull()
+                // TODO: Replace with new text provider (archiver/singlefile) to extract
+                // article markdown text, then re-enable ContentMetricsCalculator to
+                // compute reading time, listening time, and word count.
 
-                val readerContent = jinaResult?.data?.content //TODO: replace jina with call to archiver/singlefile,
-                if (!readerContent.isNullOrBlank()) {
-                    articleDao.updateText(articleId, readerContent)
-                    val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
-                    articleDao.updateArticleMetrics(
-                        articleId,
-                        metrics.readingTimeMinutes,
-                        metrics.listeningTimeMinutes,
-                        metrics.wordCount,
-                    )
-                }
+                articleRepository.synchronize()
             } catch (error: Throwable) {
                 Timber.e(error, "Failed to save shared article.")
+                _event.emit(ArticleListEvent.ShowError(error))
             } finally {
-                shouldShow.value = false
+                _isSaving.value = false
             }
         }
     }
@@ -417,22 +429,7 @@ class ArticleListViewModel @Inject constructor(
                     excerpt = resolvedExcerpt,
                 )
 
-                // Refetch content using Jina Reader
-//                val jinaResult = runCatching { jinaClient.getReader(url) }
-//                    .onFailure { Timber.w(it, "Failed to fetch reader content for %s", url) }
-//                    .getOrNull()
-
-//                val readerContent = jinaResult?.data?.content
-//                if (!readerContent.isNullOrBlank()) {
-//                    articleDao.updateText(itemId, readerContent)
-//                    val metrics = contentMetricsCalculator.calculateMetrics(readerContent)
-//                    articleDao.updateArticleMetrics(
-//                        itemId,
-//                        metrics.readingTimeMinutes,
-//                        metrics.listeningTimeMinutes,
-//                        metrics.wordCount,
-//                    )
-//                }
+                // TODO: Re-enable text extraction and metrics when new text provider is available
 
                 Timber.d("Successfully regenerated details for article: $itemId")
                 _event.emit(ArticleListEvent.ShowToast("Article details updated"))
@@ -448,8 +445,8 @@ class ArticleListViewModel @Inject constructor(
         val urlMatch = urlRegex.find(combinedString)
 
         return if (urlMatch != null) {
-            val url = urlMatch.value
-            val title = combinedString.substringBefore(url).trim()
+            val url = urlMatch.value.trimEnd('.', ',', ')', ']', ';', ':', '!')
+            val title = combinedString.substringBefore(urlMatch.value).trim()
             Pair(title, url)
         } else {
             null
