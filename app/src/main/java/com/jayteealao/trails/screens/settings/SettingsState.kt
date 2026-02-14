@@ -9,8 +9,6 @@ data class SettingsState(
     val useFreedium: Boolean = false,
     val darkTheme: Boolean = false,
     val useCardLayout: Boolean = false,
-    val jinaToken: String = "",
-    val jinaPlaceholder: String = "Insert Jina Token Here",
     val versionName: String = "",
     val versionCode: Int = 0,
     val isSyncing: Boolean = false,
@@ -27,7 +25,6 @@ data class SettingsState(
 sealed interface SettingsEvent {
     data class ShowToast(val message: String) : SettingsEvent
     data object SemanticCacheCleared : SettingsEvent
-    data object JinaTokenSaved : SettingsEvent
     data object SyncCompleted : SettingsEvent
     data object LoggedOut : SettingsEvent
 }

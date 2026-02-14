@@ -23,21 +23,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,10 +46,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.GoogleAuthProvider
 import com.jayteealao.trails.R
 import com.jayteealao.trails.screens.theme.TrailsTheme
-import com.jayteealao.trails.screens.theme.Typography
 import com.jayteealao.trails.services.firestore.SyncStatus
-import compose.icons.CssGgIcons
-import compose.icons.cssggicons.ArrowRight
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 
@@ -76,10 +69,6 @@ fun SettingsScreen(
 
     // Handle events
     viewStore.handle<SettingsEvent.SemanticCacheCleared> {
-        // Could show a toast or snackbar here
-    }
-
-    viewStore.handle<SettingsEvent.JinaTokenSaved> {
         // Could show a toast or snackbar here
     }
 
@@ -267,37 +256,6 @@ internal fun SettingsScreenContent(
         }
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
-        Text("Jina Reader Token")
-        Row(
-            modifier = Modifier
-                .wrapContentHeight()
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextField(
-                value = viewStore.state.jinaToken,
-                modifier = Modifier.weight(0.6f),
-                onValueChange = { viewStore.action { updateJinaToken(it) } },
-                placeholder = { Text(text = viewStore.state.jinaPlaceholder) },
-                supportingText = {
-                    Text(
-                        text = "Jina.ai token is required to extract text from saved articles—get one at https://r.jina.ai/",
-                        style = Typography.titleSmall
-                    )
-                }
-            )
-            IconButton(
-                onClick = { viewStore.action { updateJinaTokenPreferences() } },
-            ) {
-                Icon(
-                    imageVector = CssGgIcons.ArrowRight,
-                    contentDescription = "submit"
-                )
-            }
-        }
-        HorizontalDivider()
-        Spacer(Modifier.height(8.dp))
         Text("SYNC", style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(4.dp))
 
@@ -434,8 +392,6 @@ private fun SettingsScreenPreview() {
                     useFreedium = true,
                     darkTheme = false,
                     useCardLayout = true,
-                    jinaToken = "sample_token_123",
-                    jinaPlaceholder = "Insert Jina Token Here",
                     versionName = "1.8.9",
                     versionCode = 108090,
                     userEmail = "user@example.com",
@@ -460,8 +416,6 @@ private fun SettingsScreenDarkPreview() {
                     useFreedium = false,
                     darkTheme = true,
                     useCardLayout = true,
-                    jinaToken = "",
-                    jinaPlaceholder = "Insert Jina Token Here",
                     versionName = "1.8.9",
                     versionCode = 108090,
                     userEmail = null,

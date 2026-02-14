@@ -16,12 +16,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -40,7 +38,6 @@ class ArticleDetailViewModel @Inject constructor(
     // Internal mutable states
     private val _article = MutableStateFlow<Article?>(null)
     private val _selectedTabIndex = MutableStateFlow(1)
-    private val _jinaToken = MutableStateFlow("")
     private val _isLoading = MutableStateFlow(false)
 
     private val useFreediumFlow = sharedPreferencesManager.preferenceChangesFlow()
@@ -58,15 +55,12 @@ class ArticleDetailViewModel @Inject constructor(
     private val _state = combine(
         _article,
         _selectedTabIndex,
-        _jinaToken,
         useFreediumFlow,
         _isLoading
-    ) { article, selectedTab, jinaToken, useFreedium, isLoading ->
+    ) { article, selectedTab, useFreedium, isLoading ->
         ArticleDetailState(
             article = article,
             selectedTabIndex = selectedTab,
-            jinaToken = jinaToken,
-            jinaPlaceholder = sharedPreferencesManager.getString("JINA_TOKEN") ?: "Insert Jina Token Here",
             useFreedium = useFreedium,
             isLoading = isLoading
         )
@@ -74,8 +68,7 @@ class ArticleDetailViewModel @Inject constructor(
         scope = viewModelScope,
         started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
         initialValue = ArticleDetailState(
-            useFreedium = sharedPreferencesManager.getBoolean("USE_FREEDIUM"),
-            jinaPlaceholder = sharedPreferencesManager.getString("JINA_TOKEN") ?: "Insert Jina Token Here"
+            useFreedium = sharedPreferencesManager.getBoolean("USE_FREEDIUM")
         )
     )
 
@@ -104,10 +97,6 @@ class ArticleDetailViewModel @Inject constructor(
 
     fun setSelectedTab(index: Int) {
         _selectedTabIndex.value = index
-    }
-
-    fun updateJinaToken(token: String) {
-        _jinaToken.value = token
     }
 
     fun markAsRead(itemId: String) {

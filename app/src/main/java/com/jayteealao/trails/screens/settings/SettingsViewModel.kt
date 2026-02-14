@@ -26,8 +26,7 @@ import javax.inject.Inject
 private data class PreferencesState(
     val useFreedium: Boolean,
     val darkTheme: Boolean,
-    val useCardLayout: Boolean,
-    val jinaToken: String
+    val useCardLayout: Boolean
 )
 
 private data class SyncStateData(
@@ -50,18 +49,14 @@ class SettingsViewModel @Inject constructor(
     private val _event = MutableSharedFlow<SettingsEvent>()
     override val event: SharedFlow<SettingsEvent> = _event.asSharedFlow()
 
-    // Internal mutable token state (not part of consolidated state as it's ephemeral)
-    private val _jinaToken = MutableStateFlow("")
-
     // Tartlet Store implementation - Consolidated state
     // Combine preferences flows
     private val preferencesFlow = combine(
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_FREEDIUM),
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.DARK_MODE_ENABLED),
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_CARD_LAYOUT, defaultValue = false),
-        _jinaToken
-    ) { useFreedium, darkTheme, useCardLayout, jinaToken ->
-        PreferencesState(useFreedium, darkTheme, useCardLayout, jinaToken)
+    ) { useFreedium, darkTheme, useCardLayout ->
+        PreferencesState(useFreedium, darkTheme, useCardLayout)
     }
 
     // Combine sync state flows
@@ -84,8 +79,6 @@ class SettingsViewModel @Inject constructor(
             useFreedium = prefs.useFreedium,
             darkTheme = prefs.darkTheme,
             useCardLayout = prefs.useCardLayout,
-            jinaToken = prefs.jinaToken,
-            jinaPlaceholder = sharedPreferencesManager.getString("JINA_TOKEN") ?: "Insert Jina Token Here",
             versionName = BuildConfig.VERSION_NAME,
             versionCode = BuildConfig.VERSION_CODE,
             isSyncing = sync.isSyncing,
@@ -102,8 +95,6 @@ class SettingsViewModel @Inject constructor(
             useFreedium = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_FREEDIUM),
             darkTheme = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.DARK_MODE_ENABLED),
             useCardLayout = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_CARD_LAYOUT, false),
-            jinaToken = "",
-            jinaPlaceholder = sharedPreferencesManager.getString("JINA_TOKEN") ?: "Insert Jina Token Here",
             versionName = BuildConfig.VERSION_NAME,
             versionCode = BuildConfig.VERSION_CODE,
             userEmail = authRepository.getCurrentUser()?.email,
@@ -118,17 +109,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch(ioDispatcher) {
 //            articleDao.clearModalTable()
             _event.emit(SettingsEvent.SemanticCacheCleared)
-        }
-    }
-
-    fun updateJinaToken(token: String) {
-        _jinaToken.value = token
-    }
-
-    fun updateJinaTokenPreferences() {
-        viewModelScope.launch(ioDispatcher) {
-            sharedPreferencesManager.saveString("JINA_TOKEN", _jinaToken.value)
-            _event.emit(SettingsEvent.JinaTokenSaved)
         }
     }
 

@@ -10,12 +10,12 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import com.jayteealao.trails.common.ContentMetricsCalculator
+// TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
+// import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.datasource.NetworkDataSource
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArticleData
-import com.jayteealao.trails.services.jina.JinaClient
 import com.jayteealao.trails.services.postgrest.PostgrestClient
 import com.jayteealao.trails.sync.initializers.syncForegroundInfo
 import com.jayteealao.trails.sync.workers.SyncWorker.Companion.ARTICLE_LIMIT
@@ -62,10 +62,9 @@ class SyncWorker @AssistedInject constructor(
 
     @Inject
     lateinit var articleDao: ArticleDao
-    @Inject
-    lateinit var contentMetricsCalculator: ContentMetricsCalculator
-    @Inject
-    lateinit var jinaClient: JinaClient
+    // TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
+    // @Inject
+    // lateinit var contentMetricsCalculator: ContentMetricsCalculator
     @Inject
     lateinit var postgrestClient: PostgrestClient
 
@@ -87,7 +86,7 @@ class SyncWorker @AssistedInject constructor(
                 try {
 //TODO: use channels
                 val repopulateJob = launch {
-                    val nonMetricsArticles = articleDao.getNonMetricsArticles() //TODO: replace jina
+                    val nonMetricsArticles = articleDao.getNonMetricsArticles()
                     if (nonMetricsArticles.isNotEmpty()) {
                         Timber.d("Processing ${nonMetricsArticles.size} non-metrics articles")
 
@@ -105,23 +104,10 @@ class SyncWorker @AssistedInject constructor(
                                             excerpt = if (article.excerpt.isNullOrBlank()) result?.description ?: "" else article.excerpt
                                         )
                                     }
-                                    if (article.text.isNullOrBlank()) {
-                                        val jinaReader = jinaClient.getReader(article.url ?: article.givenUrl!!)
-                                        val jinaResult = jinaReader?.data?.content
-                                        if (!jinaResult.isNullOrBlank()) {
-                                            articleDao.updateText(article.itemId, jinaResult)
-                                            val metrics = contentMetricsCalculator.calculateMetrics(jinaResult)
-                                            articleDao.updateArticleMetrics(article.itemId, metrics.readingTimeMinutes, metrics.listeningTimeMinutes, metrics.wordCount)
-                                        }
-                                    } else {
-                                        val metrics = contentMetricsCalculator.calculateMetrics(article.text ?: "")
-                                        articleDao.updateArticleMetrics(
-                                            article.itemId,
-                                            metrics.readingTimeMinutes,
-                                            metrics.listeningTimeMinutes,
-                                            metrics.wordCount
-                                        )
-                                    }
+                                    // TODO: Replace Jina text extraction with new text provider
+                                    // Once available, also re-enable ContentMetricsCalculator
+                                    // to compute reading time, listening time, and word count
+                                    // for articles with or without existing text.
                                 } catch (e: Exception) {
                                     Timber.e(e, "Failed to process article ${article.itemId}")
                                 }

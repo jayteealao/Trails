@@ -8,8 +8,6 @@ import com.jayteealao.trails.data.local.database.Article
 data class ArticleDetailState(
     val article: Article? = null,
     val selectedTabIndex: Int = 1, // Default to Web view (tab 1)
-    val jinaToken: String = "",
-    val jinaPlaceholder: String = "Insert Jina Token Here",
     val useFreedium: Boolean = false,
     val isLoading: Boolean = false
 )

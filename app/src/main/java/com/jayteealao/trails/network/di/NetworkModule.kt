@@ -7,7 +7,6 @@ import com.chuckerteam.chucker.api.RetentionManager
 import com.google.gson.GsonBuilder
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.network.pocket.PocketService
-import com.jayteealao.trails.services.jina.JinaService
 import com.jayteealao.trails.services.postgrest.PostgrestService
 import com.jayteealao.trails.services.semanticSearch.modal.ModalService
 import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
@@ -79,7 +78,7 @@ object NetworkModule {
         return OkHttpClient.Builder()
             .followRedirects(true)
             .followSslRedirects(true)
-            .connectionSpecs(listOf(ConnectionSpec.CLEARTEXT,  ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS))
+            .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS))
             .connectionPool(ConnectionPool(20, 5, TimeUnit.MINUTES))
             .hostnameVerifier(OkHttpClient().hostnameVerifier)
             .addNetworkInterceptor { chain ->
@@ -133,23 +132,6 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideJinaService(okHttpClient: OkHttpClient): JinaService {
-        // Configure Gson for JinaService if needed
-        val gson = GsonBuilder()
-            .serializeNulls() // Example: if JinaService also needs nulls serialized
-            .create()
-        val retrofit = Retrofit.Builder()
-            .client(okHttpClient)
-            .baseUrl("https://r.jina.ai")
-            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
-            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
-            .build()
-
-        return retrofit.create(JinaService::class.java)
-    }
-
-    @Provides
-    @Singleton
     fun providePostgrestService(okHttpClient: OkHttpClient): PostgrestService {
         val BASE_URL: String = "https://postgres-pa.graphitenerd.online/"
 
@@ -169,9 +151,7 @@ object NetworkModule {
     }
 }
 
-internal class HttpRequestInterceptor(
-    val token: String? = null
-) : Interceptor {
+internal class HttpRequestInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
         val request = originalRequest
@@ -185,9 +165,6 @@ internal class HttpRequestInterceptor(
                 if (originalRequest.url.host.contains("modal.run")) {
                     addHeader("X-Accept", "application/json")
                     addHeader("Content-Type", "application/json")
-                }
-                if (originalRequest.url.host.contains("jina.ai") && token != null) {
-                    addHeader("Authorization", "Bearer $token")
                 }
             }.build()
 //        Timber.d(request.toString())

@@ -225,9 +225,10 @@ class ArticleRepositoryImpl @Inject constructor(
     }
 
     override suspend fun delete(itemId: String) {
-        articleDao.updateDeleted(itemId, System.currentTimeMillis())
+        val deletedAt = System.currentTimeMillis()
+        articleDao.updateDeleted(itemId, deletedAt)
 
-        // Delete from Firestore as well
+        // Soft-delete in Firestore (preserves doc so undo can reverse it)
         coroutineScope.launch {
             try {
                 val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
@@ -237,12 +238,15 @@ class ArticleRepositoryImpl @Inject constructor(
                         .document(user.uid)
                         .collection("articles")
                         .document(itemId)
-                        .delete()
+                        .set(
+                            mapOf("deleted_at" to deletedAt),
+                            com.google.firebase.firestore.SetOptions.merge()
+                        )
                         .await()
-                    Timber.d("Deleted article $itemId from Firestore")
+                    Timber.d("Soft-deleted article $itemId in Firestore")
                 }
             } catch (e: Exception) {
-                Timber.e(e, "Failed to delete article $itemId from Firestore")
+                Timber.e(e, "Failed to soft-delete article $itemId in Firestore")
             }
         }
     }
