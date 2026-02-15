@@ -2,8 +2,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import type { DocumentReference, DocumentData } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import type { ArchiveClassification, ArticleListItem, ArticleListResponse } from './types.js';
-import { classifyArchiveStatus, buildArchiveStatuses } from './classify.js';
-import { USER_ID } from './config.js';
+import { classifyArchiveStatus, buildArchiveStatuses, buildArticleHealth } from './classify.js';
+import { getDashboardUserId } from './config.js';
 import { extractDomain, timestampToIso } from './util.js';
 
 const CHUNK_SIZE = 500;
@@ -57,6 +57,7 @@ export function mergeArticle(
   const archives = canonicalDoc?.['archives'] as
     | Record<string, { status?: string; gcs_path?: string; compressed_size?: number; created_at?: string }>
     | undefined;
+  const archiveStatuses = buildArchiveStatuses(archives);
 
   return {
     item_id: itemId,
@@ -65,7 +66,8 @@ export function mergeArticle(
     domain,
     created_at: createdAt,
     archive_classification: classifyArchiveStatus(canonicalDoc),
-    archives: buildArchiveStatuses(archives),
+    archives: archiveStatuses,
+    health: buildArticleHealth(archiveStatuses),
     warg_request_id: canonicalDoc?.['warg_request_id'] as string | undefined,
     has_canonical: canonicalDoc !== undefined,
   };
@@ -88,9 +90,10 @@ export async function handleListArticles(
 
   // Fetch user articles ordered by timeAdded desc (hard cap to prevent OOM)
   const MAX_ARTICLES = 2000;
+  const userId = getDashboardUserId();
   const userArticlesSnap = await db
     .collection('users')
-    .doc(USER_ID)
+    .doc(userId)
     .collection('articles')
     .orderBy('timeAdded', 'desc')
     .limit(MAX_ARTICLES)

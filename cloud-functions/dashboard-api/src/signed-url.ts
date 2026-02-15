@@ -6,6 +6,30 @@ import { ALL_ARCHIVE_KEYS } from './types.js';
 const GCS_BUCKET = process.env['GCS_BUCKET'] || 'htbase-archives-standard';
 const GCS_PROJECT_ID = process.env['GCS_PROJECT_ID'] || 'trails-414917';
 const SIGNED_URL_EXPIRY_MINUTES = 15;
+const ARCHIVE_ALIASES: Partial<Record<string, readonly string[]>> = {
+  readability: ['readability', 'readability_json'],
+  markdown: ['markdown', 'readability_md'],
+};
+
+interface ArchiveRecord {
+  status?: string;
+  gcs_path?: string;
+}
+
+function resolveArchiveWithAlias(
+  archives: Record<string, ArchiveRecord> | undefined,
+  archiveKey: string
+): { sourceKey: string; archive: ArchiveRecord } | undefined {
+  if (!archives) return undefined;
+  const aliases = ARCHIVE_ALIASES[archiveKey] ?? [archiveKey];
+  for (const key of aliases) {
+    const archive = archives[key];
+    if (archive) {
+      return { sourceKey: key, archive };
+    }
+  }
+  return undefined;
+}
 
 /**
  * GET /signed-url?itemId=X&archiveKey=Y handler.
@@ -43,8 +67,9 @@ export async function handleSignedUrl(
   }
 
   const doc = docSnap.data()!;
-  const archives = doc['archives'] as Record<string, { status?: string; gcs_path?: string }> | undefined;
-  const archive = archives?.[archiveKey];
+  const archives = doc['archives'] as Record<string, ArchiveRecord> | undefined;
+  const resolved = resolveArchiveWithAlias(archives, archiveKey);
+  const archive = resolved?.archive;
 
   if (!archive || archive.status !== 'success' || !archive.gcs_path) {
     res.status(404).json({ error: `Archive '${archiveKey}' not available (status: ${archive?.status ?? 'absent'})` });
@@ -79,5 +104,6 @@ export async function handleSignedUrl(
     url: signedUrl,
     expires_at: expiresAt.toISOString(),
     archive_key: archiveKey,
+    archive_source_key: resolved?.sourceKey ?? archiveKey,
   });
 }

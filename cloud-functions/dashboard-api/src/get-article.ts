@@ -1,7 +1,7 @@
 import { getFirestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import type { ArticleDetail } from './types.js';
-import { USER_ID } from './config.js';
+import { getDashboardUserId } from './config.js';
 import { timestampToIso } from './util.js';
 import { mergeArticle } from './list-articles.js';
 
@@ -15,10 +15,11 @@ export async function handleGetArticle(
   itemId: string
 ): Promise<void> {
   const db = getFirestore();
+  const userId = getDashboardUserId();
 
   // Fetch user article and canonical article in parallel
   const [userSnap, canonicalSnap] = await Promise.all([
-    db.collection('users').doc(USER_ID).collection('articles').doc(itemId).get(),
+    db.collection('users').doc(userId).collection('articles').doc(itemId).get(),
     db.collection('articles').doc(itemId).get(),
   ]);
 

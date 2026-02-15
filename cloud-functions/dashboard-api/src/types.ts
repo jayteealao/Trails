@@ -37,6 +37,14 @@ export interface ArchiveStatus {
   created_at?: string;
 }
 
+export interface ArticleHealth {
+  completenessScore: number;
+  missingCore: string[];
+  failedArchives: string[];
+  bestAvailableArchive: 'markdown' | 'readability' | 'singlefile' | 'rendered' | null;
+  recommendedAction: 'retry_missing' | 'none';
+}
+
 /**
  * Article list item returned by GET /articles.
  */
@@ -48,6 +56,7 @@ export interface ArticleListItem {
   created_at: string;
   archive_classification: ArchiveClassification;
   archives: ArchiveStatus[];
+  health: ArticleHealth;
   warg_request_id?: string;
   has_canonical: boolean;
 }
