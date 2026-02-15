@@ -122,7 +122,12 @@ export default {
           await appendLogEvent(
             env,
             requestId,
-            createEvent('gateway', 'request.failed', 'error', urlError, { url: body.url })
+            createEvent('gateway', 'request.failed', 'error', urlError, {
+              url: body.url,
+              errorCode: 'INVALID_INPUT_URL',
+              retryable: false,
+              recommendedAction: 'inspect_url'
+            })
           );
           return withRequestId(Response.json({ error: urlError }, { status: 400 }), requestId);
         }
@@ -171,7 +176,11 @@ export default {
           await appendLogEvent(
             env,
             requestId,
-            createEvent('gateway', 'workflow.trigger_failed', 'error', 'Failed to trigger workflow')
+            createEvent('gateway', 'workflow.trigger_failed', 'error', 'Failed to trigger workflow', {
+              errorCode: 'WORKFLOW_TRIGGER_FAILED',
+              retryable: true,
+              recommendedAction: 'retry_full'
+            })
           );
           // Return 202: request was created in logger but workflow did not start
           return withRequestId(

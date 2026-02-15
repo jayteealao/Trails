@@ -9,6 +9,62 @@ import type {
   GcsResponse,
   SinglefileParams
 } from './types.js';
+import type { RequestErrorCode, UserActionHint } from '@warg/shared';
+
+interface ServiceErrorClassification {
+  errorCode: RequestErrorCode;
+  retryable: boolean;
+  recommendedAction: UserActionHint;
+}
+
+function classifyTimeout(path: string): ServiceErrorClassification {
+  const byPath: Record<string, RequestErrorCode> = {
+    '/render': 'RENDER_TIMEOUT',
+    '/singlefile': 'SINGLEFILE_TIMEOUT',
+    '/readability': 'READABILITY_TIMEOUT',
+    '/monolith': 'MONOLITH_TIMEOUT',
+  };
+  return {
+    errorCode: byPath[path] ?? 'UNKNOWN_ERROR',
+    retryable: true,
+    recommendedAction: 'retry_step',
+  };
+}
+
+function classifyServiceFailure(path: string, status: number): ServiceErrorClassification {
+  if (status === 401 || status === 403) {
+    return {
+      errorCode: 'ACCESS_BLOCKED',
+      retryable: false,
+      recommendedAction: 'check_access',
+    };
+  }
+
+  const byPath: Record<string, RequestErrorCode> = {
+    '/render': 'RENDER_SERVICE_ERROR',
+    '/singlefile': 'SINGLEFILE_SERVICE_ERROR',
+    '/readability': 'READABILITY_SERVICE_ERROR',
+    '/monolith': 'MONOLITH_SERVICE_ERROR',
+    '/persist': 'PERSIST_SERVICE_ERROR',
+  };
+
+  const retryable = status === 429 || status >= 500;
+  return {
+    errorCode: byPath[path] ?? 'UNKNOWN_ERROR',
+    retryable,
+    recommendedAction: retryable ? 'retry_step' : 'investigate_service',
+  };
+}
+
+class ServiceCallError extends Error {
+  classification: ServiceErrorClassification;
+
+  constructor(message: string, classification: ServiceErrorClassification) {
+    super(message);
+    this.name = 'ServiceCallError';
+    this.classification = classification;
+  }
+}
 
 /**
  * Generic service call helper with timeout.
@@ -24,19 +80,33 @@ async function serviceCall<T>(
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetcher.fetch(`https://service${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-API-Key': apiKey
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    let response: Response;
+    try {
+      response = await fetcher.fetch(`https://service${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-API-Key': apiKey
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new ServiceCallError(
+          `Service timeout calling ${path}`,
+          classifyTimeout(path)
+        );
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Service error ${response.status}: ${text}`);
+      throw new ServiceCallError(
+        `Service error ${response.status}: ${text}`,
+        classifyServiceFailure(path, response.status)
+      );
     }
 
     return (await response.json()) as T;

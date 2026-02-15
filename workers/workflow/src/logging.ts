@@ -1,5 +1,75 @@
 import type { EventType, LogLevel } from '@warg/shared';
 import { createEvent } from '@warg/shared';
+import type { RequestErrorCode, UserActionHint } from '@warg/shared';
+
+interface ClassifiedError {
+  errorCode: RequestErrorCode;
+  retryable: boolean;
+  recommendedAction: UserActionHint;
+}
+
+function fromErrorObject(error: string | Error): ClassifiedError | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const value = (error as unknown as { classification?: ClassifiedError }).classification;
+  if (!value) return undefined;
+  return value;
+}
+
+function classifyError(stepName: string, errorMsg: string): ClassifiedError {
+  const msg = errorMsg.toLowerCase();
+
+  if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('abort')) {
+    const timeoutByStep: Record<string, RequestErrorCode> = {
+      render: 'RENDER_TIMEOUT',
+      singlefile: 'SINGLEFILE_TIMEOUT',
+      readability: 'READABILITY_TIMEOUT',
+      monolith: 'MONOLITH_TIMEOUT',
+    };
+    return {
+      errorCode: timeoutByStep[stepName] ?? 'UNKNOWN_ERROR',
+      retryable: true,
+      recommendedAction: stepName === 'render' ? 'retry_full' : 'retry_step',
+    };
+  }
+
+  if (msg.includes('service error')) {
+    const serviceByStep: Record<string, RequestErrorCode> = {
+      render: 'RENDER_SERVICE_ERROR',
+      singlefile: 'SINGLEFILE_SERVICE_ERROR',
+      readability: 'READABILITY_SERVICE_ERROR',
+      monolith: 'MONOLITH_SERVICE_ERROR',
+      persist: 'PERSIST_SERVICE_ERROR',
+      derivatives: 'MONOLITH_SERVICE_ERROR',
+    };
+    return {
+      errorCode: serviceByStep[stepName] ?? 'UNKNOWN_ERROR',
+      retryable: true,
+      recommendedAction: stepName === 'persist' ? 'investigate_service' : 'retry_step',
+    };
+  }
+
+  if (msg.includes('unauthorized') || msg.includes('access') || msg.includes('forbidden')) {
+    return {
+      errorCode: 'ACCESS_BLOCKED',
+      retryable: false,
+      recommendedAction: 'check_access',
+    };
+  }
+
+  if (msg.includes('invalid url') || msg.includes('url is required')) {
+    return {
+      errorCode: 'INVALID_INPUT_URL',
+      retryable: false,
+      recommendedAction: 'inspect_url',
+    };
+  }
+
+  return {
+    errorCode: 'UNKNOWN_ERROR',
+    retryable: true,
+    recommendedAction: 'investigate_service',
+  };
+}
 
 /**
  * Log an event to the logger service.
@@ -94,12 +164,21 @@ export function logStepFailed(
 ): Promise<void> {
   const errorMsg = error instanceof Error ? error.message : error;
   const stack = error instanceof Error ? error.stack?.slice(0, 1000) : undefined;
+  const classified = fromErrorObject(error) ?? classifyError(stepName, errorMsg);
   return logEvent(
     env,
     requestId,
     'step.failed',
     `Step failed: ${stepName}: ${errorMsg}`,
-    { step: stepName, error: errorMsg, ...(stack ? { stack } : {}), ...data },
+    {
+      step: stepName,
+      error: errorMsg,
+      errorCode: classified.errorCode,
+      retryable: classified.retryable,
+      recommendedAction: classified.recommendedAction,
+      ...(stack ? { stack } : {}),
+      ...data
+    },
     'error'
   );
 }
@@ -144,12 +223,20 @@ export function logRequestFailed(
 ): Promise<void> {
   const errorMsg = error instanceof Error ? error.message : error;
   const stack = error instanceof Error ? error.stack?.slice(0, 1000) : undefined;
+  const classified = fromErrorObject(error) ?? classifyError('request', errorMsg);
   return logEvent(
     env,
     requestId,
     'request.failed',
     `Request failed: ${errorMsg}`,
-    { error: errorMsg, ...(stack ? { stack } : {}), ...data },
+    {
+      error: errorMsg,
+      errorCode: classified.errorCode,
+      retryable: classified.retryable,
+      recommendedAction: classified.recommendedAction,
+      ...(stack ? { stack } : {}),
+      ...data
+    },
     'error'
   );
 }
