@@ -1,7 +1,15 @@
 // @ts-check
 import { el } from '../el.js';
 import { state, ARCHIVE_KEY_TO_STEP } from '../state.js';
-import { fetchArticles, fetchArticleDetail, fetchRequestDetail, submitArchive, fetchSignedUrl } from '../api.js';
+import {
+  fetchArticles,
+  fetchArticleDetail,
+  fetchRequestDetail,
+  submitArchive,
+  buildArchiveContentUrl,
+  retryArticleMissing,
+  retryArticleFull
+} from '../api.js';
 import { escapeHtml, truncateUrl, formatTimeShort, formatTime, formatBytes } from '../utils.js';
 import { classificationBadgeHtml, renderArchiveIndicators, renderPipeline, renderTimeline } from '../components.js';
 import { showView } from '../router.js';
@@ -39,7 +47,14 @@ export function renderArticleTable() {
         <td class="td-url" title="${escapeHtml(article.url)}">${display}</td>
         <td>${escapeHtml(article.domain)}</td>
         <td>${classificationBadgeHtml(article.archive_classification)}</td>
-        <td>${renderArchiveIndicators(article.archives)}</td>
+        <td>
+          ${renderArchiveIndicators(article.archives)}
+          <div class="inbox-action-row" style="margin-top:6px">
+            <button class="artifact-action row-action-btn" data-row-action="open-best" data-item-id="${escapeHtml(article.item_id)}">Open Best</button>
+            <button class="artifact-action artifact-action-archive row-action-btn" data-row-action="retry-missing" data-item-id="${escapeHtml(article.item_id)}">Retry Missing</button>
+            <button class="artifact-action row-action-btn" data-row-action="retry-full" data-item-id="${escapeHtml(article.item_id)}">Retry Full</button>
+          </div>
+        </td>
         <td>${formatTimeShort(article.created_at)}</td>
       </tr>
     `;
@@ -47,6 +62,13 @@ export function renderArticleTable() {
 
   el.articleTableBody.querySelectorAll('tr.clickable').forEach(row => {
     row.addEventListener('click', () => loadArticleDetail(row.dataset.itemId));
+  });
+
+  el.articleTableBody.querySelectorAll('.row-action-btn').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      handleRowAction(button);
+    });
   });
 }
 
@@ -104,6 +126,7 @@ function renderArticleDetailContent(article, pipelineData) {
   const classification = article.archive_classification;
   const successCount = article.archives.filter(a => a.status === 'success').length;
   const totalArchives = article.archives.length;
+  const health = buildArticleHealth(article);
 
   let html = '<div class="detail-grid">';
 
@@ -183,6 +206,36 @@ function renderArticleDetailContent(article, pipelineData) {
       </div>
     `;
   }
+
+  html += `
+    <div class="card">
+      <div class="card-header"><span class="card-title">Article Health</span></div>
+      <div class="card-body">
+        <div class="detail-meta">
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Completeness</span>
+            <span class="detail-meta-value">${health.completenessScore}%</span>
+          </div>
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Best Archive</span>
+            <span class="detail-meta-value">${escapeHtml(health.bestAvailableArchive || '--')}</span>
+          </div>
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Missing Core</span>
+            <span class="detail-meta-value">${escapeHtml(health.missingCore.join(', ') || 'None')}</span>
+          </div>
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Failed Archives</span>
+            <span class="detail-meta-value">${escapeHtml(health.failedArchives.join(', ') || 'None')}</span>
+          </div>
+          <div class="detail-meta-item">
+            <span class="detail-meta-label">Suggested Action</span>
+            <span class="detail-meta-value">${escapeHtml(health.recommendedAction)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 
   // Action button: Archive / Re-archive All
   if (classification === 'unarchived') {
@@ -304,6 +357,78 @@ function renderArticleDetailContent(article, pipelineData) {
   });
 }
 
+function getBestArchiveKey(archives) {
+  const byKey = new Map((archives || []).map((a) => [a.key, a]));
+  const priority = ['markdown', 'readability', 'singlefile', 'rendered'];
+  for (const key of priority) {
+    const entry = byKey.get(key);
+    if (entry?.status === 'success') return key;
+  }
+  return null;
+}
+
+function buildArticleHealth(article) {
+  const archives = article.archives || [];
+  const core = ['rendered', 'readability', 'markdown', 'singlefile'];
+  const map = new Map(archives.map((a) => [a.key, a.status]));
+  const missingCore = core.filter((k) => map.get(k) !== 'success');
+  const failedArchives = archives.filter((a) => a.status === 'failed').map((a) => a.key);
+  const coreSuccess = core.filter((k) => map.get(k) === 'success').length;
+  const completenessScore = Math.round((coreSuccess / core.length) * 100);
+  const bestAvailableArchive = getBestArchiveKey(archives);
+  const recommendedAction = missingCore.length > 0 || failedArchives.length > 0
+    ? 'retry_missing'
+    : 'none';
+
+  return {
+    completenessScore,
+    missingCore,
+    failedArchives,
+    bestAvailableArchive,
+    recommendedAction,
+  };
+}
+
+async function handleRowAction(button) {
+  const itemId = button.dataset.itemId;
+  if (!itemId) return;
+  const action = button.dataset.rowAction;
+
+  const article = state.articles.items.find((a) => a.item_id === itemId);
+  if (!article) return;
+
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = '...';
+  try {
+    if (action === 'open-best') {
+      const archiveKey = getBestArchiveKey(article.archives || []);
+      if (!archiveKey) {
+        showToast('No readable archive available');
+      } else {
+        await viewArchive(itemId, archiveKey);
+      }
+      return;
+    }
+
+    const result = action === 'retry-full'
+      ? await retryArticleFull(itemId)
+      : await retryArticleMissing(itemId);
+
+    if (!result.submitted) {
+      showToast(result.reason || 'No action taken');
+      return;
+    }
+    showToast(`Submitted: ${(result.requestId || itemId).slice(0, 8)}`);
+    setTimeout(() => loadArticles(), 1000);
+  } catch (err) {
+    showError(`Action failed: ${err.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
 // ===== Archive Actions =====
 
 async function handleArchiveAction(btn) {
@@ -357,9 +482,8 @@ async function handleArchiveAction(btn) {
 
 async function viewArchive(itemId, archiveKey) {
   try {
-    const data = await fetchSignedUrl(itemId, archiveKey);
-    if (!data.url) throw new Error('No signed URL returned');
-    showContentViewer(archiveKey, data.url);
+    const url = buildArchiveContentUrl(itemId, archiveKey);
+    showContentViewer(archiveKey, url);
   } catch (err) {
     showError(`Failed to load archive: ${err.message}`);
   }
@@ -368,12 +492,10 @@ async function viewArchive(itemId, archiveKey) {
 async function downloadArchive(itemId, archiveKey, btn) {
   btn.disabled = true;
   const original = btn.textContent;
-  btn.textContent = 'Fetching...';
+  btn.textContent = 'Preparing...';
   try {
-    const data = await fetchSignedUrl(itemId, archiveKey);
-    if (!data.url) throw new Error('No signed URL returned');
     const a = document.createElement('a');
-    a.href = data.url;
+    a.href = buildArchiveContentUrl(itemId, archiveKey, { download: true });
     a.download = `${itemId}-${archiveKey}`;
     a.style.display = 'none';
     document.body.appendChild(a);
@@ -439,7 +561,12 @@ function showContentViewer(archiveKey, url) {
   // For text types, fetch and render content
   if (textTypes.includes(archiveKey)) {
     fetch(url)
-      .then(r => r.text())
+      .then(async (r) => {
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}`);
+        }
+        return r.text();
+      })
       .then(text => {
         const pre = overlay.querySelector('.content-viewer-text');
         if (pre) pre.textContent = text;

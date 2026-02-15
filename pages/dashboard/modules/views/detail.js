@@ -1,7 +1,7 @@
 // @ts-check
 import { el } from '../el.js';
 import { state } from '../state.js';
-import { fetchRequestDetail } from '../api.js';
+import { fetchRequestDetail, submitArchive } from '../api.js';
 import { escapeHtml, formatTime, formatBytes, getDomain } from '../utils.js';
 import { statusBadgeHtml, renderPipeline, renderTimeline } from '../components.js';
 import { showView } from '../router.js';
@@ -153,10 +153,48 @@ function renderDetailView() {
   const domain = req.url ? getDomain(req.url) : 'unknown';
 
   const pipelineHtml = renderPipeline(events);
+  const diagnosis = req.derived?.diagnostics || {};
+  const failedStep = deriveFailedStep(req);
 
   el.detailContent.innerHTML = `
     <div class="detail-grid">
       ${pipelineHtml}
+
+      <div class="card diagnosis-card ${diagnosis.errorCode ? 'diagnosis-has-error' : ''}">
+        <div class="card-header">
+          <span class="card-title">Failure Diagnosis</span>
+          ${diagnosis.errorCode ? `<span class="card-count">${escapeHtml(diagnosis.errorCode)}</span>` : ''}
+        </div>
+        <div class="card-body">
+          <div class="detail-meta">
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Error</span>
+              <span class="detail-meta-value">${escapeHtml(diagnosis.errorMessage || 'No active error')}</span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Source</span>
+              <span class="detail-meta-value">${escapeHtml(diagnosis.errorSource || '--')}</span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Retryable</span>
+              <span class="detail-meta-value">${diagnosis.retryable === false ? 'No' : 'Yes'}</span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Suggested</span>
+              <span class="detail-meta-value">${escapeHtml(diagnosis.recommendedAction || '--')}</span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Trace ID</span>
+              <span class="detail-meta-value">${escapeHtml(diagnosis.lastTraceId || '--')}</span>
+            </div>
+          </div>
+          <div class="inbox-action-row" style="margin-top:10px">
+            <button class="artifact-action inbox-action" data-detail-action="retry-step" data-request-id="${escapeHtml(req.requestId)}" ${failedStep ? `data-step="${escapeHtml(failedStep)}"` : 'disabled'}>Retry Failed Step</button>
+            <button class="artifact-action artifact-action-archive inbox-action" data-detail-action="retry-missing" data-request-id="${escapeHtml(req.requestId)}">Retry Missing</button>
+            <button class="artifact-action inbox-action" data-detail-action="retry-full" data-request-id="${escapeHtml(req.requestId)}">Retry Full</button>
+          </div>
+        </div>
+      </div>
 
       <div class="detail-header">
         <div class="detail-url">${escapeHtml(req.url || 'Unknown URL')}</div>
@@ -211,6 +249,10 @@ function renderDetailView() {
       });
     });
   });
+
+  el.detailContent.querySelectorAll('[data-detail-action]').forEach((button) => {
+    button.addEventListener('click', () => handleDetailAction(button));
+  });
 }
 
 function renderArtifacts(artifacts) {
@@ -232,4 +274,66 @@ function renderArtifacts(artifacts) {
       `).join('')}
     </div>
   `;
+}
+
+function deriveFailedStep(request) {
+  const events = request.events || [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (event.type === 'step.failed' && event.data?.step) {
+      return event.data.step;
+    }
+  }
+  return null;
+}
+
+function deriveMissingSteps(request) {
+  const artifacts = request.artifacts || [];
+  const kinds = new Set(artifacts.map((a) => a.kind));
+  const steps = [];
+
+  if (!kinds.has('rendered.html')) steps.push('render');
+  if (!kinds.has('singlefile.html')) steps.push('singlefile');
+  if (!kinds.has('readability.json') || !kinds.has('readability.md')) steps.push('readability');
+  if (!kinds.has('monolith.html')) steps.push('monolith');
+
+  return [...new Set(steps)];
+}
+
+async function handleDetailAction(button) {
+  const requestId = button.dataset.requestId;
+  if (!requestId || !state.selectedRequest) return;
+
+  const action = button.dataset.detailAction;
+  const failedStep = button.dataset.step;
+  const url = state.selectedRequest.url;
+  if (!url) return;
+
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Submitting...';
+
+  try {
+    let options = { request_id: requestId };
+    if (action === 'retry-step' && failedStep) {
+      options = { ...options, steps: [failedStep] };
+    } else if (action === 'retry-missing') {
+      const steps = deriveMissingSteps(state.selectedRequest);
+      if (steps.length === 0) {
+        showToast('No missing steps');
+        return;
+      }
+      options = { ...options, steps };
+    }
+
+    const result = await submitArchive(url, options);
+    const id = result.requestId || result.request_id || requestId;
+    showToast(`Submitted: ${id.slice(0, 8)}`);
+    setTimeout(() => loadRequestDetail(requestId), 1200);
+  } catch (err) {
+    showError(`Retry failed: ${err.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
 }

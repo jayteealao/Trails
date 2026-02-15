@@ -26,7 +26,11 @@
 
       <nav class="sidebar-nav">
         <div class="nav-section-label">Monitor</div>
-        <button class="nav-item active" data-view="overview">
+        <button class="nav-item active" data-view="inbox">
+          <svg class="nav-icon" viewBox="0 0 20 20"><path d="M3 4h14v10H3z" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.7"/><path d="M6 12h8M6 8h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity="0.5"/></svg>
+          Inbox
+        </button>
+        <button class="nav-item" data-view="overview">
           <svg class="nav-icon" viewBox="0 0 20 20"><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" opacity="0.7"/><rect x="11" y="2" width="7" height="3" rx="1" fill="currentColor" opacity="0.5"/><rect x="11" y="7" width="7" height="2" rx="1" fill="currentColor" opacity="0.3"/><rect x="2" y="11" width="16" height="2" rx="1" fill="currentColor" opacity="0.4"/><rect x="2" y="15" width="10" height="2" rx="1" fill="currentColor" opacity="0.3"/></svg>
           Overview
         </button>
@@ -103,8 +107,15 @@
 
       <!-- Views Container -->
       <div class="views">
+        <!-- Inbox View -->
+        <div class="view" id="inboxView">
+          <div id="inboxContent">
+            <div class="empty-state">Loading</div>
+          </div>
+        </div>
+
         <!-- Overview View -->
-        <div class="view" id="overviewView">
+        <div class="view hidden" id="overviewView">
           <div class="metrics-row" id="readoutStrip">
             <div class="metric-card">
               <div class="metric-value" id="statTotal">--</div>
@@ -185,6 +196,10 @@
                 <option value="24h">Last 24h</option>
                 <option value="7d">Last 7 days</option>
               </select>
+              <select class="filter-select" id="requestPresetSelect">
+                <option value="">Saved views</option>
+              </select>
+              <button class="btn-page" id="saveRequestPresetBtn">Save View</button>
             </div>
           </div>
 
@@ -274,6 +289,10 @@
                 <option value="processing">Processing</option>
               </select>
               <input type="text" class="filter-input filter-input-wide" id="articleSearchFilter" placeholder="Search URL, domain, or title...">
+              <select class="filter-select" id="articlePresetSelect">
+                <option value="">Saved views</option>
+              </select>
+              <button class="btn-page" id="saveArticlePresetBtn">Save View</button>
             </div>
           </div>
 

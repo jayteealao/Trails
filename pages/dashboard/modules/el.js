@@ -5,6 +5,7 @@
  * Resolved once at import time (script type="module" runs after DOM is parsed via defer).
  */
 export const el = {
+  inboxView: document.getElementById('inboxView'),
   overviewView: document.getElementById('overviewView'),
   requestsView: document.getElementById('requestsView'),
   detailView: document.getElementById('detailView'),
@@ -14,6 +15,7 @@ export const el = {
   backfillView: document.getElementById('backfillView'),
   articlesView: document.getElementById('articlesView'),
   articleDetailView: document.getElementById('articleDetailView'),
+  inboxContent: document.getElementById('inboxContent'),
   navItems: document.querySelectorAll('.nav-item[data-view]'),
   feedBadge: document.getElementById('feedBadge'),
   pageTitle: document.getElementById('pageTitle'),
@@ -50,6 +52,8 @@ export const el = {
   urlSearchFilter: document.getElementById('urlSearchFilter'),
   statusFilter: document.getElementById('statusFilter'),
   dateRangeFilter: document.getElementById('dateRangeFilter'),
+  requestPresetSelect: document.getElementById('requestPresetSelect'),
+  saveRequestPresetBtn: document.getElementById('saveRequestPresetBtn'),
   prevPage: document.getElementById('prevPage'),
   nextPage: document.getElementById('nextPage'),
   paginationInfo: document.getElementById('paginationInfo'),
@@ -67,6 +71,8 @@ export const el = {
   articleTableBody: document.getElementById('articleTableBody'),
   articleStatusFilter: document.getElementById('articleStatusFilter'),
   articleSearchFilter: document.getElementById('articleSearchFilter'),
+  articlePresetSelect: document.getElementById('articlePresetSelect'),
+  saveArticlePresetBtn: document.getElementById('saveArticlePresetBtn'),
   articlePrevPage: document.getElementById('articlePrevPage'),
   articleNextPage: document.getElementById('articleNextPage'),
   articlePaginationInfo: document.getElementById('articlePaginationInfo'),

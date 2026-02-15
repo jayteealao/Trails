@@ -1,6 +1,6 @@
 // @ts-check
 import { el } from './el.js';
-import { state, VIEW_TITLES, timers, CONFIG } from './state.js';
+import { state, VIEW_TITLES } from './state.js';
 
 /** @type {(() => void) | null} */
 let onFeedStart = null;
@@ -30,6 +30,7 @@ export function showView(viewName) {
   }
   state.currentView = viewName;
 
+  el.inboxView.classList.toggle('hidden', viewName !== 'inbox');
   el.overviewView.classList.toggle('hidden', viewName !== 'overview');
   el.requestsView.classList.toggle('hidden', viewName !== 'requests');
   el.detailView.classList.toggle('hidden', viewName !== 'detail');

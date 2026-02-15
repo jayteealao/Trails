@@ -19,9 +19,10 @@
 import { el } from './modules/el.js';
 import { state, CONFIG, timers } from './modules/state.js';
 import { submitArchive } from './modules/api.js';
-import { debounce, dateRangeToParams } from './modules/utils.js';
+import { debounce } from './modules/utils.js';
 import { showView, registerFeedCallbacks, registerDetailLeaveCallback } from './modules/router.js';
 import { clearError } from './modules/ui.js';
+import { loadInbox } from './modules/views/inbox.js';
 import { loadStats } from './modules/views/overview.js';
 import { renderFeed, startFeedPolling, stopFeedPolling } from './modules/views/feed.js';
 import { loadRequests, updateSortHeaders, sortAndRenderRequests } from './modules/views/requests.js';
@@ -37,7 +38,8 @@ registerDetailLeaveCallback(stopDetailPoll);
 
 // ===== Refresh Logic =====
 function refreshCurrentView() {
-  if (state.currentView === 'overview') loadStats();
+  if (state.currentView === 'inbox') loadInbox();
+  else if (state.currentView === 'overview') loadStats();
   else if (state.currentView === 'requests') loadRequests();
   else if (state.currentView === 'infra') loadInfra();
   else if (state.currentView === 'errors') loadErrors();
@@ -73,10 +75,44 @@ function loadSettings() {
   }
   el.autoRefreshToggle.checked = state.settings.autoRefresh;
   el.refreshInterval.value = state.settings.refreshInterval;
+  loadPresets();
+  renderPresetOptions();
 }
 
 function saveSettings() {
   localStorage.setItem('warg-dashboard-settings', JSON.stringify(state.settings));
+}
+
+function loadPresets() {
+  const saved = localStorage.getItem('warg-dashboard-presets-v1');
+  if (!saved) return;
+  try {
+    const parsed = JSON.parse(saved);
+    if (parsed && typeof parsed === 'object') {
+      state.presets = {
+        selected: '',
+        items: parsed.items ?? {},
+      };
+    }
+  } catch {
+    // ignore malformed presets
+  }
+}
+
+function savePresets() {
+  localStorage.setItem('warg-dashboard-presets-v1', JSON.stringify({
+    items: state.presets.items,
+  }));
+}
+
+function renderPresetOptions() {
+  const names = Object.keys(state.presets.items).sort();
+  const options = ['<option value="">Saved views</option>'];
+  for (const name of names) {
+    options.push(`<option value="${name}">${name}</option>`);
+  }
+  if (el.requestPresetSelect) el.requestPresetSelect.innerHTML = options.join('');
+  if (el.articlePresetSelect) el.articlePresetSelect.innerHTML = options.join('');
 }
 
 // ===== System Clock =====
@@ -126,6 +162,54 @@ async function handleArchiveSubmit() {
   }
 }
 
+function applyPreset(name, target) {
+  const preset = state.presets.items[name];
+  if (!preset) return;
+
+  if (target === 'requests') {
+    state.filters = { ...state.filters, ...preset.requests };
+    state.pagination.offset = 0;
+    el.domainFilter.value = state.filters.domain;
+    el.urlSearchFilter.value = state.filters.q;
+    el.statusFilter.value = state.filters.status;
+    el.dateRangeFilter.value = state.filters.dateRange;
+    loadRequests();
+  } else if (target === 'articles') {
+    state.articles.filters = { ...state.articles.filters, ...preset.articles };
+    state.articles.pagination.page = 1;
+    el.articleStatusFilter.value = state.articles.filters.status;
+    el.articleSearchFilter.value = state.articles.filters.search;
+    loadArticles();
+  }
+}
+
+function savePresetFromCurrent(target) {
+  const name = window.prompt('Preset name');
+  if (!name) return;
+
+  state.presets.items[name] = {
+    requests: {
+      domain: state.filters.domain,
+      status: state.filters.status,
+      q: state.filters.q,
+      dateRange: state.filters.dateRange,
+    },
+    articles: {
+      status: state.articles.filters.status,
+      search: state.articles.filters.search,
+    },
+  };
+  savePresets();
+  renderPresetOptions();
+
+  if (target === 'requests' && el.requestPresetSelect) {
+    el.requestPresetSelect.value = name;
+  }
+  if (target === 'articles' && el.articlePresetSelect) {
+    el.articlePresetSelect.value = name;
+  }
+}
+
 // ===== Event Handlers =====
 function setupEventHandlers() {
   // Navigation
@@ -133,7 +217,8 @@ function setupEventHandlers() {
     item.addEventListener('click', () => {
       const view = item.dataset.view;
       showView(view);
-      if (view === 'overview' && !state.stats) loadStats();
+      if (view === 'inbox' && !state.inbox) loadInbox();
+      else if (view === 'overview' && !state.stats) loadStats();
       else if (view === 'requests' && state.requests.length === 0) loadRequests();
       else if (view === 'infra' && !state.infra) loadInfra();
       else if (view === 'feed') renderFeed();
@@ -158,6 +243,17 @@ function setupEventHandlers() {
     state.articles.pagination.page = 1;
     loadArticles();
   }, 300));
+
+  if (el.articlePresetSelect) {
+    el.articlePresetSelect.addEventListener('change', (e) => {
+      const name = e.target.value;
+      if (!name) return;
+      applyPreset(name, 'articles');
+    });
+  }
+  if (el.saveArticlePresetBtn) {
+    el.saveArticlePresetBtn.addEventListener('click', () => savePresetFromCurrent('articles'));
+  }
 
   // Article pagination
   el.articlePrevPage.addEventListener('click', () => {
@@ -216,6 +312,17 @@ function setupEventHandlers() {
     loadRequests();
   });
 
+  if (el.requestPresetSelect) {
+    el.requestPresetSelect.addEventListener('change', (e) => {
+      const name = e.target.value;
+      if (!name) return;
+      applyPreset(name, 'requests');
+    });
+  }
+  if (el.saveRequestPresetBtn) {
+    el.saveRequestPresetBtn.addEventListener('click', () => savePresetFromCurrent('requests'));
+  }
+
   // Pagination
   el.prevPage.addEventListener('click', () => {
     if (state.pagination.offset > 0) {
@@ -233,7 +340,9 @@ function setupEventHandlers() {
 
   // Back button
   el.backBtn.addEventListener('click', () => {
-    const backTo = state.previousView === 'feed' ? 'feed' : 'requests';
+    const backTo = state.previousView && ['feed', 'requests', 'inbox'].includes(state.previousView)
+      ? state.previousView
+      : 'requests';
     showView(backTo);
     state.selectedRequest = null;
   });
@@ -283,7 +392,7 @@ function setupEventHandlers() {
   });
 
   // Keyboard shortcuts
-  const viewKeys = { '1': 'overview', '2': 'feed', '3': 'requests', '4': 'errors', '5': 'articles', '6': 'backfill', '7': 'infra' };
+  const viewKeys = { '1': 'inbox', '2': 'overview', '3': 'feed', '4': 'requests', '5': 'errors', '6': 'articles', '7': 'backfill', '8': 'infra' };
 
   document.addEventListener('keydown', (e) => {
     const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT';
@@ -296,7 +405,9 @@ function setupEventHandlers() {
         showView('articles');
         state.articles.selectedArticle = null;
       } else if (state.currentView === 'detail') {
-        const backTo = state.previousView === 'feed' ? 'feed' : 'requests';
+        const backTo = state.previousView && ['feed', 'requests', 'inbox'].includes(state.previousView)
+          ? state.previousView
+          : 'requests';
         showView(backTo);
         state.selectedRequest = null;
       } else if (isInput) {
@@ -334,7 +445,8 @@ function setupEventHandlers() {
       const view = viewKeys[e.key];
       showView(view);
       // Trigger load for views that need it
-      if (view === 'overview' && !state.stats) loadStats();
+      if (view === 'inbox' && !state.inbox) loadInbox();
+      else if (view === 'overview' && !state.stats) loadStats();
       else if (view === 'requests' && state.requests.length === 0) loadRequests();
       else if (view === 'infra' && !state.infra) loadInfra();
       else if (view === 'errors' && !state.errors) loadErrors();
@@ -388,8 +500,8 @@ function setupEventHandlers() {
 loadSettings();
 setupEventHandlers();
 startSystemClock();
-showView('overview');
-loadStats();
+showView('inbox');
+loadInbox();
 
 if (state.settings.autoRefresh) {
   startAutoRefresh();

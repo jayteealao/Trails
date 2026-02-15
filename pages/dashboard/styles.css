@@ -383,6 +383,30 @@ body {
 .archive-status.archive-ok { color: var(--green); }
 .archive-status.archive-err { color: var(--red); }
 
+.inbox-grid {
+  align-items: start;
+}
+
+.inbox-action-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.row-action-btn {
+  padding: 3px 8px;
+  font-size: 0.68rem;
+}
+
+.diagnosis-card {
+  border: 1px solid var(--border-1);
+}
+
+.diagnosis-card.diagnosis-has-error {
+  border-color: rgba(248, 113, 113, 0.4);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.15) inset;
+}
+
 /* Refresh & auto toggle */
 .btn-refresh {
   width: 32px;
