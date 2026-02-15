@@ -24,7 +24,7 @@
     "eslint": "^9.18.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.3",
-    "wrangler": "4"
+    "wrangler": "^4.65.0"
   },
   "dependencies": {
     "@cloudflare/workerd-windows-64": "^1.20260131.0"

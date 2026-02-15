@@ -5,6 +5,8 @@ packages:
   - cloud-functions/*
 
 onlyBuiltDependencies:
+  - '@firebase/util'
   - esbuild
+  - protobufjs
   - sharp
   - workerd
