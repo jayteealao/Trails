@@ -15,6 +15,16 @@ import { classificationBadgeHtml, renderArchiveIndicators, renderPipeline, rende
 import { showView } from '../router.js';
 import { setLoading, showError, clearError, showToast } from '../ui.js';
 
+let onArticleDetailRouteSync = null;
+
+/**
+ * Register callback used to sync article detail URL state.
+ * @param {(args: { itemId: string, replace?: boolean, fromView?: string, forRouteApply?: boolean }) => void} fn
+ */
+export function registerArticleDetailRouteSync(fn) {
+  onArticleDetailRouteSync = fn;
+}
+
 export async function loadArticles() {
   setLoading(true);
   clearError();
@@ -87,12 +97,25 @@ function renderArticlePagination() {
 
 // ===== Article Detail =====
 
-export async function loadArticleDetail(itemId) {
+/**
+ * @param {string} itemId
+ * @param {{ syncUrl?: boolean, replace?: boolean, fromView?: string, forRouteApply?: boolean }} [options]
+ */
+export async function loadArticleDetail(itemId, options = {}) {
+  const {
+    syncUrl = true,
+    replace = false,
+    fromView,
+    forRouteApply = false,
+  } = options;
   // Show immediately from list data if available
   const listArticle = state.articles.items.find(a => a.item_id === itemId);
   const article = listArticle || { item_id: itemId, url: '', domain: '', created_at: '', archive_classification: 'unarchived', archives: [], has_canonical: false };
   state.articles.selectedArticle = article;
   showView('articleDetail');
+  if (syncUrl && onArticleDetailRouteSync) {
+    onArticleDetailRouteSync({ itemId, replace, fromView, forRouteApply });
+  }
   renderArticleDetailContent(article, null);
 
   // Fetch full detail from API (enriched with metadata)
@@ -467,7 +490,7 @@ async function handleArchiveAction(btn) {
     // Poll article detail to refresh status
     setTimeout(() => {
       if (state.articles.selectedArticle?.item_id === itemId) {
-        loadArticleDetail(itemId);
+        loadArticleDetail(itemId, { syncUrl: false });
       }
     }, 5000);
   } catch (err) {

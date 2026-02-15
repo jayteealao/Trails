@@ -13,6 +13,7 @@ const TERMINAL_STAGES = new Set(['done', 'failed']);
 let detailPollTimer = null;
 let eventSource = null;
 let renderPending = false;
+let onRequestDetailRouteSync = null;
 
 function isTerminal(stage) {
   return TERMINAL_STAGES.has(stage || '');
@@ -120,13 +121,34 @@ function stopDetailUpdates() {
 
 export { stopDetailUpdates as stopDetailPoll };
 
-export async function loadRequestDetail(requestId) {
+/**
+ * Register callback used to sync request detail URL state.
+ * @param {(args: { requestId: string, replace?: boolean, fromView?: string, forRouteApply?: boolean }) => void} fn
+ */
+export function registerRequestDetailRouteSync(fn) {
+  onRequestDetailRouteSync = fn;
+}
+
+/**
+ * @param {string} requestId
+ * @param {{ syncUrl?: boolean, replace?: boolean, fromView?: string, forRouteApply?: boolean }} [options]
+ */
+export async function loadRequestDetail(requestId, options = {}) {
+  const {
+    syncUrl = true,
+    replace = false,
+    fromView,
+    forRouteApply = false,
+  } = options;
   stopDetailUpdates();
   setLoading(true);
   clearError();
   try {
     state.selectedRequest = await fetchRequestDetail(requestId);
     showView('detail');
+    if (syncUrl && onRequestDetailRouteSync) {
+      onRequestDetailRouteSync({ requestId, replace, fromView, forRouteApply });
+    }
     renderDetailView();
     // Connect SSE stream if not terminal (falls back to polling on error)
     const stage = state.selectedRequest?.derived?.stage;
@@ -329,7 +351,7 @@ async function handleDetailAction(button) {
     const result = await submitArchive(url, options);
     const id = result.requestId || result.request_id || requestId;
     showToast(`Submitted: ${id.slice(0, 8)}`);
-    setTimeout(() => loadRequestDetail(requestId), 1200);
+    setTimeout(() => loadRequestDetail(requestId, { syncUrl: false }), 1200);
   } catch (err) {
     showError(`Retry failed: ${err.message}`);
   } finally {

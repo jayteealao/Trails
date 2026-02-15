@@ -22,31 +22,288 @@ import { submitArchive } from './modules/api.js';
 import { debounce } from './modules/utils.js';
 import { showView, registerFeedCallbacks, registerDetailLeaveCallback } from './modules/router.js';
 import { clearError } from './modules/ui.js';
+import { parseLocation, buildUrl, normalizeRouteState, isTopLevelView } from './modules/route-state.js';
 import { loadInbox } from './modules/views/inbox.js';
 import { loadStats } from './modules/views/overview.js';
 import { renderFeed, startFeedPolling, stopFeedPolling } from './modules/views/feed.js';
 import { loadRequests, updateSortHeaders, sortAndRenderRequests } from './modules/views/requests.js';
-import { loadRequestDetail, stopDetailPoll } from './modules/views/detail.js';
+import {
+  loadRequestDetail,
+  stopDetailPoll,
+  registerRequestDetailRouteSync,
+} from './modules/views/detail.js';
 import { loadErrors } from './modules/views/errors.js';
 import { loadInfra } from './modules/views/infra.js';
 import { loadBackfill } from './modules/views/backfill.js';
-import { loadArticles } from './modules/views/articles.js';
+import {
+  loadArticles,
+  loadArticleDetail,
+  registerArticleDetailRouteSync,
+} from './modules/views/articles.js';
 
 // ===== Wire callbacks into router =====
 registerFeedCallbacks(startFeedPolling, stopFeedPolling);
 registerDetailLeaveCallback(stopDetailPoll);
 
+let applyingRoute = false;
+let routeApplySeq = 0;
+let hasInternalHistory = false;
+
+function requestRouteSnapshot() {
+  return {
+    domain: state.filters.domain,
+    status: state.filters.status,
+    q: state.filters.q,
+    dateRange: state.filters.dateRange,
+    offset: state.pagination.offset,
+    sort: state.sort.column,
+    dir: state.sort.direction,
+  };
+}
+
+function articleRouteSnapshot() {
+  return {
+    status: state.articles.filters.status,
+    search: state.articles.filters.search,
+    page: state.articles.pagination.page,
+  };
+}
+
+function resolveOriginView(fallbackView) {
+  if (isTopLevelView(state.currentView)) return state.currentView;
+  if (isTopLevelView(state.previousView)) return state.previousView;
+
+  const parsed = parseLocation(window.location);
+  if (isTopLevelView(parsed.from)) return parsed.from;
+
+  return fallbackView;
+}
+
+function currentRouteState() {
+  const requests = requestRouteSnapshot();
+  const articles = articleRouteSnapshot();
+
+  if (state.currentView === 'detail') {
+    const requestId = state.selectedRequest?.requestId || parseLocation(window.location).requestId;
+    return {
+      view: 'detail',
+      requestId,
+      from: resolveOriginView('requests'),
+      requests,
+      articles,
+    };
+  }
+
+  if (state.currentView === 'articleDetail') {
+    const itemId = state.articles.selectedArticle?.item_id || parseLocation(window.location).itemId;
+    return {
+      view: 'articleDetail',
+      itemId,
+      from: resolveOriginView('articles'),
+      requests,
+      articles,
+    };
+  }
+
+  return {
+    view: state.currentView,
+    requests,
+    articles,
+  };
+}
+
+function commitRoute(routeState, { replace = false, markInternal = true } = {}) {
+  const normalized = normalizeRouteState(routeState);
+  const url = buildUrl(normalized);
+
+  if (replace) {
+    window.history.replaceState(normalized, '', url);
+  } else {
+    window.history.pushState(normalized, '', url);
+  }
+
+  if (markInternal) {
+    hasInternalHistory = true;
+  }
+
+  return normalized;
+}
+
+function syncUrlForCurrentState({ replace = true } = {}) {
+  if (applyingRoute) return;
+  commitRoute(currentRouteState(), { replace, markInternal: true });
+}
+
+function hydrateRequestControls() {
+  el.domainFilter.value = state.filters.domain;
+  el.urlSearchFilter.value = state.filters.q;
+  el.statusFilter.value = state.filters.status;
+  el.dateRangeFilter.value = state.filters.dateRange;
+}
+
+function hydrateArticleControls() {
+  el.articleStatusFilter.value = state.articles.filters.status;
+  el.articleSearchFilter.value = state.articles.filters.search;
+}
+
+function applyRequestRouteState(route) {
+  state.filters = {
+    domain: route.requests.domain,
+    status: route.requests.status,
+    q: route.requests.q,
+    dateRange: route.requests.dateRange,
+  };
+  state.pagination.offset = route.requests.offset;
+  state.sort = {
+    column: route.requests.sort,
+    direction: route.requests.dir,
+  };
+  hydrateRequestControls();
+  updateSortHeaders();
+}
+
+function applyArticleRouteState(route) {
+  state.articles.filters = {
+    status: route.articles.status,
+    search: route.articles.search,
+  };
+  state.articles.pagination.page = route.articles.page;
+  hydrateArticleControls();
+}
+
+function navigateTo(routeState, { replace = false } = {}) {
+  const normalized = commitRoute(
+    {
+      ...routeState,
+      requests: routeState.requests ?? requestRouteSnapshot(),
+      articles: routeState.articles ?? articleRouteSnapshot(),
+    },
+    { replace, markInternal: true }
+  );
+  void applyRoute(normalized, { source: 'navigate' });
+}
+
+async function applyRoute(routeState, { source } = { source: 'navigate' }) {
+  const normalized = normalizeRouteState(routeState);
+  const applyId = ++routeApplySeq;
+
+  applyingRoute = true;
+  try {
+    switch (normalized.view) {
+      case 'inbox': {
+        showView('inbox');
+        await loadInbox();
+        break;
+      }
+      case 'overview': {
+        showView('overview');
+        await loadStats();
+        break;
+      }
+      case 'feed': {
+        showView('feed');
+        renderFeed();
+        break;
+      }
+      case 'requests': {
+        applyRequestRouteState(normalized);
+        showView('requests');
+        await loadRequests();
+        if (applyId !== routeApplySeq) return;
+        sortAndRenderRequests();
+        break;
+      }
+      case 'errors': {
+        showView('errors');
+        await loadErrors();
+        break;
+      }
+      case 'articles': {
+        applyArticleRouteState(normalized);
+        showView('articles');
+        await loadArticles();
+        break;
+      }
+      case 'backfill': {
+        showView('backfill');
+        await loadBackfill();
+        break;
+      }
+      case 'infra': {
+        showView('infra');
+        await loadInfra();
+        break;
+      }
+      case 'detail': {
+        await loadRequestDetail(normalized.requestId, {
+          syncUrl: false,
+          forRouteApply: true,
+          fromView: normalized.from || 'requests',
+          replace: source === 'init',
+        });
+        if (isTopLevelView(normalized.from)) {
+          state.previousView = normalized.from;
+        }
+        break;
+      }
+      case 'articleDetail': {
+        await loadArticleDetail(normalized.itemId, {
+          syncUrl: false,
+          forRouteApply: true,
+          fromView: normalized.from || 'articles',
+          replace: source === 'init',
+        });
+        if (isTopLevelView(normalized.from)) {
+          state.previousView = normalized.from;
+        }
+        break;
+      }
+      default: {
+        showView('inbox');
+        await loadInbox();
+      }
+    }
+  } finally {
+    applyingRoute = false;
+  }
+}
+
+// Keep URL in sync when detail loaders are invoked directly from other modules.
+registerRequestDetailRouteSync(({ requestId, replace = false, fromView }) => {
+  const route = {
+    view: 'detail',
+    requestId,
+    from: isTopLevelView(fromView) ? fromView : resolveOriginView('requests'),
+    requests: requestRouteSnapshot(),
+    articles: articleRouteSnapshot(),
+  };
+  commitRoute(route, { replace, markInternal: true });
+});
+
+registerArticleDetailRouteSync(({ itemId, replace = false, fromView }) => {
+  const route = {
+    view: 'articleDetail',
+    itemId,
+    from: isTopLevelView(fromView) ? fromView : resolveOriginView('articles'),
+    requests: requestRouteSnapshot(),
+    articles: articleRouteSnapshot(),
+  };
+  commitRoute(route, { replace, markInternal: true });
+});
+
 // ===== Refresh Logic =====
 function refreshCurrentView() {
   if (state.currentView === 'inbox') loadInbox();
   else if (state.currentView === 'overview') loadStats();
-  else if (state.currentView === 'requests') loadRequests();
+  else if (state.currentView === 'requests') loadRequests().then(sortAndRenderRequests);
   else if (state.currentView === 'infra') loadInfra();
   else if (state.currentView === 'errors') loadErrors();
   else if (state.currentView === 'backfill') loadBackfill();
   else if (state.currentView === 'articles') loadArticles();
   else if (state.currentView === 'detail' && state.selectedRequest) {
-    loadRequestDetail(state.selectedRequest.requestId);
+    loadRequestDetail(state.selectedRequest.requestId, { syncUrl: false });
+  } else if (state.currentView === 'articleDetail' && state.articles.selectedArticle) {
+    loadArticleDetail(state.articles.selectedArticle.item_id, { syncUrl: false });
   }
 }
 
@@ -71,7 +328,9 @@ function loadSettings() {
     try {
       const parsed = JSON.parse(saved);
       state.settings = { ...state.settings, ...parsed };
-    } catch { /* ignore */ }
+    } catch {
+      // ignore malformed settings
+    }
   }
   el.autoRefreshToggle.checked = state.settings.autoRefresh;
   el.refreshInterval.value = state.settings.refreshInterval;
@@ -119,7 +378,11 @@ function renderPresetOptions() {
 function startSystemClock() {
   function update() {
     const now = new Date();
-    el.systemClock.textContent = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    el.systemClock.textContent = now.toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   }
   update();
   timers.clock = setInterval(update, 1000);
@@ -150,7 +413,7 @@ async function handleArchiveSubmit() {
     el.archiveInput.value = '';
 
     setTimeout(() => {
-      loadRequestDetail(id);
+      loadRequestDetail(id, { fromView: resolveOriginView('requests') });
       el.archiveStatus.textContent = '';
       el.archiveStatus.className = 'archive-status';
     }, 800);
@@ -169,16 +432,14 @@ function applyPreset(name, target) {
   if (target === 'requests') {
     state.filters = { ...state.filters, ...preset.requests };
     state.pagination.offset = 0;
-    el.domainFilter.value = state.filters.domain;
-    el.urlSearchFilter.value = state.filters.q;
-    el.statusFilter.value = state.filters.status;
-    el.dateRangeFilter.value = state.filters.dateRange;
-    loadRequests();
+    hydrateRequestControls();
+    syncUrlForCurrentState({ replace: false });
+    loadRequests().then(sortAndRenderRequests);
   } else if (target === 'articles') {
     state.articles.filters = { ...state.articles.filters, ...preset.articles };
     state.articles.pagination.page = 1;
-    el.articleStatusFilter.value = state.articles.filters.status;
-    el.articleSearchFilter.value = state.articles.filters.search;
+    hydrateArticleControls();
+    syncUrlForCurrentState({ replace: false });
     loadArticles();
   }
 }
@@ -210,21 +471,41 @@ function savePresetFromCurrent(target) {
   }
 }
 
+function getDetailFallbackView(defaultView) {
+  const parsed = parseLocation(window.location);
+  if (isTopLevelView(parsed.from)) {
+    return parsed.from;
+  }
+  return defaultView;
+}
+
+function handleDetailBack(detailView) {
+  const fallback = detailView === 'articleDetail'
+    ? getDetailFallbackView('articles')
+    : getDetailFallbackView('requests');
+
+  if (detailView === 'articleDetail') {
+    state.articles.selectedArticle = null;
+  } else {
+    state.selectedRequest = null;
+  }
+
+  if (hasInternalHistory && window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+
+  navigateTo({ view: fallback });
+}
+
 // ===== Event Handlers =====
 function setupEventHandlers() {
   // Navigation
-  el.navItems.forEach(item => {
+  el.navItems.forEach((item) => {
     item.addEventListener('click', () => {
       const view = item.dataset.view;
-      showView(view);
-      if (view === 'inbox' && !state.inbox) loadInbox();
-      else if (view === 'overview' && !state.stats) loadStats();
-      else if (view === 'requests' && state.requests.length === 0) loadRequests();
-      else if (view === 'infra' && !state.infra) loadInfra();
-      else if (view === 'feed') renderFeed();
-      else if (view === 'errors' && !state.errors) loadErrors();
-      else if (view === 'backfill' && !state.backfill) loadBackfill();
-      else if (view === 'articles' && state.articles.items.length === 0) loadArticles();
+      if (!view) return;
+      navigateTo({ view });
     });
   });
 
@@ -235,12 +516,14 @@ function setupEventHandlers() {
   el.articleStatusFilter.addEventListener('change', (e) => {
     state.articles.filters.status = e.target.value;
     state.articles.pagination.page = 1;
+    syncUrlForCurrentState({ replace: true });
     loadArticles();
   });
 
   el.articleSearchFilter.addEventListener('input', debounce((e) => {
     state.articles.filters.search = e.target.value.trim();
     state.articles.pagination.page = 1;
+    syncUrlForCurrentState({ replace: true });
     loadArticles();
   }, 300));
 
@@ -259,6 +542,7 @@ function setupEventHandlers() {
   el.articlePrevPage.addEventListener('click', () => {
     if (state.articles.pagination.page > 1) {
       state.articles.pagination.page--;
+      syncUrlForCurrentState({ replace: false });
       loadArticles();
     }
   });
@@ -266,14 +550,14 @@ function setupEventHandlers() {
   el.articleNextPage.addEventListener('click', () => {
     if (state.articles.pagination.hasMore) {
       state.articles.pagination.page++;
+      syncUrlForCurrentState({ replace: false });
       loadArticles();
     }
   });
 
   // Article back button
   el.articleBackBtn.addEventListener('click', () => {
-    showView('articles');
-    state.articles.selectedArticle = null;
+    handleDetailBack('articleDetail');
   });
 
   // Auto-refresh toggle
@@ -288,28 +572,32 @@ function setupEventHandlers() {
   el.domainFilter.addEventListener('input', debounce((e) => {
     state.filters.domain = e.target.value.trim();
     state.pagination.offset = 0;
-    loadRequests();
+    syncUrlForCurrentState({ replace: true });
+    loadRequests().then(sortAndRenderRequests);
   }, 300));
 
   // URL search filter
   el.urlSearchFilter.addEventListener('input', debounce((e) => {
     state.filters.q = e.target.value.trim();
     state.pagination.offset = 0;
-    loadRequests();
+    syncUrlForCurrentState({ replace: true });
+    loadRequests().then(sortAndRenderRequests);
   }, 300));
 
   // Status filter
   el.statusFilter.addEventListener('change', (e) => {
     state.filters.status = e.target.value;
     state.pagination.offset = 0;
-    loadRequests();
+    syncUrlForCurrentState({ replace: true });
+    loadRequests().then(sortAndRenderRequests);
   });
 
   // Date range filter
   el.dateRangeFilter.addEventListener('change', (e) => {
     state.filters.dateRange = e.target.value;
     state.pagination.offset = 0;
-    loadRequests();
+    syncUrlForCurrentState({ replace: true });
+    loadRequests().then(sortAndRenderRequests);
   });
 
   if (el.requestPresetSelect) {
@@ -327,24 +615,22 @@ function setupEventHandlers() {
   el.prevPage.addEventListener('click', () => {
     if (state.pagination.offset > 0) {
       state.pagination.offset = Math.max(0, state.pagination.offset - CONFIG.pageSize);
-      loadRequests();
+      syncUrlForCurrentState({ replace: false });
+      loadRequests().then(sortAndRenderRequests);
     }
   });
 
   el.nextPage.addEventListener('click', () => {
     if (state.pagination.hasMore) {
       state.pagination.offset += CONFIG.pageSize;
-      loadRequests();
+      syncUrlForCurrentState({ replace: false });
+      loadRequests().then(sortAndRenderRequests);
     }
   });
 
   // Back button
   el.backBtn.addEventListener('click', () => {
-    const backTo = state.previousView && ['feed', 'requests', 'inbox'].includes(state.previousView)
-      ? state.previousView
-      : 'requests';
-    showView(backTo);
-    state.selectedRequest = null;
+    handleDetailBack('detail');
   });
 
   // Error close
@@ -360,7 +646,7 @@ function setupEventHandlers() {
   el.settingsCancel.addEventListener('click', () => el.settingsModal.classList.add('hidden'));
 
   el.settingsSave.addEventListener('click', () => {
-    state.settings.refreshInterval = parseInt(el.refreshInterval.value, 10) || CONFIG.defaultRefreshInterval;
+    state.settings.refreshInterval = Number.parseInt(el.refreshInterval.value, 10) || CONFIG.defaultRefreshInterval;
     saveSettings();
     if (state.settings.autoRefresh) startAutoRefresh();
     el.settingsModal.classList.add('hidden');
@@ -377,9 +663,10 @@ function setupEventHandlers() {
   });
 
   // Sort headers
-  el.requestTable.querySelectorAll('th.sortable').forEach(th => {
+  el.requestTable.querySelectorAll('th.sortable').forEach((th) => {
     th.addEventListener('click', () => {
       const col = th.dataset.sort;
+      if (!col) return;
       if (state.sort.column === col) {
         state.sort.direction = state.sort.direction === 'asc' ? 'desc' : 'asc';
       } else {
@@ -388,11 +675,21 @@ function setupEventHandlers() {
       }
       updateSortHeaders();
       sortAndRenderRequests();
+      syncUrlForCurrentState({ replace: true });
     });
   });
 
   // Keyboard shortcuts
-  const viewKeys = { '1': 'inbox', '2': 'overview', '3': 'feed', '4': 'requests', '5': 'errors', '6': 'articles', '7': 'backfill', '8': 'infra' };
+  const viewKeys = {
+    '1': 'inbox',
+    '2': 'overview',
+    '3': 'feed',
+    '4': 'requests',
+    '5': 'errors',
+    '6': 'articles',
+    '7': 'backfill',
+    '8': 'infra',
+  };
 
   document.addEventListener('keydown', (e) => {
     const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT';
@@ -402,14 +699,9 @@ function setupEventHandlers() {
       if (!el.settingsModal.classList.contains('hidden')) {
         el.settingsModal.classList.add('hidden');
       } else if (state.currentView === 'articleDetail') {
-        showView('articles');
-        state.articles.selectedArticle = null;
+        handleDetailBack('articleDetail');
       } else if (state.currentView === 'detail') {
-        const backTo = state.previousView && ['feed', 'requests', 'inbox'].includes(state.previousView)
-          ? state.previousView
-          : 'requests';
-        showView(backTo);
-        state.selectedRequest = null;
+        handleDetailBack('detail');
       } else if (isInput) {
         e.target.blur();
       }
@@ -440,18 +732,9 @@ function setupEventHandlers() {
       return;
     }
 
-    // 1-7 — switch views
+    // 1-8 — switch views
     if (viewKeys[e.key]) {
-      const view = viewKeys[e.key];
-      showView(view);
-      // Trigger load for views that need it
-      if (view === 'inbox' && !state.inbox) loadInbox();
-      else if (view === 'overview' && !state.stats) loadStats();
-      else if (view === 'requests' && state.requests.length === 0) loadRequests();
-      else if (view === 'infra' && !state.infra) loadInfra();
-      else if (view === 'errors' && !state.errors) loadErrors();
-      else if (view === 'backfill' && !state.backfill) loadBackfill();
-      else if (view === 'articles' && state.articles.items.length === 0) loadArticles();
+      navigateTo({ view: viewKeys[e.key] });
       return;
     }
 
@@ -466,7 +749,7 @@ function setupEventHandlers() {
       if (rows.length === 0) return;
 
       // Remove previous selection
-      rows.forEach(r => r.classList.remove('selected'));
+      rows.forEach((r) => r.classList.remove('selected'));
 
       if (e.key === 'j') {
         state.selectedRowIndex = Math.min(state.selectedRowIndex + 1, rows.length - 1);
@@ -491,7 +774,6 @@ function setupEventHandlers() {
       if (rows[state.selectedRowIndex]) {
         rows[state.selectedRowIndex].click();
       }
-      return;
     }
   });
 }
@@ -500,8 +782,16 @@ function setupEventHandlers() {
 loadSettings();
 setupEventHandlers();
 startSystemClock();
-showView('inbox');
-loadInbox();
+
+window.addEventListener('popstate', (event) => {
+  const route = event.state ? normalizeRouteState(event.state) : parseLocation(window.location);
+  hasInternalHistory = true;
+  void applyRoute(route, { source: 'popstate' });
+});
+
+const initialRoute = normalizeRouteState(parseLocation(window.location));
+commitRoute(initialRoute, { replace: true, markInternal: false });
+void applyRoute(initialRoute, { source: 'init' });
 
 if (state.settings.autoRefresh) {
   startAutoRefresh();
