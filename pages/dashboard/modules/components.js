@@ -19,6 +19,68 @@ export function renderArchiveIndicators(archives) {
 
 // ===== Pipeline Visualizer =====
 
+const STEP_ID_SET = new Set(PIPELINE_STEPS.map((step) => step.id));
+const STEP_BY_SOURCE = new Map(PIPELINE_STEPS.map((step) => [step.source, step.id]));
+
+const STEP_BY_EVENT_STEP = new Map([
+  ['render', ['render']],
+  ['singlefile', ['singlefile']],
+  ['readability', ['readability']],
+  ['monolith', ['monolith']],
+  ['persist', ['persist']],
+  ['derivatives', ['readability', 'monolith']],
+]);
+
+function hasStepType(type) {
+  return typeof type === 'string' && type.startsWith('step.');
+}
+
+function hasPersistType(type) {
+  return typeof type === 'string' && type.startsWith('persist.');
+}
+
+function isFiniteDuration(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function extractStepName(event) {
+  const step = event?.data?.step;
+  return typeof step === 'string' ? step.toLowerCase() : undefined;
+}
+
+function resolvePipelineTargets(event) {
+  const type = event?.type;
+
+  if (hasPersistType(type)) {
+    return ['persist'];
+  }
+
+  const stepName = extractStepName(event);
+  if (hasStepType(type) && stepName) {
+    const mappedSteps = STEP_BY_EVENT_STEP.get(stepName);
+    if (mappedSteps) return mappedSteps;
+    if (STEP_ID_SET.has(stepName)) return [stepName];
+  }
+
+  const source = event?.source;
+  const legacyStep = typeof source === 'string' ? STEP_BY_SOURCE.get(source) : undefined;
+  return legacyStep ? [legacyStep] : [];
+}
+
+function updateElapsed(stepState, event) {
+  const duration = event?.data?.duration_ms;
+  if (isFiniteDuration(duration)) {
+    stepState.elapsed = duration;
+    return;
+  }
+
+  if (!stepState.startedAt) return;
+  const diff = new Date(event.ts).getTime() - new Date(stepState.startedAt).getTime();
+  if (Number.isFinite(diff) && diff >= 0) {
+    stepState.elapsed = diff;
+  }
+}
+
 export function derivePipelineState(events) {
   const steps = {};
   for (const step of PIPELINE_STEPS) {
@@ -33,27 +95,30 @@ export function derivePipelineState(events) {
   }
 
   for (const event of events) {
-    const step = PIPELINE_STEPS.find(s => s.source === event.source);
-    if (!step) continue;
+    const targetStepIds = resolvePipelineTargets(event);
+    if (targetStepIds.length === 0) continue;
 
-    const s = steps[step.id];
+    const isStart = event.type === 'step.started' || event.type === 'persist.started';
+    const isComplete = event.type === 'step.completed' || event.type === 'persist.completed';
+    const isFailed = event.type === 'step.failed' || event.type === 'persist.failed';
 
-    if (event.type === 'step.started') {
-      s.status = 'running';
-      s.startedAt = s.startedAt || event.ts;
-      s.attempts++;
-    } else if (event.type === 'step.completed') {
-      s.status = 'complete';
-      s.completedAt = event.ts;
-      if (s.startedAt) {
-        s.elapsed = new Date(event.ts) - new Date(s.startedAt);
-      }
-    } else if (event.type === 'step.failed') {
-      s.status = 'failed';
-      s.completedAt = event.ts;
-      s.error = event.message || 'Failed';
-      if (s.startedAt) {
-        s.elapsed = new Date(event.ts) - new Date(s.startedAt);
+    for (const stepId of targetStepIds) {
+      const s = steps[stepId];
+      if (!s) continue;
+
+      if (isStart) {
+        s.status = 'running';
+        s.startedAt = s.startedAt || event.ts;
+        s.attempts++;
+      } else if (isComplete) {
+        s.status = 'complete';
+        s.completedAt = event.ts;
+        updateElapsed(s, event);
+      } else if (isFailed) {
+        s.status = 'failed';
+        s.completedAt = event.ts;
+        s.error = event.message || 'Failed';
+        updateElapsed(s, event);
       }
     }
   }
