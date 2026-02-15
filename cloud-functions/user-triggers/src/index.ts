@@ -1,7 +1,8 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
-import { defineString } from 'firebase-functions/params';
+import { defineString, defineSecret } from 'firebase-functions/params';
+import { callGatewayBegin } from './gateway-client.js';
 
 // Initialize Firebase Admin
 if (getApps().length === 0) {
@@ -10,9 +11,11 @@ if (getApps().length === 0) {
 
 // Environment params
 const GATEWAY_URL = defineString('GATEWAY_URL', {
-  default: 'https://gateway.warg.workers.dev',
+  default: 'https://gateway.jayteealao.workers.dev',
 });
 const PUBLIC_API_KEY = defineString('PUBLIC_API_KEY');
+const CF_ACCESS_CLIENT_ID = defineSecret('CF_ACCESS_CLIENT_ID');
+const CF_ACCESS_CLIENT_SECRET = defineSecret('CF_ACCESS_CLIENT_SECRET');
 
 /**
  * Extract domain from URL (hostname without www.)
@@ -33,7 +36,10 @@ function extractDomain(url: string): string {
  * Event: onCreate
  */
 export const onUserArticleSave = onDocumentCreated(
-  'users/{userId}/articles/{itemId}',
+  {
+    document: 'users/{userId}/articles/{itemId}',
+    secrets: [CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET],
+  },
   async (event) => {
     const snap = event.data;
     if (!snap) {
@@ -115,28 +121,20 @@ export const onUserArticleSave = onDocumentCreated(
       console.log(`[onUserArticleSave] Created shared article ${itemId}`);
 
       // 4. Call Warg gateway /begin to trigger archival
-      const gatewayResponse = await fetch(`${GATEWAY_URL.value()}/begin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': PUBLIC_API_KEY.value(),
+      const { requestId } = await callGatewayBegin(
+        {
+          gatewayUrl: GATEWAY_URL.value(),
+          publicApiKey: PUBLIC_API_KEY.value(),
+          cfAccessClientId: process.env['CF_ACCESS_CLIENT_ID'] ?? '',
+          cfAccessClientSecret: process.env['CF_ACCESS_CLIENT_SECRET'] ?? '',
         },
-        body: JSON.stringify({
+        {
           url,
           request_id: itemId,
           includeScreenshot: true,
           includePdf: true,
-        }),
-      });
-
-      if (!gatewayResponse.ok) {
-        const errorText = await gatewayResponse.text();
-        throw new Error(`Gateway error: ${errorText}`);
-      }
-
-      const { requestId } = (await gatewayResponse.json()) as {
-        requestId: string;
-      };
+        }
+      ) as { requestId: string };
       console.log(`[onUserArticleSave] Warg archive started: ${requestId}`);
 
       // 5. Update shared article with Warg request ID

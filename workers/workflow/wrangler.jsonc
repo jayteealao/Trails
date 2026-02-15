@@ -3,6 +3,7 @@
   "name": "workflow",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
+  "workers_dev": false,
   "observability": { "enabled": true },
 
   // Cloudflare Workflows

@@ -3,6 +3,7 @@
   "name": "renderer",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
+  "workers_dev": false,
   "observability": { "enabled": true },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }

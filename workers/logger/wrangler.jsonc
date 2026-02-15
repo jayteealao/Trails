@@ -3,6 +3,7 @@
   "name": "logger",
   "main": "src/index.ts",
   "compatibility_date": "2025-01-01",
+  "workers_dev": false,
   "durable_objects": {
     "bindings": [{ "name": "LOGGER_DO", "class_name": "LoggerDO" }]
   },

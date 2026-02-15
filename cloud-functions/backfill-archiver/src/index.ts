@@ -3,7 +3,8 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import type { DocumentReference, DocumentData } from 'firebase-admin/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onRequest } from 'firebase-functions/v2/https';
-import { defineString, defineInt } from 'firebase-functions/params';
+import { defineString, defineInt, defineSecret } from 'firebase-functions/params';
+import { callGatewayBegin } from './gateway-client.js';
 
 // Initialize Firebase Admin
 if (getApps().length === 0) {
@@ -17,6 +18,8 @@ const GATEWAY_URL = defineString('GATEWAY_URL', {
 });
 const PUBLIC_API_KEY = defineString('PUBLIC_API_KEY');
 const INTERNAL_API_KEY = defineString('INTERNAL_API_KEY');
+const CF_ACCESS_CLIENT_ID = defineSecret('CF_ACCESS_CLIENT_ID');
+const CF_ACCESS_CLIENT_SECRET = defineSecret('CF_ACCESS_CLIENT_SECRET');
 const USER_ID = 'TGtRF6GrQaSmfjGk9GEYJ8YZc0v1';
 const BATCH_SIZE = defineInt('BACKFILL_BATCH_SIZE', { default: 25 });
 const STAGGER_MS = 2000;
@@ -255,6 +258,7 @@ export const backfillArchiver = onSchedule(
     retryCount: 0,
     timeoutSeconds: 540,
     memory: '1GiB',
+    secrets: [CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET],
   },
   async () => {
     const db = getFirestore();
@@ -331,28 +335,20 @@ export const backfillArchiver = onSchedule(
             }
 
             try {
-              const response = await fetch(`${GATEWAY_URL.value()}/begin`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-API-Key': PUBLIC_API_KEY.value(),
+              const { requestId } = await callGatewayBegin(
+                {
+                  gatewayUrl: GATEWAY_URL.value(),
+                  publicApiKey: PUBLIC_API_KEY.value(),
+                  cfAccessClientId: process.env['CF_ACCESS_CLIENT_ID'] ?? '',
+                  cfAccessClientSecret: process.env['CF_ACCESS_CLIENT_SECRET'] ?? '',
                 },
-                body: JSON.stringify({
+                {
                   url: entry.url,
                   request_id: entry.item_id,
                   includeScreenshot: true,
                   includePdf: true,
-                }),
-              });
-
-              if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Gateway error: ${errorText}`);
-              }
-
-              const { requestId } = (await response.json()) as {
-                requestId: string;
-              };
+                }
+              ) as { requestId: string };
 
               await db
                 .collection('articles')
@@ -552,28 +548,20 @@ export const backfillArchiver = onSchedule(
         });
 
         // Call gateway /begin
-        const response = await fetch(`${GATEWAY_URL.value()}/begin`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': PUBLIC_API_KEY.value(),
+        const { requestId } = await callGatewayBegin(
+          {
+            gatewayUrl: GATEWAY_URL.value(),
+            publicApiKey: PUBLIC_API_KEY.value(),
+            cfAccessClientId: process.env['CF_ACCESS_CLIENT_ID'] ?? '',
+            cfAccessClientSecret: process.env['CF_ACCESS_CLIENT_SECRET'] ?? '',
           },
-          body: JSON.stringify({
+          {
             url,
             request_id: itemId,
             includeScreenshot: true,
             includePdf: true,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Gateway error: ${errorText}`);
-        }
-
-        const { requestId } = (await response.json()) as {
-          requestId: string;
-        };
+          }
+        ) as { requestId: string };
 
         // Update shared article with warg request ID
         await articleRef.update({

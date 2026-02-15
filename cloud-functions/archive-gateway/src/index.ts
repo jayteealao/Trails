@@ -1,8 +1,12 @@
 import { onRequest } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { verifyApiKey } from './auth.js';
 import { handleCreateUpload } from './create-upload.js';
 import { handleFinalize } from './finalize.js';
+
+const CF_ACCESS_CLIENT_ID = defineSecret('CF_ACCESS_CLIENT_ID');
+const CF_ACCESS_CLIENT_SECRET = defineSecret('CF_ACCESS_CLIENT_SECRET');
 
 // Initialize Firebase Admin (only once)
 if (getApps().length === 0) {
@@ -15,7 +19,11 @@ if (getApps().length === 0) {
  * Main HTTP function handler.
  * Routes requests to appropriate handlers based on path.
  */
-export const archiveGateway = onRequest(async (req, res) => {
+export const archiveGateway = onRequest(
+  {
+    secrets: [CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET]
+  },
+  async (req, res) => {
   // No CORS headers — this is an internal API called only by backend workers.
   // Reject preflight and non-POST methods.
 
@@ -41,4 +49,5 @@ export const archiveGateway = onRequest(async (req, res) => {
         res.status(404).json({ error: 'Not found', path });
     }
   });
-});
+  }
+);
