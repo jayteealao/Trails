@@ -2,7 +2,8 @@ import type {
   InitRequestPayload,
   LogEvent,
   ArtifactRecord,
-  RequestFieldsPatch
+  RequestFieldsPatch,
+  RequestDiagnostics
 } from '@warg/shared';
 import { timingSafeEqual } from '@warg/shared';
 import { LoggerDO } from './LoggerDO.js';
@@ -20,6 +21,27 @@ interface RequestsIndexRow {
   error_count: number;
   stage: string | null;
   manifest_r2_key: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  last_error_source: string | null;
+  retry_count: number | null;
+  render_ms: number | null;
+  derive_ms: number | null;
+  persist_ms: number | null;
+  last_trace_id: string | null;
+}
+
+function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
+  return {
+    errorCode: row.last_error_code ?? undefined,
+    errorMessage: row.last_error_message ?? undefined,
+    errorSource: row.last_error_source ?? undefined,
+    retryCount: row.retry_count ?? 0,
+    renderMs: row.render_ms ?? undefined,
+    deriveMs: row.derive_ms ?? undefined,
+    persistMs: row.persist_ms ?? undefined,
+    lastTraceId: row.last_trace_id ?? undefined,
+  };
 }
 
 /**
@@ -385,7 +407,8 @@ export default {
             terminal: row.terminal_state === 1,
             errorCount: row.error_count,
             stage: row.stage,
-            manifestR2Key: row.manifest_r2_key
+            manifestR2Key: row.manifest_r2_key,
+            diagnostics: toDiagnostics(row),
           })),
         });
       }
@@ -444,7 +467,8 @@ export default {
             terminal: row.terminal_state === 1,
             errorCount: row.error_count,
             stage: row.stage,
-            manifestR2Key: row.manifest_r2_key
+            manifestR2Key: row.manifest_r2_key,
+            diagnostics: toDiagnostics(row),
           })),
           meta: {
             count: result.results.length,

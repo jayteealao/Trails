@@ -1,4 +1,5 @@
 import type { ArtifactKind } from './types.js';
+import type { RequestDiagnostics } from './dashboard.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -64,6 +65,7 @@ export interface DerivedSummary {
   errorCount: number;
   lastEventTs: string | undefined;
   terminal: boolean;
+  diagnostics?: RequestDiagnostics;
 }
 
 /**

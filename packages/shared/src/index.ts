@@ -21,6 +21,13 @@ export type {
   RequestFieldsPatch
 } from './logging.js';
 
+export type {
+  UserActionHint,
+  RequestErrorCode,
+  RequestDiagnostics,
+  ArticleHealth
+} from './dashboard.js';
+
 export { createEvent } from './logging.js';
 
 export { getR2Key, getOptionsKey } from './r2Keys.js';

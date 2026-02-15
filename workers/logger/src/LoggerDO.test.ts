@@ -155,6 +155,67 @@ describe('LoggerDO', () => {
         expect(view4?.derived.terminal).toBe(true);
       }
     });
+
+    it('stores diagnostics fields for errors and durations', async () => {
+      const requestId = `test-${Date.now()}-5b`;
+      const stub = getStub(requestId);
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'step.completed',
+        level: 'info',
+        message: 'Step completed: render',
+        data: { step: 'render', duration_ms: 1200 },
+      });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'step.completed',
+        level: 'info',
+        message: 'Step completed: readability',
+        data: { step: 'readability', duration_ms: 850 },
+      });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'gcs',
+        type: 'persist.completed',
+        level: 'info',
+        message: 'GCS persistence completed',
+        data: { duration_ms: 4000 },
+      });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'renderer',
+        type: 'step.failed',
+        level: 'error',
+        message: 'Render failed',
+        attempt: 2,
+        data: {
+          errorCode: 'RENDER_TIMEOUT',
+          retryable: true,
+          recommendedAction: 'retry_full',
+          traceId: 'trace_123',
+          error: 'Timed out in render service',
+        },
+      });
+
+      using view = await stub.getRequestView();
+      expect(view?.derived.diagnostics?.errorCode).toBe('RENDER_TIMEOUT');
+      expect(view?.derived.diagnostics?.errorSource).toBe('renderer');
+      expect(view?.derived.diagnostics?.retryable).toBe(true);
+      expect(view?.derived.diagnostics?.recommendedAction).toBe('retry_full');
+      expect(view?.derived.diagnostics?.retryCount).toBe(2);
+      expect(view?.derived.diagnostics?.renderMs).toBe(1200);
+      expect(view?.derived.diagnostics?.deriveMs).toBe(850);
+      expect(view?.derived.diagnostics?.persistMs).toBe(4000);
+      expect(view?.derived.diagnostics?.lastTraceId).toBe('trace_123');
+    });
   });
 
   describe('upsertArtifact', () => {

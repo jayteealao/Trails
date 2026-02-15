@@ -12,9 +12,19 @@ CREATE TABLE IF NOT EXISTS requests_index (
   error_count INTEGER DEFAULT 0,
   stage TEXT,
   manifest_r2_key TEXT,
-  firestore_doc_id TEXT
+  firestore_doc_id TEXT,
+  last_error_code TEXT,
+  last_error_message TEXT,
+  last_error_source TEXT,
+  retry_count INTEGER DEFAULT 0,
+  render_ms INTEGER,
+  derive_ms INTEGER,
+  persist_ms INTEGER,
+  last_trace_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_requests_domain ON requests_index(domain);
 CREATE INDEX IF NOT EXISTS idx_requests_created ON requests_index(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_requests_terminal ON requests_index(terminal_state);
+CREATE INDEX IF NOT EXISTS idx_requests_error_code ON requests_index(last_error_code);
+CREATE INDEX IF NOT EXISTS idx_requests_stage_created ON requests_index(stage, created_at DESC);

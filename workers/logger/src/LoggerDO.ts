@@ -3,6 +3,7 @@ import type {
   LogEvent,
   ArtifactRecord,
   DerivedSummary,
+  RequestDiagnostics,
   CanonicalRequestView,
   InitRequestPayload,
   RequestFieldsPatch,
@@ -55,7 +56,7 @@ function deriveStage(
   if (eventType === 'step.started') {
     const step = eventData?.step as string | undefined;
     if (step === 'render' || step === 'singlefile') return 'rendering';
-    if (step === 'derivatives') return 'deriving';
+    if (step === 'derivatives' || step === 'readability' || step === 'monolith') return 'deriving';
     return undefined;
   }
   // step.completed / step.failed: don't change stage (keep current)
@@ -65,6 +66,67 @@ function deriveStage(
   if (eventType === 'workflow.completed' || eventType === 'workflow.failed') return undefined;
   if (eventType === 'request.created') return 'queued';
   return undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
+  return value;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function updateDiagnostics(
+  existing: RequestDiagnostics | undefined,
+  event: LogEvent
+): RequestDiagnostics {
+  const diagnostics: RequestDiagnostics = existing
+    ? { ...existing }
+    : { retryCount: 0 };
+  if (typeof diagnostics.retryCount !== 'number' || Number.isNaN(diagnostics.retryCount)) {
+    diagnostics.retryCount = 0;
+  }
+  const data = event.data;
+
+  if (typeof event.attempt === 'number') {
+    diagnostics.retryCount = Math.max(diagnostics.retryCount, event.attempt);
+  }
+
+  const traceId = asString(data?.['traceId']) ?? asString(data?.['request_trace_id']);
+  if (traceId) diagnostics.lastTraceId = traceId;
+
+  if (event.type === 'step.completed') {
+    const durationMs = asNumber(data?.['duration_ms']);
+    const step = asString(data?.['step']);
+    if (durationMs !== undefined) {
+      if (step === 'render' || step === 'singlefile') diagnostics.renderMs = durationMs;
+      else if (step === 'derivatives' || step === 'readability' || step === 'monolith') diagnostics.deriveMs = durationMs;
+    }
+  }
+
+  if (event.type === 'persist.completed') {
+    const durationMs = asNumber(data?.['duration_ms']);
+    if (durationMs !== undefined) diagnostics.persistMs = durationMs;
+  }
+
+  if (event.level === 'error') {
+    const errorCode = asString(data?.['errorCode']) as RequestDiagnostics['errorCode'] | undefined;
+    diagnostics.errorCode = errorCode ?? 'UNKNOWN_ERROR';
+    diagnostics.errorMessage = asString(data?.['error']) ?? event.message;
+    diagnostics.errorSource = event.source;
+    diagnostics.retryable = asBoolean(data?.['retryable']) ?? diagnostics.retryable;
+    const recommendedAction = asString(data?.['recommendedAction']);
+    if (recommendedAction) {
+      diagnostics.recommendedAction = recommendedAction as RequestDiagnostics['recommendedAction'];
+    }
+  }
+
+  return diagnostics;
 }
 
 /**
@@ -193,6 +255,7 @@ export class LoggerDO extends DurableObject<Env> {
       }
 
       derived.lastEventTs = event.ts;
+      derived.diagnostics = updateDiagnostics(derived.diagnostics, event);
 
       this.sql.exec(
         'UPDATE requests SET derived_json = ? WHERE request_id = ?',
@@ -205,7 +268,10 @@ export class LoggerDO extends DurableObject<Env> {
         await this.env.INDEX_DB.prepare(
           `UPDATE requests_index
            SET updated_at = ?, last_event_ts = ?, stage = ?,
-               terminal_state = ?, error_count = ?
+               terminal_state = ?, error_count = ?,
+               last_error_code = ?, last_error_message = ?, last_error_source = ?,
+               retry_count = ?, render_ms = ?, derive_ms = ?, persist_ms = ?,
+               last_trace_id = ?
            WHERE request_id = ?`
         )
           .bind(
@@ -214,6 +280,14 @@ export class LoggerDO extends DurableObject<Env> {
             derived.stage,
             derived.terminal ? 1 : 0,
             derived.errorCount,
+            derived.diagnostics?.errorCode ?? null,
+            derived.diagnostics?.errorMessage ?? null,
+            derived.diagnostics?.errorSource ?? null,
+            derived.diagnostics?.retryCount ?? 0,
+            derived.diagnostics?.renderMs ?? null,
+            derived.diagnostics?.deriveMs ?? null,
+            derived.diagnostics?.persistMs ?? null,
+            derived.diagnostics?.lastTraceId ?? null,
             requestRow.request_id
           )
           .run();
