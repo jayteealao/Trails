@@ -1,27 +1,35 @@
 package com.jayteealao.trails.screens.tagManagement
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -49,17 +57,35 @@ fun TagManagementScreen(
 
     val article = viewStore.state.article
 
-    // Show loading or wait for article to load
+    // Collect error events and display via snackbar
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    viewStore.handle<TagManagementEvent.ShowError> { event ->
+        scope.launch {
+            snackbarHostState.showSnackbar(
+                event.error.localizedMessage ?: "An error occurred"
+            )
+        }
+    }
+
+    // Show loading indicator while article is being fetched
     if (article == null) {
-        // Could show a loading indicator here
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 48.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(48.dp))
+        }
         return
     }
 
-    // Local state for tag management
+    // Local state for tag management — mutableStateMapOf so Compose observes mutations
     val tagStates = remember(article.itemId) {
-        mutableMapOf<String, Boolean>().apply {
-            article.tagsString?.split(",")?.forEach { tag ->
-                if (tag.isNotBlank()) put(tag.trim(), true)
+        mutableStateMapOf<String, Boolean>().apply {
+            article.tags.forEach { tag ->
+                if (tag.isNotBlank()) put(tag, true)
             }
         }
     }
@@ -69,6 +95,7 @@ fun TagManagementScreen(
         ?: TagSuggestionUiState()
 
     // Content only - BottomSheetSceneStrategy wraps this in ModalBottomSheet
+    Box(modifier = Modifier.fillMaxWidth()) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -97,9 +124,21 @@ fun TagManagementScreen(
             )
             Button(
                 onClick = {
-                    if (newTagText.isNotBlank()) {
-                        tagStates[newTagText.trim()] = true
-                        viewStore.action { updateTag(article.itemId, newTagText.trim(), true) }
+                    val trimmed = newTagText.trim()
+                    if (trimmed.isNotBlank()) {
+                        // Case-insensitive duplicate check against local state and all known tags
+                        val allKnownTags = tagStates.keys + viewStore.state.tags
+                        val existingKey = allKnownTags.firstOrNull {
+                            it.equals(trimmed, ignoreCase = true)
+                        }
+                        if (existingKey != null) {
+                            // Select the existing tag instead of creating a duplicate
+                            tagStates[existingKey] = true
+                            viewStore.action { updateTag(article.itemId, existingKey, true) }
+                        } else {
+                            tagStates[trimmed] = true
+                            viewStore.action { updateTag(article.itemId, trimmed, true) }
+                        }
                         newTagText = ""
                     }
                 }
@@ -192,5 +231,10 @@ fun TagManagementScreen(
                 )
             }
         }
+    }
+    SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = Modifier.align(Alignment.BottomCenter)
+    )
     }
 }

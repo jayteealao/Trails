@@ -67,6 +67,9 @@ class TagManagementViewModel @Inject constructor(
      * Fetches an article by ID from the database.
      */
     fun getArticle(articleId: String) {
+        // Reset to null so the composable re-enters loading state and
+        // initializes tagStates from fresh DB data instead of stale cache
+        _article.value = null
         viewModelScope.launch(ioDispatcher) {
             try {
                 val articles = articleDao.getArticlesByIds(listOf(articleId))

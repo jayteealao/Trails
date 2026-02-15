@@ -138,12 +138,15 @@ interface ArticleDao {
     @RewriteQueriesToDropUnusedColumns
     @Query(
         """
-        SELECT itemId, title, COALESCE(url, givenUrl) AS url, image,
-        CASE WHEN favorite = '1' OR timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN timeRead IS NOT NULL AND timeRead > 0 THEN 1 ELSE 0 END AS isRead,
-        excerpt AS snippet
-        FROM article
-        WHERE itemId IN (:ids)
+        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
+        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
+        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
+        art.excerpt AS snippet,
+        GROUP_CONCAT(tag.tag) AS tagsString
+        FROM article AS art
+        LEFT JOIN article_tags AS tag ON art.itemId = tag.itemId
+        WHERE art.itemId IN (:ids)
+        GROUP BY art.itemId
         """
     )
     fun getArticlesByIds(ids: List<String>): List<ArticleItem>
