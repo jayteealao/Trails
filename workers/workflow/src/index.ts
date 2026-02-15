@@ -35,6 +35,26 @@ import { runMockPipeline } from './mock.js';
 
 export { BrowserQuotaDO };
 
+const ACTIVE_INSTANCE_STATUSES = new Set([
+  'queued',
+  'running',
+  'waiting',
+  'waitingForPause',
+  'paused',
+]);
+
+function isAlreadyExistsError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('instance.already_exists');
+}
+
+function buildRetryInstanceId(requestId: string): string {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const maxBaseLength = 54; // keep ID length bounded for provider constraints
+  const base = requestId.length > maxBaseLength ? requestId.slice(0, maxBaseLength) : requestId;
+  return `${base}-${suffix}`;
+}
+
 /**
  * Archive workflow orchestrator.
  * Coordinates rendering, derivative extraction, manifest creation, and GCS persistence.
@@ -706,12 +726,46 @@ export default {
           );
         }
 
-        const instance = await env.ARCHIVE_WORKFLOW.create({
-          id: body.request_id,
-          params: body
-        });
+        const primaryInstanceId = body.request_id;
+        try {
+          const instance = await env.ARCHIVE_WORKFLOW.create({
+            id: primaryInstanceId,
+            params: body
+          });
+          return Response.json({ instanceId: instance.id, status: 'started' });
+        } catch (createErr) {
+          if (!isAlreadyExistsError(createErr)) {
+            throw createErr;
+          }
 
-        return Response.json({ instanceId: instance.id, status: 'started' });
+          let existingStatus: string | undefined;
+          try {
+            // If a previous instance with this request_id is still active, treat start as idempotent success.
+            const existing = await env.ARCHIVE_WORKFLOW.get(primaryInstanceId);
+            const status = await existing.status();
+            existingStatus = status.status;
+            if (ACTIVE_INSTANCE_STATUSES.has(status.status)) {
+              return Response.json({
+                instanceId: primaryInstanceId,
+                status: 'already_running',
+                existingStatus: status.status
+              });
+            }
+          } catch (statusErr) {
+            console.warn('[workflow] Failed to inspect existing instance status:', statusErr);
+          }
+
+          // Prior instance is terminal; create a new workflow instance for retry while preserving request_id payload.
+          const retryInstance = await env.ARCHIVE_WORKFLOW.create({
+            id: buildRetryInstanceId(primaryInstanceId),
+            params: body
+          });
+          return Response.json({
+            instanceId: retryInstance.id,
+            status: 'started_retry',
+            previousStatus: existingStatus ?? 'unknown'
+          });
+        }
       } catch (err) {
         console.error('[workflow] Error starting workflow:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
