@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import type { ArchiveClassification, ArticleListItem, ArticleListResponse } from './types.js';
 import { classifyArchiveStatus, buildArchiveStatuses, buildArticleHealth } from './classify.js';
 import { getDashboardUserId } from './config.js';
-import { extractDomain, timestampToIso } from './util.js';
+import { extractDomain, resolveCanonicalItemId, timestampToIso } from './util.js';
 
 const CHUNK_SIZE = 500;
 
@@ -105,13 +105,24 @@ export async function handleListArticles(
   }
 
   // Batch-fetch canonical docs
-  const itemIds = userArticlesSnap.docs.map((doc) => doc.id);
-  const canonicals = await batchFetchCanonicals(itemIds);
+  const canonicalIds = Array.from(
+    new Set(
+      userArticlesSnap.docs.map((doc) =>
+        resolveCanonicalItemId(doc.id, doc.data() as Record<string, unknown>)
+      )
+    )
+  );
+  const canonicals = await batchFetchCanonicals(canonicalIds);
 
   // Merge into ArticleListItems
-  let articles: ArticleListItem[] = userArticlesSnap.docs.map((doc) =>
-    mergeArticle(doc.id, doc.data(), canonicals.get(doc.id))
-  );
+  let articles: ArticleListItem[] = userArticlesSnap.docs.map((doc) => {
+    const userDoc = doc.data();
+    const canonicalId = resolveCanonicalItemId(
+      doc.id,
+      userDoc as Record<string, unknown>
+    );
+    return mergeArticle(doc.id, userDoc, canonicals.get(canonicalId));
+  });
 
   // Apply filter
   if (filter) {

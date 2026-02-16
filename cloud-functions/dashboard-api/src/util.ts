@@ -6,6 +6,17 @@ export function extractDomain(url: string): string {
   }
 }
 
+export function resolveCanonicalItemId(
+  itemId: string,
+  userDoc: Record<string, unknown> | undefined
+): string {
+  if (!userDoc) return itemId;
+  const resolvedId = userDoc['resolvedId'];
+  if (typeof resolvedId !== 'string') return itemId;
+  const trimmed = resolvedId.trim();
+  return trimmed.length > 0 ? trimmed : itemId;
+}
+
 export function timestampToIso(ts: unknown): string {
   if (!ts) return '';
   // Firestore Timestamp object

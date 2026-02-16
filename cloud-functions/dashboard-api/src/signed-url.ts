@@ -2,6 +2,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { Storage } from '@google-cloud/storage';
 import type { Request, Response } from 'express';
 import { ALL_ARCHIVE_KEYS } from './types.js';
+import { getDashboardUserId } from './config.js';
+import { resolveCanonicalItemId } from './util.js';
 
 const GCS_BUCKET = process.env['GCS_BUCKET'] || 'htbase-archives-standard';
 const GCS_PROJECT_ID = process.env['GCS_PROJECT_ID'] || 'trails-414917';
@@ -59,10 +61,27 @@ export async function handleSignedUrl(
   }
 
   const db = getFirestore();
-  const docSnap = await db.collection('articles').doc(itemId).get();
+  const userId = getDashboardUserId();
+  const userSnap = await db
+    .collection('users')
+    .doc(userId)
+    .collection('articles')
+    .doc(itemId)
+    .get();
+
+  if (!userSnap.exists) {
+    res.status(404).json({ error: 'Article not found' });
+    return;
+  }
+
+  const canonicalItemId = resolveCanonicalItemId(
+    itemId,
+    userSnap.data() as Record<string, unknown>
+  );
+  const docSnap = await db.collection('articles').doc(canonicalItemId).get();
 
   if (!docSnap.exists) {
-    res.status(404).json({ error: 'Article not found' });
+    res.status(404).json({ error: 'Canonical article not found' });
     return;
   }
 
@@ -103,6 +122,8 @@ export async function handleSignedUrl(
   res.json({
     url: signedUrl,
     expires_at: expiresAt.toISOString(),
+    item_id: itemId,
+    canonical_item_id: canonicalItemId,
     archive_key: archiveKey,
     archive_source_key: resolved?.sourceKey ?? archiveKey,
   });

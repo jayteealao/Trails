@@ -2,7 +2,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import type { ArticleDetail } from './types.js';
 import { getDashboardUserId } from './config.js';
-import { timestampToIso } from './util.js';
+import { resolveCanonicalItemId, timestampToIso } from './util.js';
 import { mergeArticle } from './list-articles.js';
 
 /**
@@ -17,11 +17,12 @@ export async function handleGetArticle(
   const db = getFirestore();
   const userId = getDashboardUserId();
 
-  // Fetch user article and canonical article in parallel
-  const [userSnap, canonicalSnap] = await Promise.all([
-    db.collection('users').doc(userId).collection('articles').doc(itemId).get(),
-    db.collection('articles').doc(itemId).get(),
-  ]);
+  const userSnap = await db
+    .collection('users')
+    .doc(userId)
+    .collection('articles')
+    .doc(itemId)
+    .get();
 
   if (!userSnap.exists) {
     res.status(404).json({ error: 'Article not found' });
@@ -29,6 +30,11 @@ export async function handleGetArticle(
   }
 
   const userDoc = userSnap.data()!;
+  const canonicalItemId = resolveCanonicalItemId(
+    itemId,
+    userDoc as Record<string, unknown>
+  );
+  const canonicalSnap = await db.collection('articles').doc(canonicalItemId).get();
   const canonicalDoc = canonicalSnap.exists ? canonicalSnap.data()! : undefined;
 
   // Reuse base fields from mergeArticle
@@ -49,7 +55,8 @@ export async function handleGetArticle(
           word_count: canonicalMeta['word_count'] as number | undefined,
         }
       : undefined,
-    pocket: userDoc['pocket'] as ArticleDetail['pocket'],
+    pocket: (userDoc['pocket'] as ArticleDetail['pocket']) ??
+      (canonicalDoc?.['pocket'] as ArticleDetail['pocket']),
     images: canonicalDoc?.['images'] as ArticleDetail['images'],
     firestore_status: canonicalDoc?.['status'] as string | undefined,
     error: canonicalDoc?.['error'] as string | undefined,
