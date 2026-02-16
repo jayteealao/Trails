@@ -75,18 +75,33 @@ export async function handleCreateUpload(
     const bucket = storage.bucket(GCS_BUCKET);
     const db = getFirestore();
 
-    // Create initial archives map with pending status (only for kinds that get archive entries)
-    const archives: Record<string, ArchiveEntry> = {};
-    for (const artifact of artifacts) {
-      const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
-      if (archiveKey) {
-        archives[archiveKey] = { status: 'pending' };
-      }
-    }
-
     // Create or update Firestore document
     const docRef = db.collection('articles').doc(request_id);
     const now = Timestamp.now();
+
+    // Check if document exists
+    const existingDoc = await docRef.get();
+    const existingArchives = existingDoc.exists
+      ? ((existingDoc.data()?.['archives'] as Record<string, ArchiveEntry> | undefined) ?? {})
+      : {};
+
+    // Build archive patch without regressing already-successful artifacts.
+    const archives: Record<string, ArchiveEntry> = {};
+    for (const artifact of artifacts) {
+      const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
+      if (!archiveKey) continue;
+
+      const existing = existingArchives[archiveKey];
+      if (existing?.status === 'success' && existing.gcs_path) {
+        archives[archiveKey] = existing;
+        continue;
+      }
+
+      archives[archiveKey] = {
+        ...(existing ?? {}),
+        status: 'pending',
+      };
+    }
 
     const docData: Partial<ArticleDocument> = {
       item_id: request_id,
@@ -96,8 +111,6 @@ export async function handleCreateUpload(
       archives
     };
 
-    // Check if document exists
-    const existingDoc = await docRef.get();
     if (!existingDoc.exists) {
       docData.created_at = now;
     }
