@@ -133,7 +133,7 @@ export class BrowserQuotaDO extends DurableObject<Env> {
   /**
    * Alarm handler for cleaning up expired leases.
    */
-  async alarm(): Promise<void> {
+  override async alarm(): Promise<void> {
     await this.loadState();
     this.cleanupExpiredLeases();
     await this.saveState();

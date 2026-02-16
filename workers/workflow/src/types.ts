@@ -27,6 +27,10 @@ export interface RendererResponse {
   meta?: {
     skipped: string[];
     browserApiMs?: number;
+    provider?: string;
+    hyperbrowserJobId?: string;
+    hyperbrowserScrapeMs?: number;
+    hyperbrowserPdfMs?: number;
   };
 }
 

@@ -29,6 +29,7 @@
   "services": [
     { "binding": "LOGGER", "service": "logger" },
     { "binding": "RENDERER", "service": "renderer" },
+    { "binding": "HYPERRENDERER", "service": "hyperrenderer" },
     { "binding": "SINGLEFILE", "service": "singlefile" },
     { "binding": "READABILITY", "service": "readability" },
     { "binding": "MONOLITH", "service": "monolith" },

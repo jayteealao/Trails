@@ -21,7 +21,7 @@ import type {
   WorkflowResult
 } from './types.js';
 import {
-  callRenderer,
+  callRendererWith403Fallback,
   callSinglefile,
   callReadability,
   callMonolith,
@@ -686,14 +686,14 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       });
 
       // Call renderer
-      const renderResult = await step.do(
+      const renderOutcome = await step.do(
         'render',
         {
           retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' },
           timeout: '5 minutes'
         },
         async () => {
-          return await callRenderer(this.env, {
+          return await callRendererWith403Fallback(this.env, {
             request_id: requestId,
             url,
             browser_quota_kind: 'rest_request',
@@ -703,6 +703,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           });
         }
       );
+      const renderResult = renderOutcome.result;
 
       // Log artifacts + duration + enriched meta
       await step.do('log-render-artifacts', async () => {
@@ -717,6 +718,13 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         }
         await logStepCompletedWithDuration(this.env, requestId, 'render', renderStartedAt, {
           artifactCount: renderResult.artifacts.length,
+          ...(renderOutcome.fallbackUsed
+            ? {
+                fallbackUsed: true,
+                fallbackReason: renderOutcome.fallbackReason,
+                fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
+              }
+            : {}),
           ...(renderResult.meta ? { meta: renderResult.meta } : {})
         });
       });

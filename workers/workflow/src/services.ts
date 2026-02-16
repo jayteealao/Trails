@@ -11,7 +11,7 @@ import type {
 } from './types.js';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
-interface ServiceErrorClassification {
+export interface ServiceErrorClassification {
   errorCode: RequestErrorCode;
   retryable: boolean;
   recommendedAction: UserActionHint;
@@ -56,13 +56,25 @@ function classifyServiceFailure(path: string, status: number): ServiceErrorClass
   };
 }
 
-class ServiceCallError extends Error {
+export class ServiceCallError extends Error {
   classification: ServiceErrorClassification;
+  path: string;
+  status: number;
+  responseBody: string;
 
-  constructor(message: string, classification: ServiceErrorClassification) {
+  constructor(
+    message: string,
+    classification: ServiceErrorClassification,
+    path: string,
+    status: number,
+    responseBody: string
+  ) {
     super(message);
     this.name = 'ServiceCallError';
     this.classification = classification;
+    this.path = path;
+    this.status = status;
+    this.responseBody = responseBody;
   }
 }
 
@@ -95,7 +107,10 @@ async function serviceCall<T>(
       if (err instanceof Error && err.name === 'AbortError') {
         throw new ServiceCallError(
           `Service timeout calling ${path}`,
-          classifyTimeout(path)
+          classifyTimeout(path),
+          path,
+          0,
+          ''
         );
       }
       throw err;
@@ -105,7 +120,10 @@ async function serviceCall<T>(
       const text = await response.text();
       throw new ServiceCallError(
         `Service error ${response.status}: ${text}`,
-        classifyServiceFailure(path, response.status)
+        classifyServiceFailure(path, response.status),
+        path,
+        response.status,
+        text
       );
     }
 
@@ -130,6 +148,97 @@ export function callRenderer(
     env.INTERNAL_API_KEY,
     120000 // 2 minute timeout for browser rendering
   );
+}
+
+/**
+ * Call the hyperrenderer service to render a URL.
+ * Used as fallback when primary renderer fails due to Browser Rendering 403.
+ */
+export function callHyperrenderer(
+  env: Env,
+  params: RendererParams
+): Promise<RendererResponse> {
+  return serviceCall<RendererResponse>(
+    env.HYPERRENDERER,
+    '/render',
+    params,
+    env.INTERNAL_API_KEY,
+    120000 // 2 minute timeout, same as primary renderer
+  );
+}
+
+function looksLikeRenderer403Payload(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const record = payload as Record<string, unknown>;
+
+  if (record.status !== 403) return false;
+
+  const error = record.error;
+  if (typeof error !== 'string') return false;
+
+  return error.includes('Browser Rendering /content failed');
+}
+
+/**
+ * True when primary renderer wrapped a Browser Rendering 403 response.
+ * Current renderer returns status 502 with JSON payload containing status=403.
+ */
+export function isBrowserRendering403ForRender(error: unknown): boolean {
+  if (!(error instanceof ServiceCallError)) return false;
+  if (error.path !== '/render') return false;
+  if (!error.responseBody) return false;
+
+  try {
+    const parsed = JSON.parse(error.responseBody) as unknown;
+    return looksLikeRenderer403Payload(parsed);
+  } catch {
+    return false;
+  }
+}
+
+export interface RendererCallOutcome {
+  result: RendererResponse;
+  fallbackUsed: boolean;
+  fallbackReason?: 'browser_rendering_403';
+}
+
+/**
+ * Call primary renderer and transparently fall back to hyperrenderer
+ * when Browser Rendering returns a wrapped 403 failure.
+ */
+export async function callRendererWith403Fallback(
+  env: Env,
+  params: RendererParams
+): Promise<RendererCallOutcome> {
+  try {
+    const result = await callRenderer(env, params);
+    return { result, fallbackUsed: false };
+  } catch (error) {
+    if (!isBrowserRendering403ForRender(error)) {
+      throw error;
+    }
+
+    const primaryMessage = error instanceof Error ? error.message : String(error);
+    try {
+      const result = await callHyperrenderer(env, params);
+      return {
+        result,
+        fallbackUsed: true,
+        fallbackReason: 'browser_rendering_403',
+      };
+    } catch (fallbackError) {
+      if (fallbackError instanceof ServiceCallError) {
+        throw new ServiceCallError(
+          `Renderer failed with Browser Rendering 403 and fallback failed. primary=${primaryMessage}; fallback=${fallbackError.message}`,
+          fallbackError.classification,
+          fallbackError.path,
+          fallbackError.status,
+          fallbackError.responseBody
+        );
+      }
+      throw fallbackError;
+    }
+  }
 }
 
 /**

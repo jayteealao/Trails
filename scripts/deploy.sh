@@ -16,6 +16,7 @@ set -euo pipefail
 #   gateway:     INTERNAL_API_KEY, PUBLIC_API_KEY
 #   workflow:    INTERNAL_API_KEY
 #   renderer:    INTERNAL_API_KEY, CF_ACCOUNT_ID, BR_API_TOKEN
+#   hyperrenderer: INTERNAL_API_KEY, HYPERBROWSER_API_KEY
 #   singlefile:  INTERNAL_API_KEY
 #   readability: INTERNAL_API_KEY
 #   monolith:    INTERNAL_API_KEY
@@ -90,7 +91,7 @@ fi
 
 # --- Tier 1: independent workers (no service binding deps) ---
 echo "=== Tier 1: independent workers ==="
-for worker in logger renderer singlefile readability monolith gcs; do
+for worker in logger renderer hyperrenderer singlefile readability monolith gcs; do
   deploy_worker "$worker"
 done
 

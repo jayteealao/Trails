@@ -135,6 +135,16 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.7)(lightningcss@1.30.2)
 
+  workers/hyperrenderer:
+    dependencies:
+      '@warg/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.7)(lightningcss@1.30.2)
+
   workers/logger:
     dependencies:
       '@warg/shared':
@@ -196,6 +206,10 @@ importers:
       '@warg/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+    devDependencies:
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.7)(lightningcss@1.30.2)
 
 packages:
 
