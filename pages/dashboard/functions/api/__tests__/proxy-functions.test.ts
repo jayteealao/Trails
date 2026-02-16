@@ -132,9 +132,30 @@ describe('[id] proxy', () => {
 // --- Begin proxy ---
 
 describe('begin proxy', () => {
-  it('POSTs to gateway service binding with body', async () => {
-    const mockGateway = createMockFetcher(async () => jsonResponse({ requestId: 'new-id' }));
-    const env = { GATEWAY: mockGateway, PUBLIC_API_KEY: 'pub-key' } as any;
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('enqueues article via dashboard-api when request_id is absent', async () => {
+    const mockGateway = createMockFetcher(async () => jsonResponse({ requestId: 'unused' }));
+    const env = {
+      GATEWAY: mockGateway,
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      INTERNAL_API_KEY: 'internal-key',
+      PUBLIC_API_KEY: 'pub-key',
+    } as any;
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url === 'https://dashboard-api.example.com/articles/enqueue') {
+        expect(init?.method).toBe('POST');
+        const headers = new Headers(init?.headers as HeadersInit);
+        expect(headers.get('X-Internal-API-Key')).toBe('internal-key');
+        expect(JSON.parse(String(init?.body))).toEqual({ url: 'https://example.com' });
+        return jsonResponse({ itemId: 'item12345', queued: true, existed: false }, 201);
+      }
+      return errorResponse('Unexpected URL', 500);
+    });
 
     const { onRequestPost } = await import('../begin.js');
     const request = createRequest('https://dashboard.example.com/api/begin', {
@@ -144,15 +165,189 @@ describe('begin proxy', () => {
     });
 
     const response = await onRequestPost({ env, request, params: {} } as any);
-    const data = (await response.json()) as { requestId: string };
+    const data = (await response.json()) as { requestId: string; itemId: string; queued: boolean; started: boolean };
 
-    expect(data.requestId).toBe('new-id');
+    expect(response.status).toBe(200);
+    expect(data).toMatchObject({
+      requestId: 'item12345',
+      itemId: 'item12345',
+      queued: true,
+      started: false,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(mockGateway.fetch).not.toHaveBeenCalled();
+  });
 
-    const [url, init] = mockCall(mockGateway.fetch);
-    expect(url).toBe('https://gateway/begin');
-    expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>)['X-API-Key']).toBe('pub-key');
-    expect(JSON.parse(init.body)).toEqual({ url: 'https://example.com' });
+  it('bootstraps, starts gateway, then marks processing when request_id is present', async () => {
+    const mockGateway = createMockFetcher(async () => jsonResponse({ requestId: 'abc12345' }, 201));
+    const env = {
+      GATEWAY: mockGateway,
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      INTERNAL_API_KEY: 'internal-key',
+      PUBLIC_API_KEY: 'pub-key',
+    } as any;
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init?: any) => {
+      const url = String(input);
+      if (url === 'https://dashboard-api.example.com/articles/abc12345/bootstrap') {
+        return jsonResponse({
+          itemId: 'abc12345',
+          canonicalItemId: 'abc12345',
+          created: false,
+          patched: true,
+        });
+      }
+      if (url === 'https://dashboard-api.example.com/articles/abc12345/mark-processing') {
+        return jsonResponse({
+          itemId: 'abc12345',
+          canonicalItemId: 'abc12345',
+          requestId: 'abc12345',
+          updated: true,
+        });
+      }
+      return errorResponse('Unexpected URL', 500);
+    });
+
+    const { onRequestPost } = await import('../begin.js');
+    const request = createRequest('https://dashboard.example.com/api/begin', {
+      method: 'POST',
+      body: JSON.stringify({ url: 'https://example.com', request_id: 'abc12345' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await onRequestPost({ env, request, params: {} } as any);
+    const data = (await response.json()) as { requestId: string; itemId: string; queued: boolean; started: boolean };
+
+    expect(response.status).toBe(200);
+    expect(data).toMatchObject({
+      requestId: 'abc12345',
+      itemId: 'abc12345',
+      queued: false,
+      started: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [gatewayUrl, gatewayInit] = mockCall(mockGateway.fetch);
+    expect(gatewayUrl).toBe('https://gateway/begin');
+    expect(gatewayInit.method).toBe('POST');
+    expect((gatewayInit.headers as Record<string, string>)['X-API-Key']).toBe('pub-key');
+    expect(JSON.parse(String(gatewayInit.body))).toEqual({
+      url: 'https://example.com',
+      request_id: 'abc12345',
+    });
+  });
+
+  it('uses canonicalItemId from bootstrap as gateway request_id', async () => {
+    const mockGateway = createMockFetcher(async () => jsonResponse({ requestId: 'canon99999' }, 201));
+    const env = {
+      GATEWAY: mockGateway,
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      INTERNAL_API_KEY: 'internal-key',
+      PUBLIC_API_KEY: 'pub-key',
+    } as any;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url === 'https://dashboard-api.example.com/articles/user12345/bootstrap') {
+        return jsonResponse({
+          itemId: 'user12345',
+          canonicalItemId: 'canon99999',
+          created: false,
+          patched: true,
+        });
+      }
+      if (url === 'https://dashboard-api.example.com/articles/user12345/mark-processing') {
+        return jsonResponse({
+          itemId: 'user12345',
+          canonicalItemId: 'canon99999',
+          requestId: 'canon99999',
+          updated: true,
+        });
+      }
+      return errorResponse('Unexpected URL', 500);
+    });
+
+    const { onRequestPost } = await import('../begin.js');
+    const request = createRequest('https://dashboard.example.com/api/begin', {
+      method: 'POST',
+      body: JSON.stringify({ url: 'https://example.com', request_id: 'user12345' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await onRequestPost({ env, request, params: {} } as any);
+    const data = (await response.json()) as {
+      requestId: string;
+      itemId: string;
+      canonicalItemId: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(data).toMatchObject({
+      requestId: 'canon99999',
+      itemId: 'user12345',
+      canonicalItemId: 'canon99999',
+    });
+
+    const [, gatewayInit] = mockCall(mockGateway.fetch);
+    expect(JSON.parse(String(gatewayInit.body))).toEqual({
+      url: 'https://example.com',
+      request_id: 'canon99999',
+    });
+  });
+
+  it('skips gateway start when bootstrap links to an existing canonical article', async () => {
+    const mockGateway = createMockFetcher(async () => jsonResponse({ requestId: 'unused' }, 201));
+    const env = {
+      GATEWAY: mockGateway,
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      INTERNAL_API_KEY: 'internal-key',
+      PUBLIC_API_KEY: 'pub-key',
+    } as any;
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url === 'https://dashboard-api.example.com/articles/user12345/bootstrap') {
+        return jsonResponse({
+          itemId: 'user12345',
+          canonicalItemId: 'canon99999',
+          created: false,
+          patched: false,
+          linkedExisting: true,
+          shouldStart: false,
+          existingRequestId: 'canon99999',
+        });
+      }
+      return errorResponse('Unexpected URL', 500);
+    });
+
+    const { onRequestPost } = await import('../begin.js');
+    const request = createRequest('https://dashboard.example.com/api/begin', {
+      method: 'POST',
+      body: JSON.stringify({ url: 'https://example.com', request_id: 'user12345' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await onRequestPost({ env, request, params: {} } as any);
+    const data = (await response.json()) as {
+      requestId: string;
+      itemId: string;
+      canonicalItemId: string;
+      started: boolean;
+      reused: boolean;
+      linkedExisting: boolean;
+    };
+
+    expect(response.status).toBe(200);
+    expect(data).toMatchObject({
+      requestId: 'canon99999',
+      itemId: 'user12345',
+      canonicalItemId: 'canon99999',
+      started: false,
+      reused: true,
+      linkedExisting: true,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(mockGateway.fetch).not.toHaveBeenCalled();
   });
 });
 

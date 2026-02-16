@@ -407,13 +407,22 @@ async function handleArchiveSubmit() {
 
   try {
     const result = await submitArchive(url);
-    const id = result.requestId || result.request_id || 'unknown';
-    el.archiveStatus.textContent = `OK: ${id.slice(0, 8)}`;
+    const id = result.requestId || result.request_id || result.itemId || 'unknown';
+    const queued = result.queued === true && typeof result.itemId === 'string';
+    el.archiveStatus.textContent = queued
+      ? `Queued: ${id.slice(0, 8)}`
+      : `OK: ${id.slice(0, 8)}`;
     el.archiveStatus.className = 'archive-status archive-ok';
     el.archiveInput.value = '';
 
     setTimeout(() => {
-      loadRequestDetail(id, { fromView: resolveOriginView('requests') });
+      if (queued) {
+        loadArticleDetail(result.itemId, {
+          fromView: resolveOriginView('articles'),
+        });
+      } else {
+        loadRequestDetail(id, { fromView: resolveOriginView('requests') });
+      }
       el.archiveStatus.textContent = '';
       el.archiveStatus.className = 'archive-status';
     }, 800);

@@ -2,6 +2,7 @@
 # For local development with wrangler pages dev
 
 LOGGER_URL=https://logger.warg.workers.dev
+DASHBOARD_API_URL=https://us-central1-trails-e428e.cloudfunctions.net/dashboardApi
 INTERNAL_API_KEY=your-internal-api-key-here
 
 # For Quick Archive (POST /api/begin)

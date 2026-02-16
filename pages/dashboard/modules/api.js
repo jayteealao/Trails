@@ -97,7 +97,7 @@ export async function fetchInfra() {
 /**
  * @param {string} url
  * @param {{ request_id?: string, steps?: string[] }} [options]
- * @returns {Promise<{ requestId?: string, request_id?: string }>}
+ * @returns {Promise<{ requestId?: string, request_id?: string, itemId?: string, canonicalItemId?: string, queued?: boolean, started?: boolean, existed?: boolean, reused?: boolean, linkedExisting?: boolean, warning?: string }>}
  */
 export async function submitArchive(url, options) {
   /** @type {Record<string, any>} */
