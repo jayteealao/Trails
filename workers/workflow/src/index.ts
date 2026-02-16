@@ -840,6 +840,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     readabilityMd?: ArtifactMeta;
     monolith?: ArtifactMeta;
   }> {
+    const monolithBaseUrl = this.toMonolithBaseUrl(url);
+
     // Log start + capture timing
     const derivStartedAt = Date.now();
     await step.do('log-derivatives-start', async () => {
@@ -874,7 +876,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             return await callMonolith(this.env, {
               request_id: requestId,
               rendered_html_key: renderedHtmlKey,
-              base_url: url
+              base_url: monolithBaseUrl
             });
           }
         )
@@ -975,6 +977,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     renderedHtmlKey: string,
     url: string
   ): Promise<{ monolith?: ArtifactMeta }> {
+    const monolithBaseUrl = this.toMonolithBaseUrl(url);
+
     const startedAt = Date.now();
     await step.do('log-monolith-start', async () => {
       await logStepStarted(this.env, requestId, 'monolith');
@@ -990,7 +994,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         return await callMonolith(this.env, {
           request_id: requestId,
           rendered_html_key: renderedHtmlKey,
-          base_url: url
+          base_url: monolithBaseUrl
         });
       }
     );
@@ -1060,6 +1064,17 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     });
 
     return result;
+  }
+
+  private toMonolithBaseUrl(rawUrl: string): string {
+    try {
+      const parsed = new URL(rawUrl);
+      parsed.search = '';
+      parsed.hash = '';
+      return parsed.toString();
+    } catch {
+      return rawUrl;
+    }
   }
 }
 

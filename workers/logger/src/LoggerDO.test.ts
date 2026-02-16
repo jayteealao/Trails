@@ -216,6 +216,75 @@ describe('LoggerDO', () => {
       expect(view?.derived.diagnostics?.persistMs).toBe(4000);
       expect(view?.derived.diagnostics?.lastTraceId).toBe('trace_123');
     });
+
+    it('treats workflow.failed as terminal fallback and allows retry to reopen stage', async () => {
+      const requestId = `test-${Date.now()}-5c`;
+      const stub = getStub(requestId);
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'step.started',
+        level: 'info',
+        message: 'Derivatives step started',
+        data: { step: 'derivatives' }
+      });
+
+      {
+        using view1 = await stub.getRequestView();
+        expect(view1?.derived.stage).toBe('deriving');
+        expect(view1?.derived.terminal).toBe(false);
+      }
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'workflow.failed',
+        level: 'error',
+        message: 'Workflow failed: timeout'
+      });
+
+      {
+        using view2 = await stub.getRequestView();
+        expect(view2?.derived.stage).toBe('failed');
+        expect(view2?.derived.terminal).toBe(true);
+      }
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'gateway',
+        type: 'request.created',
+        level: 'info',
+        message: 'Archive request created'
+      });
+
+      {
+        using view3 = await stub.getRequestView();
+        expect(view3?.derived.stage).toBe('queued');
+        expect(view3?.derived.terminal).toBe(false);
+      }
+    });
+
+    it('treats workflow.completed as done fallback when request.done is missing', async () => {
+      const requestId = `test-${Date.now()}-5d`;
+      const stub = getStub(requestId);
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'workflow.completed',
+        level: 'info',
+        message: 'Workflow completed'
+      });
+
+      using view = await stub.getRequestView();
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+    });
   });
 
   describe('upsertArtifact', () => {

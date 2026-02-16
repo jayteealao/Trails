@@ -14,16 +14,24 @@ const MONOLITH_FLAGS = [
 ];
 
 /**
- * Validate base_url is a safe http/https URL with no shell metacharacters.
+ * Validate and normalize base_url.
  */
-function validateBaseUrl(url: string): void {
+function validateBaseUrl(url: string): string {
   const parsed = new URL(url); // throws if invalid
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error('base_url must be http or https');
   }
-  if (/[;&|$`'"\\(){}<>!#\n\r]/.test(url)) {
-    throw new Error('base_url contains invalid characters');
+  if (/[\u0000-\u001F\u007F]/.test(url)) {
+    throw new Error('base_url contains control characters');
   }
+  return parsed.toString();
+}
+
+/**
+ * Quote an argument for shell execution.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
 }
 
 /**
@@ -35,7 +43,7 @@ async function runMonolithInSandbox(
   html: string,
   baseUrl: string
 ): Promise<string> {
-  validateBaseUrl(baseUrl);
+  const normalizedBaseUrl = validateBaseUrl(baseUrl);
   console.log('[monolith] Getting sandbox for request:', requestId);
   const sandbox = getSandbox(env.Sandbox, requestId);
 
@@ -48,12 +56,12 @@ async function runMonolithInSandbox(
   const args = [
     ...MONOLITH_FLAGS,
     '-b',
-    baseUrl,
+    normalizedBaseUrl,
     '/workspace/in.html',
     '-o',
     '/workspace/out.html'
   ];
-  const command = `monolith ${args.join(' ')}`;
+  const command = `monolith ${args.map(shellQuote).join(' ')}`;
 
   console.log('[monolith] Executing:', command);
   const result = await sandbox.exec(command);

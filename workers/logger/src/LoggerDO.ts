@@ -45,13 +45,15 @@ interface ArtifactRow {
  * Derive stage from event type and optional event data.
  * step.started uses data.step to distinguish rendering vs deriving.
  * step.completed/step.failed don't regress the stage.
+ * workflow.completed/workflow.failed are terminal fallbacks in case
+ * request.done/request.failed events are missing.
  */
 function deriveStage(
   eventType: string,
   eventData?: Record<string, unknown>
 ): RequestStage | TerminalState | undefined {
-  if (eventType === 'request.done') return 'done';
-  if (eventType === 'request.failed') return 'failed';
+  if (eventType === 'request.done' || eventType === 'workflow.completed') return 'done';
+  if (eventType === 'request.failed' || eventType === 'workflow.failed') return 'failed';
   if (eventType.startsWith('persist.')) return 'persisting';
   if (eventType === 'step.started') {
     const step = eventData?.step as string | undefined;
@@ -63,7 +65,6 @@ function deriveStage(
   if (eventType === 'step.completed' || eventType === 'step.failed') return undefined;
   if (eventType === 'artifact.written') return undefined;
   if (eventType === 'workflow.started') return 'queued';
-  if (eventType === 'workflow.completed' || eventType === 'workflow.failed') return undefined;
   if (eventType === 'request.created') return 'queued';
   return undefined;
 }
