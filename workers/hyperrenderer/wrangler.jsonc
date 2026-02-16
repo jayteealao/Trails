@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hyperrenderer",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "vars": {
+    "HYPERBROWSER_BASE_URL": "https://api.hyperbrowser.ai",
+    "HYPERBROWSER_STEALTH": "auto",
+    "HYPERBROWSER_WAIT_UNTIL": "load",
+    "HYPERBROWSER_NAV_TIMEOUT_MS": "30000",
+    "HYPERBROWSER_WAIT_FOR_MS": "0",
+    "HYPERBROWSER_SCRAPE_TIMEOUT_MS": "90000",
+    "HYPERBROWSER_POLL_INTERVAL_MS": "2000",
+    "HYPERBROWSER_PDF_TIMEOUT_MS": "45000",
+    "HYPERBROWSER_SCREENSHOT_FORMAT": "png"
+  },
+  "r2_buckets": [
+    { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
+  ]
+}
+// Secrets (via `wrangler secret put`):
+// - INTERNAL_API_KEY: shared key for internal worker auth
+// - HYPERBROWSER_API_KEY: Hyperbrowser API key
+// Optional vars:
+// - HYPERBROWSER_BASE_URL (default https://api.hyperbrowser.ai)
+// - HYPERBROWSER_STEALTH (none|auto|ultra; default auto)
+// - HYPERBROWSER_WAIT_UNTIL (load|domcontentloaded|networkidle; default load)
+// - HYPERBROWSER_NAV_TIMEOUT_MS (default 30000)
+// - HYPERBROWSER_WAIT_FOR_MS (default 0)
+// - HYPERBROWSER_SCRAPE_TIMEOUT_MS (default 90000)
+// - HYPERBROWSER_POLL_INTERVAL_MS (default 2000)
+// - HYPERBROWSER_PDF_TIMEOUT_MS (default 45000)
+// - HYPERBROWSER_SCREENSHOT_FORMAT (png|jpeg|webp; default png)
