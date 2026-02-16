@@ -45,6 +45,7 @@ export interface ArchiveOptions {
   includePdf?: boolean;
   includeMarkdown?: boolean;
   steps?: WorkflowStep[];
+  resumeFromCheckpoint?: boolean;
 }
 
 /**

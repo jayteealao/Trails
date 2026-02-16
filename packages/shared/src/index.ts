@@ -8,6 +8,20 @@ export type {
 } from './types.js';
 
 export type {
+  CheckpointStep,
+  StepStatus,
+  StepCheckpoint,
+  ArtifactCheckpoint,
+  WorkflowFailureCheckpoint,
+  WorkflowCheckpoint,
+} from './workflow-checkpoint.js';
+
+export {
+  CHECKPOINT_VERSION,
+  CHECKPOINT_STEPS,
+} from './workflow-checkpoint.js';
+
+export type {
   LogLevel,
   EventSource,
   EventType,
@@ -30,7 +44,12 @@ export type {
 
 export { createEvent } from './logging.js';
 
-export { getR2Key, getOptionsKey } from './r2Keys.js';
+export {
+  getR2Key,
+  getOptionsKey,
+  getCheckpointKey,
+  getStepManifestKey,
+} from './r2Keys.js';
 
 export { sha256, timingSafeEqual } from './crypto.js';
 

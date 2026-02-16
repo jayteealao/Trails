@@ -4,14 +4,20 @@ import {
   type WorkflowEvent
 } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
-import type { ArtifactMeta, ArchiveManifest, WorkflowStep as WorkflowStepType } from '@warg/shared';
-import { getR2Key } from '@warg/shared';
+import type {
+  ArtifactKind,
+  ArtifactMeta,
+  ArchiveManifest,
+  CheckpointStep,
+  WorkflowCheckpoint,
+  WorkflowStep as WorkflowStepType,
+} from '@warg/shared';
+import { getR2Key, getStepManifestKey } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import type {
   WorkflowParams,
   ArchiveOptionsExtended,
   RenderStepResult,
-  DerivativeStepResults,
   WorkflowResult
 } from './types.js';
 import {
@@ -32,6 +38,23 @@ import {
   updateManifestKey
 } from './logging.js';
 import { runMockPipeline } from './mock.js';
+import {
+  createCheckpoint,
+  discoverArtifactsFromR2,
+  getAllArtifacts,
+  getArtifact,
+  getStepArtifacts,
+  getUnpersistedArtifacts,
+  loadCheckpoint,
+  markArtifactsPersisted,
+  markStepFailed as markCheckpointStepFailed,
+  markStepStarted as markCheckpointStepStarted,
+  markWorkflowFailure,
+  recordArtifacts,
+  resolveStepMode,
+  saveCheckpoint,
+  STEP_REQUIRED_ARTIFACTS,
+} from './checkpoint.js';
 
 export { BrowserQuotaDO };
 
@@ -60,18 +83,30 @@ function buildRetryInstanceId(requestId: string): string {
  * Coordinates rendering, derivative extraction, manifest creation, and GCS persistence.
  */
 export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
-  async run(
+  override async run(
     event: WorkflowEvent<WorkflowParams>,
     step: WorkflowStep
   ): Promise<WorkflowResult> {
-    const { request_id, url, options_r2_key } = event.payload;
+    const { request_id, options_r2_key } = event.payload;
 
     try {
       return await this.executeWorkflow(event, step);
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await step.do('checkpoint-workflow-failure', async () => {
+        const checkpoint = await loadCheckpoint(
+          this.env.ARCHIVE_BUCKET,
+          request_id,
+          options_r2_key
+        );
+        if (checkpoint) {
+          markWorkflowFailure(checkpoint, errorMsg);
+          await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        }
+      });
+
       // Log workflow.failed + terminal request.failed before re-throwing
       await step.do('log-workflow-failed', async () => {
-        const errorMsg = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack?.slice(0, 1000) : undefined;
         await logEvent(
           this.env,
@@ -111,81 +146,320 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       return obj.json<ArchiveOptionsExtended>();
     });
 
+    const normalizedOptions = this.normalizeOptions(options);
+    const resumeEnabled = normalizedOptions.resumeFromCheckpoint !== false;
+
     // Step 2: Log workflow.started
     await step.do('log-started', async () => {
       await logEvent(this.env, request_id, 'workflow.started', 'Workflow started', {
-        url
+        url,
+        resumeFromCheckpoint: resumeEnabled
       });
     });
 
     // Step 3: Check mock mode
-    if (this.env.MOCK_PIPELINE === 'true') {
-      return await runMockPipeline(this.env, step, request_id, url, options);
+    if ((this.env.MOCK_PIPELINE as string) === 'true') {
+      return await runMockPipeline(this.env, step, request_id, url, normalizedOptions);
     }
 
+    // Step 4: Load or initialize checkpoint state
+    const checkpoint = await step.do('checkpoint-load-init', async () => {
+      const loaded = resumeEnabled
+        ? await loadCheckpoint(this.env.ARCHIVE_BUCKET, request_id, options_r2_key)
+        : null;
+
+      let state = loaded;
+      if (!state) {
+        state = createCheckpoint(request_id, options_r2_key, resumeEnabled);
+        if (resumeEnabled) {
+          await discoverArtifactsFromR2(this.env.ARCHIVE_BUCKET, state);
+        }
+      } else {
+        state.optionsR2Key = options_r2_key;
+        state.resumeFromCheckpoint = resumeEnabled;
+      }
+
+      await saveCheckpoint(this.env.ARCHIVE_BUCKET, state);
+      return state;
+    });
+
     // Selective step execution: if options.steps is set, only run those steps
-    const requestedSteps = options.steps;
+    const requestedSteps = normalizedOptions.steps;
     const shouldRun = (s: WorkflowStepType) => !requestedSteps || requestedSteps.includes(s);
 
-    // Step 4: Render (with quota) — or reuse existing rendered.html from R2
-    let renderResult: RenderStepResult;
-    if (shouldRun('render')) {
-      renderResult = await this.renderWithQuota(step, request_id, url, options);
-    } else {
-      // Check R2 for existing rendered.html (needed by derivatives)
-      renderResult = await step.do('check-existing-render', async () => {
-        const renderedKey = getR2Key(request_id, 'rendered.html');
-        const existing = await this.env.ARCHIVE_BUCKET.head(renderedKey);
-        if (existing) {
-          return { artifacts: [], renderedHtmlKey: renderedKey };
-        }
-        // No existing render and render not requested — derivatives will be skipped
-        return { artifacts: [], renderedHtmlKey: '' };
+    let lastPersistResult: WorkflowResult['gcsResult'];
+
+    // Step 5: Render (run/persist-only/skip)
+    const renderRequiredKinds = this.requiredRenderArtifacts(normalizedOptions);
+    const renderMode = resolveStepMode(checkpoint, 'render', {
+      requested: shouldRun('render'),
+      resumeEnabled,
+      requiredKinds: renderRequiredKinds
+    });
+
+    const renderArtifactsFromCheckpoint: ArtifactMeta[] = [];
+    for (const kind of renderRequiredKinds) {
+      const artifact = getArtifact(checkpoint, kind);
+      if (!artifact) continue;
+      renderArtifactsFromCheckpoint.push({
+        kind: artifact.kind,
+        r2Key: artifact.r2Key,
+        bytes: artifact.bytes,
+        sha256: artifact.sha256,
+        contentType: artifact.contentType,
       });
     }
 
-    // Step 5: Run singlefile (with quota) — conditional
-    let singlefileResult: ArtifactMeta | undefined;
-    if (shouldRun('singlefile')) {
-      singlefileResult = await this.singlefileWithQuota(
-        step,
-        request_id,
-        url,
-        options_r2_key
-      );
+    let renderResult: RenderStepResult = {
+      artifacts: renderArtifactsFromCheckpoint,
+      renderedHtmlKey: getArtifact(checkpoint, 'rendered.html')?.r2Key ?? ''
+    };
+
+    if (renderMode === 'run') {
+      try {
+        markCheckpointStepStarted(checkpoint, 'render', { resumed: resumeEnabled });
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+
+        renderResult = await this.renderWithQuota(step, request_id, url, normalizedOptions);
+        recordArtifacts(checkpoint, 'render', renderResult.artifacts);
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+      } catch (err) {
+        markCheckpointStepFailed(
+          checkpoint,
+          'render',
+          err instanceof Error ? err.message : String(err)
+        );
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        throw err;
+      }
+
+      if (!normalizedOptions.dryRun) {
+        const persistResult = await this.persistArtifactsIncremental(
+          step,
+          checkpoint,
+          request_id,
+          url,
+          'render',
+          getUnpersistedArtifacts(checkpoint, ['render']),
+          'step_succeeded'
+        );
+        if (persistResult) lastPersistResult = persistResult;
+      }
+    } else if (renderMode === 'persist_only') {
+      if (!normalizedOptions.dryRun) {
+        const persistResult = await this.persistArtifactsIncremental(
+          step,
+          checkpoint,
+          request_id,
+          url,
+          'render',
+          getUnpersistedArtifacts(checkpoint, ['render']),
+          'resume_persist_only'
+        );
+        if (persistResult) lastPersistResult = persistResult;
+      }
+      renderResult = {
+        artifacts: this.toArtifactMeta(getStepArtifacts(checkpoint, 'render')),
+        renderedHtmlKey: getArtifact(checkpoint, 'rendered.html')?.r2Key ?? '',
+      };
+    } else if (!renderResult.renderedHtmlKey && !shouldRun('render')) {
+      // Legacy fallback: if render not requested, try existing deterministic key in R2.
+      renderResult = await step.do('check-existing-render', async () => {
+        const renderedKey = getR2Key(request_id, 'rendered.html');
+        const existing = await this.env.ARCHIVE_BUCKET.head(renderedKey);
+        if (!existing) {
+          return { artifacts: [], renderedHtmlKey: '' };
+        }
+        const recovered: ArtifactMeta = {
+          kind: 'rendered.html',
+          r2Key: renderedKey,
+          bytes: existing.size,
+          sha256: existing.httpEtag ?? 'unknown',
+          contentType: existing.httpMetadata?.contentType ?? 'text/html',
+        };
+        recordArtifacts(checkpoint, 'render', [recovered]);
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        return { artifacts: [recovered], renderedHtmlKey: renderedKey };
+      });
     }
 
-    // Step 6: Parallel derivatives (readability + monolith - no browser needed) — conditional
+    // Step 6: Singlefile (run/persist-only/skip)
+    const singlefileMode = resolveStepMode(checkpoint, 'singlefile', {
+      requested: shouldRun('singlefile'),
+      resumeEnabled,
+      requiredKinds: [...STEP_REQUIRED_ARTIFACTS.singlefile]
+    });
+
+    if (singlefileMode === 'run') {
+      try {
+        markCheckpointStepStarted(checkpoint, 'singlefile', { resumed: resumeEnabled });
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+
+        const singlefile = await this.singlefileWithQuota(
+          step,
+          request_id,
+          url,
+          options_r2_key
+        );
+        recordArtifacts(checkpoint, 'singlefile', [singlefile]);
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+      } catch (err) {
+        markCheckpointStepFailed(
+          checkpoint,
+          'singlefile',
+          err instanceof Error ? err.message : String(err)
+        );
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        throw err;
+      }
+
+      if (!normalizedOptions.dryRun) {
+        const persistResult = await this.persistArtifactsIncremental(
+          step,
+          checkpoint,
+          request_id,
+          url,
+          'singlefile',
+          getUnpersistedArtifacts(checkpoint, ['singlefile']),
+          'step_succeeded'
+        );
+        if (persistResult) lastPersistResult = persistResult;
+      }
+    } else if (singlefileMode === 'persist_only') {
+      if (!normalizedOptions.dryRun) {
+        const persistResult = await this.persistArtifactsIncremental(
+          step,
+          checkpoint,
+          request_id,
+          url,
+          'singlefile',
+          getUnpersistedArtifacts(checkpoint, ['singlefile']),
+          'resume_persist_only'
+        );
+        if (persistResult) lastPersistResult = persistResult;
+      }
+    }
+
+    // Step 7: Readability + Monolith (resume-aware, partial-success friendly)
     const wantReadability = shouldRun('readability');
     const wantMonolith = shouldRun('monolith');
-    let parallelResults: {
-      readabilityJson?: ArtifactMeta;
-      readabilityMd?: ArtifactMeta;
-      monolith?: ArtifactMeta;
-    } = {};
+    const readabilityMode = resolveStepMode(checkpoint, 'readability', {
+      requested: wantReadability,
+      resumeEnabled,
+      requiredKinds: [...STEP_REQUIRED_ARTIFACTS.readability]
+    });
+    const monolithMode = resolveStepMode(checkpoint, 'monolith', {
+      requested: wantMonolith,
+      resumeEnabled,
+      requiredKinds: [...STEP_REQUIRED_ARTIFACTS.monolith]
+    });
 
     if ((wantReadability || wantMonolith) && renderResult.renderedHtmlKey) {
-      if (wantReadability && wantMonolith) {
-        // Both — use existing parallel method
-        parallelResults = await this.runParallelDerivatives(
+      if (readabilityMode === 'persist_only' && !normalizedOptions.dryRun) {
+        const persistResult = await this.persistArtifactsIncremental(
           step,
+          checkpoint,
           request_id,
-          renderResult.renderedHtmlKey,
-          url
+          url,
+          'readability',
+          getUnpersistedArtifacts(checkpoint, ['readability']),
+          'resume_persist_only'
         );
-      } else if (wantReadability) {
-        parallelResults = await this.runReadabilityOnly(
+        if (persistResult) lastPersistResult = persistResult;
+      }
+
+      if (monolithMode === 'persist_only' && !normalizedOptions.dryRun) {
+        const persistResult = await this.persistArtifactsIncremental(
           step,
+          checkpoint,
           request_id,
-          renderResult.renderedHtmlKey
+          url,
+          'monolith',
+          getUnpersistedArtifacts(checkpoint, ['monolith']),
+          'resume_persist_only'
         );
-      } else {
-        parallelResults = await this.runMonolithOnly(
-          step,
-          request_id,
-          renderResult.renderedHtmlKey,
-          url
-        );
+        if (persistResult) lastPersistResult = persistResult;
+      }
+
+      const runTasks: Array<{
+        stepName: CheckpointStep;
+        promise: Promise<ArtifactMeta[]>;
+      }> = [];
+
+      if (readabilityMode === 'run') {
+        markCheckpointStepStarted(checkpoint, 'readability', { resumed: resumeEnabled });
+        runTasks.push({
+          stepName: 'readability',
+          promise: this.runReadabilityOnly(step, request_id, renderResult.renderedHtmlKey).then((result) =>
+            [result.readabilityJson, result.readabilityMd].filter(
+              (artifact): artifact is ArtifactMeta => Boolean(artifact)
+            )
+          ),
+        });
+      }
+
+      if (monolithMode === 'run') {
+        markCheckpointStepStarted(checkpoint, 'monolith', { resumed: resumeEnabled });
+        runTasks.push({
+          stepName: 'monolith',
+          promise: this.runMonolithOnly(
+            step,
+            request_id,
+            renderResult.renderedHtmlKey,
+            url
+          ).then((result) => (result.monolith ? [result.monolith] : [])),
+        });
+      }
+
+      if (runTasks.length > 0) {
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        const settled = await Promise.allSettled(runTasks.map((task) => task.promise));
+        const failures: Error[] = [];
+        const successfulSteps: CheckpointStep[] = [];
+
+        for (const [index, outcome] of settled.entries()) {
+          const task = runTasks[index]!;
+          if (outcome.status === 'fulfilled') {
+            recordArtifacts(checkpoint, task.stepName, outcome.value);
+            await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+            successfulSteps.push(task.stepName);
+            continue;
+          }
+
+          const reason = outcome.reason instanceof Error
+            ? outcome.reason
+            : new Error(String(outcome.reason));
+          markCheckpointStepFailed(checkpoint, task.stepName, reason.message);
+          await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+          failures.push(reason);
+        }
+
+        if (!normalizedOptions.dryRun) {
+          for (const stepName of successfulSteps) {
+            try {
+              const persistResult = await this.persistArtifactsIncremental(
+                step,
+                checkpoint,
+                request_id,
+                url,
+                stepName,
+                getUnpersistedArtifacts(checkpoint, [stepName]),
+                'step_succeeded'
+              );
+              if (persistResult) lastPersistResult = persistResult;
+            } catch (persistErr) {
+              failures.push(
+                persistErr instanceof Error
+                  ? persistErr
+                  : new Error(String(persistErr))
+              );
+            }
+          }
+        }
+
+        if (failures.length > 0) {
+          throw failures[0]!;
+        }
       }
     } else if ((wantReadability || wantMonolith) && !renderResult.renderedHtmlKey) {
       // Derivatives requested but no rendered HTML available
@@ -195,50 +469,60 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           request_id,
           'step.completed',
           'Skipping derivatives: no rendered.html available',
-          { skipped: true, reason: 'render step not run and no existing artifact found' },
+          {
+            skipped: true,
+            reason: 'render step not run and no existing artifact found',
+            resumed: resumeEnabled
+          },
           'warn'
         );
       });
     }
 
-    // Combine derivative results
-    const derivativeResults: DerivativeStepResults = {
-      singlefile: singlefileResult,
-      readabilityJson: parallelResults.readabilityJson,
-      readabilityMd: parallelResults.readabilityMd,
-      monolith: parallelResults.monolith
-    };
+    // Step 8: Persist any leftover unpersisted artifacts, then build final manifest
+    if (!normalizedOptions.dryRun) {
+      const remaining = getUnpersistedArtifacts(checkpoint);
+      if (remaining.length > 0) {
+        const persistResult = await this.persistArtifactsIncremental(
+          step,
+          checkpoint,
+          request_id,
+          url,
+          'final',
+          remaining,
+          'final_reconcile'
+        );
+        if (persistResult) lastPersistResult = persistResult;
+      }
+    }
 
-    // Step 7: Build manifest
-    const manifestKey = await this.buildManifest(
+    const finalArtifacts = getAllArtifacts(checkpoint);
+    const manifestKey = await this.writeManifest(
       step,
       request_id,
       url,
-      renderResult,
-      derivativeResults
+      finalArtifacts,
+      getR2Key(request_id, 'manifest.json')
     );
 
-    // Step 8: Update manifest key in logger
+    // Step 9: Update manifest key in logger
     await step.do('update-manifest-key', async () => {
       await updateManifestKey(this.env, request_id, manifestKey);
     });
 
-    // Step 9: Persist (unless dryRun)
-    if (options.dryRun) {
+    if (normalizedOptions.dryRun) {
       await step.do('log-done-dryrun', async () => {
         await logEvent(
           this.env,
           request_id,
           'workflow.completed',
           'Workflow completed (dry run)',
-          { dryRun: true }
+          { dryRun: true, manifestKey }
         );
-        await logRequestDone(this.env, request_id, { dryRun: true });
+        await logRequestDone(this.env, request_id, { dryRun: true, manifestKey });
       });
       return { status: 'done', dryRun: true, manifestKey };
     }
-
-    const gcsResult = await this.persistToGcs(step, request_id, manifestKey);
 
     // Step 10: Log completion + terminal request.done
     await step.do('log-completed', async () => {
@@ -247,12 +531,123 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         request_id,
         'workflow.completed',
         'Workflow completed',
-        { manifestKey }
+        { manifestKey, resumed: resumeEnabled }
       );
       await logRequestDone(this.env, request_id, { manifestKey });
     });
 
-    return { status: 'done', manifestKey, gcsResult };
+    return { status: 'done', manifestKey, gcsResult: lastPersistResult };
+  }
+
+  private normalizeOptions(options: ArchiveOptionsExtended): ArchiveOptionsExtended {
+    const normalized: ArchiveOptionsExtended = {
+      ...options,
+      resumeFromCheckpoint: options.resumeFromCheckpoint ?? true,
+    };
+
+    if (
+      normalized.steps &&
+      normalized.steps.length > 0 &&
+      (normalized.includePdf || normalized.includeScreenshot) &&
+      !normalized.steps.includes('render')
+    ) {
+      normalized.steps = Array.from(
+        new Set<WorkflowStepType>([...normalized.steps, 'render'])
+      );
+    }
+
+    return normalized;
+  }
+
+  private requiredRenderArtifacts(options: ArchiveOptionsExtended): ArtifactKind[] {
+    const required: ArtifactKind[] = ['rendered.html'];
+    if (options.includeMarkdown ?? true) {
+      required.push('rendered.md');
+    }
+    if (options.includePdf) {
+      required.push('page.pdf');
+    }
+    if (options.includeScreenshot) {
+      required.push('screenshot.png');
+    }
+    return required;
+  }
+
+  private toArtifactMeta(
+    artifacts: Array<{ kind: ArtifactKind; r2Key: string; bytes: number; sha256: string; contentType: string }>
+  ): ArtifactMeta[] {
+    return artifacts.map((artifact) => ({
+      kind: artifact.kind,
+      r2Key: artifact.r2Key,
+      bytes: artifact.bytes,
+      sha256: artifact.sha256,
+      contentType: artifact.contentType,
+    }));
+  }
+
+  private async persistArtifactsIncremental(
+    step: WorkflowStep,
+    checkpoint: WorkflowCheckpoint,
+    requestId: string,
+    url: string,
+    stepName: CheckpointStep | 'final',
+    artifacts: ArtifactMeta[],
+    reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile'
+  ): Promise<WorkflowResult['gcsResult'] | undefined> {
+    if (artifacts.length === 0) {
+      return undefined;
+    }
+
+    const suffix = `${Date.now()}`;
+    const manifestKey = await this.writeManifest(
+      step,
+      requestId,
+      url,
+      artifacts,
+      getStepManifestKey(requestId, stepName, suffix)
+    );
+
+    const result = await this.persistToGcs(step, requestId, manifestKey, {
+      checkpointStep: stepName,
+      reason,
+      resumed: true,
+      artifactCount: artifacts.length,
+    });
+
+    markArtifactsPersisted(
+      checkpoint,
+      result.artifacts.map((artifact) => ({
+        kind: artifact.kind,
+        gcsPath: artifact.gcs_path,
+      }))
+    );
+    await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+    return result;
+  }
+
+  private async writeManifest(
+    step: WorkflowStep,
+    requestId: string,
+    url: string,
+    artifacts: ArtifactMeta[],
+    manifestKey: string
+  ): Promise<string> {
+    return await step.do(`write-manifest-${manifestKey.split('/').pop() ?? 'manifest'}`, async () => {
+      const now = new Date().toISOString();
+      const manifest: ArchiveManifest = {
+        requestId,
+        url,
+        createdAt: now,
+        completedAt: now,
+        artifacts
+      };
+      await this.env.ARCHIVE_BUCKET.put(
+        manifestKey,
+        JSON.stringify(manifest, null, 2),
+        { httpMetadata: { contentType: 'application/json' } }
+      );
+      return manifestKey;
+    });
   }
 
   /**
@@ -611,70 +1006,29 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   }
 
   /**
-   * Build and write the manifest to R2.
-   */
-  private async buildManifest(
-    step: WorkflowStep,
-    requestId: string,
-    url: string,
-    renderResult: RenderStepResult,
-    derivativeResults: DerivativeStepResults
-  ): Promise<string> {
-    return await step.do('build-manifest', async () => {
-      const now = new Date().toISOString();
-
-      // Collect all artifacts
-      const artifacts: ArtifactMeta[] = [...renderResult.artifacts];
-
-      if (derivativeResults.singlefile) {
-        artifacts.push(derivativeResults.singlefile);
-      }
-      if (derivativeResults.readabilityJson) {
-        artifacts.push(derivativeResults.readabilityJson);
-      }
-      if (derivativeResults.readabilityMd) {
-        artifacts.push(derivativeResults.readabilityMd);
-      }
-      if (derivativeResults.monolith) {
-        artifacts.push(derivativeResults.monolith);
-      }
-
-      const manifest: ArchiveManifest = {
-        requestId,
-        url,
-        createdAt: now,
-        completedAt: now,
-        artifacts
-      };
-
-      const manifestKey = getR2Key(requestId, 'manifest.json');
-      await this.env.ARCHIVE_BUCKET.put(
-        manifestKey,
-        JSON.stringify(manifest, null, 2),
-        { httpMetadata: { contentType: 'application/json' } }
-      );
-
-      return manifestKey;
-    });
-  }
-
-  /**
    * Persist artifacts to GCS.
    */
   private async persistToGcs(
     step: WorkflowStep,
     requestId: string,
-    manifestKey: string
+    manifestKey: string,
+    context?: Record<string, unknown>
   ) {
+    const persistToken = (manifestKey.split('/').pop() ?? `${Date.now()}`)
+      .replace(/[^a-zA-Z0-9_-]/g, '_');
+
     // Log start + capture timing
     const persistStartedAt = Date.now();
-    await step.do('log-persist-start', async () => {
-      await logEvent(this.env, requestId, 'persist.started', 'Starting GCS persistence');
+    await step.do(`log-persist-start-${persistToken}`, async () => {
+      await logEvent(this.env, requestId, 'persist.started', 'Starting GCS persistence', {
+        manifestKey,
+        ...(context ?? {}),
+      });
     });
 
     // Call GCS service
     const result = await step.do(
-      'persist-gcs',
+      `persist-gcs-${persistToken}`,
       {
         retries: { limit: 5, delay: '10 seconds', backoff: 'exponential' },
         timeout: '10 minutes'
@@ -688,7 +1042,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     );
 
     // Log completion + duration + enriched meta
-    await step.do('log-persist-complete', async () => {
+    await step.do(`log-persist-complete-${persistToken}`, async () => {
       const durationMs = Date.now() - persistStartedAt;
       await logEvent(
         this.env,
@@ -698,6 +1052,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         {
           firestore_doc_id: result.firestore_doc_id,
           duration_ms: durationMs,
+          manifestKey,
+          ...(context ?? {}),
           ...(result.meta ? { meta: result.meta } : {})
         }
       );
