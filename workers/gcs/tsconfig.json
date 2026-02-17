@@ -4,5 +4,5 @@
     "rootDir": "src",
     "types": ["./worker-configuration.d.ts"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

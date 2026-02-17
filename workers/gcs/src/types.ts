@@ -127,12 +127,12 @@ export interface PersistResponse {
  * Mapping from artifact kind to GCS path components.
  */
 export const ARTIFACT_PATH_MAP: Record<string, { folder: string; filename: string }> = {
-  'singlefile.html': { folder: 'singlefile', filename: 'output.html' },
-  'monolith.html': { folder: 'monolith', filename: 'output.html' },
+  'singlefile.html': { folder: 'singlefile', filename: 'output.html.gz' },
+  'monolith.html': { folder: 'monolith', filename: 'output.html.gz' },
   'readability.json': { folder: 'readability', filename: 'output.json' },
-  'readability.md': { folder: 'readability', filename: 'output.md' },
+  'readability.md': { folder: 'readability', filename: 'output.md.gz' },
   'page.pdf': { folder: 'pdf', filename: 'output.pdf' },
   'screenshot.png': { folder: 'screenshot', filename: 'output.png' },
-  'rendered.html': { folder: 'rendered', filename: 'output.html' },
-  'rendered.md': { folder: 'rendered', filename: 'output.md' }
+  'rendered.html': { folder: 'rendered', filename: 'output.html.gz' },
+  'rendered.md': { folder: 'rendered', filename: 'output.md.gz' }
 };

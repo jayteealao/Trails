@@ -44,8 +44,8 @@ describe('getGcsPath', () => {
     const result = getGcsPath(requestId, 'singlefile.html');
     expect(result).toEqual({
       folder: 'singlefile',
-      filename: 'output.html',
-      path: 'archives/req-abc/singlefile/output.html'
+      filename: 'output.html.gz',
+      path: 'archives/req-abc/singlefile/output.html.gz'
     });
   });
 
@@ -78,12 +78,17 @@ describe('getGcsPath', () => {
 
   it('returns correct path for rendered.html', () => {
     const result = getGcsPath(requestId, 'rendered.html');
-    expect(result.path).toBe('archives/req-abc/rendered/output.html');
+    expect(result.path).toBe('archives/req-abc/rendered/output.html.gz');
   });
 
   it('returns correct path for rendered.md', () => {
     const result = getGcsPath(requestId, 'rendered.md');
-    expect(result.path).toBe('archives/req-abc/rendered/output.md');
+    expect(result.path).toBe('archives/req-abc/rendered/output.md.gz');
+  });
+
+  it('returns correct path for readability.md', () => {
+    const result = getGcsPath(requestId, 'readability.md');
+    expect(result.path).toBe('archives/req-abc/readability/output.md.gz');
   });
 });
 
@@ -132,7 +137,7 @@ describe('toUploadInfo', () => {
     const info = toUploadInfo(requestId, artifact);
     expect(info).toEqual({
       kind: 'singlefile.html',
-      filename: 'output.html',
+      filename: 'output.html.gz',
       bytes: 5000,
       contentType: 'text/html',
       sha256: 'hash123',
@@ -155,6 +160,26 @@ describe('toUploadInfo', () => {
       bytes: 20000,
       contentType: 'image/png',
       sha256: 'hash456'
+    });
+    expect(info).not.toHaveProperty('compressed');
+    expect(info.filename.endsWith('.gz')).toBe(false);
+  });
+
+  it('keeps readability.json uncompressed with non-gz filename', () => {
+    const artifact: ArtifactMeta = {
+      kind: 'readability.json',
+      r2Key: 'archives/req-xyz/derived/readability.json',
+      bytes: 12000,
+      sha256: 'hash789',
+      contentType: 'application/json'
+    };
+    const info = toUploadInfo(requestId, artifact);
+    expect(info).toEqual({
+      kind: 'readability.json',
+      filename: 'output.json',
+      bytes: 12000,
+      contentType: 'application/json',
+      sha256: 'hash789'
     });
     expect(info).not.toHaveProperty('compressed');
   });

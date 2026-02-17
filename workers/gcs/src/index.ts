@@ -60,7 +60,11 @@ async function uploadArtifact(
   gcsPath: string
 ): Promise<UploadResult> {
   const compress = shouldCompress(artifact.kind);
-  console.log(`[gcs] Uploading ${artifact.kind} from R2 (${artifact.r2Key}) to GCS (${gcsPath})${compress ? ' [gzip]' : ''}`);
+  const contentEncoding = compress ? 'gzip' : 'identity';
+  console.log(
+    `[gcs] Uploading ${artifact.kind} from R2 (${artifact.r2Key}) to GCS (${gcsPath}) ` +
+      `[compression_expected=${compress} content_encoding=${contentEncoding}]`
+  );
 
   // Read from R2
   const r2Object = await bucket.get(artifact.r2Key);
@@ -79,12 +83,16 @@ async function uploadArtifact(
 
   // Build headers
   const headers: Record<string, string> = {
-    'Content-Type': artifact.contentType,
-    'Content-Length': body.byteLength.toString()
+    'content-type': artifact.contentType,
+    'content-length': body.byteLength.toString()
   };
   if (compress) {
-    headers['Content-Encoding'] = 'gzip';
+    headers['content-encoding'] = 'gzip';
   }
+  console.log(
+    `[gcs] Upload headers for ${artifact.kind}: ` +
+      `content-type=${artifact.contentType}, content-encoding=${compress ? 'gzip' : 'none'}`
+  );
 
   // Upload to GCS via signed URL
   const response = await fetch(signedUrl, {
@@ -122,6 +130,26 @@ async function uploadArtifact(
     : undefined;
 
   return { uploaded, compressionStat };
+}
+
+function assertCreateUploadContract(
+  artifacts: ArtifactMeta[],
+  uploads: CreateUploadResponse['uploads']
+): void {
+  for (const artifact of artifacts) {
+    if (!shouldCompress(artifact.kind)) continue;
+    const upload = uploads.find((entry) => entry.kind === artifact.kind);
+    if (!upload) {
+      throw new Error(
+        `[gcs] Contract drift: missing signed upload for compressible artifact ${artifact.kind}`
+      );
+    }
+    if (!upload.gcs_path.endsWith('.gz')) {
+      throw new Error(
+        `[gcs] Contract drift: compressible artifact ${artifact.kind} must upload to .gz path, got ${upload.gcs_path}`
+      );
+    }
+  }
 }
 
 /**
@@ -292,6 +320,7 @@ export default {
         createUploadReq,
         env.INTERNAL_API_KEY
       );
+      assertCreateUploadContract(artifacts, createUploadRes.uploads);
 
       console.log(`[gcs] Got ${createUploadRes.uploads.length} signed URLs, doc ID: ${createUploadRes.firestore_doc_id}`);
 

@@ -133,10 +133,11 @@ export async function handleCreateUpload(
         contentType: artifact.contentType
       };
 
-      // Include Content-Encoding header for compressed artifacts
+      // Include content-encoding for compressed artifacts.
+      // Keep lowercase header key to match canonical signed header behavior.
       if (artifact.compressed) {
         signedUrlOptions.extensionHeaders = {
-          'Content-Encoding': 'gzip'
+          'content-encoding': 'gzip'
         };
       }
 
