@@ -55,7 +55,7 @@ export type RequestStage = 'queued' | 'rendering' | 'deriving' | 'persisting';
 /**
  * Terminal state (for UI display, derived from events).
  */
-export type TerminalState = 'done' | 'failed';
+export type TerminalState = 'done' | 'failed' | 'incomplete';
 
 /**
  * Summary derived from events (cached for fast reads).

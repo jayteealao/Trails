@@ -266,6 +266,31 @@ describe('LoggerDO', () => {
       expect(view?.derived.diagnostics?.degradedSteps).toEqual(['singlefile']);
     });
 
+    it('marks stage as incomplete when workflow completes with degraded monolith output', async () => {
+      const requestId = `test-${Date.now()}-5c-incomplete`;
+      const stub = getStub(requestId);
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'workflow.completed',
+        level: 'info',
+        message: 'Workflow completed with monolith degraded',
+        data: {
+          degraded: true,
+          degradedSteps: ['monolith'],
+        },
+      });
+
+      const view = await stub.getRequestView();
+      expect(view?.derived.stage).toBe('incomplete');
+      expect(view?.derived.terminal).toBe(true);
+      expect(view?.derived.diagnostics?.degraded).toBe(true);
+      expect(view?.derived.diagnostics?.degradedSteps).toEqual(['monolith']);
+    });
+
     it('treats workflow.failed as terminal fallback and allows retry to reopen stage', async () => {
       const requestId = `test-${Date.now()}-5c`;
       const stub = getStub(requestId);

@@ -106,6 +106,14 @@ function normalizeRenderProvider(value: string | undefined): RequestDiagnostics[
   return 'unknown';
 }
 
+function shouldMarkIncompleteFromDiagnostics(
+  diagnostics: RequestDiagnostics | undefined
+): boolean {
+  if (!diagnostics?.degraded) return false;
+  const degradedSteps = diagnostics.degradedSteps ?? [];
+  return degradedSteps.includes('monolith');
+}
+
 function isArtifactKind(value: string): value is ArtifactRecord['kind'] {
   return (
     value === 'rendered.html' ||
@@ -362,7 +370,10 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
       const newStage = deriveStage(event.type, event.data);
       if (newStage) {
         derived.stage = newStage;
-        derived.terminal = newStage === 'done' || newStage === 'failed';
+        derived.terminal =
+          newStage === 'done' ||
+          newStage === 'failed' ||
+          newStage === 'incomplete';
       }
 
       // Increment error count for error-level events
@@ -372,6 +383,14 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
 
       derived.lastEventTs = event.ts;
       derived.diagnostics = updateDiagnostics(derived.diagnostics, event);
+
+      if (
+        (event.type === 'request.done' || event.type === 'workflow.completed') &&
+        shouldMarkIncompleteFromDiagnostics(derived.diagnostics)
+      ) {
+        derived.stage = 'incomplete';
+        derived.terminal = true;
+      }
 
       this.sql.exec(
         'UPDATE requests SET derived_json = ? WHERE request_id = ?',
