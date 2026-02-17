@@ -12,12 +12,18 @@ export async function sha256(data: ArrayBuffer | Uint8Array): Promise<string> {
 
 /**
  * Constant-time string comparison to prevent timing attacks on API keys.
- * Uses crypto.subtle.timingSafeEqual (available in Cloudflare Workers).
+ * Uses byte-wise constant-time comparison for portability across runtimes.
  */
 export function timingSafeEqual(a: string, b: string): boolean {
   const encoder = new TextEncoder();
   const aBuf = encoder.encode(a);
   const bBuf = encoder.encode(b);
   if (aBuf.byteLength !== bBuf.byteLength) return false;
-  return crypto.subtle.timingSafeEqual(aBuf, bBuf);
+
+  // XOR-reduce all byte differences without early return.
+  let diff = 0;
+  for (let i = 0; i < aBuf.length; i += 1) {
+    diff |= aBuf[i]! ^ bBuf[i]!;
+  }
+  return diff === 0;
 }

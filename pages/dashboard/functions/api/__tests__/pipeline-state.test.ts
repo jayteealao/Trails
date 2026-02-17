@@ -44,6 +44,34 @@ describe('derivePipelineState', () => {
     expect(state.render.elapsed).toBe(1500);
   });
 
+  it('captures render fallback metadata from render completion event', () => {
+    const state = derivePipelineState([
+      event({
+        ts: '2026-02-15T00:00:00.000Z',
+        source: 'workflow',
+        type: 'step.started',
+        data: { step: 'render' },
+      }),
+      event({
+        ts: '2026-02-15T00:00:02.000Z',
+        source: 'workflow',
+        type: 'step.completed',
+        data: {
+          step: 'render',
+          duration_ms: 1000,
+          fallbackUsed: true,
+          fallbackReason: 'browser_rendering_403',
+          fallbackProvider: 'hyperbrowser',
+        },
+      }),
+    ]);
+
+    expect(state.render.status).toBe('complete');
+    expect(state.render.fallbackUsed).toBe(true);
+    expect(state.render.fallbackReason).toBe('browser_rendering_403');
+    expect(state.render.fallbackProvider).toBe('hyperbrowser');
+  });
+
   it('maps derivatives events to both readability and monolith', () => {
     const state = derivePipelineState([
       event({

@@ -86,6 +86,26 @@ function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function normalizeRenderProvider(value: string | undefined): RequestDiagnostics['renderProvider'] | undefined {
+  if (!value) return undefined;
+  const lower = value.toLowerCase();
+  if (lower === 'hyperbrowser') return 'hyperbrowser';
+  if (lower === 'browser-rendering' || lower === 'browser_rendering') return 'browser-rendering';
+  return 'unknown';
+}
+
 function isArtifactKind(value: string): value is ArtifactRecord['kind'] {
   return (
     value === 'rendered.html' ||
@@ -147,11 +167,62 @@ function updateDiagnostics(
       if (step === 'render' || step === 'singlefile') diagnostics.renderMs = durationMs;
       else if (step === 'derivatives' || step === 'readability' || step === 'monolith') diagnostics.deriveMs = durationMs;
     }
+
+    if (step === 'render') {
+      const fallbackUsed = asBoolean(data?.['fallbackUsed']);
+      if (fallbackUsed !== undefined) {
+        diagnostics.renderFallbackUsed = fallbackUsed;
+      }
+
+      const fallbackReason = asString(data?.['fallbackReason']);
+      if (fallbackReason) {
+        diagnostics.renderFallbackReason = fallbackReason;
+      }
+
+      const meta = asRecord(data?.['meta']);
+      const provider = normalizeRenderProvider(
+        asString(data?.['fallbackProvider']) ??
+          asString(meta?.['provider']) ??
+          (fallbackUsed === false ? 'browser-rendering' : undefined)
+      );
+      if (provider) {
+        diagnostics.renderProvider = provider;
+      } else if (fallbackUsed === true) {
+        diagnostics.renderProvider = 'hyperbrowser';
+      }
+    }
   }
 
   if (event.type === 'persist.completed') {
     const durationMs = asNumber(data?.['duration_ms']);
     if (durationMs !== undefined) diagnostics.persistMs = durationMs;
+  }
+
+  if (event.type === 'workflow.completed' || event.type === 'request.done') {
+    const degraded = asBoolean(data?.['degraded']);
+    if (degraded !== undefined) {
+      diagnostics.degraded = degraded;
+    } else {
+      diagnostics.degraded = false;
+    }
+
+    const degradedStepsFromEvent = asStringArray(data?.['degradedSteps']);
+    if (degradedStepsFromEvent && degradedStepsFromEvent.length > 0) {
+      diagnostics.degradedSteps = Array.from(new Set(degradedStepsFromEvent));
+      diagnostics.degraded = true;
+    } else if (Array.isArray(data?.['partialFailures'])) {
+      const degradedSteps = (data?.['partialFailures'] as unknown[])
+        .map((entry) => asRecord(entry)?.['step'])
+        .filter((step): step is string => typeof step === 'string' && step.length > 0);
+      if (degradedSteps.length > 0) {
+        diagnostics.degradedSteps = Array.from(new Set(degradedSteps));
+        diagnostics.degraded = true;
+      } else if (diagnostics.degraded === false) {
+        diagnostics.degradedSteps = undefined;
+      }
+    } else if (diagnostics.degraded === false) {
+      diagnostics.degradedSteps = undefined;
+    }
   }
 
   if (event.level === 'error') {
@@ -316,7 +387,8 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
                terminal_state = ?, error_count = ?,
                last_error_code = ?, last_error_message = ?, last_error_source = ?,
                retry_count = ?, render_ms = ?, derive_ms = ?, persist_ms = ?,
-               last_trace_id = ?
+               last_trace_id = ?, render_provider = ?, render_fallback_used = ?,
+               render_fallback_reason = ?, degraded = ?, degraded_steps = ?
            WHERE request_id = ?`
         )
           .bind(
@@ -333,6 +405,13 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
             derived.diagnostics?.deriveMs ?? null,
             derived.diagnostics?.persistMs ?? null,
             derived.diagnostics?.lastTraceId ?? null,
+            derived.diagnostics?.renderProvider ?? null,
+            derived.diagnostics?.renderFallbackUsed === true ? 1 : 0,
+            derived.diagnostics?.renderFallbackReason ?? null,
+            derived.diagnostics?.degraded === true ? 1 : 0,
+            derived.diagnostics?.degradedSteps?.length
+              ? JSON.stringify(derived.diagnostics.degradedSteps)
+              : null,
             requestRow.request_id
           )
           .run();

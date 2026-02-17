@@ -194,7 +194,13 @@ describe('LoggerDO', () => {
         type: 'step.completed',
         level: 'info',
         message: 'Step completed: render',
-        data: { step: 'render', duration_ms: 1200 },
+        data: {
+          step: 'render',
+          duration_ms: 1200,
+          fallbackUsed: true,
+          fallbackReason: 'browser_rendering_403',
+          fallbackProvider: 'hyperbrowser',
+        },
       });
 
       await stub.appendEvent({
@@ -231,6 +237,18 @@ describe('LoggerDO', () => {
         },
       });
 
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'workflow.completed',
+        level: 'info',
+        message: 'Workflow completed',
+        data: {
+          degraded: true,
+          partialFailures: [{ step: 'singlefile', error: 'singlefile timeout' }],
+        },
+      });
+
       const view = await stub.getRequestView();
       expect(view?.derived.diagnostics?.errorCode).toBe('RENDER_TIMEOUT');
       expect(view?.derived.diagnostics?.errorSource).toBe('renderer');
@@ -241,6 +259,11 @@ describe('LoggerDO', () => {
       expect(view?.derived.diagnostics?.deriveMs).toBe(850);
       expect(view?.derived.diagnostics?.persistMs).toBe(4000);
       expect(view?.derived.diagnostics?.lastTraceId).toBe('trace_123');
+      expect(view?.derived.diagnostics?.renderProvider).toBe('hyperbrowser');
+      expect(view?.derived.diagnostics?.renderFallbackUsed).toBe(true);
+      expect(view?.derived.diagnostics?.renderFallbackReason).toBe('browser_rendering_403');
+      expect(view?.derived.diagnostics?.degraded).toBe(true);
+      expect(view?.derived.diagnostics?.degradedSteps).toEqual(['singlefile']);
     });
 
     it('treats workflow.failed as terminal fallback and allows retry to reopen stage', async () => {

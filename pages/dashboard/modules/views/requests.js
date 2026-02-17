@@ -40,13 +40,16 @@ export function renderRequestTable() {
     const stage = req.stage || 'queued';
     const domain = req.domain || getDomain(req.url);
     const errorLabel = req.diagnostics?.errorCode ? ` (${req.diagnostics.errorCode})` : '';
+    const fallbackBadge = req.diagnostics?.renderFallbackUsed
+      ? '<span class="render-fallback-chip" title="Render used Hyperrender fallback">HYPER</span>'
+      : '';
 
     return `
       <tr class="clickable" data-id="${escapeHtml(req.requestId)}">
         <td class="td-id">${escapeHtml(req.requestId.slice(0, 8))}</td>
         <td class="td-url">${escapeHtml(truncateUrl(req.url, 60))}</td>
         <td>${escapeHtml(domain)}</td>
-        <td>${statusBadgeHtml(stage)}</td>
+        <td>${statusBadgeHtml(stage)}${fallbackBadge}</td>
         <td>${errorCount > 0 ? `<span class="error-count">${errorCount}${escapeHtml(errorLabel)}</span>` : '<span style="color:var(--text-3)">0</span>'}</td>
         <td>${formatTimeShort(req.createdAt)}</td>
       </tr>

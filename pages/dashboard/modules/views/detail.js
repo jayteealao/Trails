@@ -209,6 +209,28 @@ function renderDetailView() {
               <span class="detail-meta-label">Trace ID</span>
               <span class="detail-meta-value">${escapeHtml(diagnosis.lastTraceId || '--')}</span>
             </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Render Provider</span>
+              <span class="detail-meta-value">${escapeHtml(diagnosis.renderProvider || '--')}</span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Render Fallback</span>
+              <span class="detail-meta-value">
+                ${diagnosis.renderFallbackUsed === true ? '<span class="fallback-pill">Hyperrender</span>' : 'No'}
+              </span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Fallback Reason</span>
+              <span class="detail-meta-value">${escapeHtml(diagnosis.renderFallbackReason || '--')}</span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Degraded</span>
+              <span class="detail-meta-value">${diagnosis.degraded === true ? 'Yes' : 'No'}</span>
+            </div>
+            <div class="detail-meta-item">
+              <span class="detail-meta-label">Degraded Steps</span>
+              <span class="detail-meta-value">${escapeHtml((diagnosis.degradedSteps || []).join(', ') || '--')}</span>
+            </div>
           </div>
           <div class="inbox-action-row" style="margin-top:10px">
             <button class="artifact-action inbox-action" data-detail-action="retry-step" data-request-id="${escapeHtml(req.requestId)}" ${failedStep ? `data-step="${escapeHtml(failedStep)}"` : 'disabled'}>Retry Failed Step</button>

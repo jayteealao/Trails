@@ -91,6 +91,9 @@ export function derivePipelineState(events) {
       elapsed: null,
       attempts: 0,
       error: null,
+      fallbackUsed: false,
+      fallbackReason: null,
+      fallbackProvider: null,
     };
   }
 
@@ -114,6 +117,20 @@ export function derivePipelineState(events) {
         s.status = 'complete';
         s.completedAt = event.ts;
         updateElapsed(s, event);
+        if (stepId === 'render') {
+          const fallbackUsed = event?.data?.fallbackUsed;
+          if (typeof fallbackUsed === 'boolean') {
+            s.fallbackUsed = fallbackUsed;
+          }
+          if (typeof event?.data?.fallbackReason === 'string') {
+            s.fallbackReason = event.data.fallbackReason;
+          }
+          if (typeof event?.data?.fallbackProvider === 'string') {
+            s.fallbackProvider = event.data.fallbackProvider;
+          } else if (event?.data?.meta && typeof event.data.meta === 'object' && typeof event.data.meta.provider === 'string') {
+            s.fallbackProvider = event.data.meta.provider;
+          }
+        }
       } else if (isFailed) {
         s.status = 'failed';
         s.completedAt = event.ts;
@@ -139,6 +156,9 @@ export function renderPipeline(events) {
       <div class="pipeline-step ${stepClass}">
         <div class="pipeline-node"><div class="pipeline-node-inner"></div></div>
         <div class="pipeline-label">${def.label}</div>
+        ${def.id === 'render' && s.fallbackUsed
+          ? `<div class="pipeline-fallback-badge" title="Render fallback used${s.fallbackProvider ? ` (${escapeHtml(s.fallbackProvider)})` : ''}${s.fallbackReason ? `: ${escapeHtml(s.fallbackReason)}` : ''}">Hyperrender</div>`
+          : ''}
         ${s.elapsed != null ? `<div class="pipeline-timing">${formatDuration(s.elapsed)}</div>` : ''}
         ${s.attempts > 1 ? `<div class="pipeline-attempts">x${s.attempts}</div>` : ''}
       </div>

@@ -759,6 +759,32 @@ body {
   font-weight: 600;
 }
 
+.render-fallback-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  color: var(--accent);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.fallback-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(45, 212, 191, 0.16);
+  border: 1px solid rgba(45, 212, 191, 0.38);
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
 /* ===== Pagination ===== */
 .pagination {
   display: flex;
@@ -913,6 +939,17 @@ body {
   font-size: 0.65rem;
   font-weight: 500;
   color: var(--text-3);
+}
+
+.pipeline-fallback-badge {
+  margin-top: 6px;
+  font-size: 0.58rem;
+  line-height: 1.2;
+  color: var(--accent);
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  border-radius: 999px;
+  padding: 1px 6px;
 }
 
 .step-complete .pipeline-label { color: var(--green); }

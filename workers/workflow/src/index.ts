@@ -55,7 +55,6 @@ import {
   saveCheckpoint,
   STEP_REQUIRED_ARTIFACTS,
 } from './checkpoint.js';
-import { canSoftFailMonolithFailure } from './monolith-policy.js';
 
 export { BrowserQuotaDO };
 
@@ -67,16 +66,56 @@ const ACTIVE_INSTANCE_STATUSES = new Set([
   'paused',
 ]);
 
+const WORKFLOW_INSTANCE_ID_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,99}$/;
+
 function isAlreadyExistsError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return msg.includes('instance.already_exists');
 }
 
-function buildRetryInstanceId(requestId: string): string {
+function shortDeterministicHash(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function normalizeWorkflowInstanceId(requestId: string): string {
+  const cleaned = requestId.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+  const prefixed = /^[a-zA-Z0-9_]/.test(cleaned) ? cleaned : `r_${cleaned}`;
+  const minLengthId = prefixed.length >= 8 ? prefixed : `${prefixed}${'_'.repeat(8 - prefixed.length)}`;
+
+  if (minLengthId.length <= 100 && WORKFLOW_INSTANCE_ID_RE.test(minLengthId)) {
+    return minLengthId;
+  }
+
+  const suffix = shortDeterministicHash(requestId);
+  const maxBaseLength = 100 - suffix.length - 1;
+  const base = minLengthId.slice(0, Math.max(1, maxBaseLength));
+  const candidate = `${base}-${suffix}`;
+  if (WORKFLOW_INSTANCE_ID_RE.test(candidate)) {
+    return candidate;
+  }
+  return `r_${suffix}`;
+}
+
+function buildRetryInstanceId(instanceId: string): string {
   const suffix = crypto.randomUUID().slice(0, 8);
   const maxBaseLength = 54; // keep ID length bounded for provider constraints
-  const base = requestId.length > maxBaseLength ? requestId.slice(0, maxBaseLength) : requestId;
+  const base = instanceId.length > maxBaseLength ? instanceId.slice(0, maxBaseLength) : instanceId;
   return `${base}-${suffix}`;
+}
+
+class WorkflowTerminalError extends Error {
+  readonly details: Record<string, unknown>;
+
+  constructor(message: string, details: Record<string, unknown>) {
+    super(message);
+    this.name = 'WorkflowTerminalError';
+    this.details = details;
+  }
 }
 
 /**
@@ -94,6 +133,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       return await this.executeWorkflow(event, step);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      const terminalDetails =
+        err instanceof WorkflowTerminalError ? err.details : undefined;
       await step.do('checkpoint-workflow-failure', async () => {
         const checkpoint = await loadCheckpoint(
           this.env.ARCHIVE_BUCKET,
@@ -114,10 +155,19 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           request_id,
           'workflow.failed',
           `Workflow failed: ${errorMsg}`,
-          { error: errorMsg, ...(stack ? { stack } : {}) },
+          {
+            error: errorMsg,
+            ...(stack ? { stack } : {}),
+            ...(terminalDetails ?? {})
+          },
           'error'
         );
-        await logRequestFailed(this.env, request_id, err instanceof Error ? err : String(err));
+        await logRequestFailed(
+          this.env,
+          request_id,
+          err instanceof Error ? err : String(err),
+          terminalDetails
+        );
       });
       throw err;
     }
@@ -186,10 +236,77 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
 
     // Selective step execution: if options.steps is set, only run those steps
     const requestedSteps = normalizedOptions.steps;
-    const shouldRun = (s: WorkflowStepType) => !requestedSteps || requestedSteps.includes(s);
+    const requestedStepList: WorkflowStepType[] =
+      requestedSteps && requestedSteps.length > 0
+        ? Array.from(new Set(requestedSteps))
+        : ['render', 'singlefile', 'readability', 'monolith'];
+    const requestedStepSet = new Set<WorkflowStepType>(requestedStepList);
+    const shouldRun = (stepName: WorkflowStepType) => requestedStepSet.has(stepName);
 
     let lastPersistResult: WorkflowResult['gcsResult'];
-    const partialFailures: Array<{ step: CheckpointStep; error: string }> = [];
+    const partialFailures: Array<{ step: CheckpointStep | 'persist'; error: string }> = [];
+    const successfulRequestedSteps = new Set<WorkflowStepType>();
+    const failedRequestedSteps = new Map<WorkflowStepType, string>();
+
+    const markRequestedStepSucceeded = (stepName: WorkflowStepType): void => {
+      if (!requestedStepSet.has(stepName)) return;
+      successfulRequestedSteps.add(stepName);
+      failedRequestedSteps.delete(stepName);
+    };
+
+    const recordPartialFailure = (stepName: CheckpointStep | 'persist', error: string): void => {
+      const existingIndex = partialFailures.findIndex((entry) => entry.step === stepName);
+      if (existingIndex >= 0) {
+        partialFailures[existingIndex] = { step: stepName, error };
+      } else {
+        partialFailures.push({ step: stepName, error });
+      }
+
+      if (stepName !== 'persist' && requestedStepSet.has(stepName as WorkflowStepType)) {
+        failedRequestedSteps.set(stepName as WorkflowStepType, error);
+      }
+    };
+
+    const persistStepArtifacts = async (
+      stepName: CheckpointStep | 'final',
+      reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile'
+    ): Promise<void> => {
+      if (normalizedOptions.dryRun) return;
+
+      const artifacts = stepName === 'final'
+        ? getUnpersistedArtifacts(checkpoint)
+        : getUnpersistedArtifacts(checkpoint, [stepName]);
+      if (artifacts.length === 0) return;
+
+      try {
+        const persistResult = await this.persistArtifactsIncremental(
+          step,
+          checkpoint,
+          request_id,
+          url,
+          stepName,
+          artifacts,
+          reason
+        );
+        if (persistResult) lastPersistResult = persistResult;
+      } catch (persistErr) {
+        const persistError = persistErr instanceof Error
+          ? persistErr
+          : new Error(String(persistErr));
+        await logStepFailed(
+          this.env,
+          request_id,
+          'persist',
+          persistError,
+          {
+            checkpointStep: stepName,
+            reason,
+            artifactCount: artifacts.length
+          }
+        );
+        recordPartialFailure('persist', persistError.message);
+      }
+    };
 
     // Step 5: Render (run/persist-only/skip)
     const renderRequiredKinds = this.requiredRenderArtifacts(normalizedOptions);
@@ -225,45 +342,29 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         renderResult = await this.renderWithQuota(step, request_id, url, normalizedOptions);
         recordArtifacts(checkpoint, 'render', renderResult.artifacts);
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        markRequestedStepSucceeded('render');
       } catch (err) {
+        const renderError = err instanceof Error ? err : new Error(String(err));
         markCheckpointStepFailed(
           checkpoint,
           'render',
-          err instanceof Error ? err.message : String(err)
+          renderError.message
         );
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-        throw err;
+        await logStepFailed(this.env, request_id, 'render', renderError);
+        recordPartialFailure('render', renderError.message);
       }
 
-      if (!normalizedOptions.dryRun) {
-        const persistResult = await this.persistArtifactsIncremental(
-          step,
-          checkpoint,
-          request_id,
-          url,
-          'render',
-          getUnpersistedArtifacts(checkpoint, ['render']),
-          'step_succeeded'
-        );
-        if (persistResult) lastPersistResult = persistResult;
-      }
+      await persistStepArtifacts('render', 'step_succeeded');
     } else if (renderMode === 'persist_only') {
-      if (!normalizedOptions.dryRun) {
-        const persistResult = await this.persistArtifactsIncremental(
-          step,
-          checkpoint,
-          request_id,
-          url,
-          'render',
-          getUnpersistedArtifacts(checkpoint, ['render']),
-          'resume_persist_only'
-        );
-        if (persistResult) lastPersistResult = persistResult;
-      }
+      markRequestedStepSucceeded('render');
+      await persistStepArtifacts('render', 'resume_persist_only');
       renderResult = {
         artifacts: this.toArtifactMeta(getStepArtifacts(checkpoint, 'render')),
         renderedHtmlKey: getArtifact(checkpoint, 'rendered.html')?.r2Key ?? '',
       };
+    } else if (renderMode === 'skip' && shouldRun('render')) {
+      markRequestedStepSucceeded('render');
     } else if (!renderResult.renderedHtmlKey && !shouldRun('render')) {
       // Legacy fallback: if render not requested, try existing deterministic key in R2.
       renderResult = await step.do('check-existing-render', async () => {
@@ -305,41 +406,25 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         );
         recordArtifacts(checkpoint, 'singlefile', [singlefile]);
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        markRequestedStepSucceeded('singlefile');
       } catch (err) {
+        const singlefileError = err instanceof Error ? err : new Error(String(err));
         markCheckpointStepFailed(
           checkpoint,
           'singlefile',
-          err instanceof Error ? err.message : String(err)
+          singlefileError.message
         );
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-        throw err;
+        await logStepFailed(this.env, request_id, 'singlefile', singlefileError);
+        recordPartialFailure('singlefile', singlefileError.message);
       }
 
-      if (!normalizedOptions.dryRun) {
-        const persistResult = await this.persistArtifactsIncremental(
-          step,
-          checkpoint,
-          request_id,
-          url,
-          'singlefile',
-          getUnpersistedArtifacts(checkpoint, ['singlefile']),
-          'step_succeeded'
-        );
-        if (persistResult) lastPersistResult = persistResult;
-      }
+      await persistStepArtifacts('singlefile', 'step_succeeded');
     } else if (singlefileMode === 'persist_only') {
-      if (!normalizedOptions.dryRun) {
-        const persistResult = await this.persistArtifactsIncremental(
-          step,
-          checkpoint,
-          request_id,
-          url,
-          'singlefile',
-          getUnpersistedArtifacts(checkpoint, ['singlefile']),
-          'resume_persist_only'
-        );
-        if (persistResult) lastPersistResult = persistResult;
-      }
+      markRequestedStepSucceeded('singlefile');
+      await persistStepArtifacts('singlefile', 'resume_persist_only');
+    } else if (singlefileMode === 'skip' && shouldRun('singlefile')) {
+      markRequestedStepSucceeded('singlefile');
     }
 
     // Step 7: Readability + Monolith (resume-aware, partial-success friendly)
@@ -356,31 +441,22 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       requiredKinds: [...STEP_REQUIRED_ARTIFACTS.monolith]
     });
 
+    if (wantReadability && readabilityMode === 'skip') {
+      markRequestedStepSucceeded('readability');
+    }
+    if (wantMonolith && monolithMode === 'skip') {
+      markRequestedStepSucceeded('monolith');
+    }
+
     if ((wantReadability || wantMonolith) && renderResult.renderedHtmlKey) {
-      if (readabilityMode === 'persist_only' && !normalizedOptions.dryRun) {
-        const persistResult = await this.persistArtifactsIncremental(
-          step,
-          checkpoint,
-          request_id,
-          url,
-          'readability',
-          getUnpersistedArtifacts(checkpoint, ['readability']),
-          'resume_persist_only'
-        );
-        if (persistResult) lastPersistResult = persistResult;
+      if (readabilityMode === 'persist_only') {
+        markRequestedStepSucceeded('readability');
+        await persistStepArtifacts('readability', 'resume_persist_only');
       }
 
-      if (monolithMode === 'persist_only' && !normalizedOptions.dryRun) {
-        const persistResult = await this.persistArtifactsIncremental(
-          step,
-          checkpoint,
-          request_id,
-          url,
-          'monolith',
-          getUnpersistedArtifacts(checkpoint, ['monolith']),
-          'resume_persist_only'
-        );
-        if (persistResult) lastPersistResult = persistResult;
+      if (monolithMode === 'persist_only') {
+        markRequestedStepSucceeded('monolith');
+        await persistStepArtifacts('monolith', 'resume_persist_only');
       }
 
       const runTasks: Array<{
@@ -416,7 +492,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       if (runTasks.length > 0) {
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
         const settled = await Promise.allSettled(runTasks.map((task) => task.promise));
-        const failures: Error[] = [];
         const successfulSteps: CheckpointStep[] = [];
 
         for (const [index, outcome] of settled.entries()) {
@@ -424,6 +499,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           if (outcome.status === 'fulfilled') {
             recordArtifacts(checkpoint, task.stepName, outcome.value);
             await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+            markRequestedStepSucceeded(task.stepName as WorkflowStepType);
             successfulSteps.push(task.stepName);
             continue;
           }
@@ -434,51 +510,11 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           markCheckpointStepFailed(checkpoint, task.stepName, reason.message);
           await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
           await logStepFailed(this.env, request_id, task.stepName, reason);
-
-          const readabilityArtifactsPresent =
-            Boolean(getArtifact(checkpoint, 'readability.json')) &&
-            Boolean(getArtifact(checkpoint, 'readability.md'));
-          const softFailMonolith = canSoftFailMonolithFailure({
-            failingStep: task.stepName,
-            renderArtifactPresent: Boolean(getArtifact(checkpoint, 'rendered.html')),
-            readabilityRequested: wantReadability,
-            readabilityStepStatus: checkpoint.steps.readability.status,
-            readabilityArtifactsPresent,
-          });
-
-          if (softFailMonolith) {
-            partialFailures.push({ step: task.stepName, error: reason.message });
-            continue;
-          }
-
-          failures.push(reason);
+          recordPartialFailure(task.stepName, reason.message);
         }
 
-        if (!normalizedOptions.dryRun) {
-          for (const stepName of successfulSteps) {
-            try {
-              const persistResult = await this.persistArtifactsIncremental(
-                step,
-                checkpoint,
-                request_id,
-                url,
-                stepName,
-                getUnpersistedArtifacts(checkpoint, [stepName]),
-                'step_succeeded'
-              );
-              if (persistResult) lastPersistResult = persistResult;
-            } catch (persistErr) {
-              failures.push(
-                persistErr instanceof Error
-                  ? persistErr
-                  : new Error(String(persistErr))
-              );
-            }
-          }
-        }
-
-        if (failures.length > 0) {
-          throw failures[0]!;
+        for (const stepName of successfulSteps) {
+          await persistStepArtifacts(stepName, 'step_succeeded');
         }
       }
     } else if ((wantReadability || wantMonolith) && !renderResult.renderedHtmlKey) {
@@ -497,24 +533,28 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           'warn'
         );
       });
+
+      const missingPrereqError = 'Missing rendered.html prerequisite';
+      const missingSteps: CheckpointStep[] = [];
+      if (wantReadability && readabilityMode === 'run') {
+        markCheckpointStepFailed(checkpoint, 'readability', missingPrereqError);
+        await logStepFailed(this.env, request_id, 'readability', missingPrereqError);
+        recordPartialFailure('readability', missingPrereqError);
+        missingSteps.push('readability');
+      }
+      if (wantMonolith && monolithMode === 'run') {
+        markCheckpointStepFailed(checkpoint, 'monolith', missingPrereqError);
+        await logStepFailed(this.env, request_id, 'monolith', missingPrereqError);
+        recordPartialFailure('monolith', missingPrereqError);
+        missingSteps.push('monolith');
+      }
+      if (missingSteps.length > 0) {
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+      }
     }
 
     // Step 8: Persist any leftover unpersisted artifacts, then build final manifest
-    if (!normalizedOptions.dryRun) {
-      const remaining = getUnpersistedArtifacts(checkpoint);
-      if (remaining.length > 0) {
-        const persistResult = await this.persistArtifactsIncremental(
-          step,
-          checkpoint,
-          request_id,
-          url,
-          'final',
-          remaining,
-          'final_reconcile'
-        );
-        if (persistResult) lastPersistResult = persistResult;
-      }
-    }
+    await persistStepArtifacts('final', 'final_reconcile');
 
     const finalArtifacts = getAllArtifacts(checkpoint);
     const manifestKey = await this.writeManifest(
@@ -530,36 +570,74 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await updateManifestKey(this.env, request_id, manifestKey);
     });
 
+    const unpersistedKinds = normalizedOptions.dryRun
+      ? []
+      : getUnpersistedArtifacts(checkpoint).map((artifact) => artifact.kind);
+    if (unpersistedKinds.length === 0) {
+      const persistFailureIndex = partialFailures.findIndex((failure) => failure.step === 'persist');
+      if (persistFailureIndex >= 0) {
+        partialFailures.splice(persistFailureIndex, 1);
+      }
+    }
+    const noRequestedOutputs =
+      requestedStepSet.size > 0 && successfulRequestedSteps.size === 0;
+    const failedSteps = Array.from(failedRequestedSteps.entries()).map(
+      ([stepName, error]) => ({ step: stepName, error })
+    );
+    const completionData = {
+      manifestKey,
+      resumed: resumeEnabled,
+      ...(partialFailures.length > 0
+        ? {
+            degraded: true,
+            partialFailures,
+            degradedSteps: partialFailures.map((failure) => failure.step)
+          }
+        : {}),
+    };
+
+    if (noRequestedOutputs || unpersistedKinds.length > 0) {
+      throw new WorkflowTerminalError(
+        noRequestedOutputs
+          ? `No requested outputs were produced (requested: ${requestedStepList.join(', ')})`
+          : `Persistence incomplete for artifacts: ${unpersistedKinds.join(', ')}`,
+        {
+          failureReason: noRequestedOutputs
+            ? 'NO_REQUESTED_OUTPUTS'
+            : 'UNPERSISTED_ARTIFACTS',
+          requestedSteps: requestedStepList,
+          successfulSteps: Array.from(successfulRequestedSteps),
+          failedSteps,
+          partialFailures,
+          unpersistedKinds,
+          manifestKey,
+          resumed: resumeEnabled
+        }
+      );
+    }
+
     if (normalizedOptions.dryRun) {
       await step.do('log-done-dryrun', async () => {
-        const completionData = {
-          dryRun: true,
-          manifestKey,
-          ...(partialFailures.length > 0
-            ? { degraded: true, partialFailures }
-            : {}),
-        };
         await logEvent(
           this.env,
           request_id,
           'workflow.completed',
           'Workflow completed (dry run)',
-          completionData
+          { dryRun: true, ...completionData }
         );
-        await logRequestDone(this.env, request_id, completionData);
+        await logRequestDone(this.env, request_id, { dryRun: true, ...completionData });
       });
-      return { status: 'done', dryRun: true, manifestKey };
+      return {
+        status: 'done',
+        dryRun: true,
+        manifestKey,
+        degraded: partialFailures.length > 0,
+        partialFailures
+      };
     }
 
     // Step 10: Log completion + terminal request.done
     await step.do('log-completed', async () => {
-      const completionData = {
-        manifestKey,
-        resumed: resumeEnabled,
-        ...(partialFailures.length > 0
-          ? { degraded: true, partialFailures }
-          : {}),
-      };
       await logEvent(
         this.env,
         request_id,
@@ -570,7 +648,13 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await logRequestDone(this.env, request_id, completionData);
     });
 
-    return { status: 'done', manifestKey, gcsResult: lastPersistResult };
+    return {
+      status: 'done',
+      manifestKey,
+      gcsResult: lastPersistResult,
+      degraded: partialFailures.length > 0,
+      partialFailures
+    };
   }
 
   private normalizeOptions(options: ArchiveOptionsExtended): ArchiveOptionsExtended {
@@ -1157,7 +1241,7 @@ export default {
           );
         }
 
-        const primaryInstanceId = body.request_id;
+        const primaryInstanceId = normalizeWorkflowInstanceId(body.request_id);
         try {
           const instance = await env.ARCHIVE_WORKFLOW.create({
             id: primaryInstanceId,

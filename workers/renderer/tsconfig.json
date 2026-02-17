@@ -2,11 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "types": ["./worker-configuration.d.ts"],
-    "paths": {
-      "@warg/shared": ["../../packages/shared/src/index.ts"],
-      "@warg/shared/*": ["../../packages/shared/src/*.ts"]
-    }
+    "types": ["./worker-configuration.d.ts"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

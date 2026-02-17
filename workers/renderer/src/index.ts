@@ -132,7 +132,13 @@ export default {
         );
       }
       const htmlData = new TextEncoder().encode(contentJson.result);
-      const htmlMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'rendered.html', htmlData.buffer, 'text/html');
+      const htmlMeta = await storeArtifact(
+        env.ARCHIVE_BUCKET,
+        request_id,
+        'rendered.html',
+        htmlData.buffer as ArrayBuffer,
+        'text/html'
+      );
       artifacts.push(htmlMeta);
 
       // 2. Fetch screenshot if requested
@@ -177,7 +183,13 @@ export default {
           const mdJson = (await mdResp.json()) as { success: boolean; result: string };
           if (mdJson.success && mdJson.result) {
             const mdData = new TextEncoder().encode(mdJson.result);
-            const mdMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'rendered.md', mdData.buffer, 'text/markdown');
+            const mdMeta = await storeArtifact(
+              env.ARCHIVE_BUCKET,
+              request_id,
+              'rendered.md',
+              mdData.buffer as ArrayBuffer,
+              'text/markdown'
+            );
             artifacts.push(mdMeta);
           } else {
             skipped.push('markdown: API returned invalid response');

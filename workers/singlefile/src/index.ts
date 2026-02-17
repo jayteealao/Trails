@@ -204,9 +204,10 @@ export default {
         // Step 4: Verify + Capture
         const singlefileAvailable = await page.evaluate(() => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return typeof (window as any).singlefile !== 'undefined' &&
+          const runtime = globalThis as unknown as { singlefile?: { getPageData?: unknown } };
+          return typeof runtime.singlefile !== 'undefined' &&
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            typeof (window as any).singlefile.getPageData === 'function';
+            typeof runtime.singlefile?.getPageData === 'function';
         });
 
         if (!singlefileAvailable) {
@@ -222,7 +223,8 @@ export default {
         const result = await Promise.race([
           page.evaluate(async (opts: SinglefileNativeOptions) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const sf = (window as any).singlefile;
+            const runtime = globalThis as unknown as { singlefile: { getPageData: (options: SinglefileNativeOptions) => Promise<unknown> } };
+            const sf = runtime.singlefile;
             return await sf.getPageData(opts);
           }, nativeOptions),
           new Promise<null>((_, reject) =>

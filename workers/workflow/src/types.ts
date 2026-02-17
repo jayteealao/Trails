@@ -158,4 +158,6 @@ export interface WorkflowResult {
   dryRun?: boolean;
   mock?: boolean;
   gcsResult?: GcsResponse;
+  degraded?: boolean;
+  partialFailures?: Array<{ step: string; error: string }>;
 }

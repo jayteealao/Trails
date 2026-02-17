@@ -4,7 +4,7 @@ import { CONFIG } from './state.js';
 /**
  * @typedef {{ domain: string, status: string, q?: string, from?: string, to?: string, dateRange?: string }} RequestFilters
  * @typedef {{ offset: number, limit?: number, total?: number, hasMore?: boolean }} Pagination
- * @typedef {{ errorCode?: string, errorMessage?: string, errorSource?: string, retryable?: boolean, recommendedAction?: string, retryCount: number, renderMs?: number, deriveMs?: number, persistMs?: number, lastTraceId?: string }} RequestDiagnostics
+ * @typedef {{ errorCode?: string, errorMessage?: string, errorSource?: string, retryable?: boolean, recommendedAction?: string, retryCount: number, renderMs?: number, deriveMs?: number, persistMs?: number, lastTraceId?: string, renderProvider?: 'browser-rendering'|'hyperbrowser'|'unknown', renderFallbackUsed?: boolean, renderFallbackReason?: string, degraded?: boolean, degradedSteps?: string[] }} RequestDiagnostics
  * @typedef {{ requestId: string, url: string, domain: string, createdAt: string, updatedAt: string, lastEventTs: string|null, terminal: boolean, errorCount: number, stage: string|null, manifestR2Key: string|null, diagnostics?: RequestDiagnostics }} RequestSummary
  * @typedef {{ requestId: string, url: string, createdAt: string, derived?: { stage?: string }, events?: Array<Object>, artifacts?: Array<Object> }} RequestDetail
  * @typedef {{ total: number, byStage: Record<string, number>, successRate: number, failureRate: number, activeCount: number, stuckCount: number, recentActivity: { last1h: number, last24h: number }, topDomains: Array<{domain: string, count: number}>, recentFailures: Array<{requestId: string, url: string, createdAt: string}> }} StatsResponse

@@ -32,6 +32,11 @@ interface RequestsIndexRow {
   derive_ms: number | null;
   persist_ms: number | null;
   last_trace_id: string | null;
+  render_provider: string | null;
+  render_fallback_used: number | null;
+  render_fallback_reason: string | null;
+  degraded: number | null;
+  degraded_steps: string | null;
 }
 
 interface LoggerServiceEnv {
@@ -87,6 +92,28 @@ function toRequestErrorCode(value: string | null): RequestErrorCode | undefined 
     : undefined;
 }
 
+function toRenderProvider(
+  value: string | null
+): RequestDiagnostics['renderProvider'] | undefined {
+  if (!value) return undefined;
+  if (value === 'browser-rendering' || value === 'hyperbrowser' || value === 'unknown') {
+    return value;
+  }
+  return 'unknown';
+}
+
+function parseStringArray(value: string | null): string[] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const strings = parsed.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+    return strings.length > 0 ? strings : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
   return {
     errorCode: toRequestErrorCode(row.last_error_code),
@@ -97,6 +124,11 @@ function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
     deriveMs: row.derive_ms ?? undefined,
     persistMs: row.persist_ms ?? undefined,
     lastTraceId: row.last_trace_id ?? undefined,
+    renderProvider: toRenderProvider(row.render_provider),
+    renderFallbackUsed: row.render_fallback_used === null ? undefined : row.render_fallback_used === 1,
+    renderFallbackReason: row.render_fallback_reason ?? undefined,
+    degraded: row.degraded === null ? undefined : row.degraded === 1,
+    degradedSteps: parseStringArray(row.degraded_steps),
   };
 }
 

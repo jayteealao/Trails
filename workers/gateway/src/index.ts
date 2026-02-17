@@ -172,14 +172,29 @@ export default {
         });
 
         if (!workflowResponse.ok) {
-          console.error('[gateway] Failed to trigger workflow:', await workflowResponse.text());
+          const workflowStatus = workflowResponse.status;
+          const workflowErrorBody = (await workflowResponse.text()).slice(0, 600);
+          console.error('[gateway] Failed to trigger workflow:', workflowErrorBody);
           await appendLogEvent(
             env,
             requestId,
             createEvent('gateway', 'workflow.trigger_failed', 'error', 'Failed to trigger workflow', {
               errorCode: 'WORKFLOW_TRIGGER_FAILED',
               retryable: true,
-              recommendedAction: 'retry_full'
+              recommendedAction: 'retry_full',
+              workflowStatus,
+              workflowError: workflowErrorBody
+            })
+          );
+          await appendLogEvent(
+            env,
+            requestId,
+            createEvent('gateway', 'request.failed', 'error', 'Request failed before workflow start', {
+              errorCode: 'WORKFLOW_TRIGGER_FAILED',
+              retryable: true,
+              recommendedAction: 'retry_full',
+              workflowStatus,
+              workflowError: workflowErrorBody
             })
           );
           // Return 202: request was created in logger but workflow did not start

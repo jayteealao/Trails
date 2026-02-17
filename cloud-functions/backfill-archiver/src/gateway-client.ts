@@ -10,6 +10,12 @@ interface GatewayErrorPayload {
   body: string;
 }
 
+interface GatewayBeginResponse {
+  requestId?: string;
+  request_id?: string;
+  warning?: string;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -21,7 +27,7 @@ function shouldRetry(status: number): boolean {
 export async function callGatewayBegin(
   config: GatewayBeginClientConfig,
   payload: Record<string, unknown>
-): Promise<{ requestId?: string; request_id?: string }> {
+): Promise<GatewayBeginResponse> {
   let lastError: GatewayErrorPayload | undefined;
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -37,14 +43,30 @@ export async function callGatewayBegin(
       signal: AbortSignal.timeout(30000),
     });
 
-    if (response.ok) {
-      return (await response.json()) as { requestId?: string; request_id?: string };
+    const rawBody = (await response.text()).slice(0, 600);
+    let parsed: GatewayBeginResponse = {};
+    if (rawBody) {
+      try {
+        parsed = JSON.parse(rawBody) as GatewayBeginResponse;
+      } catch {
+        parsed = {};
+      }
     }
 
-    const body = (await response.text()).slice(0, 600);
-    lastError = { status: response.status, body };
+    const hasRequestId = Boolean(parsed.requestId ?? parsed.request_id);
+    const hasTriggerWarning = response.status === 202 || Boolean(parsed.warning);
 
-    if (!shouldRetry(response.status) || attempt === 2) {
+    if (response.ok && !hasTriggerWarning && hasRequestId) {
+      return parsed;
+    }
+
+    const retryStatus = hasTriggerWarning ? 502 : response.status;
+    const reason = hasTriggerWarning
+      ? `Gateway begin warning: ${rawBody || 'workflow trigger failed'}`
+      : rawBody || `HTTP ${response.status}`;
+    lastError = { status: retryStatus, body: reason };
+
+    if (!shouldRetry(retryStatus) || attempt === 2) {
       break;
     }
 

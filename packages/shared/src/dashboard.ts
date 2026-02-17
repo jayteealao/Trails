@@ -34,6 +34,11 @@ export interface RequestDiagnostics {
   deriveMs?: number;
   persistMs?: number;
   lastTraceId?: string;
+  renderProvider?: 'browser-rendering' | 'hyperbrowser' | 'unknown';
+  renderFallbackUsed?: boolean;
+  renderFallbackReason?: string;
+  degraded?: boolean;
+  degradedSteps?: string[];
 }
 
 export interface ArticleHealth {
