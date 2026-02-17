@@ -43,6 +43,8 @@
   /* Stage colors */
   --stage-done: var(--green);
   --stage-done-dim: var(--green-dim);
+  --stage-incomplete: var(--amber);
+  --stage-incomplete-dim: var(--amber-dim);
   --stage-failed: var(--red);
   --stage-failed-dim: var(--red-dim);
   --stage-rendering: var(--cyan);
@@ -726,6 +728,9 @@ body {
 
 .status-done { background: var(--stage-done-dim); color: var(--stage-done); }
 .status-done .led { background: var(--stage-done); }
+
+.status-incomplete { background: var(--stage-incomplete-dim); color: var(--stage-incomplete); }
+.status-incomplete .led { background: var(--stage-incomplete); }
 
 .status-failed { background: var(--stage-failed-dim); color: var(--stage-failed); }
 .status-failed .led { background: var(--stage-failed); }

@@ -10,6 +10,7 @@ export const CONFIG = {
 
 export const STAGE_COLORS = {
   done: 'var(--stage-done)',
+  incomplete: 'var(--stage-incomplete)',
   failed: 'var(--stage-failed)',
   rendering: 'var(--stage-rendering)',
   deriving: 'var(--stage-deriving)',

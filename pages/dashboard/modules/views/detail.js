@@ -9,7 +9,7 @@ import { setLoading, showError, clearError, showToast } from '../ui.js';
 import { CONFIG } from '../state.js';
 
 const ACTIVE_POLL_MS = 3000;
-const TERMINAL_STAGES = new Set(['done', 'failed']);
+const TERMINAL_STAGES = new Set(['done', 'failed', 'incomplete']);
 let detailPollTimer = null;
 let eventSource = null;
 let renderPending = false;
