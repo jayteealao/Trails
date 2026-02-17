@@ -132,6 +132,177 @@ function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
   };
 }
 
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function defaultRetryableForCode(code: RequestErrorCode): boolean {
+  return code !== 'ACCESS_BLOCKED' && code !== 'INVALID_INPUT_URL';
+}
+
+function defaultActionForCode(code: RequestErrorCode): RequestDiagnostics['recommendedAction'] {
+  if (code === 'ACCESS_BLOCKED') return 'check_access';
+  if (code === 'INVALID_INPUT_URL') return 'inspect_url';
+  if (code === 'WORKFLOW_TRIGGER_FAILED') return 'retry_full';
+  if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
+  return 'retry_step';
+}
+
+function inferLegacyErrorCode(message: string, source?: string): RequestErrorCode {
+  const lower = message.toLowerCase();
+  const sourceLower = (source ?? '').toLowerCase();
+
+  if (
+    lower.includes('invalid url') ||
+    lower.includes('url is required') ||
+    lower.includes('base_url contains invalid characters')
+  ) {
+    return 'INVALID_INPUT_URL';
+  }
+
+  if (
+    lower.includes('workflow trigger failed') ||
+    lower.includes('error starting workflow') ||
+    lower.includes('instance.already_exists')
+  ) {
+    return 'WORKFLOW_TRIGGER_FAILED';
+  }
+
+  if (lower.includes('unauthorized') || lower.includes('forbidden') || lower.includes('access')) {
+    return 'ACCESS_BLOCKED';
+  }
+
+  const isTimeout =
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('deadline exceeded') ||
+    lower.includes('abort');
+
+  const mentionsRender = lower.includes('/render') || lower.includes('render');
+  const mentionsSinglefile = lower.includes('/singlefile') || lower.includes('singlefile');
+  const mentionsReadability = lower.includes('/readability') || lower.includes('readability');
+  const mentionsMonolith =
+    lower.includes('/monolith') ||
+    lower.includes('monolith') ||
+    lower.includes('sandboxerror');
+  const mentionsPersist = lower.includes('/persist') || lower.includes('persist') || sourceLower === 'gcs';
+
+  if (isTimeout) {
+    if (mentionsMonolith) return 'MONOLITH_TIMEOUT';
+    if (mentionsSinglefile) return 'SINGLEFILE_TIMEOUT';
+    if (mentionsReadability) return 'READABILITY_TIMEOUT';
+    if (mentionsRender) return 'RENDER_TIMEOUT';
+  }
+
+  if (
+    lower.includes('service error') ||
+    lower.includes('http error') ||
+    lower.includes('internal error')
+  ) {
+    if (mentionsMonolith) return 'MONOLITH_SERVICE_ERROR';
+    if (mentionsSinglefile) return 'SINGLEFILE_SERVICE_ERROR';
+    if (mentionsReadability) return 'READABILITY_SERVICE_ERROR';
+    if (mentionsPersist) return 'PERSIST_SERVICE_ERROR';
+    if (mentionsRender) return 'RENDER_SERVICE_ERROR';
+  }
+
+  return 'UNKNOWN_ERROR';
+}
+
+function recomputeDiagnosticsFromEvents(events: LogEvent[]): RequestDiagnostics {
+  const diagnostics: RequestDiagnostics = { retryCount: 0 };
+
+  for (const event of events) {
+    if (typeof event.attempt === 'number') {
+      diagnostics.retryCount = Math.max(diagnostics.retryCount, event.attempt);
+    }
+
+    const data = event.data;
+    const traceId = asString(data?.['traceId']) ?? asString(data?.['request_trace_id']);
+    if (traceId) diagnostics.lastTraceId = traceId;
+
+    if (event.type === 'step.completed') {
+      const durationMs = asNumber(data?.['duration_ms']);
+      const step = asString(data?.['step']);
+      if (durationMs !== undefined) {
+        if (step === 'render' || step === 'singlefile') diagnostics.renderMs = durationMs;
+        else if (step === 'derivatives' || step === 'readability' || step === 'monolith') diagnostics.deriveMs = durationMs;
+      }
+
+      if (step === 'render') {
+        const fallbackUsed = asBoolean(data?.['fallbackUsed']);
+        if (fallbackUsed !== undefined) diagnostics.renderFallbackUsed = fallbackUsed;
+        const fallbackReason = asString(data?.['fallbackReason']);
+        if (fallbackReason) diagnostics.renderFallbackReason = fallbackReason;
+
+        const meta = asRecord(data?.['meta']);
+        const provider = asString(data?.['fallbackProvider']) ?? asString(meta?.['provider']);
+        if (provider === 'hyperbrowser') {
+          diagnostics.renderProvider = 'hyperbrowser';
+        } else if (provider === 'browser-rendering' || provider === 'browser_rendering') {
+          diagnostics.renderProvider = 'browser-rendering';
+        } else if (provider) {
+          diagnostics.renderProvider = 'unknown';
+        } else if (fallbackUsed === false) {
+          diagnostics.renderProvider = 'browser-rendering';
+        } else if (fallbackUsed === true) {
+          diagnostics.renderProvider = 'hyperbrowser';
+        }
+      }
+    }
+
+    if (event.type === 'persist.completed') {
+      const durationMs = asNumber(data?.['duration_ms']);
+      if (durationMs !== undefined) diagnostics.persistMs = durationMs;
+    }
+
+    if (event.type === 'workflow.completed' || event.type === 'request.done') {
+      const degraded = asBoolean(data?.['degraded']);
+      diagnostics.degraded = degraded ?? diagnostics.degraded ?? false;
+
+      const degradedStepsFromList = Array.isArray(data?.['degradedSteps'])
+        ? (data?.['degradedSteps'] as unknown[]).filter((entry): entry is string => typeof entry === 'string')
+        : [];
+
+      if (degradedStepsFromList.length > 0) {
+        diagnostics.degradedSteps = Array.from(new Set(degradedStepsFromList));
+        diagnostics.degraded = true;
+      }
+    }
+
+    if (event.level === 'error') {
+      const errorCode = toRequestErrorCode(asString(data?.['errorCode']) ?? null)
+        ?? inferLegacyErrorCode(
+          asString(data?.['error']) ?? event.message,
+          event.source
+        );
+      diagnostics.errorCode = errorCode;
+      diagnostics.errorMessage = asString(data?.['error']) ?? event.message;
+      diagnostics.errorSource = event.source;
+      diagnostics.retryable = asBoolean(data?.['retryable']) ?? defaultRetryableForCode(errorCode);
+      diagnostics.recommendedAction =
+        (asString(data?.['recommendedAction']) as RequestDiagnostics['recommendedAction'] | undefined)
+        ?? defaultActionForCode(errorCode);
+    }
+  }
+
+  return diagnostics;
+}
+
 /**
  * Verify internal API key.
  */
@@ -160,7 +331,8 @@ function parseRoute(
 
   // Literal routes take priority over parameterized ones
   if (path === '/request/init' || path === '/event' || path === '/artifact' ||
-      path === '/stats' || path === '/requests' || path === '/requests/batch') {
+      path === '/stats' || path === '/requests' || path === '/requests/batch' ||
+      path === '/maintenance/backfill-diagnostics') {
     return { path, params };
   }
 
@@ -498,6 +670,113 @@ export default {
             manifestR2Key: row.manifest_r2_key,
             diagnostics: toDiagnostics(row),
           })),
+        });
+      }
+
+      // POST /maintenance/backfill-diagnostics - Recompute missing diagnostics for legacy rows
+      if (method === 'POST' && path === '/maintenance/backfill-diagnostics') {
+        const body = await request
+          .json()
+          .catch(() => ({})) as { limit?: number; dryRun?: boolean };
+        const limit = Math.min(Math.max(body.limit ?? 200, 1), 1000);
+        const dryRun = body.dryRun === true;
+
+        const candidates = await env.INDEX_DB.prepare(
+          `SELECT * FROM requests_index
+           WHERE error_count > 0
+             AND (last_error_code IS NULL OR last_error_message IS NULL OR last_error_source IS NULL)
+           ORDER BY created_at DESC
+           LIMIT ?`
+        ).bind(limit).all<RequestsIndexRow>();
+
+        let updated = 0;
+        let derivedFromEvents = 0;
+        let skipped = 0;
+        const failures: Array<{ requestId: string; error: string }> = [];
+
+        for (const row of candidates.results) {
+          try {
+            const stub = getLoggerStub(env, row.request_id);
+            const view = await stub.getRequestView(undefined, 1000);
+            if (!view) {
+              skipped++;
+              continue;
+            }
+
+            const existing = view.derived?.diagnostics;
+            const diagnostics =
+              existing?.errorCode && existing?.errorMessage && existing?.errorSource
+                ? existing
+                : recomputeDiagnosticsFromEvents(view.events);
+
+            if (!diagnostics.errorCode && !diagnostics.errorMessage && !diagnostics.errorSource) {
+              skipped++;
+              continue;
+            }
+
+            if (!(existing?.errorCode && existing?.errorMessage && existing?.errorSource)) {
+              derivedFromEvents++;
+            }
+
+            if (!dryRun) {
+              await env.INDEX_DB.prepare(
+                `UPDATE requests_index
+                 SET last_error_code = ?,
+                     last_error_message = ?,
+                     last_error_source = ?,
+                     retry_count = ?,
+                     render_ms = ?,
+                     derive_ms = ?,
+                     persist_ms = ?,
+                     last_trace_id = ?,
+                     render_provider = ?,
+                     render_fallback_used = ?,
+                     render_fallback_reason = ?,
+                     degraded = ?,
+                     degraded_steps = ?,
+                     updated_at = ?
+                 WHERE request_id = ?`
+              )
+                .bind(
+                  diagnostics.errorCode ?? null,
+                  diagnostics.errorMessage ?? null,
+                  diagnostics.errorSource ?? null,
+                  diagnostics.retryCount ?? 0,
+                  diagnostics.renderMs ?? null,
+                  diagnostics.deriveMs ?? null,
+                  diagnostics.persistMs ?? null,
+                  diagnostics.lastTraceId ?? null,
+                  diagnostics.renderProvider ?? null,
+                  diagnostics.renderFallbackUsed === undefined
+                    ? null
+                    : diagnostics.renderFallbackUsed ? 1 : 0,
+                  diagnostics.renderFallbackReason ?? null,
+                  diagnostics.degraded === undefined ? null : diagnostics.degraded ? 1 : 0,
+                  diagnostics.degradedSteps?.length
+                    ? JSON.stringify(diagnostics.degradedSteps)
+                    : null,
+                  new Date().toISOString(),
+                  row.request_id
+                )
+                .run();
+            }
+
+            updated++;
+          } catch (err) {
+            failures.push({
+              requestId: row.request_id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        return Response.json({
+          dryRun,
+          scanned: candidates.results.length,
+          updated,
+          derivedFromEvents,
+          skipped,
+          failures,
         });
       }
 

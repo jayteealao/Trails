@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   callRendererWith403Fallback,
+  callMonolith,
+  getRendererFallbackReason,
   isBrowserRendering403ForRender,
   ServiceCallError,
   type ServiceErrorClassification,
@@ -96,6 +98,38 @@ describe('renderer 403 fallback', () => {
     expect(outcome.fallbackUsed).toBe(true);
     expect(outcome.fallbackReason).toBe('browser_rendering_403');
     expect(outcome.result.meta?.provider).toBe('hyperbrowser');
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to hyperrenderer on Browser Rendering network-closed 5006 failures', async () => {
+    const rendererFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeJsonResponse(502, {
+          error: 'Browser Rendering /content failed',
+          status: 500,
+          details: JSON.stringify({
+            success: false,
+            errors: [{ code: 5006, message: 'browser disconnected' }],
+          }),
+        }),
+      );
+
+    const hyperrendererFetch = vi
+      .fn()
+      .mockResolvedValueOnce(makeJsonResponse(200, makeRendererSuccess('rendered-hyper-fallback.html')));
+
+    const env = makeEnv(rendererFetch, hyperrendererFetch);
+
+    const outcome = await callRendererWith403Fallback(env, {
+      request_id: 'req-2b',
+      url: 'https://example.com/fallback-5006',
+      browser_quota_kind: 'rest_request',
+    });
+
+    expect(outcome.fallbackUsed).toBe(true);
+    expect(outcome.fallbackReason).toBe('browser_rendering_5006');
     expect(rendererFetch).toHaveBeenCalledTimes(1);
     expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
   });
@@ -208,5 +242,79 @@ describe('isBrowserRendering403ForRender', () => {
     );
 
     expect(isBrowserRendering403ForRender(err)).toBe(true);
+  });
+});
+
+describe('getRendererFallbackReason', () => {
+  it('returns browser_rendering_5006 for wrapped network-closed failures', () => {
+    const classification: ServiceErrorClassification = {
+      errorCode: 'RENDER_SERVICE_ERROR',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+
+    const err = new ServiceCallError(
+      'Service error 502: { ... }',
+      classification,
+      '/render',
+      502,
+      JSON.stringify({
+        error: 'Browser Rendering /content failed',
+        status: 500,
+        details: '{"errors":[{"code":5006,"message":"network closed"}]}',
+      })
+    );
+
+    expect(getRendererFallbackReason(err)).toBe('browser_rendering_5006');
+  });
+});
+
+describe('monolith service classification', () => {
+  it('classifies sandbox timeout payloads as MONOLITH_TIMEOUT', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(500, {
+        error: 'Internal error',
+        message: 'SandboxError: timeout waiting for output',
+      }),
+    );
+
+    const env = {
+      INTERNAL_API_KEY: 'test-internal-key',
+      MONOLITH: { fetch: monolithFetch },
+    } as unknown as Env;
+
+    await expect(
+      callMonolith(env, {
+        request_id: 'req-m1',
+        rendered_html_key: 'archives/req/raw/rendered.html',
+        base_url: 'https://example.com',
+      }),
+    ).rejects.toMatchObject({
+      classification: { errorCode: 'MONOLITH_TIMEOUT', retryable: true },
+    });
+  });
+
+  it('classifies sandbox HTTP 500 payloads as MONOLITH_SERVICE_ERROR', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(500, {
+        error: 'Internal error',
+        message: 'SandboxError: HTTP error! status: 500',
+      }),
+    );
+
+    const env = {
+      INTERNAL_API_KEY: 'test-internal-key',
+      MONOLITH: { fetch: monolithFetch },
+    } as unknown as Env;
+
+    await expect(
+      callMonolith(env, {
+        request_id: 'req-m2',
+        rendered_html_key: 'archives/req/raw/rendered.html',
+        base_url: 'https://example.com',
+      }),
+    ).rejects.toMatchObject({
+      classification: { errorCode: 'MONOLITH_SERVICE_ERROR', retryable: true },
+    });
   });
 });

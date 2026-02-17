@@ -25,7 +25,8 @@ function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefin
   if (
     errorMsgLower.includes('timeout') ||
     errorMsgLower.includes('timed out') ||
-    errorMsgLower.includes('abort')
+    errorMsgLower.includes('abort') ||
+    errorMsgLower.includes('deadline exceeded')
   ) {
     return {
       errorCode: 'MONOLITH_TIMEOUT',
@@ -37,7 +38,8 @@ function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefin
   if (
     errorMsgLower.includes('service error') ||
     errorMsgLower.includes('sandboxerror') ||
-    errorMsgLower.includes('http error! status: 500')
+    errorMsgLower.includes('http error! status: 500') ||
+    errorMsgLower.includes('container terminated')
   ) {
     return {
       errorCode: 'MONOLITH_SERVICE_ERROR',

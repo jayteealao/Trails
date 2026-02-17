@@ -581,6 +581,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     }
     const noRequestedOutputs =
       requestedStepSet.size > 0 && successfulRequestedSteps.size === 0;
+    const coreArtifactsPresent = this.hasCoreArtifacts(finalArtifacts);
     const failedSteps = Array.from(failedRequestedSteps.entries()).map(
       ([stepName, error]) => ({ step: stepName, error })
     );
@@ -596,7 +597,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         : {}),
     };
 
-    if (noRequestedOutputs || unpersistedKinds.length > 0) {
+    const shouldSoftFailNoRequestedOutputs = noRequestedOutputs && coreArtifactsPresent;
+
+    if ((noRequestedOutputs && !shouldSoftFailNoRequestedOutputs) || unpersistedKinds.length > 0) {
       throw new WorkflowTerminalError(
         noRequestedOutputs
           ? `No requested outputs were produced (requested: ${requestedStepList.join(', ')})`
@@ -610,6 +613,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           failedSteps,
           partialFailures,
           unpersistedKinds,
+          coreArtifactsPresent,
           manifestKey,
           resumed: resumeEnabled
         }
@@ -701,6 +705,39 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       sha256: artifact.sha256,
       contentType: artifact.contentType,
     }));
+  }
+
+  private hasCoreArtifacts(artifacts: ArtifactMeta[]): boolean {
+    const kinds = new Set(artifacts.map((artifact) => artifact.kind));
+    const hasRender = kinds.has('rendered.html');
+    const hasReadability = kinds.has('readability.json') || kinds.has('readability.md');
+    const hasSinglefile = kinds.has('singlefile.html');
+    const hasMonolith = kinds.has('monolith.html');
+
+    return (hasRender && hasReadability) || hasSinglefile || hasMonolith;
+  }
+
+  private async callMonolithWithRetry(
+    step: WorkflowStep,
+    requestId: string,
+    renderedHtmlKey: string,
+    monolithBaseUrl: string
+  ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
+    return await step.do(
+      'monolith',
+      {
+        // Bounded backoff: 3 total attempts (initial + 2 retries).
+        retries: { limit: 2, delay: '6 seconds', backoff: 'exponential' },
+        timeout: '5 minutes'
+      },
+      async () => {
+        return await callMonolith(this.env, {
+          request_id: requestId,
+          rendered_html_key: renderedHtmlKey,
+          base_url: monolithBaseUrl
+        });
+      }
+    );
   }
 
   private async persistArtifactsIncremental(
@@ -996,19 +1033,11 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             });
           }
         ),
-        step.do(
-          'monolith',
-          {
-            retries: { limit: 1, delay: '10 seconds', backoff: 'linear' },
-            timeout: '4 minutes'
-          },
-          async () => {
-            return await callMonolith(this.env, {
-              request_id: requestId,
-              rendered_html_key: renderedHtmlKey,
-              base_url: monolithBaseUrl
-            });
-          }
+        this.callMonolithWithRetry(
+          step,
+          requestId,
+          renderedHtmlKey,
+          monolithBaseUrl
         )
       ]);
     } catch (err) {
@@ -1120,19 +1149,11 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await logStepStarted(this.env, requestId, 'monolith');
     });
 
-    const monolithResult = await step.do(
-      'monolith',
-      {
-        retries: { limit: 1, delay: '10 seconds', backoff: 'linear' },
-        timeout: '4 minutes'
-      },
-      async () => {
-        return await callMonolith(this.env, {
-          request_id: requestId,
-          rendered_html_key: renderedHtmlKey,
-          base_url: monolithBaseUrl
-        });
-      }
+    const monolithResult = await this.callMonolithWithRetry(
+      step,
+      requestId,
+      renderedHtmlKey,
+      monolithBaseUrl
     );
 
     await step.do('log-monolith-artifact', async () => {

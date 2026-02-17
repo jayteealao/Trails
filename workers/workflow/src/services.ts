@@ -31,6 +31,59 @@ function classifyTimeout(path: string): ServiceErrorClassification {
   };
 }
 
+function parseJsonSafe(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function readMessageFromResponseBody(responseBody: string): string | undefined {
+  const parsed = parseJsonSafe(responseBody);
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const record = parsed as Record<string, unknown>;
+
+  const message = record.message;
+  if (typeof message === 'string') return message;
+
+  const details = record.details;
+  if (typeof details === 'string') return details;
+
+  return undefined;
+}
+
+function classifyMonolithFailureFromBody(
+  responseBody: string
+): ServiceErrorClassification | undefined {
+  const message = readMessageFromResponseBody(responseBody);
+  if (!message) return undefined;
+  const lower = message.toLowerCase();
+
+  if (
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('deadline exceeded') ||
+    lower.includes('abort')
+  ) {
+    return {
+      errorCode: 'MONOLITH_TIMEOUT',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
+
+  if (lower.includes('sandboxerror') || lower.includes('http error! status: 500')) {
+    return {
+      errorCode: 'MONOLITH_SERVICE_ERROR',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
+
+  return undefined;
+}
+
 function classifyServiceFailure(path: string, status: number): ServiceErrorClassification {
   if (status === 401 || status === 403) {
     return {
@@ -54,6 +107,21 @@ function classifyServiceFailure(path: string, status: number): ServiceErrorClass
     retryable,
     recommendedAction: retryable ? 'retry_step' : 'investigate_service',
   };
+}
+
+function classifyServiceFailureWithBody(
+  path: string,
+  status: number,
+  responseBody: string
+): ServiceErrorClassification {
+  if (status === 401 || status === 403) {
+    return classifyServiceFailure(path, status);
+  }
+  if (path === '/monolith') {
+    const classified = classifyMonolithFailureFromBody(responseBody);
+    if (classified) return classified;
+  }
+  return classifyServiceFailure(path, status);
 }
 
 export class ServiceCallError extends Error {
@@ -120,7 +188,7 @@ async function serviceCall<T>(
       const text = await response.text();
       throw new ServiceCallError(
         `Service error ${response.status}: ${text}`,
-        classifyServiceFailure(path, response.status),
+        classifyServiceFailureWithBody(path, response.status, text),
         path,
         response.status,
         text
@@ -152,7 +220,7 @@ export function callRenderer(
 
 /**
  * Call the hyperrenderer service to render a URL.
- * Used as fallback when primary renderer fails due to Browser Rendering 403.
+ * Used as fallback when primary renderer fails due to Browser Rendering access/network issues.
  */
 export function callHyperrenderer(
   env: Env,
@@ -167,11 +235,9 @@ export function callHyperrenderer(
   );
 }
 
-function looksLikeRenderer403Payload(payload: unknown): boolean {
+function looksLikeRendererContentFailurePayload(payload: unknown): boolean {
   if (!payload || typeof payload !== 'object') return false;
   const record = payload as Record<string, unknown>;
-
-  if (record.status !== 403) return false;
 
   const error = record.error;
   if (typeof error !== 'string') return false;
@@ -179,32 +245,78 @@ function looksLikeRenderer403Payload(payload: unknown): boolean {
   return error.includes('Browser Rendering /content failed');
 }
 
+function containsRendererNetworkClosed5006(details: unknown): boolean {
+  if (typeof details !== 'string') return false;
+  const lower = details.toLowerCase();
+  if (
+    lower.includes('5006') ||
+    lower.includes('network closed') ||
+    lower.includes('connection closed') ||
+    lower.includes('browser has disconnected') ||
+    lower.includes('target closed')
+  ) {
+    return true;
+  }
+
+  const parsed = parseJsonSafe(details);
+  if (!parsed || typeof parsed !== 'object') return false;
+  const record = parsed as Record<string, unknown>;
+  const errors = record.errors;
+  if (!Array.isArray(errors)) return false;
+  return errors.some((entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    const code = (entry as Record<string, unknown>).code;
+    return code === 5006 || code === '5006';
+  });
+}
+
+export type RendererFallbackReason = 'browser_rendering_403' | 'browser_rendering_5006';
+
 /**
- * True when primary renderer wrapped a Browser Rendering 403 response.
- * Current renderer returns status 502 with JSON payload containing status=403.
+ * Returns fallback reason when primary renderer wrapped a Browser Rendering failure
+ * that should be retried with hyperrenderer.
  */
-export function isBrowserRendering403ForRender(error: unknown): boolean {
-  if (!(error instanceof ServiceCallError)) return false;
-  if (error.path !== '/render') return false;
-  if (!error.responseBody) return false;
+export function getRendererFallbackReason(error: unknown): RendererFallbackReason | undefined {
+  if (!(error instanceof ServiceCallError)) return undefined;
+  if (error.path !== '/render') return undefined;
+  if (!error.responseBody) return undefined;
 
   try {
     const parsed = JSON.parse(error.responseBody) as unknown;
-    return looksLikeRenderer403Payload(parsed);
+    if (!parsed || typeof parsed !== 'object') return undefined;
+    const record = parsed as Record<string, unknown>;
+    if (!looksLikeRendererContentFailurePayload(record)) return undefined;
+
+    const status =
+      typeof record.status === 'number'
+        ? record.status
+        : Number(record.status);
+    if (status === 403) return 'browser_rendering_403';
+    if (status === 500 && containsRendererNetworkClosed5006(record.details)) {
+      return 'browser_rendering_5006';
+    }
+    return undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+/**
+ * Backward-compatible helper retained for existing call sites/tests.
+ */
+export function isBrowserRendering403ForRender(error: unknown): boolean {
+  return getRendererFallbackReason(error) === 'browser_rendering_403';
 }
 
 export interface RendererCallOutcome {
   result: RendererResponse;
   fallbackUsed: boolean;
-  fallbackReason?: 'browser_rendering_403';
+  fallbackReason?: RendererFallbackReason;
 }
 
 /**
  * Call primary renderer and transparently fall back to hyperrenderer
- * when Browser Rendering returns a wrapped 403 failure.
+ * when Browser Rendering returns wrapped access/network failures.
  */
 export async function callRendererWith403Fallback(
   env: Env,
@@ -214,7 +326,8 @@ export async function callRendererWith403Fallback(
     const result = await callRenderer(env, params);
     return { result, fallbackUsed: false };
   } catch (error) {
-    if (!isBrowserRendering403ForRender(error)) {
+    const fallbackReason = getRendererFallbackReason(error);
+    if (!fallbackReason) {
       throw error;
     }
 
@@ -224,12 +337,12 @@ export async function callRendererWith403Fallback(
       return {
         result,
         fallbackUsed: true,
-        fallbackReason: 'browser_rendering_403',
+        fallbackReason,
       };
     } catch (fallbackError) {
       if (fallbackError instanceof ServiceCallError) {
         throw new ServiceCallError(
-          `Renderer failed with Browser Rendering 403 and fallback failed. primary=${primaryMessage}; fallback=${fallbackError.message}`,
+          `Renderer failed with Browser Rendering fallback-eligible error and fallback failed. primary=${primaryMessage}; fallback=${fallbackError.message}`,
           fallbackError.classification,
           fallbackError.path,
           fallbackError.status,

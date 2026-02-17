@@ -17,5 +17,6 @@ export interface MonolithSuccessResponse {
   meta?: {
     method: 'sandbox' | 'http_fallback';
     processingMs?: number;
+    sandboxId?: string;
   };
 }

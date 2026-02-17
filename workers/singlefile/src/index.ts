@@ -75,6 +75,85 @@ const SCROLL_SCRIPT = `
 `;
 
 /**
+ * Guard against page environments that break selector evaluation or rely on Trusted Types globals.
+ * This runs before page scripts and before SingleFile injection.
+ */
+const HARDENING_SCRIPT = `
+(function() {
+  try {
+    const g = globalThis;
+
+    if (typeof g.trustedTypes === 'undefined') {
+      const policyNames = [];
+      g.trustedTypes = {
+        createPolicy(name, rules) {
+          if (!policyNames.includes(name)) {
+            policyNames.push(name);
+          }
+          return {
+            name,
+            createHTML: (input) => (rules && typeof rules.createHTML === 'function' ? rules.createHTML(input) : input),
+            createScript: (input) => (rules && typeof rules.createScript === 'function' ? rules.createScript(input) : input),
+            createScriptURL: (input) => (rules && typeof rules.createScriptURL === 'function' ? rules.createScriptURL(input) : input),
+          };
+        },
+        getPolicyNames() {
+          return policyNames.slice();
+        },
+        emptyHTML: '',
+        emptyScript: '',
+      };
+    }
+
+    if (typeof g.TrustedHTML === 'undefined') g.TrustedHTML = String;
+    if (typeof g.TrustedScript === 'undefined') g.TrustedScript = String;
+    if (typeof g.TrustedScriptURL === 'undefined') g.TrustedScriptURL = String;
+
+    const emptyNodeList = () => document.createDocumentFragment().querySelectorAll('*');
+
+    const wrapQuerySelector = (proto, methodName, fallbackValue) => {
+      if (!proto || typeof proto[methodName] !== 'function') return;
+      const original = proto[methodName];
+      proto[methodName] = function(selector) {
+        try {
+          return original.call(this, selector);
+        } catch (err) {
+          const message = err && typeof err === 'object' && 'message' in err ? String(err.message) : '';
+          if (
+            err instanceof DOMException ||
+            message.includes('not a valid selector') ||
+            message.includes('Failed to execute')
+          ) {
+            return fallbackValue();
+          }
+          throw err;
+        }
+      };
+    };
+
+    wrapQuerySelector(Document.prototype, 'querySelector', () => null);
+    wrapQuerySelector(Document.prototype, 'querySelectorAll', () => emptyNodeList());
+    wrapQuerySelector(Element.prototype, 'querySelector', () => null);
+    wrapQuerySelector(Element.prototype, 'querySelectorAll', () => emptyNodeList());
+  } catch (err) {
+    // Do not block capture if hardening script itself fails.
+    console.warn('[singlefile] hardening script failed', err);
+  }
+})();
+`;
+
+function isSinglefileEdgeCaseError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes('trustedtypes') ||
+    lower.includes('trustedhtml') ||
+    lower.includes('failed to execute') ||
+    lower.includes('not a valid selector')
+  );
+}
+
+/**
  * Build SingleFile native options from our options interface.
  */
 function buildNativeOptions(options: SinglefileOptions): SinglefileNativeOptions {
@@ -178,7 +257,8 @@ export default {
         console.log('[singlefile] Page created');
 
         // Step 1: Navigate
-        console.log('[singlefile] Injecting SingleFile hook script...');
+        console.log('[singlefile] Injecting hardening + SingleFile hook scripts...');
+        await page.evaluateOnNewDocument(HARDENING_SCRIPT);
         await page.evaluateOnNewDocument(SINGLEFILE_HOOK);
 
         console.log('[singlefile] Navigating to:', targetUrl);
@@ -190,11 +270,21 @@ export default {
 
         // Step 2: Cleanup + scroll
         console.log('[singlefile] Running cleanup script...');
-        await page.evaluate(cleanupScript);
+        try {
+          await page.evaluate(cleanupScript);
+        } catch (cleanupErr) {
+          // Cleanup should not fail the archive capture.
+          console.warn('[singlefile] Cleanup script failed, continuing:', cleanupErr);
+        }
 
         if (scrollToBottom) {
           console.log('[singlefile] Scrolling page to trigger lazy loading...');
-          await page.evaluate(SCROLL_SCRIPT);
+          try {
+            await page.evaluate(SCROLL_SCRIPT);
+          } catch (scrollErr) {
+            // Scrolling failures should not hard-fail capture.
+            console.warn('[singlefile] Scroll script failed, continuing:', scrollErr);
+          }
         }
 
         // Step 3: Inject SingleFile
@@ -220,17 +310,33 @@ export default {
         console.log('[singlefile] Capturing page with SingleFile...');
         const captureTimeoutMs = 45000;
 
-        const result = await Promise.race([
-          page.evaluate(async (opts: SinglefileNativeOptions) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const runtime = globalThis as unknown as { singlefile: { getPageData: (options: SinglefileNativeOptions) => Promise<unknown> } };
-            const sf = runtime.singlefile;
-            return await sf.getPageData(opts);
-          }, nativeOptions),
-          new Promise<null>((_, reject) =>
-            setTimeout(() => reject(new Error('SingleFile capture timeout')), captureTimeoutMs)
-          )
-        ]);
+        let result: unknown;
+        try {
+          result = await Promise.race([
+            page.evaluate(async (opts: SinglefileNativeOptions) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const runtime = globalThis as unknown as { singlefile: { getPageData: (options: SinglefileNativeOptions) => Promise<unknown> } };
+              const sf = runtime.singlefile;
+              return await sf.getPageData(opts);
+            }, nativeOptions),
+            new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('SingleFile capture timeout')), captureTimeoutMs)
+            )
+          ]);
+        } catch (captureErr) {
+          if (isSinglefileEdgeCaseError(captureErr)) {
+            const details = captureErr instanceof Error ? captureErr.message : String(captureErr);
+            return Response.json(
+              {
+                error: 'SingleFile edge-case failure',
+                details,
+                recoverable: true
+              },
+              { status: 422 }
+            );
+          }
+          throw captureErr;
+        }
 
         if (!result || typeof result !== 'object' || !('content' in result)) {
           return Response.json(

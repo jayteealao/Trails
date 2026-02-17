@@ -13,6 +13,33 @@ const MONOLITH_FLAGS = [
   '-F' // remove frames/iframes
 ];
 
+function shortDeterministicHash(input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Sandbox IDs have stricter constraints than request IDs.
+ * Keep request_id unchanged for artifact keys/joins and normalize a separate sandbox id.
+ */
+function normalizeSandboxId(requestId: string): string {
+  const lower = requestId.trim().toLowerCase();
+  const sanitized = lower.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  const prefixed = /^[a-z]/.test(sanitized) ? sanitized : `s-${sanitized || 'request'}`;
+
+  // Keep room for deterministic hash suffix when truncating.
+  if (prefixed.length <= 63) return prefixed;
+
+  const suffix = shortDeterministicHash(requestId);
+  const maxBaseLength = 63 - suffix.length - 1;
+  const base = prefixed.slice(0, Math.max(1, maxBaseLength)).replace(/-+$/g, '');
+  return `${base}-${suffix}`;
+}
+
 /**
  * Validate and normalize base_url.
  */
@@ -42,10 +69,11 @@ async function runMonolithInSandbox(
   requestId: string,
   html: string,
   baseUrl: string
-): Promise<string> {
+): Promise<{ content: string; sandboxId: string }> {
   const normalizedBaseUrl = validateBaseUrl(baseUrl);
-  console.log('[monolith] Getting sandbox for request:', requestId);
-  const sandbox = getSandbox(env.Sandbox, requestId);
+  const sandboxId = normalizeSandboxId(requestId);
+  console.log('[monolith] Getting sandbox for request:', requestId, 'sandbox:', sandboxId);
+  const sandbox = getSandbox(env.Sandbox, sandboxId);
 
   // Write input HTML to workspace
   console.log('[monolith] Writing input HTML to sandbox...');
@@ -82,7 +110,7 @@ async function runMonolithInSandbox(
     throw new Error('Monolith produced empty output');
   }
 
-  return outputFile.content;
+  return { content: outputFile.content, sandboxId };
 }
 
 /**
@@ -170,10 +198,13 @@ export default {
 
       // Try sandbox execution first, fall back to HTTP service if configured
       let monolithHtml: string;
+      let sandboxId: string | undefined;
       let method: 'sandbox' | 'http_fallback' = 'sandbox';
       const processingStart = Date.now();
       try {
-        monolithHtml = await runMonolithInSandbox(env, request_id, html, base_url);
+        const sandboxResult = await runMonolithInSandbox(env, request_id, html, base_url);
+        monolithHtml = sandboxResult.content;
+        sandboxId = sandboxResult.sandboxId;
       } catch (sandboxError) {
         console.error('[monolith] Sandbox execution failed:', sandboxError);
 
@@ -203,7 +234,11 @@ export default {
       console.log('[monolith] Success!', { r2Key: artifact.r2Key, bytes: artifact.bytes });
       const response: MonolithSuccessResponse = {
         artifact,
-        meta: { method, processingMs }
+        meta: {
+          method,
+          processingMs,
+          ...(sandboxId ? { sandboxId } : {})
+        }
       };
       return Response.json(response);
     } catch (err) {
