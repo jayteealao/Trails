@@ -118,6 +118,8 @@ function classifyItem(doc: DocumentData | undefined): ItemStatus {
     if (hasAllCore) return 'complete';
   }
 
+  // Incomplete archives are terminal for the current run and should be retried in later batches.
+  if (status === 'incomplete') return 'failed';
   if (status === 'failed') return 'failed';
 
   // Stuck: processing too long without completion
@@ -196,6 +198,7 @@ async function markStuckAsFailed(
  * Find article IDs eligible for processing:
  * - No articles/{id} doc (never sent)
  * - Doc exists with status='failed' and retry_count < MAX_RETRIES
+ * - Doc exists with status='incomplete' and retry_count < MAX_RETRIES
  * - Doc exists with status='processing' but stuck (>30 min) and retry_count < MAX_RETRIES
  */
 async function findEligibleIds(
@@ -222,7 +225,10 @@ async function findEligibleIds(
       const status = data['status'] as string | undefined;
       const retryCount = (data['retry_count'] as number | undefined) ?? 0;
 
-      if (status === 'failed' && retryCount < MAX_RETRIES) {
+      if (
+        (status === 'failed' || status === 'incomplete') &&
+        retryCount < MAX_RETRIES
+      ) {
         eligible.set(snap.id, { isNew: false, retryCount });
       } else if (status === 'processing') {
         // Detect stuck items (processing > 30 min without completion)
