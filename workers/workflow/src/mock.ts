@@ -142,7 +142,15 @@ export async function runMockPipeline(
   // Log artifact writes
   await step.do('log-mock-artifacts', async () => {
     for (const meta of artifactMetas) {
-      await logArtifactWritten(env, requestId, meta.kind, meta.r2Key, meta.bytes);
+      await logArtifactWritten(
+        env,
+        requestId,
+        meta.kind,
+        meta.r2Key,
+        meta.bytes,
+        meta.contentType,
+        meta.sha256
+      );
     }
   });
 

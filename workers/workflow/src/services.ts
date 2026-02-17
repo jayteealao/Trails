@@ -286,7 +286,7 @@ export function callMonolith(
     '/monolith',
     params,
     env.INTERNAL_API_KEY,
-    120000 // 2 minute timeout
+    240000 // 4 minute timeout
   );
 }
 

@@ -285,6 +285,57 @@ describe('LoggerDO', () => {
       expect(view?.derived.stage).toBe('done');
       expect(view?.derived.terminal).toBe(true);
     });
+
+    it('materializes artifacts from artifact.written events when metadata is complete', async () => {
+      const requestId = `test-${Date.now()}-5e`;
+      const stub = getStub(requestId);
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'artifact.written',
+        level: 'info',
+        message: 'Artifact written: rendered.html',
+        data: {
+          kind: 'rendered.html',
+          r2Key: `archives/${requestId}/raw/rendered.html`,
+          bytes: 321,
+          contentType: 'text/html',
+          sha256: 'sha-rendered',
+        },
+      });
+
+      using view = await stub.getRequestView();
+      expect(view?.artifacts).toHaveLength(1);
+      expect(view?.artifacts[0]?.kind).toBe('rendered.html');
+      expect(view?.artifacts[0]?.bytes).toBe(321);
+      expect(view?.artifacts[0]?.sha256).toBe('sha-rendered');
+    });
+
+    it('ignores artifact.written events with incomplete metadata', async () => {
+      const requestId = `test-${Date.now()}-5f`;
+      const stub = getStub(requestId);
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      await stub.appendEvent({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'artifact.written',
+        level: 'info',
+        message: 'Artifact written: rendered.html',
+        data: {
+          kind: 'rendered.html',
+          r2Key: `archives/${requestId}/raw/rendered.html`,
+          bytes: 654,
+        },
+      });
+
+      using view = await stub.getRequestView();
+      expect(view?.artifacts).toHaveLength(0);
+    });
   });
 
   describe('upsertArtifact', () => {

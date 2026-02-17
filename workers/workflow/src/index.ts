@@ -55,6 +55,7 @@ import {
   saveCheckpoint,
   STEP_REQUIRED_ARTIFACTS,
 } from './checkpoint.js';
+import { canSoftFailMonolithFailure } from './monolith-policy.js';
 
 export { BrowserQuotaDO };
 
@@ -188,6 +189,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const shouldRun = (s: WorkflowStepType) => !requestedSteps || requestedSteps.includes(s);
 
     let lastPersistResult: WorkflowResult['gcsResult'];
+    const partialFailures: Array<{ step: CheckpointStep; error: string }> = [];
 
     // Step 5: Render (run/persist-only/skip)
     const renderRequiredKinds = this.requiredRenderArtifacts(normalizedOptions);
@@ -431,6 +433,24 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             : new Error(String(outcome.reason));
           markCheckpointStepFailed(checkpoint, task.stepName, reason.message);
           await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+          await logStepFailed(this.env, request_id, task.stepName, reason);
+
+          const readabilityArtifactsPresent =
+            Boolean(getArtifact(checkpoint, 'readability.json')) &&
+            Boolean(getArtifact(checkpoint, 'readability.md'));
+          const softFailMonolith = canSoftFailMonolithFailure({
+            failingStep: task.stepName,
+            renderArtifactPresent: Boolean(getArtifact(checkpoint, 'rendered.html')),
+            readabilityRequested: wantReadability,
+            readabilityStepStatus: checkpoint.steps.readability.status,
+            readabilityArtifactsPresent,
+          });
+
+          if (softFailMonolith) {
+            partialFailures.push({ step: task.stepName, error: reason.message });
+            continue;
+          }
+
           failures.push(reason);
         }
 
@@ -512,28 +532,42 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
 
     if (normalizedOptions.dryRun) {
       await step.do('log-done-dryrun', async () => {
+        const completionData = {
+          dryRun: true,
+          manifestKey,
+          ...(partialFailures.length > 0
+            ? { degraded: true, partialFailures }
+            : {}),
+        };
         await logEvent(
           this.env,
           request_id,
           'workflow.completed',
           'Workflow completed (dry run)',
-          { dryRun: true, manifestKey }
+          completionData
         );
-        await logRequestDone(this.env, request_id, { dryRun: true, manifestKey });
+        await logRequestDone(this.env, request_id, completionData);
       });
       return { status: 'done', dryRun: true, manifestKey };
     }
 
     // Step 10: Log completion + terminal request.done
     await step.do('log-completed', async () => {
+      const completionData = {
+        manifestKey,
+        resumed: resumeEnabled,
+        ...(partialFailures.length > 0
+          ? { degraded: true, partialFailures }
+          : {}),
+      };
       await logEvent(
         this.env,
         request_id,
         'workflow.completed',
         'Workflow completed',
-        { manifestKey, resumed: resumeEnabled }
+        completionData
       );
-      await logRequestDone(this.env, request_id, { manifestKey });
+      await logRequestDone(this.env, request_id, completionData);
     });
 
     return { status: 'done', manifestKey, gcsResult: lastPersistResult };
@@ -713,7 +747,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             requestId,
             artifact.kind,
             artifact.r2Key,
-            artifact.bytes
+            artifact.bytes,
+            artifact.contentType,
+            artifact.sha256
           );
         }
         await logStepCompletedWithDuration(this.env, requestId, 'render', renderStartedAt, {
@@ -817,7 +853,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           requestId,
           result.artifact.kind,
           result.artifact.r2Key,
-          result.artifact.bytes
+          result.artifact.bytes,
+          result.artifact.contentType,
+          result.artifact.sha256
         );
         await logStepCompletedWithDuration(this.env, requestId, 'singlefile', sfStartedAt);
       });
@@ -877,8 +915,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         step.do(
           'monolith',
           {
-            retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
-            timeout: '2 minutes'
+            retries: { limit: 1, delay: '10 seconds', backoff: 'linear' },
+            timeout: '4 minutes'
           },
           async () => {
             return await callMonolith(this.env, {
@@ -906,21 +944,27 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         requestId,
         readabilityResult.json.kind,
         readabilityResult.json.r2Key,
-        readabilityResult.json.bytes
+        readabilityResult.json.bytes,
+        readabilityResult.json.contentType,
+        readabilityResult.json.sha256
       );
       await logArtifactWritten(
         this.env,
         requestId,
         readabilityResult.md.kind,
         readabilityResult.md.r2Key,
-        readabilityResult.md.bytes
+        readabilityResult.md.bytes,
+        readabilityResult.md.contentType,
+        readabilityResult.md.sha256
       );
       await logArtifactWritten(
         this.env,
         requestId,
         monolithResult.artifact.kind,
         monolithResult.artifact.r2Key,
-        monolithResult.artifact.bytes
+        monolithResult.artifact.bytes,
+        monolithResult.artifact.contentType,
+        monolithResult.artifact.sha256
       );
       await logStepCompletedWithDuration(this.env, requestId, 'derivatives', derivStartedAt, {
         ...(readabilityResult.meta ? { readabilityMeta: readabilityResult.meta } : {}),
@@ -963,8 +1007,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     );
 
     await step.do('log-readability-artifacts', async () => {
-      await logArtifactWritten(this.env, requestId, readabilityResult.json.kind, readabilityResult.json.r2Key, readabilityResult.json.bytes);
-      await logArtifactWritten(this.env, requestId, readabilityResult.md.kind, readabilityResult.md.r2Key, readabilityResult.md.bytes);
+      await logArtifactWritten(this.env, requestId, readabilityResult.json.kind, readabilityResult.json.r2Key, readabilityResult.json.bytes, readabilityResult.json.contentType, readabilityResult.json.sha256);
+      await logArtifactWritten(this.env, requestId, readabilityResult.md.kind, readabilityResult.md.r2Key, readabilityResult.md.bytes, readabilityResult.md.contentType, readabilityResult.md.sha256);
       await logStepCompletedWithDuration(this.env, requestId, 'readability', startedAt, {
         ...(readabilityResult.meta ? { readabilityMeta: readabilityResult.meta } : {})
       });
@@ -995,8 +1039,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const monolithResult = await step.do(
       'monolith',
       {
-        retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
-        timeout: '2 minutes'
+        retries: { limit: 1, delay: '10 seconds', backoff: 'linear' },
+        timeout: '4 minutes'
       },
       async () => {
         return await callMonolith(this.env, {
@@ -1008,7 +1052,15 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     );
 
     await step.do('log-monolith-artifact', async () => {
-      await logArtifactWritten(this.env, requestId, monolithResult.artifact.kind, monolithResult.artifact.r2Key, monolithResult.artifact.bytes);
+      await logArtifactWritten(
+        this.env,
+        requestId,
+        monolithResult.artifact.kind,
+        monolithResult.artifact.r2Key,
+        monolithResult.artifact.bytes,
+        monolithResult.artifact.contentType,
+        monolithResult.artifact.sha256
+      );
       await logStepCompletedWithDuration(this.env, requestId, 'monolith', startedAt, {
         ...(monolithResult.meta ? { monolithMeta: monolithResult.meta } : {})
       });

@@ -82,6 +82,41 @@ function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
+function isArtifactKind(value: string): value is ArtifactRecord['kind'] {
+  return (
+    value === 'rendered.html' ||
+    value === 'rendered.md' ||
+    value === 'screenshot.png' ||
+    value === 'page.pdf' ||
+    value === 'singlefile.html' ||
+    value === 'readability.json' ||
+    value === 'readability.md' ||
+    value === 'monolith.html' ||
+    value === 'manifest.json'
+  );
+}
+
+function artifactFromEvent(event: LogEvent): ArtifactRecord | undefined {
+  if (event.type !== 'artifact.written' || !event.data) return undefined;
+
+  const kindRaw = asString(event.data['kind']);
+  const r2Key = asString(event.data['r2Key']);
+  const contentType = asString(event.data['contentType']);
+  const sha256 = asString(event.data['sha256']);
+  const bytes = asNumber(event.data['bytes']);
+
+  if (!kindRaw || !isArtifactKind(kindRaw)) return undefined;
+  if (!r2Key || !contentType || !sha256 || bytes === undefined) return undefined;
+
+  return {
+    kind: kindRaw,
+    r2Key,
+    contentType,
+    bytes,
+    sha256,
+  };
+}
+
 function updateDiagnostics(
   existing: RequestDiagnostics | undefined,
   event: LogEvent
@@ -236,6 +271,11 @@ export class LoggerDO extends DurableObject<Env> {
     // Get the inserted event ID
     const lastRow = this.sql.exec<{ id: number }>('SELECT last_insert_rowid() as id').one();
     const eventId = lastRow?.id ?? 0;
+
+    const artifact = artifactFromEvent(event);
+    if (artifact) {
+      this.upsertArtifact(artifact);
+    }
 
     // Update derived summary
     const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();

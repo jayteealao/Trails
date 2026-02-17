@@ -15,8 +15,44 @@ function fromErrorObject(error: string | Error): ClassifiedError | undefined {
   return value;
 }
 
-function classifyError(stepName: string, errorMsg: string): ClassifiedError {
+function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefined {
+  const mentionsMonolith =
+    errorMsgLower.includes('/monolith') ||
+    errorMsgLower.includes('monolith') ||
+    errorMsgLower.includes('sandboxerror');
+  if (!mentionsMonolith) return undefined;
+
+  if (
+    errorMsgLower.includes('timeout') ||
+    errorMsgLower.includes('timed out') ||
+    errorMsgLower.includes('abort')
+  ) {
+    return {
+      errorCode: 'MONOLITH_TIMEOUT',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
+
+  if (
+    errorMsgLower.includes('service error') ||
+    errorMsgLower.includes('sandboxerror') ||
+    errorMsgLower.includes('http error! status: 500')
+  ) {
+    return {
+      errorCode: 'MONOLITH_SERVICE_ERROR',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
+
+  return undefined;
+}
+
+export function classifyError(stepName: string, errorMsg: string): ClassifiedError {
   const msg = errorMsg.toLowerCase();
+  const monolithError = classifyMonolithError(msg);
+  if (monolithError) return monolithError;
 
   if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('abort')) {
     const timeoutByStep: Record<string, RequestErrorCode> = {
@@ -191,12 +227,16 @@ export function logArtifactWritten(
   requestId: string,
   kind: string,
   r2Key: string,
-  bytes: number
+  bytes: number,
+  contentType: string,
+  sha256: string
 ): Promise<void> {
   return logEvent(env, requestId, 'artifact.written', `Artifact written: ${kind}`, {
     kind,
     r2Key,
-    bytes
+    bytes,
+    contentType,
+    sha256
   });
 }
 
