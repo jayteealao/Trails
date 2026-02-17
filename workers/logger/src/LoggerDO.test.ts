@@ -3,16 +3,42 @@ import { describe, it, expect } from 'vitest';
 import type {
   InitRequestPayload,
   LogEvent,
-  ArtifactRecord
+  ArtifactRecord,
+  CanonicalRequestView,
+  DerivedSummary,
+  RequestFieldsPatch
 } from '@warg/shared';
-import { LoggerDO } from './LoggerDO.js';
+
+interface LoggerEventWithId {
+  id: number;
+  ts: string;
+  source: string;
+  type: string;
+  level: string;
+  message: string;
+  attempt?: number;
+  data?: Record<string, unknown>;
+}
+
+interface LoggerStub {
+  initRequest(payload: InitRequestPayload): Promise<{ created: boolean }>;
+  appendEvent(event: LogEvent): Promise<{ eventId: number }>;
+  upsertArtifact(artifact: ArtifactRecord): Promise<void> | void;
+  updateRequestFields(patch: RequestFieldsPatch): Promise<void>;
+  getRequestView(cursor?: number, limit?: number): Promise<CanonicalRequestView | null> | CanonicalRequestView | null;
+  getEventsForStream(
+    cursor?: number,
+    limit?: number
+  ): Promise<{ events: LoggerEventWithId[]; derived: DerivedSummary; artifacts: ArtifactRecord[] } | null> | { events: LoggerEventWithId[]; derived: DerivedSummary; artifacts: ArtifactRecord[] } | null;
+  getEvents(cursor?: number, limit?: number): Promise<{ events: LogEvent[]; nextCursor?: number }> | { events: LogEvent[]; nextCursor?: number };
+}
 
 /**
  * Helper to get a fresh DO stub for testing.
  */
-function getStub(requestId: string): DurableObjectStub<LoggerDO> {
+function getStub(requestId: string): LoggerStub {
   const id = env.LOGGER_DO.idFromName(requestId);
-  return env.LOGGER_DO.get(id);
+  return env.LOGGER_DO.get(id) as unknown as LoggerStub;
 }
 
 describe('LoggerDO', () => {
@@ -21,7 +47,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-1`;
       const stub = getStub(requestId);
 
-      using result = await stub.initRequest({
+      const result = await stub.initRequest({
         requestId,
         url: 'https://example.com/page',
         optionsR2Key: 'archives/test/input/options.json'
@@ -39,8 +65,8 @@ describe('LoggerDO', () => {
         url: 'https://example.com/page'
       };
 
-      using first = await stub.initRequest(payload);
-      using second = await stub.initRequest(payload);
+      const first = await stub.initRequest(payload);
+      const second = await stub.initRequest(payload);
 
       expect(first.created).toBe(true);
       expect(second.created).toBe(false);
@@ -62,7 +88,7 @@ describe('LoggerDO', () => {
         message: 'Request created'
       };
 
-      using result = await stub.appendEvent(event);
+      const result = await stub.appendEvent(event);
       expect(result.eventId).toBeGreaterThan(0);
     });
 
@@ -83,7 +109,7 @@ describe('LoggerDO', () => {
 
       await stub.appendEvent(errorEvent);
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.derived.errorCount).toBe(1);
     });
 
@@ -94,7 +120,7 @@ describe('LoggerDO', () => {
       await stub.initRequest({ requestId, url: 'https://example.com' });
 
       {
-        using view1 = await stub.getRequestView();
+        const view1 = await stub.getRequestView();
         expect(view1?.derived.stage).toBe('queued');
       }
 
@@ -109,7 +135,7 @@ describe('LoggerDO', () => {
       });
 
       {
-        using view2 = await stub.getRequestView();
+        const view2 = await stub.getRequestView();
         expect(view2?.derived.stage).toBe('rendering');
       }
 
@@ -124,7 +150,7 @@ describe('LoggerDO', () => {
       });
 
       {
-        using view2b = await stub.getRequestView();
+        const view2b = await stub.getRequestView();
         expect(view2b?.derived.stage).toBe('deriving');
       }
 
@@ -137,7 +163,7 @@ describe('LoggerDO', () => {
       });
 
       {
-        using view3 = await stub.getRequestView();
+        const view3 = await stub.getRequestView();
         expect(view3?.derived.stage).toBe('persisting');
       }
 
@@ -150,7 +176,7 @@ describe('LoggerDO', () => {
       });
 
       {
-        using view4 = await stub.getRequestView();
+        const view4 = await stub.getRequestView();
         expect(view4?.derived.stage).toBe('done');
         expect(view4?.derived.terminal).toBe(true);
       }
@@ -205,7 +231,7 @@ describe('LoggerDO', () => {
         },
       });
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.derived.diagnostics?.errorCode).toBe('RENDER_TIMEOUT');
       expect(view?.derived.diagnostics?.errorSource).toBe('renderer');
       expect(view?.derived.diagnostics?.retryable).toBe(true);
@@ -233,7 +259,7 @@ describe('LoggerDO', () => {
       });
 
       {
-        using view1 = await stub.getRequestView();
+        const view1 = await stub.getRequestView();
         expect(view1?.derived.stage).toBe('deriving');
         expect(view1?.derived.terminal).toBe(false);
       }
@@ -247,7 +273,7 @@ describe('LoggerDO', () => {
       });
 
       {
-        using view2 = await stub.getRequestView();
+        const view2 = await stub.getRequestView();
         expect(view2?.derived.stage).toBe('failed');
         expect(view2?.derived.terminal).toBe(true);
       }
@@ -261,7 +287,7 @@ describe('LoggerDO', () => {
       });
 
       {
-        using view3 = await stub.getRequestView();
+        const view3 = await stub.getRequestView();
         expect(view3?.derived.stage).toBe('queued');
         expect(view3?.derived.terminal).toBe(false);
       }
@@ -281,7 +307,7 @@ describe('LoggerDO', () => {
         message: 'Workflow completed'
       });
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.derived.stage).toBe('done');
       expect(view?.derived.terminal).toBe(true);
     });
@@ -307,7 +333,7 @@ describe('LoggerDO', () => {
         },
       });
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.artifacts).toHaveLength(1);
       expect(view?.artifacts[0]?.kind).toBe('rendered.html');
       expect(view?.artifacts[0]?.bytes).toBe(321);
@@ -333,7 +359,7 @@ describe('LoggerDO', () => {
         },
       });
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.artifacts).toHaveLength(0);
     });
   });
@@ -355,7 +381,7 @@ describe('LoggerDO', () => {
 
       await stub.upsertArtifact(artifact);
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.artifacts).toHaveLength(1);
       expect(view?.artifacts[0]?.kind).toBe('rendered.html');
       expect(view?.artifacts[0]?.bytes).toBe(12345);
@@ -386,7 +412,7 @@ describe('LoggerDO', () => {
       await stub.upsertArtifact(artifact1);
       await stub.upsertArtifact(artifact2);
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.artifacts).toHaveLength(1);
       expect(view?.artifacts[0]?.bytes).toBe(200);
       expect(view?.artifacts[0]?.sha256).toBe('second');
@@ -404,7 +430,7 @@ describe('LoggerDO', () => {
         manifestR2Key: `archives/${requestId}/manifest.json`
       });
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.manifestR2Key).toBe(`archives/${requestId}/manifest.json`);
     });
 
@@ -418,7 +444,7 @@ describe('LoggerDO', () => {
         externalJson: { firestoreDocId: 'doc123', gcsPath: 'gs://bucket/path' }
       });
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view?.externalJson).toEqual({
         firestoreDocId: 'doc123',
         gcsPath: 'gs://bucket/path'
@@ -431,7 +457,7 @@ describe('LoggerDO', () => {
       const requestId = `test-nonexistent-${Date.now()}`;
       const stub = getStub(requestId);
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
       expect(view).toBeNull();
     });
 
@@ -461,7 +487,7 @@ describe('LoggerDO', () => {
         sha256: 'screenshotsha'
       });
 
-      using view = await stub.getRequestView();
+      const view = await stub.getRequestView();
 
       expect(view).not.toBeNull();
       expect(view?.requestId).toBe(requestId);
@@ -494,7 +520,7 @@ describe('LoggerDO', () => {
 
       // Get first page (limit 2)
       {
-        using page1 = await stub.getRequestView(undefined, 2);
+        const page1 = await stub.getRequestView(undefined, 2);
         expect(page1?.events).toHaveLength(2);
         expect(page1?.nextCursor).toBeDefined();
         nextCursor = page1?.nextCursor;
@@ -502,7 +528,7 @@ describe('LoggerDO', () => {
 
       // Get second page
       {
-        using page2 = await stub.getRequestView(nextCursor, 2);
+        const page2 = await stub.getRequestView(nextCursor, 2);
         expect(page2?.events).toHaveLength(2);
         expect(page2?.nextCursor).toBeDefined();
         nextCursor = page2?.nextCursor;
@@ -510,7 +536,7 @@ describe('LoggerDO', () => {
 
       // Get third page (only 1 remaining)
       {
-        using page3 = await stub.getRequestView(nextCursor, 2);
+        const page3 = await stub.getRequestView(nextCursor, 2);
         expect(page3?.events).toHaveLength(1);
         expect(page3?.nextCursor).toBeUndefined();
       }
@@ -537,14 +563,14 @@ describe('LoggerDO', () => {
       let nextCursor: number | undefined;
 
       {
-        using result = await stub.getEvents(undefined, 2);
+        const result = await stub.getEvents(undefined, 2);
         expect(result.events).toHaveLength(2);
         expect(result.nextCursor).toBeDefined();
         nextCursor = result.nextCursor;
       }
 
       {
-        using result2 = await stub.getEvents(nextCursor, 2);
+        const result2 = await stub.getEvents(nextCursor, 2);
         expect(result2.events).toHaveLength(1);
         expect(result2.nextCursor).toBeUndefined();
       }

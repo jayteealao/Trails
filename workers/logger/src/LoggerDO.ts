@@ -12,7 +12,11 @@ import type {
 } from '@warg/shared';
 import { initSchema } from './schema.js';
 
-interface RequestRow {
+interface LoggerDoEnv {
+  INDEX_DB: D1Database;
+}
+
+interface RequestRow extends Record<string, SqlStorageValue> {
   request_id: string;
   url: string;
   created_at: string;
@@ -22,7 +26,7 @@ interface RequestRow {
   derived_json: string;
 }
 
-interface EventRow {
+interface EventRow extends Record<string, SqlStorageValue> {
   id: number;
   ts: string;
   source: string;
@@ -33,7 +37,7 @@ interface EventRow {
   data_json: string | null;
 }
 
-interface ArtifactRow {
+interface ArtifactRow extends Record<string, SqlStorageValue> {
   kind: string;
   r2_key: string;
   content_type: string;
@@ -176,11 +180,11 @@ function extractDomain(url: string): string {
   }
 }
 
-export class LoggerDO extends DurableObject<Env> {
+export class LoggerDO extends DurableObject<LoggerDoEnv> {
   private sql: SqlStorage;
   private initialized = false;
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: LoggerDoEnv) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
   }

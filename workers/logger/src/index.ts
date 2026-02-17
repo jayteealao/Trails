@@ -1,9 +1,12 @@
 import type {
+  CanonicalRequestView,
+  DerivedSummary,
   InitRequestPayload,
   LogEvent,
   ArtifactRecord,
   RequestFieldsPatch,
-  RequestDiagnostics
+  RequestDiagnostics,
+  RequestErrorCode
 } from '@warg/shared';
 import { timingSafeEqual } from '@warg/shared';
 import { LoggerDO } from './LoggerDO.js';
@@ -31,9 +34,62 @@ interface RequestsIndexRow {
   last_trace_id: string | null;
 }
 
+interface LoggerServiceEnv {
+  INTERNAL_API_KEY: string;
+  LOGGER_DO: DurableObjectNamespace<LoggerDO>;
+  INDEX_DB: D1Database;
+}
+
+interface LoggerEventWithId {
+  id: number;
+  ts: string;
+  source: string;
+  type: string;
+  level: string;
+  message: string;
+  attempt?: number;
+  data?: Record<string, unknown>;
+}
+
+interface LoggerStub {
+  initRequest(payload: InitRequestPayload): Promise<{ created: boolean }>;
+  appendEvent(event: LogEvent): Promise<{ eventId: number }>;
+  upsertArtifact(artifact: ArtifactRecord): Promise<void> | void;
+  updateRequestFields(patch: RequestFieldsPatch): Promise<void>;
+  getRequestView(cursor?: number, limit?: number): Promise<CanonicalRequestView | null> | CanonicalRequestView | null;
+  getEventsForStream(
+    cursor?: number,
+    limit?: number
+  ): Promise<{ events: LoggerEventWithId[]; derived: DerivedSummary; artifacts: ArtifactRecord[] } | null> | { events: LoggerEventWithId[]; derived: DerivedSummary; artifacts: ArtifactRecord[] } | null;
+  getEvents(cursor?: number, limit?: number): Promise<{ events: LogEvent[]; nextCursor?: number }> | { events: LogEvent[]; nextCursor?: number };
+}
+
+const VALID_ERROR_CODES = new Set<RequestErrorCode>([
+  'INVALID_INPUT_URL',
+  'WORKFLOW_TRIGGER_FAILED',
+  'RENDER_TIMEOUT',
+  'RENDER_SERVICE_ERROR',
+  'SINGLEFILE_TIMEOUT',
+  'SINGLEFILE_SERVICE_ERROR',
+  'READABILITY_TIMEOUT',
+  'READABILITY_SERVICE_ERROR',
+  'MONOLITH_TIMEOUT',
+  'MONOLITH_SERVICE_ERROR',
+  'PERSIST_SERVICE_ERROR',
+  'ACCESS_BLOCKED',
+  'UNKNOWN_ERROR',
+]);
+
+function toRequestErrorCode(value: string | null): RequestErrorCode | undefined {
+  if (!value) return undefined;
+  return VALID_ERROR_CODES.has(value as RequestErrorCode)
+    ? (value as RequestErrorCode)
+    : undefined;
+}
+
 function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
   return {
-    errorCode: row.last_error_code ?? undefined,
+    errorCode: toRequestErrorCode(row.last_error_code),
     errorMessage: row.last_error_message ?? undefined,
     errorSource: row.last_error_source ?? undefined,
     retryCount: row.retry_count ?? 0,
@@ -47,7 +103,7 @@ function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
 /**
  * Verify internal API key.
  */
-function verifyApiKey(request: Request, env: Env): boolean {
+function verifyApiKey(request: Request, env: LoggerServiceEnv): boolean {
   const apiKey = request.headers.get('X-Internal-API-Key');
   if (!apiKey) return false;
   return timingSafeEqual(apiKey, env.INTERNAL_API_KEY);
@@ -56,9 +112,9 @@ function verifyApiKey(request: Request, env: Env): boolean {
 /**
  * Get DO stub for a request ID.
  */
-function getLoggerStub(env: Env, requestId: string): DurableObjectStub<LoggerDO> {
+function getLoggerStub(env: LoggerServiceEnv, requestId: string): LoggerStub {
   const id = env.LOGGER_DO.idFromName(requestId);
-  return env.LOGGER_DO.get(id);
+  return env.LOGGER_DO.get(id) as unknown as LoggerStub;
 }
 
 /**
@@ -98,7 +154,7 @@ function parseRoute(
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: LoggerServiceEnv): Promise<Response> {
     // Verify API key for all routes
     if (!verifyApiKey(request, env)) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
