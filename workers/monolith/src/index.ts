@@ -13,6 +13,20 @@ const MONOLITH_FLAGS = [
   '-F' // remove frames/iframes
 ];
 
+class MonolithServiceError extends Error {
+  readonly code: string;
+  readonly status: number;
+  readonly retryable: boolean;
+
+  constructor(message: string, code: string, status: number, retryable: boolean) {
+    super(message);
+    this.name = 'MonolithServiceError';
+    this.code = code;
+    this.status = status;
+    this.retryable = retryable;
+  }
+}
+
 function shortDeterministicHash(input: string): string {
   let hash = 2166136261;
   for (let i = 0; i < input.length; i++) {
@@ -40,16 +54,69 @@ function normalizeSandboxId(requestId: string): string {
   return `${base}-${suffix}`;
 }
 
+function classifySandboxFailure(stderr: string, stdout: string): MonolithServiceError {
+  const message = `${stderr}\n${stdout}`.toLowerCase();
+
+  if (
+    message.includes('message length too big') ||
+    message.includes('max allowed message length') ||
+    message.includes('33554432') ||
+    message.includes('32mib')
+  ) {
+    return new MonolithServiceError(
+      'Monolith sandbox payload exceeded RPC size limit',
+      'MONOLITH_RPC_32MIB_LIMIT',
+      500,
+      false
+    );
+  }
+
+  if (
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('deadline exceeded')
+  ) {
+    return new MonolithServiceError(
+      'Sandbox timed out while processing monolith output',
+      'MONOLITH_TIMEOUT',
+      500,
+      true
+    );
+  }
+
+  return new MonolithServiceError(
+    `Sandbox execution failed: ${stderr || stdout || 'unknown sandbox error'}`,
+    'MONOLITH_SANDBOX_500',
+    500,
+    true
+  );
+}
+
+function isRetryableSandboxError(error: unknown): boolean {
+  if (!(error instanceof MonolithServiceError)) return true;
+  return error.retryable;
+}
+
 /**
  * Validate and normalize base_url.
  */
 function validateBaseUrl(url: string): string {
-  const parsed = new URL(url); // throws if invalid
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new MonolithServiceError('Invalid base_url', 'INVALID_INPUT_URL', 400, false);
+  }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error('base_url must be http or https');
+    throw new MonolithServiceError('base_url must be http or https', 'INVALID_INPUT_URL', 400, false);
   }
   if (/[\u0000-\u001F\u007F]/.test(url)) {
-    throw new Error('base_url contains control characters');
+    throw new MonolithServiceError(
+      'base_url contains invalid characters',
+      'INVALID_INPUT_URL',
+      400,
+      false
+    );
   }
   return parsed.toString();
 }
@@ -77,7 +144,17 @@ async function runMonolithInSandbox(
 
   // Write input HTML to workspace
   console.log('[monolith] Writing input HTML to sandbox...');
-  await sandbox.writeFile('/workspace/in.html', html);
+  try {
+    await sandbox.writeFile('/workspace/in.html', html);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new MonolithServiceError(
+      `Sandbox write failed: ${message}`,
+      'MONOLITH_SANDBOX_500',
+      500,
+      true
+    );
+  }
 
   // Build monolith command
   // monolith -b <base_url> [flags] /workspace/in.html -o /workspace/out.html
@@ -92,7 +169,18 @@ async function runMonolithInSandbox(
   const command = `monolith ${args.map(shellQuote).join(' ')}`;
 
   console.log('[monolith] Executing:', command);
-  const result = await sandbox.exec(command);
+  let result: Awaited<ReturnType<typeof sandbox.exec>>;
+  try {
+    result = await sandbox.exec(command);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new MonolithServiceError(
+      `Sandbox exec failed: ${message}`,
+      'MONOLITH_SANDBOX_500',
+      500,
+      true
+    );
+  }
 
   if (!result.success) {
     console.error('[monolith] Execution failed:', {
@@ -100,14 +188,30 @@ async function runMonolithInSandbox(
       stderr: result.stderr,
       stdout: result.stdout
     });
-    throw new Error(`Monolith failed (exit ${result.exitCode}): ${result.stderr}`);
+    throw classifySandboxFailure(result.stderr, result.stdout);
   }
 
   console.log('[monolith] Execution complete, reading output...');
-  const outputFile = await sandbox.readFile('/workspace/out.html');
+  let outputFile: Awaited<ReturnType<typeof sandbox.readFile>>;
+  try {
+    outputFile = await sandbox.readFile('/workspace/out.html');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new MonolithServiceError(
+      `Sandbox read failed: ${message}`,
+      'MONOLITH_SANDBOX_500',
+      500,
+      true
+    );
+  }
 
   if (!outputFile.content) {
-    throw new Error('Monolith produced empty output');
+    throw new MonolithServiceError(
+      'Monolith produced empty output',
+      'MONOLITH_EMPTY_OUTPUT',
+      500,
+      false
+    );
   }
 
   return { content: outputFile.content, sandboxId };
@@ -208,7 +312,7 @@ export default {
       } catch (sandboxError) {
         console.error('[monolith] Sandbox execution failed:', sandboxError);
 
-        if (env.MONOLITH_SERVICE_URL) {
+        if (env.MONOLITH_SERVICE_URL && isRetryableSandboxError(sandboxError)) {
           console.log('[monolith] Trying HTTP fallback...');
           method = 'http_fallback';
           monolithHtml = await runMonolithViaHttp(env.MONOLITH_SERVICE_URL, html, base_url, env.INTERNAL_API_KEY);
@@ -243,8 +347,23 @@ export default {
       return Response.json(response);
     } catch (err) {
       console.error('[monolith] Unhandled error:', err);
+      if (err instanceof MonolithServiceError) {
+        return Response.json(
+          {
+            error: err.status >= 500 ? 'Internal error' : 'Invalid input',
+            message: err.message,
+            code: err.code,
+            retryable: err.retryable,
+          },
+          { status: err.status }
+        );
+      }
+
       const errMsg = err instanceof Error ? err.message : String(err);
-      return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
+      return Response.json(
+        { error: 'Internal error', message: errMsg, code: 'MONOLITH_UNHANDLED' },
+        { status: 500 }
+      );
     }
   }
 };

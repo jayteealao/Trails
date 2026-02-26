@@ -108,7 +108,7 @@ describe('renderer 403 fallback', () => {
       .mockResolvedValueOnce(
         makeJsonResponse(502, {
           error: 'Browser Rendering /content failed',
-          status: 500,
+          status: 422,
           details: JSON.stringify({
             success: false,
             errors: [{ code: 5006, message: 'browser disconnected' }],
@@ -134,6 +134,38 @@ describe('renderer 403 fallback', () => {
     expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('falls back to hyperrenderer on Browser Rendering execution-context-destroyed failures', async () => {
+    const rendererFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeJsonResponse(502, {
+          error: 'Browser Rendering /content failed',
+          status: 500,
+          details: JSON.stringify({
+            success: false,
+            errors: [{ code: 6000, message: 'execution context was destroyed' }],
+          }),
+        }),
+      );
+
+    const hyperrendererFetch = vi
+      .fn()
+      .mockResolvedValueOnce(makeJsonResponse(200, makeRendererSuccess('rendered-hyper-fallback-6000.html')));
+
+    const env = makeEnv(rendererFetch, hyperrendererFetch);
+
+    const outcome = await callRendererWith403Fallback(env, {
+      request_id: 'req-2c',
+      url: 'https://example.com/fallback-6000',
+      browser_quota_kind: 'rest_request',
+    });
+
+    expect(outcome.fallbackUsed).toBe(true);
+    expect(outcome.fallbackReason).toBe('browser_rendering_6000');
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('does not fall back for non-qualifying renderer failures', async () => {
     const rendererFetch = vi
       .fn()
@@ -149,6 +181,28 @@ describe('renderer 403 fallback', () => {
         browser_quota_kind: 'rest_request',
       }),
     ).rejects.toBeInstanceOf(ServiceCallError);
+
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(0);
+  });
+
+  it('throws service error when renderer returns malformed success payload', async () => {
+    const rendererFetch = vi.fn(async () =>
+      makeJsonResponse(200, { uses_browser_rendering: true, quota_kind_used: 'rest_request' })
+    );
+    const hyperrendererFetch = vi.fn();
+
+    const env = makeEnv(rendererFetch, hyperrendererFetch);
+
+    await expect(
+      callRendererWith403Fallback(env, {
+        request_id: 'req-malformed',
+        url: 'https://example.com/malformed',
+        browser_quota_kind: 'rest_request',
+      }),
+    ).rejects.toMatchObject({
+      classification: { errorCode: 'RENDER_SERVICE_ERROR' },
+    });
 
     expect(rendererFetch).toHaveBeenCalledTimes(1);
     expect(hyperrendererFetch).toHaveBeenCalledTimes(0);
@@ -267,6 +321,28 @@ describe('getRendererFallbackReason', () => {
 
     expect(getRendererFallbackReason(err)).toBe('browser_rendering_5006');
   });
+
+  it('returns browser_rendering_6000 for wrapped context-destroyed failures', () => {
+    const classification: ServiceErrorClassification = {
+      errorCode: 'RENDER_SERVICE_ERROR',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+
+    const err = new ServiceCallError(
+      'Service error 502: { ... }',
+      classification,
+      '/render',
+      502,
+      JSON.stringify({
+        error: 'Browser Rendering /content failed',
+        status: 500,
+        details: '{"errors":[{"code":6000,"message":"execution context was destroyed"}]}',
+      })
+    );
+
+    expect(getRendererFallbackReason(err)).toBe('browser_rendering_6000');
+  });
 });
 
 describe('monolith service classification', () => {
@@ -294,7 +370,7 @@ describe('monolith service classification', () => {
     });
   });
 
-  it('classifies sandbox HTTP 500 payloads as MONOLITH_SERVICE_ERROR', async () => {
+  it('classifies sandbox HTTP 500 payloads as MONOLITH_SANDBOX_500', async () => {
     const monolithFetch = vi.fn(async () =>
       makeJsonResponse(500, {
         error: 'Internal error',
@@ -314,7 +390,32 @@ describe('monolith service classification', () => {
         base_url: 'https://example.com',
       }),
     ).rejects.toMatchObject({
-      classification: { errorCode: 'MONOLITH_SERVICE_ERROR', retryable: true },
+      classification: { errorCode: 'MONOLITH_SANDBOX_500', retryable: true },
+    });
+  });
+
+  it('classifies RPC payload-size failures as MONOLITH_RPC_32MIB_LIMIT', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(500, {
+        error: 'Internal error',
+        message:
+          'Message length too big: found 33640795 bytes, the max allowed message length is 33554432 bytes',
+      }),
+    );
+
+    const env = {
+      INTERNAL_API_KEY: 'test-internal-key',
+      MONOLITH: { fetch: monolithFetch },
+    } as unknown as Env;
+
+    await expect(
+      callMonolith(env, {
+        request_id: 'req-m3',
+        rendered_html_key: 'archives/req/raw/rendered.html',
+        base_url: 'https://example.com',
+      }),
+    ).rejects.toMatchObject({
+      classification: { errorCode: 'MONOLITH_RPC_32MIB_LIMIT', retryable: false },
     });
   });
 });

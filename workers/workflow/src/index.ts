@@ -25,7 +25,8 @@ import {
   callSinglefile,
   callReadability,
   callMonolith,
-  callGcs
+  callGcs,
+  ServiceCallError
 } from './services.js';
 import {
   logEvent,
@@ -123,6 +124,8 @@ class WorkflowTerminalError extends Error {
  * Coordinates rendering, derivative extraction, manifest creation, and GCS persistence.
  */
 export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
+  private static readonly MONOLITH_MAX_RENDERED_HTML_BYTES = 30 * 1024 * 1024;
+
   override async run(
     event: WorkflowEvent<WorkflowParams>,
     step: WorkflowStep
@@ -477,16 +480,28 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       }
 
       if (monolithMode === 'run') {
-        markCheckpointStepStarted(checkpoint, 'monolith', { resumed: resumeEnabled });
-        runTasks.push({
-          stepName: 'monolith',
-          promise: this.runMonolithOnly(
-            step,
-            request_id,
-            renderResult.renderedHtmlKey,
-            url
-          ).then((result) => (result.monolith ? [result.monolith] : [])),
-        });
+        const renderedArtifact = getArtifact(checkpoint, 'rendered.html');
+        const sizeGateError = this.monolithSizeGateError(renderedArtifact?.bytes);
+        if (sizeGateError) {
+          markCheckpointStepFailed(checkpoint, 'monolith', sizeGateError.message);
+          await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+          await logStepFailed(this.env, request_id, 'monolith', sizeGateError, {
+            renderedHtmlBytes: renderedArtifact?.bytes,
+            maxAllowedBytes: ArchiveWorkflow.MONOLITH_MAX_RENDERED_HTML_BYTES,
+          });
+          recordPartialFailure('monolith', sizeGateError.message);
+        } else {
+          markCheckpointStepStarted(checkpoint, 'monolith', { resumed: resumeEnabled });
+          runTasks.push({
+            stepName: 'monolith',
+            promise: this.runMonolithOnly(
+              step,
+              request_id,
+              renderResult.renderedHtmlKey,
+              url
+            ).then((result) => (result.monolith ? [result.monolith] : [])),
+          });
+        }
       }
 
       if (runTasks.length > 0) {
@@ -600,13 +615,20 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const shouldSoftFailNoRequestedOutputs = noRequestedOutputs && coreArtifactsPresent;
 
     if ((noRequestedOutputs && !shouldSoftFailNoRequestedOutputs) || unpersistedKinds.length > 0) {
+      const noOutputsDetails = noRequestedOutputs
+        ? {
+            errorCode: 'NO_OUTPUTS_PRODUCED',
+            retryable: true,
+            recommendedAction: 'retry_full',
+          }
+        : {};
       throw new WorkflowTerminalError(
         noRequestedOutputs
           ? `No requested outputs were produced (requested: ${requestedStepList.join(', ')})`
           : `Persistence incomplete for artifacts: ${unpersistedKinds.join(', ')}`,
         {
           failureReason: noRequestedOutputs
-            ? 'NO_REQUESTED_OUTPUTS'
+            ? 'NO_OUTPUTS_PRODUCED'
             : 'UNPERSISTED_ARTIFACTS',
           requestedSteps: requestedStepList,
           successfulSteps: Array.from(successfulRequestedSteps),
@@ -615,7 +637,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           unpersistedKinds,
           coreArtifactsPresent,
           manifestKey,
-          resumed: resumeEnabled
+          resumed: resumeEnabled,
+          ...noOutputsDetails
         }
       );
     }
@@ -717,27 +740,68 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     return (hasRender && hasReadability) || hasSinglefile || hasMonolith;
   }
 
+  private monolithSizeGateError(renderedBytes: number | undefined): Error | undefined {
+    if (typeof renderedBytes !== 'number' || !Number.isFinite(renderedBytes)) {
+      return undefined;
+    }
+    if (renderedBytes <= ArchiveWorkflow.MONOLITH_MAX_RENDERED_HTML_BYTES) {
+      return undefined;
+    }
+
+    return new Error(
+      `Monolith input too large: rendered.html ${renderedBytes} bytes exceeds ${ArchiveWorkflow.MONOLITH_MAX_RENDERED_HTML_BYTES} byte safety threshold`
+    );
+  }
+
+  private shouldRetryMonolithError(error: unknown): boolean {
+    if (error instanceof ServiceCallError) {
+      if (
+        error.classification.errorCode === 'MONOLITH_RPC_32MIB_LIMIT' ||
+        error.classification.errorCode === 'MONOLITH_INPUT_TOO_LARGE'
+      ) {
+        return false;
+      }
+      return error.classification.retryable;
+    }
+    return true;
+  }
+
   private async callMonolithWithRetry(
     step: WorkflowStep,
     requestId: string,
     renderedHtmlKey: string,
     monolithBaseUrl: string
   ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
-    return await step.do(
-      'monolith',
-      {
-        // Bounded backoff: 3 total attempts (initial + 2 retries).
-        retries: { limit: 2, delay: '6 seconds', backoff: 'exponential' },
-        timeout: '5 minutes'
-      },
-      async () => {
-        return await callMonolith(this.env, {
-          request_id: requestId,
-          rendered_html_key: renderedHtmlKey,
-          base_url: monolithBaseUrl
+    const maxAttempts = 3;
+    let delayMs = 6000;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await step.do(
+          `monolith-attempt-${attempt}`,
+          { timeout: '5 minutes' },
+          async () => {
+            return await callMonolith(this.env, {
+              request_id: requestId,
+              rendered_html_key: renderedHtmlKey,
+              base_url: monolithBaseUrl
+            });
+          }
+        );
+      } catch (error) {
+        const lastAttempt = attempt >= maxAttempts;
+        if (lastAttempt || !this.shouldRetryMonolithError(error)) {
+          throw error;
+        }
+
+        await step.do(`monolith-backoff-${attempt}`, async () => {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         });
+        delayMs *= 2;
       }
-    );
+    }
+
+    throw new Error('Monolith retry loop exhausted unexpectedly');
   }
 
   private async persistArtifactsIncremental(
@@ -1232,13 +1296,17 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   }
 
   private toMonolithBaseUrl(rawUrl: string): string {
+    const sanitized = rawUrl.replace(/[\u0000-\u001F\u007F]/g, '').trim();
     try {
-      const parsed = new URL(rawUrl);
+      const parsed = new URL(sanitized);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error('Invalid URL protocol');
+      }
       parsed.search = '';
       parsed.hash = '';
       return parsed.toString();
     } catch {
-      return rawUrl;
+      throw new Error(`Invalid URL for monolith base URL: ${sanitized || '(empty)'}`);
     }
   }
 }

@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
 import {
+  FieldPath,
   FieldValue,
   getFirestore,
   Timestamp,
@@ -49,6 +50,7 @@ const BACKFILL_USER_ID = defineString('BACKFILL_USER_ID', {
 });
 
 const BATCH_SIZE = defineInt('BACKFILL_BATCH_SIZE', { default: 25 });
+const SCAN_PAGE_SIZE = defineInt('BACKFILL_SCAN_PAGE_SIZE', { default: 250 });
 const STAGGER_MS = 2000;
 const TRACKER_DOC_PATH = 'backfill_state/tracker';
 const MAX_RETRIES = 2;
@@ -279,6 +281,50 @@ async function markStuckAsFailed(
   }
 }
 
+async function fetchUserArticlesPage(
+  db: FirebaseFirestore.Firestore,
+  userId: string,
+  cursor: string | null,
+  pageSize: number
+): Promise<{
+  docs: Array<QueryDocumentSnapshot<DocumentData>>;
+  nextCursor: string | null;
+  exhausted: boolean;
+}> {
+  const collection = db.collection('users').doc(userId).collection('articles');
+  const pageQuery = collection
+    .orderBy(FieldPath.documentId())
+    .limit(pageSize);
+
+  const snapshot = cursor
+    ? await pageQuery.startAfter(cursor).get()
+    : await pageQuery.get();
+
+  if (!snapshot.empty) {
+    const nextCursor = snapshot.docs[snapshot.docs.length - 1]!.id;
+    return {
+      docs: snapshot.docs,
+      nextCursor,
+      exhausted: snapshot.docs.length < pageSize,
+    };
+  }
+
+  // Cursor reached end of collection; wrap to first page on next run.
+  if (cursor) {
+    const restart = await pageQuery.get();
+    if (!restart.empty) {
+      const nextCursor = restart.docs[restart.docs.length - 1]!.id;
+      return {
+        docs: restart.docs,
+        nextCursor,
+        exhausted: restart.docs.length < pageSize,
+      };
+    }
+  }
+
+  return { docs: [], nextCursor: null, exhausted: true };
+}
+
 async function resolveCanonicalCandidates(
   db: FirebaseFirestore.Firestore,
   userDocs: Array<QueryDocumentSnapshot<DocumentData>>
@@ -458,11 +504,12 @@ export const backfillArchiver = onSchedule(
   async () => {
     const db = getFirestore();
     const batchSize = BATCH_SIZE.value();
+    const scanPageSize = Math.max(batchSize, SCAN_PAGE_SIZE.value());
     const userId = BACKFILL_USER_ID.value();
     const trackerRef = db.doc(TRACKER_DOC_PATH);
     const runOwner = `backfill-${crypto.randomUUID()}`;
     console.log(
-      `[backfill] run=${runOwner} starting (batchSize=${batchSize}, userId=${userId})`
+      `[backfill] run=${runOwner} starting (batchSize=${batchSize}, scanPageSize=${scanPageSize}, userId=${userId})`
     );
 
     const { acquired, tracker: loadedTracker } = await acquireRunLease(
@@ -582,18 +629,21 @@ export const backfillArchiver = onSchedule(
         }
       }
 
-      const userArticlesSnap = await db
-        .collection('users')
-        .doc(userId)
-        .collection('articles')
-        .get();
-      const userArticles = userArticlesSnap.docs;
+      const page = await fetchUserArticlesPage(
+        db,
+        userId,
+        tracker.scan_cursor,
+        scanPageSize
+      );
+      const userArticles = page.docs;
 
       const runSummary = createDefaultRunSummary();
       runSummary.considered = userArticles.length;
 
       if (userArticles.length === 0) {
         console.log(`[backfill] run=${runOwner} no user articles found`);
+        tracker.scan_cursor = null;
+        tracker.scan_exhausted = true;
         tracker.last_run_result = 'idle';
         tracker.last_run_summary = runSummary;
         await saveTrackerWithLease(db, trackerRef, tracker, runOwner);
@@ -607,7 +657,7 @@ export const backfillArchiver = onSchedule(
       runSummary.eligible = eligible.length;
       runSummary.skipped_backoff = skippedBackoff;
       console.log(
-        `[backfill] run=${runOwner} candidates=${candidates.length} eligible=${eligible.length} skippedBackoff=${skippedBackoff}`
+        `[backfill] run=${runOwner} pageDocs=${userArticles.length} candidates=${candidates.length} eligible=${eligible.length} skippedBackoff=${skippedBackoff} cursor=${tracker.scan_cursor ?? 'null'} next=${page.nextCursor ?? 'null'} exhausted=${page.exhausted}`
       );
 
       for (const item of nonEligible) {
@@ -619,6 +669,8 @@ export const backfillArchiver = onSchedule(
 
       if (eligible.length === 0) {
         console.log(`[backfill] run=${runOwner} no eligible items to start`);
+        tracker.scan_cursor = page.exhausted ? null : page.nextCursor;
+        tracker.scan_exhausted = page.exhausted;
         tracker.last_run_result = runSummary.skipped_backoff > 0 ? 'backoff' : 'idle';
         tracker.last_run_summary = runSummary;
         await saveTrackerWithLease(db, trackerRef, tracker, runOwner);
@@ -728,6 +780,8 @@ export const backfillArchiver = onSchedule(
 
       tracker.batch = batchEntries;
       tracker.batch_started_at = batchEntries.length > 0 ? Timestamp.now() : null;
+      tracker.scan_cursor = page.exhausted ? null : page.nextCursor;
+      tracker.scan_exhausted = page.exhausted;
       if (batchEntries.length > 0) {
         tracker.batch_number += 1;
       }

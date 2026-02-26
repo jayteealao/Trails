@@ -13,6 +13,8 @@ import {
 test('normalizeTracker returns defaults when missing', () => {
   const tracker = normalizeTracker(undefined);
   assert.equal(tracker.batch.length, 0);
+  assert.equal(tracker.scan_cursor, null);
+  assert.equal(tracker.scan_exhausted, false);
   assert.equal(tracker.paused, false);
   assert.equal(tracker.last_run_summary.failed, 0);
 });

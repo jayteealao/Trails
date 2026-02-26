@@ -28,20 +28,38 @@ export async function callGatewayBegin(
   config: GatewayBeginClientConfig,
   payload: Record<string, unknown>
 ): Promise<GatewayBeginResponse> {
+  if (!config.publicApiKey) {
+    throw new Error('Gateway begin failed: missing PUBLIC_API_KEY');
+  }
+  if (!config.cfAccessClientId || !config.cfAccessClientSecret) {
+    throw new Error('Gateway begin failed: missing Cloudflare Access machine credentials');
+  }
+
   let lastError: GatewayErrorPayload | undefined;
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const response = await fetch(`${config.gatewayUrl}/begin`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': config.publicApiKey,
-        'CF-Access-Client-Id': config.cfAccessClientId,
-        'CF-Access-Client-Secret': config.cfAccessClientSecret,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${config.gatewayUrl}/begin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': config.publicApiKey,
+          'CF-Access-Client-Id': config.cfAccessClientId,
+          'CF-Access-Client-Secret': config.cfAccessClientSecret,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lastError = { status: 503, body: `Network error calling gateway /begin: ${message}` };
+      if (attempt < 2) {
+        await sleep(500 * (2 ** attempt));
+        continue;
+      }
+      break;
+    }
 
     const rawBody = (await response.text()).slice(0, 600);
     let parsed: GatewayBeginResponse = {};

@@ -61,6 +61,27 @@ function classifyMonolithFailureFromBody(
   const lower = message.toLowerCase();
 
   if (
+    lower.includes('message length too big') ||
+    lower.includes('max allowed message length') ||
+    lower.includes('33554432') ||
+    lower.includes('32mib')
+  ) {
+    return {
+      errorCode: 'MONOLITH_RPC_32MIB_LIMIT',
+      retryable: false,
+      recommendedAction: 'investigate_service',
+    };
+  }
+
+  if (lower.includes('monolith input too large')) {
+    return {
+      errorCode: 'MONOLITH_INPUT_TOO_LARGE',
+      retryable: false,
+      recommendedAction: 'investigate_service',
+    };
+  }
+
+  if (
     lower.includes('timeout') ||
     lower.includes('timed out') ||
     lower.includes('deadline exceeded') ||
@@ -75,9 +96,71 @@ function classifyMonolithFailureFromBody(
 
   if (lower.includes('sandboxerror') || lower.includes('http error! status: 500')) {
     return {
-      errorCode: 'MONOLITH_SERVICE_ERROR',
+      errorCode: 'MONOLITH_SANDBOX_500',
       retryable: true,
       recommendedAction: 'retry_step',
+    };
+  }
+
+  return undefined;
+}
+
+function containsRendererContextDestroyed6000(details: unknown): boolean {
+  let parsedDetails: unknown = details;
+
+  if (typeof details === 'string') {
+    const lower = details.toLowerCase();
+    if (
+      lower.includes('6000') ||
+      lower.includes('execution context was destroyed') ||
+      lower.includes('context destroyed')
+    ) {
+      return true;
+    }
+    parsedDetails = parseJsonSafe(details);
+  }
+
+  if (!parsedDetails || typeof parsedDetails !== 'object') return false;
+  const record = parsedDetails as Record<string, unknown>;
+  const errors = record.errors;
+  if (!Array.isArray(errors)) return false;
+  return errors.some((entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    const code = (entry as Record<string, unknown>).code;
+    return code === 6000 || code === '6000';
+  });
+}
+
+function classifyRenderFailureFromBody(
+  responseBody: string
+): ServiceErrorClassification | undefined {
+  const parsed = parseJsonSafe(responseBody);
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const record = parsed as Record<string, unknown>;
+  if (!looksLikeRendererContentFailurePayload(record)) return undefined;
+
+  if (containsRendererNetworkClosed5006(record.details)) {
+    return {
+      errorCode: 'RENDER_NETWORK_CLOSED',
+      retryable: true,
+      recommendedAction: 'retry_full',
+    };
+  }
+
+  if (containsRendererContextDestroyed6000(record.details)) {
+    return {
+      errorCode: 'RENDER_CONTEXT_DESTROYED',
+      retryable: true,
+      recommendedAction: 'retry_full',
+    };
+  }
+
+  const status = typeof record.status === 'number' ? record.status : Number(record.status);
+  if (status === 403) {
+    return {
+      errorCode: 'ACCESS_BLOCKED',
+      retryable: false,
+      recommendedAction: 'check_access',
     };
   }
 
@@ -119,6 +202,10 @@ function classifyServiceFailureWithBody(
   }
   if (path === '/monolith') {
     const classified = classifyMonolithFailureFromBody(responseBody);
+    if (classified) return classified;
+  }
+  if (path === '/render') {
+    const classified = classifyRenderFailureFromBody(responseBody);
     if (classified) return classified;
   }
   return classifyServiceFailure(path, status);
@@ -246,21 +333,24 @@ function looksLikeRendererContentFailurePayload(payload: unknown): boolean {
 }
 
 function containsRendererNetworkClosed5006(details: unknown): boolean {
-  if (typeof details !== 'string') return false;
-  const lower = details.toLowerCase();
-  if (
-    lower.includes('5006') ||
-    lower.includes('network closed') ||
-    lower.includes('connection closed') ||
-    lower.includes('browser has disconnected') ||
-    lower.includes('target closed')
-  ) {
-    return true;
+  let parsedDetails: unknown = details;
+
+  if (typeof details === 'string') {
+    const lower = details.toLowerCase();
+    if (
+      lower.includes('5006') ||
+      lower.includes('network closed') ||
+      lower.includes('connection closed') ||
+      lower.includes('browser has disconnected') ||
+      lower.includes('target closed')
+    ) {
+      return true;
+    }
+    parsedDetails = parseJsonSafe(details);
   }
 
-  const parsed = parseJsonSafe(details);
-  if (!parsed || typeof parsed !== 'object') return false;
-  const record = parsed as Record<string, unknown>;
+  if (!parsedDetails || typeof parsedDetails !== 'object') return false;
+  const record = parsedDetails as Record<string, unknown>;
   const errors = record.errors;
   if (!Array.isArray(errors)) return false;
   return errors.some((entry) => {
@@ -270,7 +360,35 @@ function containsRendererNetworkClosed5006(details: unknown): boolean {
   });
 }
 
-export type RendererFallbackReason = 'browser_rendering_403' | 'browser_rendering_5006';
+export type RendererFallbackReason =
+  | 'browser_rendering_403'
+  | 'browser_rendering_5006'
+  | 'browser_rendering_6000';
+
+function ensureRendererResponseShape(
+  result: RendererResponse,
+  path: string
+): RendererResponse {
+  const record = result as unknown;
+  const artifacts = record && typeof record === 'object'
+    ? (record as Record<string, unknown>).artifacts
+    : undefined;
+  if (!Array.isArray(artifacts)) {
+    throw new ServiceCallError(
+      'Renderer returned invalid response shape: artifacts must be an array',
+      {
+        errorCode: 'RENDER_SERVICE_ERROR',
+        retryable: true,
+        recommendedAction: 'retry_full',
+      },
+      path,
+      502,
+      ''
+    );
+  }
+
+  return result;
+}
 
 /**
  * Returns fallback reason when primary renderer wrapped a Browser Rendering failure
@@ -292,8 +410,11 @@ export function getRendererFallbackReason(error: unknown): RendererFallbackReaso
         ? record.status
         : Number(record.status);
     if (status === 403) return 'browser_rendering_403';
-    if (status === 500 && containsRendererNetworkClosed5006(record.details)) {
+    if (containsRendererNetworkClosed5006(record.details)) {
       return 'browser_rendering_5006';
+    }
+    if (containsRendererContextDestroyed6000(record.details)) {
+      return 'browser_rendering_6000';
     }
     return undefined;
   } catch {
@@ -323,7 +444,7 @@ export async function callRendererWith403Fallback(
   params: RendererParams
 ): Promise<RendererCallOutcome> {
   try {
-    const result = await callRenderer(env, params);
+    const result = ensureRendererResponseShape(await callRenderer(env, params), '/render');
     return { result, fallbackUsed: false };
   } catch (error) {
     const fallbackReason = getRendererFallbackReason(error);
@@ -333,7 +454,10 @@ export async function callRendererWith403Fallback(
 
     const primaryMessage = error instanceof Error ? error.message : String(error);
     try {
-      const result = await callHyperrenderer(env, params);
+      const result = ensureRendererResponseShape(
+        await callHyperrenderer(env, params),
+        '/render'
+      );
       return {
         result,
         fallbackUsed: true,

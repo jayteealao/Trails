@@ -74,6 +74,8 @@ export function createDefaultTracker(now = Timestamp.now()): BackfillTracker {
     batch: [],
     batch_started_at: null,
     batch_number: 0,
+    scan_cursor: null,
+    scan_exhausted: false,
     total_sent: 0,
     total_completed: 0,
     total_failed: 0,
@@ -137,6 +139,11 @@ export function normalizeTracker(raw: DocumentData | undefined): BackfillTracker
     ...(typeof tracker['batch_number'] === 'number'
       ? { batch_number: tracker['batch_number'] }
       : {}),
+    ...(typeof tracker['scan_cursor'] === 'string'
+      ? { scan_cursor: tracker['scan_cursor'] }
+      : {}),
+    ...(tracker['scan_cursor'] === null ? { scan_cursor: null } : {}),
+    scan_exhausted: tracker['scan_exhausted'] === true,
     ...(typeof tracker['total_sent'] === 'number'
       ? { total_sent: tracker['total_sent'] }
       : {}),

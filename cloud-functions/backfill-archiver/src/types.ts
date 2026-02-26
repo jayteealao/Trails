@@ -32,6 +32,8 @@ export interface BackfillTracker {
   batch: BatchEntry[];
   batch_started_at: Timestamp | null;
   batch_number: number;
+  scan_cursor: string | null;
+  scan_exhausted: boolean;
   total_sent: number;
   total_completed: number;
   total_failed: number;

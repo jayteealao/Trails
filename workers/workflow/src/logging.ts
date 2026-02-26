@@ -23,6 +23,27 @@ function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefin
   if (!mentionsMonolith) return undefined;
 
   if (
+    errorMsgLower.includes('message length too big') ||
+    errorMsgLower.includes('max allowed message length') ||
+    errorMsgLower.includes('33554432') ||
+    errorMsgLower.includes('32mib')
+  ) {
+    return {
+      errorCode: 'MONOLITH_RPC_32MIB_LIMIT',
+      retryable: false,
+      recommendedAction: 'investigate_service',
+    };
+  }
+
+  if (errorMsgLower.includes('monolith input too large')) {
+    return {
+      errorCode: 'MONOLITH_INPUT_TOO_LARGE',
+      retryable: false,
+      recommendedAction: 'investigate_service',
+    };
+  }
+
+  if (
     errorMsgLower.includes('timeout') ||
     errorMsgLower.includes('timed out') ||
     errorMsgLower.includes('abort') ||
@@ -42,7 +63,9 @@ function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefin
     errorMsgLower.includes('container terminated')
   ) {
     return {
-      errorCode: 'MONOLITH_SERVICE_ERROR',
+      errorCode: errorMsgLower.includes('sandboxerror') || errorMsgLower.includes('http error! status: 500')
+        ? 'MONOLITH_SANDBOX_500'
+        : 'MONOLITH_SERVICE_ERROR',
       retryable: true,
       recommendedAction: 'retry_step',
     };
@@ -55,6 +78,60 @@ export function classifyError(stepName: string, errorMsg: string): ClassifiedErr
   const msg = errorMsg.toLowerCase();
   const monolithError = classifyMonolithError(msg);
   if (monolithError) return monolithError;
+
+  if (msg.includes('no requested outputs were produced')) {
+    return {
+      errorCode: 'NO_OUTPUTS_PRODUCED',
+      retryable: true,
+      recommendedAction: 'retry_full',
+    };
+  }
+
+  if (msg.includes('missing rendered.html prerequisite')) {
+    return {
+      errorCode: 'RENDER_PREREQ_MISSING',
+      retryable: true,
+      recommendedAction: 'retry_full',
+    };
+  }
+
+  if (
+    msg.includes('5006') ||
+    msg.includes('network closed') ||
+    msg.includes('connection closed') ||
+    msg.includes('browser has disconnected')
+  ) {
+    return {
+      errorCode: 'RENDER_NETWORK_CLOSED',
+      retryable: true,
+      recommendedAction: 'retry_full',
+    };
+  }
+
+  if (
+    msg.includes('execution context was destroyed') ||
+    msg.includes('code\":6000') ||
+    msg.includes('context destroyed')
+  ) {
+    return {
+      errorCode: 'RENDER_CONTEXT_DESTROYED',
+      retryable: true,
+      recommendedAction: 'retry_full',
+    };
+  }
+
+  if (
+    msg.includes('trustedtypes') ||
+    msg.includes('trustedhtml') ||
+    msg.includes('not a valid selector') ||
+    msg.includes('singlefile edge-case failure')
+  ) {
+    return {
+      errorCode: 'SINGLEFILE_EDGE_CASE',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
 
   if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('abort')) {
     const timeoutByStep: Record<string, RequestErrorCode> = {

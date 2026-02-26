@@ -72,14 +72,22 @@ interface LoggerStub {
 const VALID_ERROR_CODES = new Set<RequestErrorCode>([
   'INVALID_INPUT_URL',
   'WORKFLOW_TRIGGER_FAILED',
+  'NO_OUTPUTS_PRODUCED',
   'RENDER_TIMEOUT',
   'RENDER_SERVICE_ERROR',
+  'RENDER_NETWORK_CLOSED',
+  'RENDER_CONTEXT_DESTROYED',
+  'RENDER_PREREQ_MISSING',
   'SINGLEFILE_TIMEOUT',
   'SINGLEFILE_SERVICE_ERROR',
+  'SINGLEFILE_EDGE_CASE',
   'READABILITY_TIMEOUT',
   'READABILITY_SERVICE_ERROR',
   'MONOLITH_TIMEOUT',
   'MONOLITH_SERVICE_ERROR',
+  'MONOLITH_SANDBOX_500',
+  'MONOLITH_RPC_32MIB_LIMIT',
+  'MONOLITH_INPUT_TOO_LARGE',
   'PERSIST_SERVICE_ERROR',
   'ACCESS_BLOCKED',
   'UNKNOWN_ERROR',
@@ -151,13 +159,30 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function defaultRetryableForCode(code: RequestErrorCode): boolean {
-  return code !== 'ACCESS_BLOCKED' && code !== 'INVALID_INPUT_URL';
+  return (
+    code !== 'ACCESS_BLOCKED' &&
+    code !== 'INVALID_INPUT_URL' &&
+    code !== 'MONOLITH_RPC_32MIB_LIMIT' &&
+    code !== 'MONOLITH_INPUT_TOO_LARGE'
+  );
 }
 
 function defaultActionForCode(code: RequestErrorCode): RequestDiagnostics['recommendedAction'] {
   if (code === 'ACCESS_BLOCKED') return 'check_access';
   if (code === 'INVALID_INPUT_URL') return 'inspect_url';
   if (code === 'WORKFLOW_TRIGGER_FAILED') return 'retry_full';
+  if (
+    code === 'RENDER_NETWORK_CLOSED' ||
+    code === 'RENDER_CONTEXT_DESTROYED' ||
+    code === 'RENDER_PREREQ_MISSING' ||
+    code === 'NO_OUTPUTS_PRODUCED'
+  ) {
+    return 'retry_full';
+  }
+  if (code === 'SINGLEFILE_EDGE_CASE') return 'retry_step';
+  if (code === 'MONOLITH_RPC_32MIB_LIMIT' || code === 'MONOLITH_INPUT_TOO_LARGE') {
+    return 'investigate_service';
+  }
   if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
   return 'retry_step';
 }
@@ -182,8 +207,33 @@ function inferLegacyErrorCode(message: string, source?: string): RequestErrorCod
     return 'WORKFLOW_TRIGGER_FAILED';
   }
 
+  if (lower.includes('no requested outputs were produced')) {
+    return 'NO_OUTPUTS_PRODUCED';
+  }
+
   if (lower.includes('unauthorized') || lower.includes('forbidden') || lower.includes('access')) {
     return 'ACCESS_BLOCKED';
+  }
+
+  if (lower.includes('missing rendered.html prerequisite')) {
+    return 'RENDER_PREREQ_MISSING';
+  }
+
+  if (
+    lower.includes('5006') ||
+    lower.includes('network closed') ||
+    lower.includes('connection closed') ||
+    lower.includes('browser has disconnected')
+  ) {
+    return 'RENDER_NETWORK_CLOSED';
+  }
+
+  if (
+    lower.includes('execution context was destroyed') ||
+    lower.includes('code\":6000') ||
+    lower.includes('context destroyed')
+  ) {
+    return 'RENDER_CONTEXT_DESTROYED';
   }
 
   const isTimeout =
@@ -211,13 +261,41 @@ function inferLegacyErrorCode(message: string, source?: string): RequestErrorCod
   if (
     lower.includes('service error') ||
     lower.includes('http error') ||
-    lower.includes('internal error')
+    lower.includes('internal error') ||
+    lower.includes('sandboxerror')
   ) {
+    if (
+      lower.includes('message length too big') ||
+      lower.includes('max allowed message length') ||
+      lower.includes('33554432') ||
+      lower.includes('32mib')
+    ) {
+      return 'MONOLITH_RPC_32MIB_LIMIT';
+    }
+    if (lower.includes('monolith input too large')) {
+      return 'MONOLITH_INPUT_TOO_LARGE';
+    }
+    if (
+      mentionsMonolith &&
+      (lower.includes('sandboxerror') || lower.includes('http error! status: 500'))
+    ) {
+      return 'MONOLITH_SANDBOX_500';
+    }
     if (mentionsMonolith) return 'MONOLITH_SERVICE_ERROR';
     if (mentionsSinglefile) return 'SINGLEFILE_SERVICE_ERROR';
     if (mentionsReadability) return 'READABILITY_SERVICE_ERROR';
     if (mentionsPersist) return 'PERSIST_SERVICE_ERROR';
     if (mentionsRender) return 'RENDER_SERVICE_ERROR';
+  }
+
+  if (
+    mentionsSinglefile &&
+    (lower.includes('trustedtypes') ||
+      lower.includes('trustedhtml') ||
+      lower.includes('not a valid selector') ||
+      lower.includes('singlefile edge-case failure'))
+  ) {
+    return 'SINGLEFILE_EDGE_CASE';
   }
 
   return 'UNKNOWN_ERROR';
