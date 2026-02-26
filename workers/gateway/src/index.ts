@@ -11,6 +11,75 @@ import {
   withRequestId
 } from './util.js';
 
+const LOGGER_RETRY_ATTEMPTS = 3;
+const ORPHAN_SWEEP_DEFAULT_LIMIT = 100;
+const ORPHAN_SWEEP_DEFAULT_MIN_AGE_MS = 10 * 60 * 1000;
+const ORPHAN_SWEEP_WORKFLOW_ATTEMPTS = 2;
+
+interface LoggerRequestRow {
+  requestId?: string;
+  url?: string;
+  createdAt?: string;
+  lastEventTs?: string | null;
+  stage?: string | null;
+}
+
+interface LoggerRequestListResponse {
+  requests?: LoggerRequestRow[];
+}
+
+interface OrphanQueuedCandidate {
+  requestId: string;
+  url: string;
+  createdAt: string;
+  optionsR2Key: string;
+}
+
+interface OrphanSweepOptions {
+  limit?: number;
+  minAgeMs?: number;
+  dryRun?: boolean;
+  source?: string;
+}
+
+interface OrphanSweepResult {
+  source: string;
+  dryRun: boolean;
+  scanned: number;
+  candidates: number;
+  retriggered: number;
+  markedFailed: number;
+  skipped: number;
+  failures: Array<{ requestId: string; error: string }>;
+}
+
+interface WorkflowStartAttemptResult {
+  ok: boolean;
+  status: number;
+  body: string;
+  workflowState?: string;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // ignore malformed JSON
+  }
+  return null;
+}
+
 /**
  * Make an internal request to the logger service.
  */
@@ -35,16 +104,55 @@ async function loggerRequest(
 }
 
 /**
+ * Make an internal request to logger with bounded retries, throwing on final failure.
+ */
+async function loggerRequestStrict(
+  env: Env,
+  path: string,
+  method: string,
+  body?: unknown
+): Promise<Response> {
+  let lastStatus = 0;
+  let lastBody = '';
+  let lastErrorMessage = '';
+
+  for (let attempt = 0; attempt < LOGGER_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await loggerRequest(env, path, method, body);
+      if (response.ok) {
+        return response;
+      }
+
+      lastStatus = response.status;
+      lastBody = (await response.text()).slice(0, 600);
+
+      if (!shouldRetryStatus(response.status) || attempt === LOGGER_RETRY_ATTEMPTS - 1) {
+        break;
+      }
+      await sleep(100 * (2 ** attempt));
+      continue;
+    } catch (err) {
+      lastStatus = 503;
+      lastErrorMessage = err instanceof Error ? err.message : String(err);
+      if (attempt === LOGGER_RETRY_ATTEMPTS - 1) {
+        break;
+      }
+      await sleep(100 * (2 ** attempt));
+    }
+  }
+
+  const detail = lastBody || lastErrorMessage || 'unknown logger error';
+  throw new Error(`[gateway] Logger ${method} ${path} failed: ${lastStatus} ${detail}`);
+}
+
+/**
  * Initialize a request in the logger.
  */
 async function initLoggerRequest(
   env: Env,
   payload: InitRequestPayload
 ): Promise<void> {
-  const response = await loggerRequest(env, '/request/init', 'POST', payload);
-  if (!response.ok) {
-    console.error('[gateway] Failed to init logger request:', await response.text());
-  }
+  await loggerRequestStrict(env, '/request/init', 'POST', payload);
 }
 
 /**
@@ -55,10 +163,7 @@ async function appendLogEvent(
   requestId: string,
   event: LogEvent
 ): Promise<void> {
-  const response = await loggerRequest(env, '/event', 'POST', { requestId, event });
-  if (!response.ok) {
-    console.error('[gateway] Failed to append log event:', await response.text());
-  }
+  await loggerRequestStrict(env, '/event', 'POST', { requestId, event });
 }
 
 /**
@@ -70,11 +175,208 @@ function verifyPublicApiKey(request: Request, env: Env): boolean {
   return timingSafeEqual(apiKey, env.PUBLIC_API_KEY);
 }
 
+/**
+ * Verify internal API key from X-Internal-API-Key header.
+ */
+function verifyInternalApiKey(request: Request, env: Env): boolean {
+  const apiKey = request.headers.get('X-Internal-API-Key');
+  if (!apiKey) return false;
+  return timingSafeEqual(apiKey, env.INTERNAL_API_KEY);
+}
+
+async function fetchQueuedOrphanCandidates(
+  env: Env,
+  limit: number,
+  minAgeMs: number
+): Promise<{ scanned: number; candidates: OrphanQueuedCandidate[] }> {
+  const safeLimit = Math.min(Math.max(limit, 1), 500);
+  const safeMinAgeMs = Math.max(minAgeMs, 60_000);
+  const response = await loggerRequestStrict(
+    env,
+    `/requests?status=queued&limit=${safeLimit}`,
+    'GET'
+  );
+  const payload = (await response.json()) as LoggerRequestListResponse;
+  const rows = Array.isArray(payload.requests) ? payload.requests : [];
+  const nowMs = Date.now();
+  const candidates: OrphanQueuedCandidate[] = [];
+
+  for (const row of rows) {
+    const requestId = typeof row.requestId === 'string' ? row.requestId : null;
+    const url = typeof row.url === 'string' ? row.url : null;
+    const createdAt =
+      typeof row.createdAt === 'string' && row.createdAt.length > 0 ? row.createdAt : null;
+    const hasLastEvent =
+      typeof row.lastEventTs === 'string' && row.lastEventTs.trim().length > 0;
+    const queuedStage = row.stage === 'queued' || row.stage == null;
+    const createdAtMs = createdAt ? Date.parse(createdAt) : Number.NaN;
+    const isOldEnough =
+      Number.isFinite(createdAtMs) && nowMs - createdAtMs >= safeMinAgeMs;
+
+    if (!requestId || !url || !createdAt) continue;
+    if (!queuedStage || hasLastEvent || !isOldEnough) continue;
+
+    candidates.push({
+      requestId,
+      url,
+      createdAt,
+      optionsR2Key: getOptionsKey(requestId)
+    });
+  }
+
+  return { scanned: rows.length, candidates };
+}
+
+async function startWorkflowWithRetry(
+  env: Env,
+  candidate: OrphanQueuedCandidate
+): Promise<WorkflowStartAttemptResult> {
+  let lastStatus = 503;
+  let lastBody = 'workflow start not attempted';
+  let lastWorkflowState: string | undefined;
+
+  for (let attempt = 0; attempt < ORPHAN_SWEEP_WORKFLOW_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await env.WORKFLOW.fetch('https://workflow/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: candidate.requestId,
+          url: candidate.url,
+          options_r2_key: candidate.optionsR2Key
+        })
+      });
+
+      const rawBody = (await response.text()).slice(0, 600);
+      lastStatus = response.status;
+      lastBody = rawBody;
+      const parsed = parseJsonObject(rawBody);
+      if (parsed && typeof parsed.status === 'string') {
+        lastWorkflowState = parsed.status;
+      }
+
+      if (response.ok) {
+        return {
+          ok: true,
+          status: response.status,
+          body: rawBody,
+          workflowState: lastWorkflowState
+        };
+      }
+
+      if (!shouldRetryStatus(response.status) || attempt === ORPHAN_SWEEP_WORKFLOW_ATTEMPTS - 1) {
+        break;
+      }
+      await sleep(250 * (2 ** attempt));
+    } catch (err) {
+      lastStatus = 503;
+      lastBody = err instanceof Error ? err.message : String(err);
+      if (attempt === ORPHAN_SWEEP_WORKFLOW_ATTEMPTS - 1) {
+        break;
+      }
+      await sleep(250 * (2 ** attempt));
+    }
+  }
+
+  return {
+    ok: false,
+    status: lastStatus,
+    body: lastBody,
+    workflowState: lastWorkflowState
+  };
+}
+
+async function sweepQueuedOrphans(
+  env: Env,
+  options?: OrphanSweepOptions
+): Promise<OrphanSweepResult> {
+  const limit = options?.limit ?? ORPHAN_SWEEP_DEFAULT_LIMIT;
+  const minAgeMs = options?.minAgeMs ?? ORPHAN_SWEEP_DEFAULT_MIN_AGE_MS;
+  const source = options?.source ?? 'unknown';
+  const dryRun = options?.dryRun === true;
+
+  const discovered = await fetchQueuedOrphanCandidates(env, limit, minAgeMs);
+  const summary: OrphanSweepResult = {
+    source,
+    dryRun,
+    scanned: discovered.scanned,
+    candidates: discovered.candidates.length,
+    retriggered: 0,
+    markedFailed: 0,
+    skipped: 0,
+    failures: []
+  };
+
+  if (dryRun) {
+    summary.skipped = discovered.candidates.length;
+    return summary;
+  }
+
+  for (const candidate of discovered.candidates) {
+    try {
+      const startResult = await startWorkflowWithRetry(env, candidate);
+      if (startResult.ok) {
+        await appendLogEvent(
+          env,
+          candidate.requestId,
+          createEvent(
+            'gateway',
+            'workflow.started',
+            'info',
+            'Workflow start recovered by orphan queued sweep',
+            {
+              orphanSweep: true,
+              workflowStatus: startResult.status,
+              workflowState: startResult.workflowState ?? 'unknown',
+              workflowBody: startResult.body
+            }
+          )
+        );
+        summary.retriggered += 1;
+        continue;
+      }
+
+      await appendLogEvent(
+        env,
+        candidate.requestId,
+        createEvent('gateway', 'workflow.trigger_failed', 'error', 'Failed to trigger workflow', {
+          errorCode: 'WORKFLOW_TRIGGER_FAILED',
+          retryable: true,
+          recommendedAction: 'retry_full',
+          orphanSweep: true,
+          workflowStatus: startResult.status,
+          workflowError: startResult.body
+        })
+      );
+      await appendLogEvent(
+        env,
+        candidate.requestId,
+        createEvent('gateway', 'request.failed', 'error', 'Request failed before workflow start', {
+          errorCode: 'WORKFLOW_TRIGGER_FAILED',
+          retryable: true,
+          recommendedAction: 'retry_full',
+          orphanSweep: true,
+          workflowStatus: startResult.status,
+          workflowError: startResult.body
+        })
+      );
+      summary.markedFailed += 1;
+    } catch (err) {
+      summary.failures.push({
+        requestId: candidate.requestId,
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
+  return summary;
+}
+
 export default {
   async fetch(
     request: Request,
     env: Env,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -197,9 +499,18 @@ export default {
               workflowError: workflowErrorBody
             })
           );
-          // Return 202: request was created in logger but workflow did not start
+          // Return non-2xx so clients don't treat request creation as a successful start.
           return withRequestId(
-            Response.json({ requestId, warning: 'Workflow trigger failed' }, { status: 202 }),
+            Response.json(
+              {
+                requestId,
+                error: 'Workflow trigger failed',
+                errorCode: 'WORKFLOW_TRIGGER_FAILED',
+                workflowStatus,
+                workflowError: workflowErrorBody
+              },
+              { status: 502 }
+            ),
             requestId
           );
         }
@@ -231,8 +542,7 @@ export default {
 
     // POST /internal/log - Forward event to logger (for external services)
     if (method === 'POST' && path === '/internal/log') {
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
+      if (!verifyInternalApiKey(request, env)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
 
@@ -253,6 +563,47 @@ export default {
       }
     }
 
+    // POST /internal/sweep-orphan-queued - retrigger queued requests that never emitted workflow events
+    if (method === 'POST' && path === '/internal/sweep-orphan-queued') {
+      if (!verifyInternalApiKey(request, env)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      try {
+        const body = (await request
+          .json()
+          .catch(() => ({}))) as { limit?: number; minAgeMs?: number; dryRun?: boolean };
+        const summary = await sweepQueuedOrphans(env, {
+          limit: body.limit,
+          minAgeMs: body.minAgeMs,
+          dryRun: body.dryRun === true,
+          source: 'manual'
+        });
+        return Response.json(summary);
+      } catch (err) {
+        console.error('[gateway] Error in /internal/sweep-orphan-queued:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
+      }
+    }
+
     return Response.json({ error: 'Not found' }, { status: 404 });
+  },
+
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const summary = await sweepQueuedOrphans(env, {
+            source: `cron:${controller.cron ?? 'unknown'}`
+          });
+          if (summary.candidates > 0 || summary.failures.length > 0) {
+            console.log('[gateway] orphan sweep summary:', JSON.stringify(summary));
+          }
+        } catch (err) {
+          console.error('[gateway] orphan sweep failed:', err);
+        }
+      })()
+    );
   }
 };

@@ -653,7 +653,10 @@ export default {
           recentResult,
           domainsResult,
           failuresResult,
-          stuckResult
+          stuckResult,
+          orphanQueuedResult,
+          orphanQueuedOlder10mResult,
+          orphanQueuedOlder60mResult
         ] = await Promise.all([
           env.INDEX_DB.prepare(
             'SELECT stage, COUNT(*) as count FROM requests_index GROUP BY stage'
@@ -677,6 +680,23 @@ export default {
           env.INDEX_DB.prepare(
             `SELECT COUNT(*) as count FROM requests_index
              WHERE terminal_state = 0 AND created_at < datetime('now', '-1 hour')`
+          ).first<{ count: number }>(),
+          env.INDEX_DB.prepare(
+            `SELECT COUNT(*) as count FROM requests_index
+             WHERE stage = 'queued'
+               AND (last_event_ts IS NULL OR trim(last_event_ts) = '')`
+          ).first<{ count: number }>(),
+          env.INDEX_DB.prepare(
+            `SELECT COUNT(*) as count FROM requests_index
+             WHERE stage = 'queued'
+               AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
+               AND created_at < datetime('now', '-10 minutes')`
+          ).first<{ count: number }>(),
+          env.INDEX_DB.prepare(
+            `SELECT COUNT(*) as count FROM requests_index
+             WHERE stage = 'queued'
+               AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
+               AND created_at < datetime('now', '-1 hour')`
           ).first<{ count: number }>(),
         ]);
 
@@ -705,6 +725,11 @@ export default {
           failureRate: Math.round(failureRate * 1000) / 1000,
           activeCount,
           stuckCount: stuckResult?.count ?? 0,
+          orphanQueue: {
+            total: orphanQueuedResult?.count ?? 0,
+            olderThan10m: orphanQueuedOlder10mResult?.count ?? 0,
+            olderThan60m: orphanQueuedOlder60mResult?.count ?? 0,
+          },
           recentActivity: {
             last1h: recentResult?.last1h ?? 0,
             last24h: recentResult?.last24h ?? 0,

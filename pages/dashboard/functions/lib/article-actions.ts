@@ -199,9 +199,22 @@ export async function submitBegin(
     body: JSON.stringify(payload),
   });
 
+  const rawBody = await response.text();
+  let parsed: { requestId?: unknown; request_id?: unknown; warning?: unknown } = {};
+  if (rawBody.trim()) {
+    try {
+      const candidate = JSON.parse(rawBody) as unknown;
+      if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+        parsed = candidate as { requestId?: unknown; request_id?: unknown; warning?: unknown };
+      }
+    } catch {
+      parsed = {};
+    }
+  }
+
   if (!response.ok) {
     const text = extractErrorMessage(
-      await response.text(),
+      rawBody,
       `Gateway returned ${response.status}`
     );
     if (response.status === 401 || response.status === 403) {
@@ -213,7 +226,30 @@ export async function submitBegin(
     throw new ActionError(text, response.status);
   }
 
-  return (await response.json()) as { requestId?: string; request_id?: string };
+  const warning =
+    typeof parsed.warning === 'string' && parsed.warning.trim().length > 0
+      ? parsed.warning
+      : null;
+  if (response.status === 202 || warning) {
+    throw new ActionError(
+      `Gateway accepted request but workflow did not start: ${
+        warning ?? extractErrorMessage(rawBody, 'Workflow trigger failed')
+      }`,
+      502
+    );
+  }
+
+  const requestId =
+    typeof parsed.requestId === 'string' && parsed.requestId.trim().length > 0
+      ? parsed.requestId
+      : typeof parsed.request_id === 'string' && parsed.request_id.trim().length > 0
+        ? parsed.request_id
+        : null;
+  if (!requestId) {
+    throw new ActionError('Gateway returned success without requestId', 502);
+  }
+
+  return { requestId };
 }
 
 export async function enqueueArticle(

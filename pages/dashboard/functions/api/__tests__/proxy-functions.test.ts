@@ -349,6 +349,48 @@ describe('begin proxy', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(mockGateway.fetch).not.toHaveBeenCalled();
   });
+
+  it('fails when gateway returns workflow trigger warning', async () => {
+    const mockGateway = createMockFetcher(async () =>
+      jsonResponse({ requestId: 'abc12345', warning: 'Workflow trigger failed' }, 202)
+    );
+    const env = {
+      GATEWAY: mockGateway,
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      INTERNAL_API_KEY: 'internal-key',
+      PUBLIC_API_KEY: 'pub-key',
+    } as any;
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url === 'https://dashboard-api.example.com/articles/abc12345/bootstrap') {
+        return jsonResponse({
+          itemId: 'abc12345',
+          canonicalItemId: 'abc12345',
+          created: false,
+          patched: true,
+        });
+      }
+      if (url === 'https://dashboard-api.example.com/articles/abc12345/mark-processing') {
+        return errorResponse('mark-processing should not be called', 500);
+      }
+      return errorResponse('Unexpected URL', 500);
+    });
+
+    const { onRequestPost } = await import('../begin.js');
+    const request = createRequest('https://dashboard.example.com/api/begin', {
+      method: 'POST',
+      body: JSON.stringify({ url: 'https://example.com', request_id: 'abc12345' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await onRequestPost({ env, request, params: {} } as any);
+    const data = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(502);
+    expect(data.error).toContain('workflow did not start');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });
 
 // --- SSE stream proxy ---

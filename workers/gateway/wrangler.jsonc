@@ -7,6 +7,9 @@
     { "binding": "LOGGER", "service": "logger" },
     { "binding": "WORKFLOW", "service": "workflow" }
   ],
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
   ],
