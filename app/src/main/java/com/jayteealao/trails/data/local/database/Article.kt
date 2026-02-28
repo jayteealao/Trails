@@ -55,6 +55,7 @@ data class Article(
     @ColumnInfo(defaultValue = "0") val resolved: Int = 0, // 0 = notResolved, 1 = synced, 2 = textadded, 3 = metrics, 10 = resolved
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "archived_at") val archivedAt: Long? = null,
+    @ColumnInfo(name = "text_source", defaultValue = "") val textSource: String = "",
 )
 
 @Entity(tableName = "article_fts")

@@ -207,6 +207,24 @@ interface ArticleDao {
     @Query("UPDATE article SET excerpt = :excerpt WHERE itemId = :itemId")
     suspend fun updateExcerpt(itemId: String, excerpt: String)
 
+    @Query("UPDATE article SET text = :text, text_source = :source, resolved = 2 WHERE itemId = :itemId")
+    suspend fun updateTextWithSource(itemId: String, text: String?, source: String)
+
+    @Query("UPDATE article SET text_source = :source WHERE itemId = :itemId")
+    suspend fun updateTextSource(itemId: String, source: String)
+
+    @Query("UPDATE article SET image = :image, hasImage = 1 WHERE itemId = :itemId")
+    suspend fun updateImage(itemId: String, image: String)
+
+    @Query("SELECT itemId FROM article WHERE (image IS NULL OR image = '') AND deleted_at IS NULL")
+    suspend fun getArticlesWithoutImages(): List<String>
+
+    @Query("SELECT itemId FROM article WHERE (text IS NULL OR text = '') AND deleted_at IS NULL ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
+    suspend fun getArticlesNeedingText(limit: Int, offset: Int): List<String>
+
+    @Query("SELECT * FROM article WHERE (title = '' OR wordCount = 0) AND deleted_at IS NULL LIMIT :limit OFFSET :offset")
+    suspend fun getArticlesWithMissingMetadata(limit: Int, offset: Int): List<Article>
+
     @Upsert
     suspend fun upsertArticle(item: Article)
 

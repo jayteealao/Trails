@@ -20,6 +20,8 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.jayteealao.trails.data.archive.LocalArchive
+import com.jayteealao.trails.data.archive.LocalArchiveDao
 import com.jayteealao.trails.network.ArticleAuthors
 import com.jayteealao.trails.network.ArticleImages
 import com.jayteealao.trails.network.ArticleTags
@@ -35,15 +37,15 @@ import com.jayteealao.trails.network.DomainMetadata
         ArticleImages::class,
         ArticleVideos::class,
         DomainMetadata::class,
-//        ModalArticleTable::class,
-//        PocketSummary::class,
+        LocalArchive::class,
     ],
-    version = 4,
+    version = 5,
     autoMigrations = [],
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun articleDao(): ArticleDao
+    abstract fun localArchiveDao(): LocalArchiveDao
 }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -169,5 +171,23 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
 
         // Step 9: Rename authors table
         db.execSQL("ALTER TABLE `PocketAuthors` RENAME TO `article_authors`")
+    }
+}
+
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `article` ADD COLUMN `text_source` TEXT NOT NULL DEFAULT ''")
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS `local_archive` (
+                `itemId` TEXT NOT NULL,
+                `archiveKey` TEXT NOT NULL,
+                `localPath` TEXT NOT NULL,
+                `compressedSizeBytes` INTEGER NOT NULL,
+                `originalSizeBytes` INTEGER NOT NULL,
+                `downloadedAt` INTEGER NOT NULL,
+                `status` TEXT NOT NULL DEFAULT 'complete',
+                PRIMARY KEY(`itemId`, `archiveKey`)
+            )
+        """.trimIndent())
     }
 }
