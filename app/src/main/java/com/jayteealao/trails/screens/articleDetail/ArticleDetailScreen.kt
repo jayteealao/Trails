@@ -3,7 +3,10 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.res.Configuration
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -20,8 +23,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -32,8 +36,11 @@ import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.accompanist.web.AccompanistWebViewClient
 import com.google.accompanist.web.LoadingState
+import com.google.accompanist.web.WebContent
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
+import com.jayteealao.trails.data.archive.ArchiveType
+import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
@@ -45,7 +52,6 @@ import com.mikepenz.markdown.model.markdownPadding
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.AlignMiddle
 import compose.icons.cssggicons.Browser
-import compose.icons.cssggicons.Pocket
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 
@@ -55,10 +61,18 @@ fun ArticleDetailScreen(
     article: Article,
     viewStore: ViewStore<ArticleDetailState, ArticleDetailEvent, ArticleDetailViewModel> = rememberViewStore { hiltViewModel() }
 ) {
-    // Load article and auto-mark as read when screen opens
+    // Launcher for Google storage consent — one-time approval
+    val consentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            viewStore.action { retryArchiveSync() }
+        }
+    }
+
+    // Mark as read when screen opens (article loading handled by MainNavigation)
     LaunchedEffect(article.itemId) {
         viewStore.action {
-            getArticle(article.itemId)
             markAsRead(article.itemId)
         }
     }
@@ -76,7 +90,14 @@ fun ArticleDetailScreen(
         // Show toast message
     }
 
+    viewStore.handle<ArticleDetailEvent.StorageConsentNeeded> { event ->
+        consentLauncher.launch(event.intent)
+    }
+
     val currentArticle = viewStore.state.article ?: article
+    val archiveTabs = viewStore.state.localArchives.mapNotNull {
+        ArchiveType.fromArchiveKey(it.archiveKey)
+    }
 
     ConstraintLayout(
         modifier = Modifier
@@ -93,7 +114,9 @@ fun ArticleDetailScreen(
                 end.linkTo(parent.end)
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
-            article = currentArticle
+            article = currentArticle,
+            archiveTabs = archiveTabs,
+            selectedArchiveContent = viewStore.state.selectedArchiveContent,
         )
 
         ArticleDetailTabRow(
@@ -103,7 +126,7 @@ fun ArticleDetailScreen(
                 end.linkTo(parent.end)
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
-            shouldShowPocket = currentArticle.articleId != "0",
+            archiveTabs = archiveTabs,
             onTabSelected = { viewStore.action { setSelectedTab(it) } }
         )
     }
@@ -137,16 +160,18 @@ private fun ArticleDetailMarkdownPreview() {
 }
 
 @Preview(
-    name = "Article Detail • Pocket",
+    name = "Article Detail • Archive Tabs",
     showBackground = true,
     uiMode = Configuration.UI_MODE_NIGHT_YES,
 )
 @Composable
-private fun ArticleDetailPocketPreview() {
+private fun ArticleDetailArchivePreview() {
     TrailsTheme(darkTheme = true) {
         ArticleDetails(
             selectedTabIndex = 2,
             article = PreviewFixtures.article,
+            archiveTabs = listOf(ArchiveType.SINGLEFILE, ArchiveType.READABILITY),
+            selectedArchiveContent = "<h1>Archived Content</h1><p>This is archived HTML.</p>",
         )
     }
 }
@@ -155,20 +180,20 @@ private fun ArticleDetailPocketPreview() {
 fun ArticleDetailTabRow(
     modifier: Modifier = Modifier,
     selectedTabIndex: Int = 1,
-    shouldShowPocket: Boolean = false,
+    archiveTabs: List<ArchiveType> = emptyList(),
     onTabSelected: (Int) -> Unit = {}
 ) {
-    PrimaryTabRow(
+    ScrollableTabRow(
         selectedTabIndex = selectedTabIndex,
         modifier = modifier.windowInsetsPadding(WindowInsets.navigationBars),
-        containerColor = MaterialTheme.colorScheme.surface
+        containerColor = MaterialTheme.colorScheme.surface,
+        edgePadding = 16.dp,
     ) {
-//        Tab
         Tab(
             selected = selectedTabIndex == 0,
             onClick = { onTabSelected(0) },
             icon = {
-                Icon(CssGgIcons.AlignMiddle, contentDescription = null)
+                Icon(CssGgIcons.AlignMiddle, contentDescription = "Reader")
             }
         )
 
@@ -176,20 +201,18 @@ fun ArticleDetailTabRow(
             selected = selectedTabIndex == 1,
             onClick = { onTabSelected(1) },
             icon = {
-                Icon(CssGgIcons.Browser, contentDescription = null)
+                Icon(CssGgIcons.Browser, contentDescription = "Web")
             }
         )
 
-        if (shouldShowPocket) {
+        archiveTabs.forEachIndexed { index, archiveType ->
+            val tabIndex = index + 2
             Tab(
-                selected = selectedTabIndex == 2,
-                onClick = { onTabSelected(2) },
-                icon = {
-                    Icon(CssGgIcons.Pocket, contentDescription = null)
-                }
+                selected = selectedTabIndex == tabIndex,
+                onClick = { onTabSelected(tabIndex) },
+                text = { Text(archiveType.displayName) }
             )
         }
-
     }
 }
 
@@ -197,22 +220,28 @@ fun ArticleDetailTabRow(
 fun ArticleDetails(
     modifier: Modifier = Modifier,
     selectedTabIndex: Int = 1,
-    article: Article
+    article: Article,
+    archiveTabs: List<ArchiveType> = emptyList(),
+    selectedArchiveContent: String? = null,
 ) {
-
-//    val modifiedUrl = remember(article.url) {
-//        val modifier = UrlModifier()
-//        modifier.modifyUrl(article.url ?: article.givenUrl!!)
-//    }
     AnimatedContent(
         targetState = selectedTabIndex,
         modifier = modifier
     ) { targetIndex ->
-        when (targetIndex) {
-            0 -> ArticleMarkdown(article.text ?: "No content")
-            1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
-            2 -> ArticlePocketWebView(article.itemId)
-
+        when {
+            targetIndex == 0 -> ArticleMarkdown(article.text ?: "No content")
+            targetIndex == 1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
+            else -> {
+                val archiveIndex = targetIndex - 2
+                if (archiveIndex in archiveTabs.indices) {
+                    val archiveType = archiveTabs[archiveIndex]
+                    if (archiveType.providesText) {
+                        ArticleMarkdown(selectedArchiveContent ?: "Loading...")
+                    } else {
+                        ArticleArchiveWebView(selectedArchiveContent ?: "")
+                    }
+                }
+            }
         }
     }
 }
@@ -257,37 +286,34 @@ fun ArticleWebView(
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun ArticlePocketWebView(
-    articleId: String
+fun ArticleArchiveWebView(
+    htmlContent: String,
+    modifier: Modifier = Modifier,
 ) {
-    val webViewState = rememberWebViewState(url = "https://getpocket.com/read/${articleId}" ?: "https://www.google.com/")
-    val webClient: AccompanistWebViewClient = remember {
-        object : AccompanistWebViewClient() {
+    val webViewState = rememberWebViewState(url = "about:blank")
+
+    // Reactively update WebView content when htmlContent changes
+    LaunchedEffect(htmlContent) {
+        if (htmlContent.isNotEmpty()) {
+            webViewState.content = WebContent.Data(
+                data = htmlContent,
+                mimeType = "text/html",
+                encoding = "UTF-8",
+            )
         }
     }
 
-    val loadingState = webViewState.loadingState
-    Column {
-        if (loadingState is LoadingState.Loading) {
-            LinearProgressIndicator(
-                progress = { loadingState.progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp),
-            )
-        }
+    Column(modifier = modifier) {
         WebView(
             state = webViewState,
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(),
-            onCreated = {
-                it.settings.javaScriptEnabled = true
-                it.settings.domStorageEnabled = true
+            onCreated = { webView ->
+                webView.settings.javaScriptEnabled = true
+                webView.settings.domStorageEnabled = true
             },
-            onDispose = {
-            },
-            client = webClient
+            client = remember { AccompanistWebViewClient() }
         )
     }
 }

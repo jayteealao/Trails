@@ -1,5 +1,8 @@
 package com.jayteealao.trails.screens.articleDetail
 
+import android.content.Intent
+import com.jayteealao.trails.data.archive.ArchiveStatus
+import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.local.database.Article
 
 /**
@@ -9,7 +12,12 @@ data class ArticleDetailState(
     val article: Article? = null,
     val selectedTabIndex: Int = 1, // Default to Web view (tab 1)
     val useFreedium: Boolean = false,
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val remoteArchives: Map<String, ArchiveStatus> = emptyMap(),
+    val localArchives: List<LocalArchive> = emptyList(),
+    val archiveSyncing: Boolean = false,
+    val textSource: String = "",
+    val selectedArchiveContent: String? = null,
 )
 
 /**
@@ -20,4 +28,5 @@ sealed interface ArticleDetailEvent {
     data class ArticleMarkedAsRead(val itemId: String) : ArticleDetailEvent
     data object NavigateBack : ArticleDetailEvent
     data class ShowError(val error: Throwable) : ArticleDetailEvent
+    data class StorageConsentNeeded(val intent: Intent) : ArticleDetailEvent
 }

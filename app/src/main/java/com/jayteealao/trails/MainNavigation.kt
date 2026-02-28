@@ -11,6 +11,7 @@ import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -135,7 +136,9 @@ fun MainNavigation(
 //                metadata = ListDetailSceneStrategy.detailPane()
             ) { key ->
                 val articleId = key.id
-                articleDetailViewModel.getArticle(articleId)
+                LaunchedEffect(articleId) {
+                    articleDetailViewModel.getArticle(articleId)
+                }
                 val selectedArticle by articleDetailViewModel.state.map { it.article }.collectAsState(null)
 
                 selectedArticle?.let { ArticleDetailScreen(article = it) }
