@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "trails-e428e"
+  },
+  "targets": {
+    "trails-e428e": {
+      "storage": {
+        "archives": [
+          "htbase-archives-standard"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

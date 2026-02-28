@@ -1,0 +1,15 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": [
+    {
+      "rules": "storage.rules",
+      "bucket": "trails-e428e.firebasestorage.app"
+    },
+    {
+      "rules": "storage.rules",
+      "target": "archives"
+    }
+  ]
+}
