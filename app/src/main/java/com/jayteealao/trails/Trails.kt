@@ -27,6 +27,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import com.google.firebase.auth.FirebaseAuth
+import com.jayteealao.trails.common.FirestoreLogTree
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +49,9 @@ class Trails @Inject constructor() : Application(), Configuration.Provider, Sing
         super.onCreate()
 //        Sync.initialize(context = this)
         Timber.plant(Timber.DebugTree())
+        if (BuildConfig.DEBUG) {
+            Timber.plant(FirestoreLogTree())
+        }
 
         // Schedule periodic sync AFTER Hilt dependency injection completes
         // We use Handler.post to ensure this runs after onCreate() returns,
