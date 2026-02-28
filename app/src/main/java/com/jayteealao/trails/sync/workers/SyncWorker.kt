@@ -10,9 +10,10 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-// TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
-// import com.jayteealao.trails.common.ContentMetricsCalculator
+import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.data.ArticleRepository
+import com.jayteealao.trails.data.archive.ArchiveService
+import com.jayteealao.trails.data.archive.ArchiveType
 import com.jayteealao.trails.data.datasource.NetworkDataSource
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArticleData
@@ -35,6 +36,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
@@ -62,9 +64,10 @@ class SyncWorker @AssistedInject constructor(
 
     @Inject
     lateinit var articleDao: ArticleDao
-    // TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
-    // @Inject
-    // lateinit var contentMetricsCalculator: ContentMetricsCalculator
+    @Inject
+    lateinit var contentMetricsCalculator: ContentMetricsCalculator
+    @Inject
+    lateinit var archiveService: ArchiveService
     @Inject
     lateinit var postgrestClient: PostgrestClient
 
@@ -104,10 +107,6 @@ class SyncWorker @AssistedInject constructor(
                                             excerpt = if (article.excerpt.isNullOrBlank()) result?.description ?: "" else article.excerpt
                                         )
                                     }
-                                    // TODO: Replace Jina text extraction with new text provider
-                                    // Once available, also re-enable ContentMetricsCalculator
-                                    // to compute reading time, listening time, and word count
-                                    // for articles with or without existing text.
                                 } catch (e: Exception) {
                                     Timber.e(e, "Failed to process article ${article.itemId}")
                                 }
@@ -118,31 +117,6 @@ class SyncWorker @AssistedInject constructor(
                         jobs.joinAll()
                         Timber.d("Finished processing non-metrics articles")
                     }
-
-/*                    var currentChunk: List<Article>
-                    var offset = 0
-                    val chunkSize = 50
-                    Timber.d("Starting repopulation")
-                    Timber.d("Total articles to repopulate: ${articleDao.countArticle()}")
-                    do {
-                        currentChunk = articleDao.getArticles(offset, chunkSize)
-                        //if foreground service is killed, the job is cancelled
-                        if (!currentCoroutineContext().isActive or foregroundInfoAsync.isCancelled) {
-                            Timber.d("Job cancelled, stopping repopulation")
-                            break
-                        }
-                        if (currentChunk.isNotEmpty()) {
-                            try {
-                                val response = postgrestClient.sendArticles(currentChunk)
-                                Timber.d("Response: $response")
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to send articles")
-                            }
-                            offset += chunkSize
-                            Timber.d("Sent ${currentChunk.size} articles, offset: $offset")
-                        }
-                    } while (currentChunk.isNotEmpty())
-                    Timber.d("Repopulation done")*/
 
                     val unresolved = articleDao.getUnresolvedArticles()
 
@@ -173,6 +147,17 @@ class SyncWorker @AssistedInject constructor(
 
                 }
                     repopulateJob.join()
+
+                    // ── Phase 7: Background archive sync ─────────────────────
+                    // TODO: Re-enable after verifying ArticleDetailViewModel.loadArchives() in isolation
+                    // syncArchivesInBackground()
+
+                    // ── Phase 6: Metadata backfill ───────────────────────────
+                    // backfillMetadata()
+
+                    // ── Phase 6: Content metrics for newly text-populated ────
+                    // computeContentMetrics()
+
                 } catch (e: Exception) {
                     Timber.e(e)
                     hadErrors = true
@@ -194,6 +179,136 @@ class SyncWorker @AssistedInject constructor(
             }
             Result.success()
 
+    }
+
+    // ── Phase 7: Download archives and populate text for articles ─────────
+
+    private suspend fun syncArchivesInBackground() {
+        val batchSize = 20
+        var offset = 0
+
+        while (currentCoroutineContext().isActive) {
+            val itemIds = articleDao.getArticlesNeedingText(batchSize, offset)
+            if (itemIds.isEmpty()) break
+
+            Timber.d("Archive sync: processing ${itemIds.size} articles (offset=$offset)")
+
+            for (itemId in itemIds) {
+                if (!currentCoroutineContext().isActive) break
+                try {
+                    // Fetch remote archive status from Firestore
+                    val doc = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                        .collection("articles")
+                        .document(itemId)
+                        .get()
+                        .await()
+
+                    if (!doc.exists()) {
+                        delay(100)
+                        continue
+                    }
+
+                    @Suppress("UNCHECKED_CAST")
+                    val archivesMap = doc.get("archives") as? Map<String, Map<String, Any>>
+                        ?: emptyMap()
+
+                    val remoteArchives = archivesMap.mapNotNull { (key, value) ->
+                        val status = value["status"] as? String ?: return@mapNotNull null
+                        val gcsPath = value["gcs_path"] as? String
+                        key to com.jayteealao.trails.data.archive.ArchiveStatus(status, gcsPath)
+                    }.toMap()
+
+                    if (remoteArchives.isNotEmpty()) {
+                        // Download archive files locally
+                        archiveService.syncArchives(itemId, remoteArchives)
+
+                        // Populate article.text from readability or markdown
+                        populateTextFromArchive(itemId)
+                    }
+
+                    // Apply screenshot as image fallback if article has no image
+                    archiveService.applyScreenshotAsImage(itemId)
+
+                    delay(100) // Rate-limit Firestore reads
+                } catch (e: Exception) {
+                    Timber.e(e, "Archive sync failed for $itemId")
+                }
+            }
+
+            offset += batchSize
+        }
+    }
+
+    private suspend fun populateTextFromArchive(itemId: String) {
+        val article = articleDao.getArticleById(itemId) ?: return
+        if (!article.text.isNullOrBlank()) return
+
+        // Prefer readability over markdown
+        val type = listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN)
+            .firstOrNull { archiveService.getLocalArchiveFile(itemId, it) != null }
+            ?: return
+
+        val text = archiveService.readArchiveText(itemId, type) ?: return
+        articleRepository.updateArticleText(itemId, text, type.archiveKey)
+        Timber.d("Populated text for $itemId from ${type.archiveKey}")
+    }
+
+    // ── Phase 6: Metadata backfill from Warg ─────────────────────────────
+
+    private suspend fun backfillMetadata() {
+        val batchSize = 50
+        var offset = 0
+
+        while (currentCoroutineContext().isActive) {
+            val articles = articleDao.getArticlesWithMissingMetadata(batchSize, offset)
+            if (articles.isEmpty()) break
+
+            Timber.d("Metadata backfill: processing ${articles.size} articles (offset=$offset)")
+
+            for (article in articles) {
+                if (!currentCoroutineContext().isActive) break
+                try {
+                    val metadata = archiveService.fetchWargMetadata(article.itemId)
+                    if (metadata != null) {
+                        articleRepository.backfillMetadata(article.itemId, metadata)
+                    }
+                    delay(100) // Rate-limit Firestore reads
+                } catch (e: Exception) {
+                    Timber.e(e, "Metadata backfill failed for ${article.itemId}")
+                }
+            }
+
+            offset += batchSize
+        }
+    }
+
+    // ── Phase 6: Compute content metrics for newly text-populated articles ──
+
+    private suspend fun computeContentMetrics() {
+        val articles = articleDao.getNonMetricsArticles()
+        if (articles.isEmpty()) return
+
+        // Only process articles that have text (resolved = 2 means text was just added)
+        val articlesWithText = articles.filter { it.resolved == 2 && !it.text.isNullOrBlank() }
+        if (articlesWithText.isEmpty()) return
+
+        Timber.d("Computing metrics for ${articlesWithText.size} articles")
+
+        for (article in articlesWithText) {
+            if (!currentCoroutineContext().isActive) break
+            try {
+                val metrics = contentMetricsCalculator.calculateMetrics(article.text!!)
+                articleDao.updateArticleMetrics(
+                    itemId = article.itemId,
+                    timeToRead = metrics.readingTimeMinutes,
+                    listenDurationEstimate = metrics.listeningTimeMinutes,
+                    wordCount = metrics.wordCount,
+                )
+                Timber.d("Updated metrics for ${article.itemId}: ${metrics.wordCount} words, ${metrics.readingTimeMinutes}min read")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to compute metrics for ${article.itemId}")
+            }
+        }
     }
 
     internal companion object {

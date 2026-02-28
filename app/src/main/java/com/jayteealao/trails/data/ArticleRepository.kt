@@ -24,6 +24,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
+import com.jayteealao.trails.data.archive.WargMetadata
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
@@ -91,6 +92,10 @@ interface ArticleRepository: Syncable {
     fun syncToFirestore()
 
     fun restoreFromFirestore()
+
+    suspend fun updateArticleText(itemId: String, text: String, source: String)
+
+    suspend fun backfillMetadata(itemId: String, metadata: WargMetadata)
 }
 
 interface Syncable {
@@ -380,6 +385,40 @@ class ArticleRepositoryImpl @Inject constructor(
                 FirestoreRestoreWorker.startUpRestoreWork()
             )
             .enqueue()
+    }
+
+    override suspend fun updateArticleText(itemId: String, text: String, source: String) {
+        articleDao.updateTextWithSource(itemId, text, source)
+    }
+
+    override suspend fun backfillMetadata(itemId: String, metadata: WargMetadata) {
+        val article = articleDao.getArticleById(itemId) ?: return
+
+        val newTitle = if (article.title.isBlank() && !metadata.title.isNullOrBlank()) {
+            metadata.title
+        } else {
+            article.title
+        }
+        val newExcerpt = if (article.excerpt.isNullOrBlank() && !metadata.excerpt.isNullOrBlank()) {
+            metadata.excerpt
+        } else {
+            article.excerpt
+        }
+        val newWordCount = if (article.wordCount == 0 && metadata.wordCount != null) {
+            metadata.wordCount
+        } else {
+            article.wordCount
+        }
+
+        if (newTitle != article.title || newExcerpt != article.excerpt || newWordCount != article.wordCount) {
+            articleDao.upsertArticle(
+                article.copy(
+                    title = newTitle,
+                    excerpt = newExcerpt,
+                    wordCount = newWordCount,
+                )
+            )
+        }
     }
 }
 
