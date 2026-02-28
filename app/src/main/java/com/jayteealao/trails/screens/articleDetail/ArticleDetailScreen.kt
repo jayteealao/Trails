@@ -210,7 +210,9 @@ fun ArticleDetailTabRow(
             Tab(
                 selected = selectedTabIndex == tabIndex,
                 onClick = { onTabSelected(tabIndex) },
-                text = { Text(archiveType.displayName) }
+                icon = {
+                    Icon(archiveType.icon, contentDescription = archiveType.displayName)
+                }
             )
         }
     }
