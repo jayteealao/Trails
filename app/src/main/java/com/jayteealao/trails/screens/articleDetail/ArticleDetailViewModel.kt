@@ -104,8 +104,11 @@ class ArticleDetailViewModel @Inject constructor(
 
     // Actions
     fun getArticle(itemId: String) {
-        // Skip if already loaded for this article
-        if (currentArticleId == itemId && _article.value?.itemId == itemId) return
+        // Skip full reload if already loaded, but still check for new archives
+        if (currentArticleId == itemId && _article.value?.itemId == itemId) {
+            loadArchives(itemId)
+            return
+        }
 
         // Reset stale state when switching articles
         if (currentArticleId != null && currentArticleId != itemId) {
@@ -177,10 +180,11 @@ class ArticleDetailViewModel @Inject constructor(
             val existingArchives = localArchiveDao.getArchivesForArticle(itemId)
 
             if (existingArchives.isNotEmpty()) {
-                // Archives already downloaded — use them directly, skip remote sync
-                Timber.d("loadArchives($itemId) — ${existingArchives.size} local archives found, skipping remote sync")
+                // Use local archives immediately, then check for new ones
+                Timber.d("loadArchives($itemId) — ${existingArchives.size} local archives found")
                 _localArchives.value = existingArchives
                 autoPopulateText(itemId, existingArchives)
+                checkForNewArchives(itemId, existingArchives)
             } else {
                 // No local archives — observe local (reactive) + remote (Firestore)
                 Timber.d("loadArchives($itemId) — no local archives, starting observers")
@@ -219,6 +223,40 @@ class ArticleDetailViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun checkForNewArchives(itemId: String, localArchives: List<LocalArchive>) {
+        try {
+            val remoteMap = archiveService.fetchRemoteArchiveStatus(itemId)
+            val localKeys = localArchives.map { it.archiveKey }.toSet()
+            val newArchives = remoteMap.filter { (key, status) ->
+                key !in localKeys &&
+                    status.status == "success" &&
+                    status.gcsPath != null &&
+                    ArchiveType.fromArchiveKey(key) != null
+            }
+
+            if (newArchives.isEmpty()) {
+                Timber.d("checkForNewArchives($itemId) — up to date (${localKeys.size} local)")
+                return
+            }
+
+            Timber.d("checkForNewArchives($itemId) — found ${newArchives.size} new archives, syncing")
+            _archiveSyncing.value = true
+            try {
+                archiveService.syncArchives(itemId, newArchives)
+                val updated = localArchiveDao.getArchivesForArticle(itemId)
+                _localArchives.value = updated
+            } catch (e: UserRecoverableAuthException) {
+                e.intent?.let { _event.emit(ArticleDetailEvent.StorageConsentNeeded(it)) }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to sync new archives for $itemId")
+            } finally {
+                _archiveSyncing.value = false
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "checkForNewArchives($itemId) — failed")
         }
     }
 
