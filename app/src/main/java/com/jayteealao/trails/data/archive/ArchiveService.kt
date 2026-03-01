@@ -90,24 +90,6 @@ class ArchiveService @Inject constructor(
         }
     }
 
-    // ── a2) One-shot Firestore fetch (for delta checks) ────────────────
-
-    suspend fun fetchRemoteArchiveStatus(itemId: String): Map<String, ArchiveStatus> =
-        withContext(ioDispatcher) {
-            val doc = firestore.collection("articles").document(itemId).get().await()
-            if (!doc.exists()) return@withContext emptyMap()
-
-            @Suppress("UNCHECKED_CAST")
-            val archivesMap = doc.get("archives") as? Map<String, Map<String, Any>>
-                ?: return@withContext emptyMap()
-
-            archivesMap.mapNotNull { (key, value) ->
-                val status = value["status"] as? String ?: return@mapNotNull null
-                val gcsPath = value["gcs_path"] as? String
-                key to ArchiveStatus(status, gcsPath)
-            }.toMap()
-        }
-
     // ── b) Download archive from GCS → store locally ────────────────────
 
     suspend fun downloadAndStoreArchive(
