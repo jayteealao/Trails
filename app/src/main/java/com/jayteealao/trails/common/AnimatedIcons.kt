@@ -46,7 +46,8 @@ private data class DiamondStackLayout(
     val baseSquareSize: Dp,
     val cornerRadius: Dp,
     val verticalSpacing: Dp,
-    val horizontalOffset: Dp,
+    val centerOffsetX: Dp,
+    val centerOffsetY: Dp,
     val baseSquareSizePx: Float,
 )
 
@@ -55,11 +56,17 @@ private fun BoxWithConstraintsScope.computeDiamondLayout(): DiamondStackLayout {
     val scale = minOf(constraints.maxWidth / 150f, constraints.maxHeight / 150f)
     val density = LocalDensity.current
     return with(density) {
+        val baseSquareSize = (36f * scale).toDp()
+        val verticalSpacing = (30f * scale).toDp()
+        val containerW = constraints.maxWidth.toDp()
+        val containerH = constraints.maxHeight.toDp()
+
         DiamondStackLayout(
-            baseSquareSize = (36f * scale).toDp(),
+            baseSquareSize = baseSquareSize,
             cornerRadius = (7f * scale).toDp(),
-            verticalSpacing = (30f * scale).toDp(),
-            horizontalOffset = (7f * scale).toDp(),
+            verticalSpacing = verticalSpacing,
+            centerOffsetX = (containerW - baseSquareSize) / 2,
+            centerOffsetY = (containerH - verticalSpacing * 2 - baseSquareSize) / 2,
             baseSquareSizePx = 36f * scale,
         )
     }
@@ -75,7 +82,7 @@ private fun Diamond(
 ) {
     Box(
         modifier = modifier
-            .offset(x = layout.horizontalOffset, y = yOffset)
+            .offset(x = layout.centerOffsetX, y = layout.centerOffsetY + yOffset)
             .rotate(45f)
             .size(layout.baseSquareSize)
             .clip(RoundedCornerShape(layout.cornerRadius))

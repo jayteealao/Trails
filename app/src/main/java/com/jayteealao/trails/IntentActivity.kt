@@ -13,13 +13,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -133,8 +132,7 @@ class IntentActivity : ComponentActivity() {
 
                                 Card(
                                     modifier = Modifier
-                                        .wrapContentWidth()
-                                        .widthIn(max = 400.dp)
+                                        .fillMaxWidth()
                                         .wrapContentHeight(),
                                     colors = CardDefaults.cardColors(
                                         containerColor = MaterialTheme.colorScheme.surface,
@@ -180,14 +178,15 @@ fun Content(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AnimatedRoundedBoxes(
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(56.dp),
             isAnimating = isSaving,
         )
         Column(
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
