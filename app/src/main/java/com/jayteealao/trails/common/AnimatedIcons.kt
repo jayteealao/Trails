@@ -144,8 +144,14 @@ fun AnimatedRoundedBoxes(
         val currentIsAnimating by rememberUpdatedState(isAnimating)
 
         LaunchedEffect(layout.baseSquareSizePx) {
+            // Start with diamonds in resting position
+            squares.forEachIndexed { i, sq ->
+                sq.alpha.snapTo(1f)
+                sq.yOffset.snapTo(i * layout.verticalSpacing.value)
+            }
+
             while (true) {
-                // If not animating, show static resting state and wait
+                // If not animating, hold resting state and wait
                 if (!currentIsAnimating) {
                     squares.forEachIndexed { i, sq ->
                         sq.alpha.snapTo(1f)
@@ -154,32 +160,10 @@ fun AnimatedRoundedBoxes(
                     snapshotFlow { currentIsAnimating }.first { it }
                 }
 
-                // Reset to initial state
-                squares.forEachIndexed { i, sq ->
-                    sq.alpha.snapTo(0f)
-                    sq.yOffset.snapTo(-(i + 1) * layout.baseSquareSizePx)
-                }
+                // Phase 1: Hold in place
+                delay(800L)
 
-                // Phase 1: Drop In (staggered, top-first)
-                coroutineScope {
-                    squares.forEachIndexed { i, sq ->
-                        launch {
-                            delay(i * 300L)
-                            launch {
-                                sq.alpha.animateTo(1f, tween(800))
-                            }
-                            sq.yOffset.animateTo(
-                                targetValue = i * layout.verticalSpacing.value,
-                                animationSpec = tween(800, easing = EaseInOutBack),
-                            )
-                        }
-                    }
-                }
-
-                // Phase 2: Hold
-                delay(1500L)
-
-                // Phase 3: Fall Off (staggered, bottom-first)
+                // Phase 2: Fall off (staggered, bottom-first)
                 val fallDistance = layout.baseSquareSizePx * 4
                 coroutineScope {
                     squares.reversed().forEachIndexed { i, sq ->
@@ -196,8 +180,29 @@ fun AnimatedRoundedBoxes(
                     }
                 }
 
-                // Phase 4: Pause
-                delay(50L)
+                // Phase 3: Pause while invisible
+                delay(200L)
+
+                // Phase 4: Reset to above, then drop in (staggered, top-first)
+                squares.forEachIndexed { i, sq ->
+                    sq.alpha.snapTo(0f)
+                    sq.yOffset.snapTo(-(i + 1) * layout.baseSquareSizePx)
+                }
+
+                coroutineScope {
+                    squares.forEachIndexed { i, sq ->
+                        launch {
+                            delay(i * 200L)
+                            launch {
+                                sq.alpha.animateTo(1f, tween(600))
+                            }
+                            sq.yOffset.animateTo(
+                                targetValue = i * layout.verticalSpacing.value,
+                                animationSpec = tween(600, easing = EaseInOutBack),
+                            )
+                        }
+                    }
+                }
             }
         }
 
