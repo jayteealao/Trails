@@ -22,6 +22,7 @@ import android.content.Context
 import androidx.paging.PagingSource
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
+import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.archive.WargMetadata
@@ -168,6 +169,7 @@ class ArticleRepositoryImpl @Inject constructor(
             // Clear deleted_at and archived_at when re-adding articles
             // This undeletes/unarchives previously deleted articles
             val articleToAdd = datum.article.copy(
+                normalizedUrl = normalizeUrl(datum.article.url ?: datum.article.givenUrl ?: ""),
                 deletedAt = null,
                 archivedAt = null,
                 timeUpdated = System.currentTimeMillis() // Update timestamp for sync

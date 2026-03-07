@@ -28,6 +28,7 @@ import androidx.paging.cachedIn
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.common.generateId
+import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
@@ -259,7 +260,9 @@ class ArticleListViewModel @Inject constructor(
 
     fun insertArticle(article: Article) {
         viewModelScope.launch(ioDispatcher) {
-            articleDao.upsertArticle(article)
+            articleDao.upsertArticle(article.copy(
+                normalizedUrl = normalizeUrl(article.url ?: article.givenUrl ?: "")
+            ))
         }
     }
 
@@ -312,6 +315,7 @@ class ArticleListViewModel @Inject constructor(
                 }
 
                 val timeNow = System.currentTimeMillis()
+                val normalizedUrl = normalizeUrl(url)
                 val articleId = articleDao.upsertNewArticle(
                     Article(
                         itemId = id,
@@ -320,6 +324,7 @@ class ArticleListViewModel @Inject constructor(
                         givenTitle = title ?: "",
                         url = url,
                         givenUrl = url,
+                        normalizedUrl = normalizedUrl,
                         timeAdded = timeNow,
                         timeUpdated = timeNow,
                     )
@@ -344,7 +349,7 @@ class ArticleListViewModel @Inject constructor(
 
                 if (unfurlResult != null) {
                     resolvedTitle = unfurlResult.title ?: resolvedTitle
-                    resolvedUrl = (unfurlResult.url ?: resolvedUrl).toString()
+                    resolvedUrl = unfurlResult.url.toString()
                     resolvedImage = unfurlResult.thumbnail?.toString()
                     hasImage = unfurlResult.thumbnail != null
                     resolvedExcerpt = unfurlResult.description ?: ""
@@ -368,6 +373,7 @@ class ArticleListViewModel @Inject constructor(
                     image = resolvedImage,
                     hasImage = hasImage,
                     excerpt = resolvedExcerpt,
+                    normalizedUrl = normalizeUrl(resolvedUrl),
                 )
 
                 // TODO: Replace with new text provider (archiver/singlefile) to extract
@@ -427,6 +433,7 @@ class ArticleListViewModel @Inject constructor(
                     image = resolvedImage,
                     hasImage = hasImage,
                     excerpt = resolvedExcerpt,
+                    normalizedUrl = normalizeUrl(resolvedUrl),
                 )
 
                 // TODO: Re-enable text extraction and metrics when new text provider is available

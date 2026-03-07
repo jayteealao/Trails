@@ -154,6 +154,9 @@ interface ArticleDao {
     @Query("SELECT * FROM article WHERE url = :url OR givenUrl = :url")
     fun getArticleByUrl(url: String): Article?
 
+    @Query("SELECT * FROM article WHERE normalized_url = :normalizedUrl LIMIT 1")
+    fun getArticleByNormalizedUrl(normalizedUrl: String): Article?
+
     @Query("SELECT * FROM article WHERE resolved = 0 OR resolved = 1 OR resolved = 3 ORDER BY timeAdded ASC")
     suspend fun getUnresolvedArticles(): List<Article>
 
@@ -199,10 +202,11 @@ interface ArticleDao {
 
     @Query("""
             UPDATE article
-            SET title = :title, url = :url, image = :image, hasImage = :hasImage, excerpt = :excerpt
+            SET title = :title, url = :url, image = :image, hasImage = :hasImage, excerpt = :excerpt,
+                normalized_url = :normalizedUrl
             WHERE itemId = :itemId
             """)
-    suspend fun updateUnfurledDetails(itemId: String, title: String, url: String, image: String?, hasImage: Boolean, excerpt: String)
+    suspend fun updateUnfurledDetails(itemId: String, title: String, url: String, image: String?, hasImage: Boolean, excerpt: String, normalizedUrl: String)
 
     @Query("UPDATE article SET excerpt = :excerpt WHERE itemId = :itemId")
     suspend fun updateExcerpt(itemId: String, excerpt: String)
@@ -389,13 +393,16 @@ interface ArticleDao {
      */
     @Transaction
     suspend fun upsertNewArticle(newArticle: Article): String {
-        var existingArticle: Article? = null
-        if (newArticle.givenUrl != null) {
-            existingArticle = getArticleByUrl(newArticle.givenUrl)
-        }
-        if (existingArticle == null && newArticle.url != null) {
-            existingArticle = getArticleByUrl(newArticle.url)
-        }
+        // Dedup via the dedicated normalized_url column
+        val lookupUrl = newArticle.normalizedUrl
+            ?: newArticle.url
+            ?: newArticle.givenUrl
+
+        val existingArticle = if (lookupUrl != null) {
+            getArticleByNormalizedUrl(lookupUrl)
+                ?: getArticleByUrl(lookupUrl) // Fallback for pre-migration rows
+        } else null
+
         if (existingArticle != null) {
             val normalizedFavorite = when {
                 existingArticle.favorite == "1" || existingArticle.timeFavorited > 0 -> "1"
@@ -416,6 +423,7 @@ interface ArticleDao {
                     givenTitle = newArticle.givenTitle.ifBlank { existingArticle.givenTitle },
                     url = newArticle.url ?: existingArticle.url,
                     givenUrl = newArticle.givenUrl ?: existingArticle.givenUrl,
+                    normalizedUrl = newArticle.normalizedUrl ?: existingArticle.normalizedUrl,
                     favorite = normalizedFavorite,
                     status = newArticle.status.ifBlank { existingArticle.status },
                     image = newArticle.image ?: existingArticle.image,

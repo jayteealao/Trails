@@ -6,6 +6,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArticleTags
@@ -84,7 +85,9 @@ class FirestoreSyncManager @Inject constructor(
 
             if (localArticle == null) {
                 // New article - insert with related data
-                articleDao.upsertArticle(remoteArticle)
+                articleDao.upsertArticle(remoteArticle.copy(
+                    normalizedUrl = normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: "")
+                ))
 
                 // Restore tags
                 val remoteTags = firestoreBackupService.restoreArticleTags(remoteArticle.itemId)
@@ -99,7 +102,9 @@ class FirestoreSyncManager @Inject constructor(
             } else {
                 // Conflict resolution: compare timestamps
                 if (shouldAcceptRemoteChange(localArticle, remoteArticle)) {
-                    articleDao.upsertArticle(remoteArticle)
+                    articleDao.upsertArticle(remoteArticle.copy(
+                        normalizedUrl = normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: "")
+                    ))
 
                     // Restore tags (replace existing)
                     val remoteTags = firestoreBackupService.restoreArticleTags(remoteArticle.itemId)

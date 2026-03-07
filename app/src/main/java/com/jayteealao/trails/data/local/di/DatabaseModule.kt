@@ -25,6 +25,8 @@ import com.jayteealao.trails.data.local.database.MIGRATION_1_2
 import com.jayteealao.trails.data.local.database.MIGRATION_2_3
 import com.jayteealao.trails.data.local.database.MIGRATION_3_4
 import com.jayteealao.trails.data.local.database.MIGRATION_4_5
+import com.jayteealao.trails.data.local.database.MIGRATION_5_6
+import com.jayteealao.trails.data.local.database.UrlNormalizationCallback
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -54,15 +56,8 @@ class DatabaseModule {
             AppDatabase::class.java,
             "Pocket"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
-//            .addCallback(
-//            object : RoomDatabase.Callback() {
-//                override fun onOpen(db: SupportSQLiteDatabase) {
-//                    super.onOpen(db)
-//                    db.execSQL("INSERT INTO pocketarticle_fts(pocketarticle_fts) VALUES ('rebuild')")
-//                }
-//            }
-//        )
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addCallback(UrlNormalizationCallback(appContext))
             .build()
     }
 }

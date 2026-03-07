@@ -16,10 +16,13 @@
 
 package com.jayteealao.trails.data.local.database
 
+import android.content.Context
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.jayteealao.trails.common.normalizeUrl
+import timber.log.Timber
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.archive.LocalArchiveDao
 import com.jayteealao.trails.network.ArticleAuthors
@@ -39,7 +42,7 @@ import com.jayteealao.trails.network.DomainMetadata
         DomainMetadata::class,
         LocalArchive::class,
     ],
-    version = 5,
+    version = 6,
     autoMigrations = [],
     exportSchema = true
 )
@@ -189,5 +192,53 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
                 PRIMARY KEY(`itemId`, `archiveKey`)
             )
         """.trimIndent())
+    }
+}
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `article` ADD COLUMN `normalized_url` TEXT DEFAULT NULL")
+    }
+}
+
+/**
+ * Backfills the `normalized_url` column for existing articles after migration 5→6.
+ * Uses SharedPreferences flag to ensure it runs only once.
+ */
+class UrlNormalizationCallback(private val context: Context) : RoomDatabase.Callback() {
+    override fun onOpen(db: SupportSQLiteDatabase) {
+        super.onOpen(db)
+        val prefs = context.getSharedPreferences("db_migrations", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("url_normalization_v1", false)) return
+
+        val cursor = db.query("SELECT itemId, url, givenUrl FROM article WHERE normalized_url IS NULL")
+        val updates = mutableListOf<Pair<String, String>>()
+        cursor.use {
+            while (it.moveToNext()) {
+                val itemId = it.getString(0)
+                val url = if (it.isNull(1)) null else it.getString(1)
+                val givenUrl = if (it.isNull(2)) null else it.getString(2)
+                val raw = url ?: givenUrl ?: continue
+                updates.add(itemId to normalizeUrl(raw))
+            }
+        }
+
+        if (updates.isNotEmpty()) {
+            db.beginTransaction()
+            try {
+                val stmt = db.compileStatement("UPDATE article SET normalized_url = ? WHERE itemId = ?")
+                for ((itemId, normalized) in updates) {
+                    stmt.bindString(1, normalized)
+                    stmt.bindString(2, itemId)
+                    stmt.executeUpdateDelete()
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+            Timber.d("URL normalization backfill: updated ${updates.size} articles")
+        }
+
+        prefs.edit().putBoolean("url_normalization_v1", true).apply()
     }
 }

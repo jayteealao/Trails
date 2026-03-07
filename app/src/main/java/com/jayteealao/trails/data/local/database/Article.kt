@@ -34,6 +34,7 @@ data class Article(
     val givenTitle: String = "",
     val url: String? = null,
     val givenUrl: String? = null,
+    @ColumnInfo(name = "normalized_url") val normalizedUrl: String? = null,
     val excerpt: String? = null,
     val wordCount: Int = 0,
     val favorite: String? = null,

@@ -11,6 +11,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.jayteealao.trails.common.ContentMetricsCalculator
+import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.archive.ArchiveService
 import com.jayteealao.trails.data.archive.ArchiveType
@@ -98,13 +99,15 @@ class SyncWorker @AssistedInject constructor(
                                 try {
                                     if (article.title.isBlank()) {
                                         val result = unfurler.unfurl(article.url ?: article.givenUrl!!)
+                                        val resolvedUrl = (result?.url ?: article.url).toString()
                                         articleDao.updateUnfurledDetails(
                                             itemId = article.itemId,
                                             title = result?.title ?: article.title,
-                                            url = (result?.url ?: article.url).toString(),
+                                            url = resolvedUrl,
                                             image = if (result?.thumbnail == null) article.image else result.thumbnail.toString(),
                                             hasImage = result?.thumbnail != null,
-                                            excerpt = if (article.excerpt.isNullOrBlank()) result?.description ?: "" else article.excerpt
+                                            excerpt = if (article.excerpt.isNullOrBlank()) result?.description ?: "" else article.excerpt,
+                                            normalizedUrl = normalizeUrl(resolvedUrl),
                                         )
                                     }
                                 } catch (e: Exception) {

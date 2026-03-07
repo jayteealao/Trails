@@ -101,6 +101,7 @@ class ArticleListViewModelTest {
                 any(),
                 any(),
                 any(),
+                any(),
             )
         } returns Unit
 
@@ -123,7 +124,7 @@ class ArticleListViewModelTest {
         assertFalse(viewModel.isSaving.value)
         assertEquals("Shared title", viewModel.intentTitle.value)
 
-        coVerify(exactly = 1) { articleDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { articleDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
     }
 
     // Tag suggestion tests have been moved to TagManagementViewModelTest
