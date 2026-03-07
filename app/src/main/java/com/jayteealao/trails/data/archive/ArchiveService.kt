@@ -14,6 +14,8 @@ import com.jayteealao.trails.data.local.database.ArticleDao
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.supervisorScope
@@ -57,6 +59,9 @@ class ArchiveService @Inject constructor(
     private val archivesDir: File
         get() = File(application.filesDir, "archives")
 
+    /** Limit concurrent archive downloads to cap peak memory from parallel decompress. */
+    private val downloadSemaphore = Semaphore(3)
+
     // ── a) Firestore document listener ──────────────────────────────────
 
     fun observeRemoteArchives(itemId: String): Flow<Map<String, ArchiveStatus>> = callbackFlow {
@@ -96,10 +101,14 @@ class ArchiveService @Inject constructor(
         itemId: String,
         type: ArchiveType,
         gcsPath: String,
-    ): LocalArchive = withContext(ioDispatcher) {
+    ): LocalArchive? = withContext(ioDispatcher) {
         Timber.d("downloadAndStore($itemId, ${type.archiveKey}) — fetching from GCS: $gcsPath")
 
         val rawBytes = downloadFromGcs(gcsPath)
+        if (rawBytes == null) {
+            Timber.w("downloadAndStore($itemId, ${type.archiveKey}) — download returned null, skipping")
+            return@withContext null
+        }
         Timber.d("downloadAndStore($itemId, ${type.archiveKey}) — got ${rawBytes.size} bytes, gzipped=${isGzipped(rawBytes)}")
         val isAlreadyGzipped = isGzipped(rawBytes)
 
@@ -112,7 +121,8 @@ class ArchiveService @Inject constructor(
 
         if (isAlreadyGzipped) {
             compressedBytes = rawBytes
-            originalSize = decompress(rawBytes).size.toLong()
+            val decompressed = decompress(rawBytes) ?: return@withContext null
+            originalSize = decompressed.size.toLong()
         } else {
             originalSize = rawBytes.size.toLong()
             compressedBytes = gzipCompress(rawBytes)
@@ -140,8 +150,18 @@ class ArchiveService @Inject constructor(
     suspend fun readArchiveText(itemId: String, type: ArchiveType): String? =
         withContext(ioDispatcher) {
             val localFile = getLocalArchiveFile(itemId, type) ?: return@withContext null
-            val bytes = localFile.readBytes()
-            String(decompress(bytes), Charsets.UTF_8)
+            val bytes = try {
+                localFile.readBytes()
+            } catch (e: java.io.IOException) {
+                Timber.w(e, "readArchiveText($itemId, ${type.archiveKey}) — failed to read local file")
+                return@withContext null
+            }
+            val decompressed = decompress(bytes)
+            if (decompressed == null) {
+                Timber.d("readArchiveText($itemId, ${type.archiveKey}) — decompression failed")
+                return@withContext null
+            }
+            String(decompressed, Charsets.UTF_8)
         }
 
     fun getLocalArchiveFile(itemId: String, type: ArchiveType): File? {
@@ -180,13 +200,15 @@ class ArchiveService @Inject constructor(
 
             Timber.d("syncArchives($itemId) — queuing download for ${type.archiveKey}")
             async {
-                try {
-                    downloadAndStoreArchive(itemId, type, status.gcsPath)
-                } catch (e: UserRecoverableAuthException) {
-                    Timber.w("Storage consent needed for ${type.archiveKey} download")
-                    throw e // Propagate so caller can handle consent UI
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to download ${type.archiveKey} for $itemId")
+                downloadSemaphore.withPermit {
+                    try {
+                        downloadAndStoreArchive(itemId, type, status.gcsPath)
+                    } catch (e: UserRecoverableAuthException) {
+                        Timber.w("Storage consent needed for ${type.archiveKey} download")
+                        throw e // Propagate so caller can handle consent UI
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to download ${type.archiveKey} for $itemId")
+                    }
                 }
             }
         }.forEach { it.await() }
@@ -214,9 +236,22 @@ class ArchiveService @Inject constructor(
 
         // Download screenshot PNG transiently
         val rawBytes = downloadFromGcs(gcsPath)
+        if (rawBytes == null) {
+            Timber.d("applyScreenshotAsImage($itemId) — screenshot download returned null")
+            return@withContext
+        }
 
         // Detect and decompress if gzipped
-        val pngBytes = if (isGzipped(rawBytes)) decompress(rawBytes) else rawBytes
+        val pngBytes = if (isGzipped(rawBytes)) {
+            val decompressed = decompress(rawBytes)
+            if (decompressed == null) {
+                Timber.d("applyScreenshotAsImage($itemId) — screenshot decompression failed")
+                return@withContext
+            }
+            decompressed
+        } else {
+            rawBytes
+        }
 
         // Downscale to thumbnail
         val original = BitmapFactory.decodeByteArray(pngBytes, 0, pngBytes.size)
@@ -254,18 +289,19 @@ class ArchiveService @Inject constructor(
 
     // ── GCS download via JSON API ──────────────────────────────────────
 
-    private fun downloadFromGcs(gcsPath: String): ByteArray {
-        // Convert gs://bucket/path to GCS JSON API URL
+    private fun downloadFromGcs(gcsPath: String): ByteArray? {
         val objectPath = gcsPath
             .removePrefix("gs://$GCS_BUCKET/")
             .removePrefix("gs://htbase-archives-standard/")
         val encodedPath = URLEncoder.encode(objectPath, "UTF-8")
         val url = "https://storage.googleapis.com/storage/v1/b/$GCS_BUCKET/o/$encodedPath?alt=media"
 
-        // Get Google OAuth2 access token (not Firebase ID token)
-        // allAuthenticatedUsers:objectViewer IAM on the bucket allows any Google account
         val googleAccount = GoogleSignIn.getLastSignedInAccount(application)?.account
-            ?: throw IllegalStateException("No Google account signed in")
+        if (googleAccount == null) {
+            Timber.w("downloadFromGcs — no Google account signed in")
+            return null
+        }
+        // GoogleAuthUtil.getToken() may throw UserRecoverableAuthException — let it propagate
         val accessToken = GoogleAuthUtil.getToken(
             application,
             googleAccount,
@@ -277,12 +313,39 @@ class ArchiveService @Inject constructor(
             .header("Authorization", "Bearer $accessToken")
             .build()
 
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) {
-            throw java.io.IOException("GCS download failed: HTTP ${response.code} for $objectPath")
+        return try {
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Timber.w("GCS download failed: HTTP ${response.code} for $objectPath")
+                    return@use null
+                }
+
+                // Pre-check: reject before downloading if Content-Length is known and too large
+                val contentLength = response.header("Content-Length")?.toLongOrNull()
+                if (contentLength != null && contentLength > MAX_DOWNLOAD_BYTES) {
+                    Timber.w("GCS object too large: $contentLength bytes (limit: $MAX_DOWNLOAD_BYTES) for $objectPath")
+                    return@use null
+                }
+
+                // Bounded read: enforce MAX_DOWNLOAD_BYTES even when Content-Length is absent
+                val source = response.body?.source() ?: return@use null
+                val buffer = okio.Buffer()
+                var totalRead = 0L
+                while (true) {
+                    val bytesRead = source.read(buffer, 8192)
+                    if (bytesRead == -1L) break
+                    totalRead += bytesRead
+                    if (totalRead > MAX_DOWNLOAD_BYTES) {
+                        Timber.w("GCS download exceeded $MAX_DOWNLOAD_BYTES bytes, aborting for $objectPath")
+                        return@use null
+                    }
+                }
+                buffer.readByteArray()
+            }
+        } catch (e: java.io.IOException) {
+            Timber.w(e, "downloadFromGcs — network error for $objectPath")
+            null
         }
-        return response.body?.bytes()
-            ?: throw java.io.IOException("Empty response body for $objectPath")
     }
 
     // ── Compression utilities ───────────────────────────────────────────
@@ -293,8 +356,25 @@ class ArchiveService @Inject constructor(
             bytes[1] == 0x8b.toByte()
     }
 
-    private fun decompress(gzippedBytes: ByteArray): ByteArray {
-        return GZIPInputStream(ByteArrayInputStream(gzippedBytes)).use { it.readBytes() }
+    private fun decompress(gzippedBytes: ByteArray): ByteArray? {
+        GZIPInputStream(ByteArrayInputStream(gzippedBytes)).use { gzipStream ->
+            val buffer = ByteArray(8192)
+            // Pre-allocate with estimated decompression ratio (~4x) to reduce array doubling
+            val estimatedSize = (gzippedBytes.size.toLong() * 4).coerceAtMost(MAX_DOWNLOAD_BYTES).toInt()
+            val output = ByteArrayOutputStream(estimatedSize)
+            var totalRead = 0L
+            while (true) {
+                val bytesRead = gzipStream.read(buffer)
+                if (bytesRead == -1) break
+                totalRead += bytesRead
+                if (totalRead > MAX_DOWNLOAD_BYTES) {
+                    Timber.w("Decompressed data exceeds ${MAX_DOWNLOAD_BYTES} byte limit, aborting")
+                    return null
+                }
+                output.write(buffer, 0, bytesRead)
+            }
+            return output.toByteArray()
+        }
     }
 
     private fun gzipCompress(bytes: ByteArray): ByteArray {
