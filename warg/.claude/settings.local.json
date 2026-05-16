@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "cloudflare-docs",
+    "cloudflare-workers-observability",
+    "cloudflare-workers-builds"
+  ]
+}

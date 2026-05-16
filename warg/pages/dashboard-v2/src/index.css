@@ -1,0 +1,546 @@
+@import "tailwindcss";
+
+/* ─── Tactical Monochrome Theme ─── */
+@theme {
+  /* Core palette */
+  --color-bg: #0a0a0a;
+  --color-bg-surface: #111111;
+  --color-bg-elevated: #1a1a1a;
+  --color-bg-hover: #222222;
+  --color-border: #333333;
+  --color-border-strong: #555555;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a0a0a0;
+  --color-text-muted: #666666;
+
+  /* Accent colors */
+  --color-accent-green: #22c55e;
+  --color-accent-red: #ef4444;
+  --color-accent-amber: #f59e0b;
+  --color-accent-cyan: #06b6d4;
+
+  /* Stage colors */
+  --color-stage-done: #ffffff;
+  --color-stage-failed: #ef4444;
+  --color-stage-rendering: #06b6d4;
+  --color-stage-deriving: #a855f7;
+  --color-stage-persisting: #f59e0b;
+  --color-stage-queued: #666666;
+
+  /* Fonts */
+  --font-mono: "Space Mono", monospace;
+  --font-display: "Chakra Petch", sans-serif;
+
+  /* Spacing */
+  --spacing-grid: 24px;
+
+  /* Animations */
+  --animate-radar: radar 8s linear infinite;
+  --animate-radar-slow: radar 12s linear infinite;
+  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+  --animate-scanline: scanline 4s linear infinite;
+  --animate-feed-in: feed-in 0.3s ease-out;
+}
+
+/* ─── Keyframes ─── */
+@keyframes radar {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+@keyframes feed-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* ─── Base ─── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ─── Grid Dot Background ─── */
+.bg-grid-dots {
+  background-image: radial-gradient(
+    circle,
+    #bfbfbf 1px,
+    transparent 1px
+  );
+  background-size: var(--spacing-grid) var(--spacing-grid);
+  background-position: 0 0;
+  opacity: 0.06;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Corner Frame ─── */
+.corner-frame::before,
+.corner-frame::after {
+  content: "";
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.corner-frame::before {
+  top: 8px;
+  left: 8px;
+  width: 24px;
+  height: 24px;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+}
+
+.corner-frame::after {
+  bottom: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-bottom: 2px solid #fff;
+  border-right: 2px solid #fff;
+}
+
+/* Additional corners */
+.corner-tr::before {
+  content: "";
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-top: 2px solid #fff;
+  border-right: 2px solid #fff;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.corner-bl::before {
+  content: "";
+  position: fixed;
+  bottom: 8px;
+  left: 8px;
+  width: 24px;
+  height: 24px;
+  border-bottom: 2px solid #fff;
+  border-left: 2px solid #fff;
+  z-index: 50;
+  pointer-events: none;
+}
+
+/* ─── Tech Border Card ─── */
+.tech-border {
+  position: relative;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.tech-border::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 12px;
+  height: 12px;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+}
+
+.tech-border::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 12px;
+  height: 12px;
+  border-bottom: 2px solid #fff;
+  border-right: 2px solid #fff;
+}
+
+/* ─── Tactical Button ─── */
+.btn-tactical {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1);
+}
+
+.btn-tactical:hover {
+  background: var(--color-bg-hover);
+  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 1);
+  transform: translate(2px, 2px);
+}
+
+.btn-tactical:active {
+  box-shadow: none;
+  transform: translate(4px, 4px);
+}
+
+.btn-tactical.active {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+}
+
+/* ─── Bracket Nav Button ─── */
+.btn-bracket {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-bracket::before {
+  content: "[";
+  margin-right: 2px;
+  color: var(--color-text-muted);
+}
+
+.btn-bracket::after {
+  content: "]";
+  margin-left: 2px;
+  color: var(--color-text-muted);
+}
+
+.btn-bracket:hover {
+  color: #fff;
+  border-color: var(--color-border);
+}
+
+.btn-bracket.active {
+  color: #fff;
+  border-color: #fff;
+}
+
+.btn-bracket.active::before,
+.btn-bracket.active::after {
+  color: #fff;
+}
+
+/* ─── Sector Select (Sidebar Sub-nav) ─── */
+.sector-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  border-left: 2px solid transparent;
+}
+
+.sector-item:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
+
+.sector-item.active {
+  color: #fff;
+  border-left-color: #fff;
+  background: var(--color-bg-elevated);
+}
+
+/* ─── Status Tags ─── */
+.tag-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tag-done {
+  background: #000;
+  color: #fff;
+  border: 1px solid #fff;
+}
+
+.tag-failed {
+  background: transparent;
+  color: var(--color-accent-red);
+  border: 1px dashed var(--color-accent-red);
+}
+
+.tag-rendering,
+.tag-deriving,
+.tag-persisting {
+  background: transparent;
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-text-primary);
+}
+
+.tag-queued {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-text-muted);
+}
+
+/* ─── LED Dot ─── */
+.led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.led-on {
+  background: var(--color-accent-green);
+  box-shadow: 0 0 4px var(--color-accent-green);
+}
+
+.led-off {
+  background: var(--color-text-muted);
+}
+
+.led-error {
+  background: var(--color-accent-red);
+  box-shadow: 0 0 4px var(--color-accent-red);
+}
+
+.led-warn {
+  background: var(--color-accent-amber);
+  box-shadow: 0 0 4px var(--color-accent-amber);
+}
+
+/* ─── Green Terminal ─── */
+.terminal {
+  background: #000;
+  color: #22c55e;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 12px;
+  overflow-y: auto;
+  border: 1px solid #1a3a1a;
+}
+
+.terminal-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.terminal-line-error {
+  color: var(--color-accent-red);
+}
+
+.terminal-line-warn {
+  color: var(--color-accent-amber);
+}
+
+/* ─── Archive Dots ─── */
+.archive-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.archive-dot-success {
+  background: #fff;
+}
+
+.archive-dot-pending {
+  background: var(--color-text-muted);
+}
+
+.archive-dot-failed {
+  background: var(--color-accent-red);
+}
+
+.archive-dot-absent {
+  background: transparent;
+  border: 1px solid var(--color-text-muted);
+}
+
+/* ─── Scanline Overlay ─── */
+.scanline-overlay {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanline-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.015) 2px,
+    rgba(255, 255, 255, 0.015) 4px
+  );
+  pointer-events: none;
+}
+
+/* ─── Segmented Progress Bar ─── */
+.progress-segmented {
+  display: flex;
+  height: 20px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.progress-segment {
+  height: 100%;
+  border-right: 2px solid var(--color-bg);
+  transition: width 0.3s;
+}
+
+.progress-segment:last-child {
+  border-right: none;
+}
+
+/* ─── Data Table ─── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.data-table th {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.data-table th.sortable {
+  cursor: pointer;
+}
+
+.data-table th.sortable:hover {
+  color: var(--color-text-secondary);
+}
+
+.data-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  vertical-align: middle;
+}
+
+.data-table tr:hover td {
+  background: var(--color-bg-hover);
+}
+
+.data-table tr.clickable {
+  cursor: pointer;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+
+/* ─── Radar Animation Element ─── */
+.radar-ring {
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  position: relative;
+}
+
+.radar-sweep {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3));
+  transform-origin: left center;
+  animation: var(--animate-radar);
+}
+
+/* ─── Utility ─── */
+.text-right {
+  text-align: right;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}

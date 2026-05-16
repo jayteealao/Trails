@@ -1,0 +1,10 @@
+/inbox /index.html 200
+/overview /index.html 200
+/feed /index.html 200
+/requests /index.html 200
+/requests/* /index.html 200
+/errors /index.html 200
+/articles /index.html 200
+/articles/* /index.html 200
+/backfill /index.html 200
+/infra /index.html 200

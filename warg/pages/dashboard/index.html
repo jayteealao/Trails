@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warg</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L2 7v10l10 5 10-5V7L12 2z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+            <path d="M12 12l10-5M12 12v10M12 12L2 7" stroke="currentColor" stroke-width="1" opacity="0.4"/>
+          </svg>
+          <span class="logo-text">Warg</span>
+        </div>
+        <span class="logo-sub">observatory</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Monitor</div>
+        <button class="nav-item active" data-view="inbox">
+          <svg class="nav-icon" viewBox="0 0 20 20"><path d="M3 4h14v10H3z" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.7"/><path d="M6 12h8M6 8h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity="0.5"/></svg>
+          Inbox
+        </button>
+        <button class="nav-item" data-view="overview">
+          <svg class="nav-icon" viewBox="0 0 20 20"><rect x="2" y="2" width="7" height="7" rx="1" fill="currentColor" opacity="0.7"/><rect x="11" y="2" width="7" height="3" rx="1" fill="currentColor" opacity="0.5"/><rect x="11" y="7" width="7" height="2" rx="1" fill="currentColor" opacity="0.3"/><rect x="2" y="11" width="16" height="2" rx="1" fill="currentColor" opacity="0.4"/><rect x="2" y="15" width="10" height="2" rx="1" fill="currentColor" opacity="0.3"/></svg>
+          Overview
+        </button>
+        <button class="nav-item" data-view="feed">
+          <svg class="nav-icon" viewBox="0 0 20 20"><circle cx="4" cy="16" r="2" fill="currentColor" opacity="0.7"/><path d="M2 10a8 8 0 018 8" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.5"/><path d="M2 4a14 14 0 0114 14" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.3"/></svg>
+          Feed<span class="nav-badge hidden" id="feedBadge">0</span>
+        </button>
+        <button class="nav-item" data-view="requests">
+          <svg class="nav-icon" viewBox="0 0 20 20"><path d="M3 4h14M3 8h10M3 12h12M3 16h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/></svg>
+          Requests
+        </button>
+        <button class="nav-item" data-view="errors">
+          <svg class="nav-icon" viewBox="0 0 20 20"><path d="M10 2L1 18h18L10 2z" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.6"/><line x1="10" y1="8" x2="10" y2="12" stroke="currentColor" stroke-width="1.5" opacity="0.6"/><circle cx="10" cy="15" r="0.8" fill="currentColor" opacity="0.6"/></svg>
+          Errors
+        </button>
+
+        <div class="nav-section-label">Library</div>
+        <button class="nav-item" data-view="articles">
+          <svg class="nav-icon" viewBox="0 0 20 20"><rect x="3" y="2" width="14" height="16" rx="2" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.6"/><path d="M7 6h6M7 9h4M7 12h5" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.4"/></svg>
+          Articles
+        </button>
+        <button class="nav-item" data-view="backfill">
+          <svg class="nav-icon" viewBox="0 0 20 20"><path d="M2 10h16M6 6l-4 4 4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/><path d="M14 6l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"/></svg>
+          Backfill
+        </button>
+
+        <div class="nav-section-label">System</div>
+        <button class="nav-item" data-view="infra">
+          <svg class="nav-icon" viewBox="0 0 20 20"><rect x="3" y="3" width="14" height="5" rx="1" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.5"/><rect x="3" y="12" width="14" height="5" rx="1" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.5"/><circle cx="6" cy="5.5" r="1" fill="currentColor" opacity="0.6"/><circle cx="6" cy="14.5" r="1" fill="currentColor" opacity="0.6"/></svg>
+          Infra
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-status">
+          <span class="status-dot" id="connDot"></span>
+          <span class="status-label" id="connLabel">Connected</span>
+        </div>
+        <button class="settings-btn" id="settingsBtn">
+          <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M10 2v3M10 15v3M2 10h3M15 10h3M4.2 4.2l2.1 2.1M13.7 13.7l2.1 2.1M4.2 15.8l2.1-2.1M13.7 6.3l2.1-2.1" stroke="currentColor" stroke-width="1.2" opacity="0.5"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Top Bar -->
+      <div class="top-bar">
+        <div class="top-bar-left">
+          <h1 class="page-title" id="pageTitle">Overview</h1>
+        </div>
+        <div class="top-bar-center">
+          <div class="archive-form" id="archiveForm">
+            <input type="text" class="archive-input" id="archiveInput" placeholder="Paste URL to archive..." autocomplete="off">
+            <button class="archive-btn" id="archiveBtn">
+              <svg viewBox="0 0 20 20" fill="none"><path d="M3 10l7-7 7 7M10 3v14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Archive
+            </button>
+          </div>
+          <span class="archive-status" id="archiveStatus"></span>
+        </div>
+        <div class="top-bar-right">
+          <button class="btn-refresh" id="refreshCurrentBtn" title="Refresh (R)">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M17 10A7 7 0 105 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M5 1v4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <label class="auto-toggle" title="Auto-refresh">
+            <input type="checkbox" id="autoRefreshToggle">
+            <span class="auto-toggle-track"><span class="auto-toggle-knob"></span></span>
+            <span class="auto-toggle-label">Auto</span>
+          </label>
+          <span class="clock" id="systemClock">--:--</span>
+        </div>
+      </div>
+
+      <!-- Views Container -->
+      <div class="views">
+        <!-- Inbox View -->
+        <div class="view" id="inboxView">
+          <div id="inboxContent">
+            <div class="empty-state">Loading</div>
+          </div>
+        </div>
+
+        <!-- Overview View -->
+        <div class="view hidden" id="overviewView">
+          <div class="metrics-row" id="readoutStrip">
+            <div class="metric-card">
+              <div class="metric-value" id="statTotal">--</div>
+              <div class="metric-label">Total Requests</div>
+            </div>
+            <div class="metric-card metric-success">
+              <div class="metric-value" id="statSuccessRate">--</div>
+              <div class="metric-label">Success Rate</div>
+            </div>
+            <div class="metric-card metric-active">
+              <div class="metric-value" id="statActive">--</div>
+              <div class="metric-label">Active</div>
+            </div>
+            <div class="metric-card metric-warn">
+              <div class="metric-value" id="statStuck">--</div>
+              <div class="metric-label">Stuck</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value" id="statLast1h">--</div>
+              <div class="metric-label">Last Hour</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value" id="statLast24h">--</div>
+              <div class="metric-label">Last 24h</div>
+            </div>
+          </div>
+
+          <!-- Stage Distribution -->
+          <div class="card" id="segmentedBarContainer">
+            <div class="card-header">
+              <span class="card-title">Pipeline Distribution</span>
+            </div>
+            <div class="card-body">
+              <div class="stage-bar" id="segmentedBar"></div>
+              <div class="stage-legend" id="segmentedLegend"></div>
+            </div>
+          </div>
+
+          <!-- Two-column -->
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Top Domains</span>
+              </div>
+              <div class="card-body card-body-flush" id="topDomains">
+                <div class="empty-state">Loading</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Recent Failures</span>
+              </div>
+              <div class="card-body card-body-flush" id="recentFailures">
+                <div class="empty-state">Loading</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Requests View -->
+        <div class="view hidden" id="requestsView">
+          <div class="toolbar">
+            <div class="filter-row">
+              <input type="text" class="filter-input" id="domainFilter" placeholder="Filter by domain...">
+              <input type="text" class="filter-input" id="urlSearchFilter" placeholder="Search URL...">
+              <select class="filter-select" id="statusFilter">
+                <option value="">All statuses</option>
+                <option value="queued">Queued</option>
+                <option value="rendering">Rendering</option>
+                <option value="deriving">Deriving</option>
+                <option value="persisting">Persisting</option>
+                <option value="done">Done</option>
+                <option value="incomplete">Incomplete</option>
+                <option value="failed">Failed</option>
+              </select>
+              <select class="filter-select" id="dateRangeFilter">
+                <option value="">All time</option>
+                <option value="1h">Last hour</option>
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7 days</option>
+              </select>
+              <select class="filter-select" id="requestPresetSelect">
+                <option value="">Saved views</option>
+              </select>
+              <button class="btn-page" id="saveRequestPresetBtn">Save View</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="data-table" id="requestTable">
+              <thead>
+                <tr>
+                  <th class="sortable" data-sort="id">ID</th>
+                  <th class="sortable" data-sort="url">URL</th>
+                  <th class="sortable" data-sort="domain">Domain</th>
+                  <th class="sortable" data-sort="status">Status</th>
+                  <th>Errors</th>
+                  <th class="sortable" data-sort="created">Created</th>
+                </tr>
+              </thead>
+              <tbody id="requestTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pagination" id="pagination">
+            <button class="btn-page" id="prevPage" disabled>Prev</button>
+            <span class="page-info" id="paginationInfo">--</span>
+            <button class="btn-page" id="nextPage" disabled>Next</button>
+          </div>
+        </div>
+
+        <!-- Feed View -->
+        <div class="view hidden" id="feedView">
+          <div class="feed-header-bar">
+            <div class="feed-indicator">
+              <span class="pulse-dot" id="feedLed"></span>
+              <span class="feed-label">Live</span>
+            </div>
+            <span class="feed-count" id="feedCount">0 requests</span>
+          </div>
+          <div class="feed-container" id="feedContainer">
+            <div class="empty-state">Waiting for requests</div>
+          </div>
+        </div>
+
+        <!-- Infrastructure View -->
+        <div class="view hidden" id="infraView">
+          <div class="card">
+            <div class="card-header"><span class="card-title">Workers</span></div>
+            <div class="card-body card-body-flush" id="workersPanel">
+              <div class="empty-state">Loading</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Workflows</span></div>
+            <div class="card-body" id="workflowsPanel">
+              <div class="empty-state">Loading</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Storage</span></div>
+            <div class="card-body" id="storagePanel">
+              <div class="empty-state">Loading</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Errors View -->
+        <div class="view hidden" id="errorsView">
+          <div id="errorsContent">
+            <div class="empty-state">Loading</div>
+          </div>
+        </div>
+
+        <!-- Backfill View -->
+        <div class="view hidden" id="backfillView">
+          <div id="backfillContent">
+            <div class="empty-state">Loading</div>
+          </div>
+        </div>
+
+        <!-- Articles View -->
+        <div class="view hidden" id="articlesView">
+          <div class="toolbar">
+            <div class="filter-row">
+              <select class="filter-select" id="articleStatusFilter">
+                <option value="">All statuses</option>
+                <option value="unarchived">Unarchived</option>
+                <option value="incomplete">Incomplete</option>
+                <option value="complete">Complete</option>
+                <option value="failed">Failed</option>
+                <option value="processing">Processing</option>
+              </select>
+              <input type="text" class="filter-input filter-input-wide" id="articleSearchFilter" placeholder="Search URL, domain, or title...">
+              <select class="filter-select" id="articlePresetSelect">
+                <option value="">Saved views</option>
+              </select>
+              <button class="btn-page" id="saveArticlePresetBtn">Save View</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="data-table" id="articleTable">
+              <thead>
+                <tr>
+                  <th>Title / URL</th>
+                  <th>Domain</th>
+                  <th>Status</th>
+                  <th>Archives</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody id="articleTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="pagination">
+            <button class="btn-page" id="articlePrevPage" disabled>Prev</button>
+            <span class="page-info" id="articlePaginationInfo">--</span>
+            <button class="btn-page" id="articleNextPage" disabled>Next</button>
+          </div>
+        </div>
+
+        <!-- Article Detail View -->
+        <div class="view hidden" id="articleDetailView">
+          <button class="btn-back" id="articleBackBtn">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Articles
+          </button>
+          <div id="articleDetailContent"></div>
+        </div>
+
+        <!-- Request Detail View -->
+        <div class="view hidden" id="detailView">
+          <button class="btn-back" id="backBtn">
+            <svg viewBox="0 0 20 20" fill="none"><path d="M12 4l-6 6 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Back
+          </button>
+          <div id="detailContent"></div>
+        </div>
+      </div>
+
+      <!-- Loading Overlay -->
+      <div class="loading-overlay hidden" id="loadingOverlay">
+        <div class="loading-spinner">
+          <div class="spinner-ring"></div>
+          <span class="loading-text">Loading</span>
+        </div>
+      </div>
+
+      <!-- Error Banner -->
+      <div class="toast hidden" id="errorBanner">
+        <span class="toast-msg" id="errorMessage">Error</span>
+        <button class="toast-close" id="errorClose">
+          <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <!-- Toast -->
+      <div class="toast hidden" id="toastBanner">
+        <span class="toast-msg" id="toastMessage"></span>
+      </div>
+    </main>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay hidden" id="settingsModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Settings</h2>
+        <button class="modal-close" id="settingsClose">
+          <svg viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <label class="setting-row">
+          <span class="setting-label">Auto-refresh interval (seconds)</span>
+          <input type="number" class="setting-input" id="refreshInterval" min="5" max="300" value="30">
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" id="settingsCancel">Cancel</button>
+        <button class="btn-save" id="settingsSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

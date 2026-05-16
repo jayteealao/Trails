@@ -1,0 +1,15 @@
+name = "warg-dashboard"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "."
+
+[vars]
+BACKFILL_STATUS_URL = "https://us-central1-trails-e428e.cloudfunctions.net/backfillStatus"
+DASHBOARD_API_URL = "https://us-central1-trails-e428e.cloudfunctions.net/dashboardApi"
+
+[[services]]
+binding = "LOGGER"
+service = "logger"
+
+[[services]]
+binding = "GATEWAY"
+service = "gateway"

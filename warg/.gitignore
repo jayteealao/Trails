@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.wrangler/
+
+# Environment
+.env
+.env.*
+.dev.vars
+!.env.example
+
+# Coverage
+coverage/
+
+# Logs
+*.log
+
+# Generated types
+worker-configuration.d.ts
+
+# OS files
+.DS_Store
+Thumbs.db
+nul
+
+# Test artifacts
+tmp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude Code artifacts
+.claude/

@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "logger",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "workers_dev": false,
+  "durable_objects": {
+    "bindings": [{ "name": "LOGGER_DO", "class_name": "LoggerDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LoggerDO"] }],
+  "d1_databases": [
+    {
+      "binding": "INDEX_DB",
+      "database_name": "warg-requests-index",
+      "database_id": "ff077e87-293b-4434-ad9e-ab669c9cbabb"
+    }
+  ],
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@warg/singlefile",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types",
+    "update-bundle": "curl -o lib/single-file-bundle.js https://raw.githubusercontent.com/gildas-lormeau/single-file-cli/master/lib/single-file-bundle.js"
+  },
+  "dependencies": {
+    "@warg/shared": "workspace:*",
+    "@cloudflare/puppeteer": "^1.0.5"
+  },
+  "devDependencies": {}
+}

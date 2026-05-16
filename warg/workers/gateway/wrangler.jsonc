@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "services": [
+    { "binding": "LOGGER", "service": "logger" },
+    { "binding": "WORKFLOW", "service": "workflow" }
+  ],
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+  "r2_buckets": [
+    { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
+  ],
+  "observability": { "enabled": true }
+}

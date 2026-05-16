@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "renderer",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "r2_buckets": [
+    { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
+  ]
+}
+// Secrets (via `wrangler secret put`):
+// - INTERNAL_API_KEY: shared key for internal worker auth
+// - CF_ACCOUNT_ID: Cloudflare account ID for Browser Rendering API
+// - BR_API_TOKEN: Browser Rendering API token

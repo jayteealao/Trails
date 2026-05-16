@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warg Event Flow Playground</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      grid-template-rows: 1fr auto;
+      height: 100vh;
+    }
+
+    .controls {
+      background: #1e293b;
+      padding: 16px;
+      overflow-y: auto;
+      border-right: 1px solid #334155;
+    }
+
+    .controls h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .control-group {
+      margin-bottom: 20px;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+
+    .preset-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .preset-btn {
+      padding: 6px 10px;
+      font-size: 12px;
+      background: #334155;
+      border: 1px solid #475569;
+      color: #e2e8f0;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .preset-btn:hover { background: #475569; }
+    .preset-btn.active { background: #3b82f6; border-color: #3b82f6; }
+
+    .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .checkbox-item input {
+      accent-color: #3b82f6;
+    }
+
+    .source-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .speed-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .speed-control input {
+      flex: 1;
+      accent-color: #3b82f6;
+    }
+
+    .speed-value {
+      font-size: 12px;
+      color: #94a3b8;
+      min-width: 40px;
+    }
+
+    .playback-buttons {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .play-btn {
+      flex: 1;
+      padding: 8px 12px;
+      font-size: 13px;
+      background: #3b82f6;
+      border: none;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .play-btn:hover { background: #2563eb; }
+    .play-btn.paused { background: #f59e0b; }
+    .play-btn.paused:hover { background: #d97706; }
+
+    .reset-btn {
+      padding: 8px 12px;
+      font-size: 13px;
+      background: #475569;
+      border: none;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .reset-btn:hover { background: #64748b; }
+
+    .main-area {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .timeline-container {
+      flex: 1;
+      overflow-x: auto;
+      overflow-y: auto;
+      padding: 20px;
+      background: #0f172a;
+    }
+
+    .timeline {
+      min-width: 1200px;
+      position: relative;
+    }
+
+    .swimlane {
+      display: flex;
+      align-items: center;
+      height: 50px;
+      border-bottom: 1px solid #1e293b;
+      position: relative;
+    }
+
+    .swimlane-label {
+      width: 120px;
+      flex-shrink: 0;
+      padding: 0 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .swimlane-track {
+      flex: 1;
+      height: 100%;
+      position: relative;
+      background: linear-gradient(90deg, transparent 0%, #1e293b08 50%, transparent 100%);
+    }
+
+    .event-node {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+      white-space: nowrap;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.3s, transform 0.3s;
+      z-index: 1;
+    }
+
+    .event-node.visible {
+      opacity: 1;
+    }
+
+    .event-node.highlight {
+      transform: translateY(-50%) scale(1.1);
+      z-index: 10;
+      box-shadow: 0 0 12px currentColor;
+    }
+
+    .event-node.info {
+      background: #1e3a5f;
+      border: 1px solid #3b82f6;
+      color: #93c5fd;
+    }
+
+    .event-node.warn {
+      background: #422006;
+      border: 1px solid #f59e0b;
+      color: #fcd34d;
+    }
+
+    .event-node.error {
+      background: #450a0a;
+      border: 1px solid #ef4444;
+      color: #fca5a5;
+    }
+
+    .event-connector {
+      position: absolute;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .event-details {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 16px;
+      margin: 20px;
+      display: none;
+    }
+
+    .event-details.visible {
+      display: block;
+    }
+
+    .event-details h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .event-details-grid {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .event-details-grid dt {
+      color: #64748b;
+    }
+
+    .event-details-grid dd {
+      color: #e2e8f0;
+      font-family: ui-monospace, monospace;
+    }
+
+    .prompt-area {
+      background: #1e293b;
+      border-top: 1px solid #334155;
+      padding: 16px;
+      grid-column: 1 / -1;
+    }
+
+    .prompt-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .prompt-header h3 {
+      font-size: 12px;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+    }
+
+    .copy-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      background: #334155;
+      border: 1px solid #475569;
+      color: #e2e8f0;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .copy-btn:hover { background: #475569; }
+    .copy-btn.copied { background: #10b981; border-color: #10b981; }
+
+    .prompt-output {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.5;
+      max-height: 150px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: ui-monospace, monospace;
+    }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      padding: 12px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      font-size: 12px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+
+    .legend-dot.info { background: #3b82f6; }
+    .legend-dot.warn { background: #f59e0b; }
+    .legend-dot.error { background: #ef4444; }
+
+    .progress-bar {
+      height: 4px;
+      background: #334155;
+      margin-bottom: 10px;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: #3b82f6;
+      width: 0%;
+      transition: width 0.1s;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #334155;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="controls">
+      <div class="control-group">
+        <h2>Scenario</h2>
+        <div class="preset-buttons" id="scenarioButtons">
+          <button class="preset-btn active" data-scenario="happy">Happy Path</button>
+          <button class="preset-btn" data-scenario="options-missing">Options Missing</button>
+          <button class="preset-btn" data-scenario="render-failed">Render Failed</button>
+          <button class="preset-btn" data-scenario="gcs-failed">GCS Failed</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h2>Playback</h2>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="speed-control">
+          <label>Speed:</label>
+          <input type="range" id="speedSlider" min="0.25" max="3" step="0.25" value="1">
+          <span class="speed-value" id="speedValue">1x</span>
+        </div>
+        <div class="playback-buttons">
+          <button class="play-btn" id="playBtn">▶ Play</button>
+          <button class="reset-btn" id="resetBtn">↺ Reset</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h2>Event Sources</h2>
+        <div class="checkbox-group" id="sourceFilters"></div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-value" id="totalEvents">0</div>
+          <div class="stat-label">Total Events</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="errorCount">0</div>
+          <div class="stat-label">Errors</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="duration">0s</div>
+          <div class="stat-label">Duration</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main-area">
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot info"></div> Info</div>
+        <div class="legend-item"><div class="legend-dot warn"></div> Warning</div>
+        <div class="legend-item"><div class="legend-dot error"></div> Error</div>
+        <span style="margin-left: auto; color: #64748b;">Click events for details</span>
+      </div>
+
+      <div class="timeline-container">
+        <div class="timeline" id="timeline"></div>
+      </div>
+
+      <div class="event-details" id="eventDetails">
+        <h3><span id="detailType"></span></h3>
+        <dl class="event-details-grid">
+          <dt>Timestamp</dt><dd id="detailTs"></dd>
+          <dt>Source</dt><dd id="detailSource"></dd>
+          <dt>Level</dt><dd id="detailLevel"></dd>
+          <dt>Message</dt><dd id="detailMessage"></dd>
+          <dt>Data</dt><dd id="detailData"></dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="prompt-area">
+      <div class="prompt-header">
+        <h3>Event Log Summary</h3>
+        <button class="copy-btn" id="copyBtn">Copy</button>
+      </div>
+      <div class="prompt-output" id="promptOutput"></div>
+    </div>
+  </div>
+
+<script>
+const SOURCES = [
+  { id: 'gateway', label: 'Gateway', color: '#3b82f6' },
+  { id: 'workflow', label: 'Workflow', color: '#8b5cf6' },
+  { id: 'renderer', label: 'Renderer', color: '#06b6d4' },
+  { id: 'singlefile', label: 'SingleFile', color: '#14b8a6' },
+  { id: 'readability', label: 'Readability', color: '#22c55e' },
+  { id: 'monolith', label: 'Monolith', color: '#84cc16' },
+  { id: 'gcs', label: 'GCS', color: '#f59e0b' },
+  { id: 'cloud-function', label: 'Cloud Fn', color: '#ef4444' }
+];
+
+const SCENARIOS = {
+  'happy': generateHappyPath(),
+  'options-missing': generateOptionsNotFound(),
+  'render-failed': generateRenderFailed(),
+  'gcs-failed': generateGcsFailed()
+};
+
+function generateHappyPath() {
+  const reqId = 'req_abc123';
+  let t = 0;
+  const events = [];
+
+  // Gateway
+  events.push({ t: t, source: 'gateway', type: 'request.created', level: 'info',
+    message: 'Request created', data: { request_id: reqId, url: 'https://example.com/article' }});
+
+  // Workflow starts
+  t += 50;
+  events.push({ t: t, source: 'workflow', type: 'workflow.started', level: 'info',
+    message: 'Workflow started', data: { url: 'https://example.com/article' }});
+
+  // Render step
+  t += 30;
+  events.push({ t: t, source: 'workflow', type: 'step.started', level: 'info',
+    message: 'Step started: render', data: { step: 'render', url: 'https://example.com/article' }});
+
+  t += 200;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: rendered.html', data: { kind: 'rendered.html', bytes: 145320 }});
+
+  t += 20;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: screenshot.png', data: { kind: 'screenshot.png', bytes: 89421 }});
+
+  t += 20;
+  events.push({ t: t, source: 'workflow', type: 'step.completed', level: 'info',
+    message: 'Step completed: render', data: { step: 'render', artifactCount: 2 }});
+
+  // SingleFile step
+  t += 30;
+  events.push({ t: t, source: 'workflow', type: 'step.started', level: 'info',
+    message: 'Step started: singlefile', data: { step: 'singlefile' }});
+
+  t += 180;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: singlefile.html', data: { kind: 'singlefile.html', bytes: 234567 }});
+
+  t += 10;
+  events.push({ t: t, source: 'workflow', type: 'step.completed', level: 'info',
+    message: 'Step completed: singlefile', data: { step: 'singlefile' }});
+
+  // Parallel derivatives
+  t += 20;
+  events.push({ t: t, source: 'workflow', type: 'step.started', level: 'info',
+    message: 'Step started: derivatives', data: { step: 'derivatives' }});
+
+  // Readability completes first
+  t += 80;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: readability.json', data: { kind: 'readability.json', bytes: 12340 }});
+
+  t += 10;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: readability.md', data: { kind: 'readability.md', bytes: 8920 }});
+
+  // Monolith completes
+  t += 40;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: monolith.html', data: { kind: 'monolith.html', bytes: 198432 }});
+
+  t += 10;
+  events.push({ t: t, source: 'workflow', type: 'step.completed', level: 'info',
+    message: 'Step completed: derivatives', data: { step: 'derivatives' }});
+
+  // Manifest
+  t += 30;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: manifest.json', data: { kind: 'manifest.json', bytes: 1234 }});
+
+  // Persist
+  t += 20;
+  events.push({ t: t, source: 'workflow', type: 'persist.started', level: 'info',
+    message: 'Starting GCS persistence', data: {} });
+
+  // GCS calls cloud function
+  t += 30;
+  events.push({ t: t, source: 'gcs', type: 'persist.started', level: 'info',
+    message: 'Creating signed upload URLs', data: { artifactCount: 6 }});
+
+  t += 100;
+  events.push({ t: t, source: 'gcs', type: 'persist.completed', level: 'info',
+    message: 'Signed URLs created', data: { firestoreDocId: reqId, uploadCount: 6 }});
+
+  // Finalize
+  t += 150;
+  events.push({ t: t, source: 'gcs', type: 'persist.completed', level: 'info',
+    message: 'Firestore finalized', data: { firestoreDocId: reqId, artifactCount: 6 }});
+
+  // Workflow complete
+  t += 20;
+  events.push({ t: t, source: 'workflow', type: 'persist.completed', level: 'info',
+    message: 'GCS persistence completed', data: { firestoreDocId: reqId }});
+
+  t += 10;
+  events.push({ t: t, source: 'workflow', type: 'workflow.completed', level: 'info',
+    message: 'Workflow completed', data: { manifestKey: `archives/${reqId}/manifest.json` }});
+
+  return events;
+}
+
+function generateOptionsNotFound() {
+  const reqId = 'req_xyz789';
+  let t = 0;
+  const events = [];
+
+  events.push({ t: t, source: 'gateway', type: 'request.created', level: 'info',
+    message: 'Request created', data: { request_id: reqId, url: 'https://example.com/article' }});
+
+  t += 50;
+  events.push({ t: t, source: 'workflow', type: 'workflow.started', level: 'info',
+    message: 'Workflow started', data: { url: 'https://example.com/article' }});
+
+  t += 30;
+  events.push({ t: t, source: 'workflow', type: 'step.failed', level: 'error',
+    message: 'Step failed: read-options: Options not found: archives/req_xyz789/input/options.json',
+    data: { step: 'read-options', error: 'Options not found' }});
+
+  t += 10;
+  events.push({ t: t, source: 'workflow', type: 'workflow.failed', level: 'error',
+    message: 'Workflow failed: Options not found: archives/req_xyz789/input/options.json',
+    data: { error: 'Options not found' }});
+
+  return events;
+}
+
+function generateRenderFailed() {
+  const reqId = 'req_render_fail';
+  let t = 0;
+  const events = [];
+
+  events.push({ t: t, source: 'gateway', type: 'request.created', level: 'info',
+    message: 'Request created', data: { request_id: reqId, url: 'https://example.com/broken' }});
+
+  t += 50;
+  events.push({ t: t, source: 'workflow', type: 'workflow.started', level: 'info',
+    message: 'Workflow started', data: { url: 'https://example.com/broken' }});
+
+  t += 30;
+  events.push({ t: t, source: 'workflow', type: 'step.started', level: 'info',
+    message: 'Step started: render', data: { step: 'render' }});
+
+  t += 150;
+  events.push({ t: t, source: 'workflow', type: 'step.failed', level: 'error',
+    message: 'Step failed: render: Renderer did not produce rendered.html',
+    data: { step: 'render', error: 'Renderer did not produce rendered.html' }});
+
+  t += 10;
+  events.push({ t: t, source: 'workflow', type: 'workflow.failed', level: 'error',
+    message: 'Workflow failed: Renderer did not produce rendered.html',
+    data: { error: 'Renderer did not produce rendered.html' }});
+
+  return events;
+}
+
+function generateGcsFailed() {
+  const reqId = 'req_gcs_fail';
+  let t = 0;
+  const events = [];
+
+  events.push({ t: t, source: 'gateway', type: 'request.created', level: 'info',
+    message: 'Request created', data: { request_id: reqId, url: 'https://example.com/article' }});
+
+  t += 50;
+  events.push({ t: t, source: 'workflow', type: 'workflow.started', level: 'info',
+    message: 'Workflow started', data: {} });
+
+  t += 30;
+  events.push({ t: t, source: 'workflow', type: 'step.started', level: 'info',
+    message: 'Step started: render', data: { step: 'render' }});
+
+  t += 200;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: rendered.html', data: { kind: 'rendered.html', bytes: 145320 }});
+
+  t += 20;
+  events.push({ t: t, source: 'workflow', type: 'step.completed', level: 'info',
+    message: 'Step completed: render', data: { step: 'render' }});
+
+  // Skip to persist for brevity
+  t += 300;
+  events.push({ t: t, source: 'workflow', type: 'artifact.written', level: 'info',
+    message: 'Artifact written: manifest.json', data: { kind: 'manifest.json' }});
+
+  t += 20;
+  events.push({ t: t, source: 'workflow', type: 'persist.started', level: 'info',
+    message: 'Starting GCS persistence', data: {} });
+
+  t += 30;
+  events.push({ t: t, source: 'gcs', type: 'persist.started', level: 'info',
+    message: 'Creating signed upload URLs', data: { artifactCount: 6 }});
+
+  t += 80;
+  events.push({ t: t, source: 'gcs', type: 'persist.failed', level: 'error',
+    message: 'Failed to create upload URLs: Service account key invalid',
+    data: { error: 'Service account key invalid' }});
+
+  t += 20;
+  events.push({ t: t, source: 'workflow', type: 'workflow.failed', level: 'error',
+    message: 'Workflow failed: GCS persistence failed',
+    data: { error: 'GCS persistence failed' }});
+
+  return events;
+}
+
+// State
+const state = {
+  scenario: 'happy',
+  speed: 1,
+  playing: false,
+  currentEventIndex: -1,
+  sources: Object.fromEntries(SOURCES.map(s => [s.id, true])),
+  selectedEvent: null,
+  animationFrame: null,
+  startTime: null
+};
+
+// DOM elements
+const timeline = document.getElementById('timeline');
+const progressFill = document.getElementById('progressFill');
+const playBtn = document.getElementById('playBtn');
+const resetBtn = document.getElementById('resetBtn');
+const speedSlider = document.getElementById('speedSlider');
+const speedValue = document.getElementById('speedValue');
+const sourceFilters = document.getElementById('sourceFilters');
+const eventDetails = document.getElementById('eventDetails');
+const promptOutput = document.getElementById('promptOutput');
+const copyBtn = document.getElementById('copyBtn');
+const scenarioButtons = document.querySelectorAll('[data-scenario]');
+
+// Initialize source filters
+SOURCES.forEach(source => {
+  const div = document.createElement('div');
+  div.className = 'checkbox-item';
+  div.innerHTML = `
+    <input type="checkbox" id="source-${source.id}" checked>
+    <div class="source-indicator" style="background: ${source.color}"></div>
+    <label for="source-${source.id}">${source.label}</label>
+  `;
+  div.querySelector('input').addEventListener('change', (e) => {
+    state.sources[source.id] = e.target.checked;
+    renderTimeline();
+    updatePrompt();
+  });
+  sourceFilters.appendChild(div);
+});
+
+function getEvents() {
+  return SCENARIOS[state.scenario];
+}
+
+function renderTimeline() {
+  const events = getEvents();
+  const maxTime = events.length > 0 ? Math.max(...events.map(e => e.t)) : 1000;
+  const trackWidth = 1000;
+
+  timeline.innerHTML = '';
+
+  SOURCES.forEach(source => {
+    if (!state.sources[source.id]) return;
+
+    const lane = document.createElement('div');
+    lane.className = 'swimlane';
+    lane.innerHTML = `
+      <div class="swimlane-label">
+        <div class="source-indicator" style="background: ${source.color}"></div>
+        ${source.label}
+      </div>
+      <div class="swimlane-track" data-source="${source.id}"></div>
+    `;
+    timeline.appendChild(lane);
+  });
+
+  // Add event nodes
+  events.forEach((event, idx) => {
+    if (!state.sources[event.source]) return;
+
+    const track = timeline.querySelector(`[data-source="${event.source}"]`);
+    if (!track) return;
+
+    const node = document.createElement('div');
+    node.className = `event-node ${event.level}`;
+    if (idx <= state.currentEventIndex) {
+      node.classList.add('visible');
+    }
+    if (state.selectedEvent === idx) {
+      node.classList.add('highlight');
+    }
+
+    const leftPos = (event.t / maxTime) * trackWidth;
+    node.style.left = `${leftPos}px`;
+    node.textContent = event.type.split('.')[1] || event.type;
+    node.dataset.idx = idx;
+
+    node.addEventListener('click', () => selectEvent(idx));
+    track.appendChild(node);
+  });
+
+  updateStats();
+}
+
+function selectEvent(idx) {
+  state.selectedEvent = idx;
+  const events = getEvents();
+  const event = events[idx];
+
+  if (event) {
+    document.getElementById('detailType').textContent = event.type;
+    document.getElementById('detailTs').textContent = `+${event.t}ms`;
+    document.getElementById('detailSource').textContent = event.source;
+    document.getElementById('detailLevel').textContent = event.level;
+    document.getElementById('detailMessage').textContent = event.message;
+    document.getElementById('detailData').textContent = JSON.stringify(event.data, null, 2);
+    eventDetails.classList.add('visible');
+  }
+
+  renderTimeline();
+}
+
+function updateStats() {
+  const events = getEvents();
+  const visibleEvents = events.filter((_, idx) => idx <= state.currentEventIndex);
+
+  document.getElementById('totalEvents').textContent = visibleEvents.length;
+  document.getElementById('errorCount').textContent = visibleEvents.filter(e => e.level === 'error').length;
+
+  const maxT = visibleEvents.length > 0 ? Math.max(...visibleEvents.map(e => e.t)) : 0;
+  document.getElementById('duration').textContent = `${(maxT / 1000).toFixed(1)}s`;
+}
+
+function updateProgress() {
+  const events = getEvents();
+  const progress = events.length > 0 ? ((state.currentEventIndex + 1) / events.length) * 100 : 0;
+  progressFill.style.width = `${progress}%`;
+}
+
+function updatePrompt() {
+  const events = getEvents();
+  const visibleEvents = events.filter((e, idx) => idx <= state.currentEventIndex && state.sources[e.source]);
+
+  if (visibleEvents.length === 0) {
+    promptOutput.textContent = 'Play the animation to see the event flow...';
+    return;
+  }
+
+  const scenarioName = {
+    'happy': 'successful archive request',
+    'options-missing': 'failure: options not found',
+    'render-failed': 'failure: render step failed',
+    'gcs-failed': 'failure: GCS persistence failed'
+  }[state.scenario];
+
+  let output = `## Wide Event Log: ${scenarioName}\n\n`;
+  output += `Request ID: ${events[0]?.data?.request_id || 'req_xxx'}\n`;
+  output += `Total events: ${visibleEvents.length}\n`;
+  output += `Duration: ${visibleEvents.length > 0 ? Math.max(...visibleEvents.map(e => e.t)) : 0}ms\n\n`;
+
+  output += `### Event Timeline\n\n`;
+
+  visibleEvents.forEach(e => {
+    const levelIcon = e.level === 'error' ? '❌' : e.level === 'warn' ? '⚠️' : '✓';
+    output += `${levelIcon} +${e.t}ms [${e.source}] ${e.type}\n`;
+    output += `   ${e.message}\n`;
+    if (e.data && Object.keys(e.data).length > 0) {
+      output += `   data: ${JSON.stringify(e.data)}\n`;
+    }
+    output += `\n`;
+  });
+
+  const hasError = visibleEvents.some(e => e.level === 'error');
+  if (hasError) {
+    const errorEvent = visibleEvents.find(e => e.level === 'error');
+    output += `### Failure Analysis\n\n`;
+    output += `The request failed at: ${errorEvent.type}\n`;
+    output += `Error: ${errorEvent.data?.error || errorEvent.message}\n`;
+    output += `\nThis demonstrates proper error event coverage - the failure was logged before the exception propagated.`;
+  } else {
+    output += `### Summary\n\n`;
+    output += `All steps completed successfully. Event flow shows:\n`;
+    output += `- Request lifecycle tracked from creation to completion\n`;
+    output += `- Each step logged with start/complete events\n`;
+    output += `- Artifacts tracked as they're written\n`;
+    output += `- Persistence events from both workflow and GCS perspectives\n`;
+  }
+
+  promptOutput.textContent = output;
+}
+
+function animate(timestamp) {
+  if (!state.playing) return;
+
+  if (!state.startTime) state.startTime = timestamp;
+
+  const events = getEvents();
+  const elapsed = (timestamp - state.startTime) * state.speed;
+
+  // Find the current event based on elapsed time
+  let newIndex = -1;
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].t <= elapsed) {
+      newIndex = i;
+    } else {
+      break;
+    }
+  }
+
+  if (newIndex !== state.currentEventIndex) {
+    state.currentEventIndex = newIndex;
+    renderTimeline();
+    updateProgress();
+    updatePrompt();
+  }
+
+  // Check if animation is complete
+  if (state.currentEventIndex >= events.length - 1) {
+    state.playing = false;
+    playBtn.textContent = '▶ Play';
+    playBtn.classList.remove('paused');
+    return;
+  }
+
+  state.animationFrame = requestAnimationFrame(animate);
+}
+
+function play() {
+  if (state.playing) {
+    // Pause
+    state.playing = false;
+    playBtn.textContent = '▶ Play';
+    playBtn.classList.remove('paused');
+    if (state.animationFrame) {
+      cancelAnimationFrame(state.animationFrame);
+    }
+  } else {
+    // Play
+    state.playing = true;
+    playBtn.textContent = '⏸ Pause';
+    playBtn.classList.add('paused');
+
+    // If at end, restart
+    const events = getEvents();
+    if (state.currentEventIndex >= events.length - 1) {
+      state.currentEventIndex = -1;
+      state.startTime = null;
+    }
+
+    state.animationFrame = requestAnimationFrame(animate);
+  }
+}
+
+function reset() {
+  state.playing = false;
+  state.currentEventIndex = -1;
+  state.startTime = null;
+  state.selectedEvent = null;
+  playBtn.textContent = '▶ Play';
+  playBtn.classList.remove('paused');
+  eventDetails.classList.remove('visible');
+  if (state.animationFrame) {
+    cancelAnimationFrame(state.animationFrame);
+  }
+  renderTimeline();
+  updateProgress();
+  updatePrompt();
+}
+
+// Event listeners
+playBtn.addEventListener('click', play);
+resetBtn.addEventListener('click', reset);
+
+speedSlider.addEventListener('input', (e) => {
+  state.speed = parseFloat(e.target.value);
+  speedValue.textContent = `${state.speed}x`;
+});
+
+scenarioButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    scenarioButtons.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.scenario = btn.dataset.scenario;
+    reset();
+  });
+});
+
+copyBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(promptOutput.textContent);
+  copyBtn.textContent = 'Copied!';
+  copyBtn.classList.add('copied');
+  setTimeout(() => {
+    copyBtn.textContent = 'Copy';
+    copyBtn.classList.remove('copied');
+  }, 1500);
+});
+
+// Initial render
+renderTimeline();
+updatePrompt();
+</script>
+</body>
+</html>

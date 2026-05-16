@@ -1,0 +1,22 @@
+{
+  "name": "@warg/archive-gateway",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions --project trails-e428e"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^7.15.0",
+    "firebase-admin": "^13.0.2",
+    "firebase-functions": "^6.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "typescript": "^5.7.3"
+  }
+}
