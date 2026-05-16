@@ -3,6 +3,22 @@
     "cloudflare-api": {
       "type": "http",
       "url": "https://mcp.cloudflare.com/mcp"
+    },
+    "firebase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "firebase-tools@latest",
+        "mcp",
+        "--dir",
+        "./firebase",
+        "--only",
+        "firestore,storage,auth"
+      ]
+    },
+    "firestore": {
+      "type": "http",
+      "url": "https://firestore.googleapis.com/mcp"
     }
   }
 }
