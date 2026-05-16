@@ -20,23 +20,27 @@ local.properties
 /ExtractorJs/build/
 /ExtractorCommon/build/
 /app/schemas/com.jayteealao.trails.data.local.database.AppDatabase/
-/.github/workflows/my.variables
 **/*.log
 *.backup
-/.github/workflows/my.secrets
 **/*.apk
 **/*.aab
 *.keystore
 *.jks
 mapping.txt
 *.zip
-.worktrees/
 **/google-services.json
-/firestore.rules
 /docs/FIRESTORE_SYNC_TROUBLESHOOTING.md
 /.artifacts/1/Trails-main/Trails-main/CHANGELOG-main.md
-/.claude/settings.local.json
 /docs/plans/2025-01-26-article-list-controls-redesign.md
 /google-services-base64.txt
 /docs/FEATURE_ROADMAP.md
 /docs/ARTICLE_PIPELINE_AUDIT.md
+
+# Note: post-monorepo-migration (2026-05-16) the following patterns
+# moved to the repo-root .gitignore because their targets are now
+# outside android/:
+#   - .worktrees/  (was at Trails root; stays at monorepo root)
+#   - /.claude/settings.local.json  (.claude/ stayed at monorepo root)
+#   - /.github/workflows/my.variables, my.secrets  (.github/ at root)
+# And /firestore.rules is no longer ignored — moved to firebase/ and
+# tracked as the canonical source of truth.
