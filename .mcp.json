@@ -19,6 +19,10 @@
     "firestore": {
       "type": "http",
       "url": "https://firestore.googleapis.com/mcp"
+    },
+    "gcloud": {
+      "command": "npx",
+      "args": ["-y", "@google-cloud/gcloud-mcp"]
     }
   }
 }
