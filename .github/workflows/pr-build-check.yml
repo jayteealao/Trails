@@ -1,4 +1,4 @@
-name: PR Build Check
+name: Android PR Build Check
 
 on:
   pull_request:
@@ -6,12 +6,21 @@ on:
       - main
       - develop
     types: [opened, synchronize, reopened]
+    paths:
+      - 'android/**'
+      - 'firebase/**'
+      - 'shared-types/**'
+      - '.github/workflows/pr-build-check.yml'
   workflow_dispatch:
     inputs:
       pr_number:
         description: 'PR number to test (optional for manual runs)'
         required: false
         type: number
+
+defaults:
+  run:
+    working-directory: android
 
 jobs:
   build:
@@ -86,7 +95,9 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          ./gradlew --no-daemon clean assembleDebug 2>&1 | tee build-log.txt
+          # tee writes to workspace root so actions/github-script (which does
+          # NOT honor defaults.run.working-directory) can read it back.
+          ./gradlew --no-daemon clean assembleDebug 2>&1 | tee "$GITHUB_WORKSPACE/build-log.txt"
           status=${PIPESTATUS[0]}
           echo "build_status=$status" >> "$GITHUB_OUTPUT"
           exit "$status"
@@ -181,5 +192,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 7

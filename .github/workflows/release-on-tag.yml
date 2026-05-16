@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"     # e.g., v1.4.0, v2.0.0-rc.1
 
+# Monorepo layout: Android sources are under android/. All paths in this
+# workflow are workspace-rooted (no `defaults.run.working-directory`) so
+# that paths emitted to GITHUB_OUTPUT and consumed by GitHub Actions
+# (upload-artifact, softprops/action-gh-release) resolve correctly.
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
@@ -31,8 +36,8 @@ jobs:
           # Windows-safe guard
       - name: Fix gradlew perms & line endings (Windows devs)
         run: |
-          sed -i 's/\r$//' gradlew
-          chmod +x gradlew
+          sed -i 's/\r$//' android/gradlew
+          chmod +x android/gradlew
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -76,27 +81,27 @@ jobs:
           exit 1
           fi
       
-          mkdir -p app
-      
+          mkdir -p android/app
+
           # 1) Normalize line endings and strip *only* whitespace characters that can
           # appear in secrets files (Windows/act can inject CRLF/newlines).
           # 2) Base64-decode safely.
           printf '%s' "$GOOGLE_SERVICES_JSON_B64" \
           | tr -d '\r\n\t ' \
-          | base64 -d > app/google-services.json
-      
+          | base64 -d > android/app/google-services.json
+
           # Validate the JSON so we fail fast with a clear error
           if ! command -v jq >/dev/null 2>&1; then
           sudo apt-get update -y && sudo apt-get install -y jq
           fi
-      
-          jq type app/google-services.json
+
+          jq type android/app/google-services.json
           echo "google-services.json decoded and valid."
       # --- Build (adjust module & tasks as needed) ---
       # If you have flavors, e.g., prod, replace with assembleProdRelease/bundleProdRelease
       - name: Build APK + AAB
         run: |
-          ./gradlew --no-daemon clean assembleRelease bundleRelease
+          cd android && ./gradlew --no-daemon clean assembleRelease bundleRelease
 
       - name: List build outputs (debug)
         if: always()
@@ -138,7 +143,7 @@ jobs:
       - name: Generate changelog (ACT)
         if: ${{ env.ACT == 'true' }}
         run: |
-          git-cliff --tag "${{ env.GITHUB_REF_NAME || 'main' }}" \
+          git-cliff --config android/cliff.toml --tag "${{ env.GITHUB_REF_NAME || 'main' }}" \
             -o "CHANGELOG-${{ env.GITHUB_REF_NAME || 'main' }}.md" --verbose
 
       # ── B) Keep your existing action for real GitHub runs ─────────────────────────
@@ -149,7 +154,7 @@ jobs:
         continue-on-error: true
         uses: orhun/git-cliff-action@v4
         with:
-          args: --tag ${{ steps.find_outputs.outputs.tag }} --verbose
+          args: --config android/cliff.toml --tag ${{ steps.find_outputs.outputs.tag }} --verbose
         env:
           OUTPUT: CHANGELOG-${{ steps.find_outputs.outputs.tag }}.md
 

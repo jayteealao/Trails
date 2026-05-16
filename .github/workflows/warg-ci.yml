@@ -1,0 +1,84 @@
+name: Warg CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'warg/**'
+      - 'firebase/**'
+      - 'shared-types/**'
+      - '.github/workflows/warg-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'warg/**'
+      - 'firebase/**'
+      - 'shared-types/**'
+      - '.github/workflows/warg-ci.yml'
+
+# Workspace-rooted paths throughout. `warg/` is a pnpm workspace; commands
+# run from there so `pnpm -r` picks up the workers/*, packages/*, etc.
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: warg
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: warg/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm exec eslint . --max-warnings=0
+        continue-on-error: true  # legacy code may have lint debt; promote to required once clean
+
+      - name: Typecheck all workspace packages
+        run: |
+          # Each package may have its own tsconfig; iterate via pnpm.
+          # `-r` runs across all workspace packages; `--if-present` skips packages
+          # without a typecheck script instead of failing.
+          pnpm -r --if-present run typecheck
+
+  shared-types-drift:
+    runs-on: ubuntu-latest
+    if: hashFiles('shared-types/check-drift.ts') != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run drift check
+        run: node --experimental-strip-types shared-types/check-drift.ts

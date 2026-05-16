@@ -1,0 +1,33 @@
+# Root .gitignore for the trails+warg monorepo.
+#
+# Stack-specific patterns live under android/.gitignore, warg/.gitignore,
+# etc. This file only covers things that can appear at the monorepo root
+# or anywhere in the tree.
+
+# Git worktree storage (was at Trails root before monorepo migration)
+.worktrees/
+
+# Claude Code per-machine settings
+.claude/settings.local.json
+
+# Windows accidental file from stderr redirects ("dir 2> NUL" leftovers)
+NUL
+
+# OS detritus
+.DS_Store
+Thumbs.db
+
+# Legacy heap dumps / backup files that lived at the Trails repo root
+# pre-migration. They're huge (100MB+) and not source code.
+*.hprof
+*.backup
+hs_err_pid*.log
+
+# Editor scratch
+*.swp
+*.swo
+
+# Local secrets for the `act` GitHub Actions runner
+.github/workflows/my.secrets
+.github/workflows/my.variables
+

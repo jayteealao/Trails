@@ -36,8 +36,8 @@ jobs:
 
       - name: Fix gradlew perms & line endings
         run: |
-          sed -i 's/\r$//' gradlew
-          chmod +x gradlew
+          sed -i 's/\r$//' android/gradlew
+          chmod +x android/gradlew
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -77,19 +77,19 @@ jobs:
             echo "GOOGLE_SERVICES_JSON_B64 is empty."
             exit 1
           fi
-          mkdir -p app
+          mkdir -p android/app
           printf '%s' "$GOOGLE_SERVICES_JSON_B64" \
             | tr -d '\r\n\t ' \
-            | base64 -d > app/google-services.json
+            | base64 -d > android/app/google-services.json
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y && sudo apt-get install -y jq
           fi
-          jq type app/google-services.json
+          jq type android/app/google-services.json
           echo "google-services.json decoded and valid."
 
       - name: Build APK + AAB
         run: |
-          ./gradlew --no-daemon clean assembleRelease bundleRelease
+          cd android && ./gradlew --no-daemon clean assembleRelease bundleRelease
 
       - name: Find outputs
         id: find_outputs
