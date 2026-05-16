@@ -52,6 +52,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Cloudflare Workers types
+        # Workers tsconfigs reference a generated `worker-configuration.d.ts`
+        # produced by `wrangler types` (gitignored). Generate before typecheck.
+        run: pnpm -r --if-present run types
+
       - name: Lint
         run: pnpm exec eslint . --max-warnings=0
         continue-on-error: true  # legacy code may have lint debt; promote to required once clean
