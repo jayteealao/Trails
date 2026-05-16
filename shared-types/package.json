@@ -1,0 +1,6 @@
+{
+  "name": "shared-types",
+  "private": true,
+  "type": "module",
+  "description": "Cross-stack schema docs + drift checks shared between android/ and warg/."
+}
