@@ -69,8 +69,9 @@ jobs:
           pnpm -r --if-present run typecheck
 
   shared-types-drift:
+    # Runs unconditionally when warg-ci is triggered. The workflow-level
+    # paths filter already gates this to PRs that touch warg/firebase/shared-types.
     runs-on: ubuntu-latest
-    if: hashFiles('shared-types/check-drift.ts') != ''
     steps:
       - name: Checkout
         uses: actions/checkout@v4
