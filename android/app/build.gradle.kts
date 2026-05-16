@@ -1,4 +1,18 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+// Release signing values come from (in order): env vars, gradle project
+// properties, then android/local.properties (gitignored). Loaded once at
+// config time. See android/local.properties.example.
+val signingProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
+fun signingValue(key: String): String? =
+    System.getenv(key)?.takeIf { it.isNotBlank() }
+        ?: (project.findProperty(key) as? String)?.takeIf { it.isNotBlank() }
+        ?: signingProps.getProperty(key)?.takeIf { it.isNotBlank() }
 
 /*
  * Copyright (C) 2022 The Android Open Source Project
@@ -35,33 +49,17 @@ android {
 
     signingConfigs {
         create("release") {
-            val storeFilePath = System.getenv("SIGNING_STORE_FILE").orEmpty()
-            val hasEnvKeystore = storeFilePath.isNotBlank() && project.file(storeFilePath).exists()
+            val storeFilePath = signingValue("SIGNING_STORE_FILE") ?: signingValue("KEYSTORE_FILE")
+            val keystoreFile = storeFilePath?.let { project.file(it) }
 
-            if (hasEnvKeystore) {
-                // Use environment variables (CI/CD)
-                storeFile = project.file(storeFilePath)
-                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
-                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
-                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
-            } else if (project.hasProperty("KEYSTORE_FILE")) {
-                // Get from gradle.properties for local testing
-                val keystorePath = project.property("KEYSTORE_FILE") as String
-                val keystoreFile = file(keystorePath)
-
-                if (keystoreFile.exists()) {
-                    storeFile = keystoreFile
-                    storePassword = project.property("KEYSTORE_PASSWORD") as String
-                    keyAlias = project.property("SIGNING_KEY_ALIAS") as String
-                    keyPassword = project.property("SIGNING_KEY_PASSWORD") as String
-                } else {
-                    // Keystore file doesn't exist - use debug signing
-                    println("WARNING: Release keystore not found at $keystorePath. Using debug signing.")
-                    storeFile = null
-                }
+            if (keystoreFile != null && keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = signingValue("SIGNING_STORE_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD")
+                keyAlias = signingValue("SIGNING_KEY_ALIAS")
+                keyPassword = signingValue("SIGNING_KEY_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD")
             } else {
-                // No signing configuration available - will use debug signing
-                println("WARNING: No release signing configuration found. Using debug signing.")
+                // Tried env vars, gradle properties, and android/local.properties.
+                println("WARNING: No release keystore configured. Using debug signing. See android/local.properties.example.")
                 storeFile = null
             }
 

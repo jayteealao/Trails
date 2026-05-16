@@ -1,0 +1,23 @@
+## Template for android/local.properties (gitignored, per-machine).
+##
+## Copy this file to `local.properties` and fill in the values below.
+## Gradle will read this file at build time via the signingValue() helper
+## in app/build.gradle.kts. Anything you write here stays out of git.
+
+# Android SDK (Android Studio sets this for you)
+# sdk.dir=C\:\\Users\\<user>\\AppData\\Local\\Android\\Sdk
+
+# Release signing — absolute path to your .jks/.keystore file
+# KEYSTORE_FILE=C\:\\Users\\<user>\\.android\\<your-keystore>.jks
+
+# Release signing — keystore password and key info
+# KEYSTORE_PASSWORD=<your-keystore-password>
+# SIGNING_KEY_ALIAS=<your-key-alias>
+# SIGNING_KEY_PASSWORD=<your-key-password>
+
+# Notes:
+# - In CI we use environment variables instead (SIGNING_STORE_FILE,
+#   SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD).
+#   See .github/workflows/release-on-tag.yml for the decode step.
+# - If none of env/properties/local.properties have a valid keystore,
+#   the build silently falls back to debug signing.
