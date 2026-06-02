@@ -324,7 +324,14 @@ export default {
 
       console.log(`[gcs] Got ${createUploadRes.uploads.length} signed URLs, doc ID: ${createUploadRes.firestore_doc_id}`);
 
-      // Step 3: Upload each artifact to GCS
+      // Step 3: Upload each artifact, journal-then-act per artifact.
+      // For each artifact:
+      //   (a) bytes already journaled as `archives.<key>.status = 'uploading'`
+      //       in /create-upload above
+      //   (b) upload bytes to GCS
+      //   (c) call /finalize with this artifact only — flips it to 'success'
+      // If (b) or (c) fails for a single artifact, only that one stays at
+      // `uploading`. The reconciler (Plan 3b) can recover from GCS truth.
       const uploadedArtifacts: UploadedArtifact[] = [];
       const uploadResults: UploadedArtifactResult[] = [];
       const compressionStats: CompressionStat[] = [];
@@ -346,6 +353,27 @@ export default {
           uploadEntry.gcs_path
         );
 
+        // Per-artifact finalize — flips this one archive entry to success
+        // immediately, surviving a later batch failure.
+        try {
+          await callCloudFunction<FinalizeResponse>(
+            env.CLOUD_FN_BASE_URL,
+            '/finalize',
+            {
+              request_id,
+              firestore_doc_id: createUploadRes.firestore_doc_id,
+              uploaded: [result.uploaded],
+            } satisfies FinalizeRequest,
+            env.INTERNAL_API_KEY
+          );
+        } catch (err) {
+          // Don't fail the whole persist — the entry is still journaled as
+          // `uploading` with a GCS path, and the reconciler will repair it.
+          console.warn(
+            `[gcs] Per-artifact finalize for ${artifact.kind} failed (recoverable via reconciler): ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+
         uploadedArtifacts.push(result.uploaded);
         uploadResults.push({
           kind: result.uploaded.kind,
@@ -359,12 +387,14 @@ export default {
       const uploadDurationMs = Date.now() - uploadStart;
       console.log(`[gcs] Uploaded ${uploadedArtifacts.length} artifacts to GCS in ${uploadDurationMs}ms`);
 
-      // Step 4: Call Cloud Function /finalize to update Firestore
-      console.log('[gcs] Finalizing Firestore document...');
+      // Step 4: Final finalize call — writes metadata + images (archives
+      // already journaled per-artifact above). Empty `uploaded` is OK: only
+      // metadata/images get patched.
+      console.log('[gcs] Finalizing Firestore metadata...');
       const finalizeReq: FinalizeRequest = {
         request_id,
         firestore_doc_id: createUploadRes.firestore_doc_id,
-        uploaded: uploadedArtifacts,
+        uploaded: [],
         metadata,
         images,
       };

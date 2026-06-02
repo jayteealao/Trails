@@ -21,8 +21,9 @@ export async function handleFinalize(
   try {
     const body = req.body as FinalizeRequest;
 
-    // Validate request
-    if (!body.request_id || !body.firestore_doc_id || !body.uploaded || !Array.isArray(body.uploaded)) {
+    // Validate request. `uploaded` can be an empty array (metadata-only
+    // finalize after per-artifact journal-then-act writes).
+    if (!body.request_id || !body.firestore_doc_id || !Array.isArray(body.uploaded)) {
       res.status(400).json({
         error: 'Missing required fields: request_id, firestore_doc_id, uploaded'
       });

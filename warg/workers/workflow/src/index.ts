@@ -124,7 +124,11 @@ class WorkflowTerminalError extends Error {
  * Coordinates rendering, derivative extraction, manifest creation, and GCS persistence.
  */
 export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
-  private static readonly MONOLITH_MAX_RENDERED_HTML_BYTES = 30 * 1024 * 1024;
+  // Workstream B3 (archive-completion-rootcause.md): the 30–32 MB band still
+  // tripped the sandbox writeFile/exec 32 MiB RPC cap. Pre-gate at 24 MB so
+  // oversized pages record a clean degraded:monolith (non-blocking after the
+  // status-derivation fix) instead of attempting and RPC-failing.
+  private static readonly MONOLITH_MAX_RENDERED_HTML_BYTES = 24 * 1024 * 1024;
 
   override async run(
     event: WorkflowEvent<WorkflowParams>,
@@ -772,14 +776,18 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     renderedHtmlKey: string,
     monolithBaseUrl: string
   ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
-    const maxAttempts = 3;
+    // Workstream B2: monolith either produces in well under 2 min or it won't;
+    // 3×5-min retries were the main driver of the derive-latency tail. Cap at
+    // 2 attempts × 2-min step timeout. Deterministic failures (RPC 32 MiB,
+    // input-too-large) already short-circuit via shouldRetryMonolithError.
+    const maxAttempts = 2;
     let delayMs = 6000;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         return await step.do(
           `monolith-attempt-${attempt}`,
-          { timeout: '5 minutes' },
+          { timeout: '2 minutes' },
           async () => {
             return await callMonolith(this.env, {
               request_id: requestId,

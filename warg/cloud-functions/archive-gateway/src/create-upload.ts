@@ -85,7 +85,12 @@ export async function handleCreateUpload(
       ? ((existingDoc.data()?.['archives'] as Record<string, ArchiveEntry> | undefined) ?? {})
       : {};
 
-    // Build archive patch without regressing already-successful artifacts.
+    // Journal-then-act (Plan 3a, plans/article-status-recovery.md):
+    // Write the intended GCS path *before* the worker uploads bytes. If the
+    // worker dies between upload and finalize, the reconciler can find the
+    // GCS object (path is canonical from request_id+kind) and promote the
+    // archive entry from `uploading` to `success`.
+    const startedAt = new Date().toISOString();
     const archives: Record<string, ArchiveEntry> = {};
     for (const artifact of artifacts) {
       const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
@@ -99,7 +104,10 @@ export async function handleCreateUpload(
 
       archives[archiveKey] = {
         ...(existing ?? {}),
-        status: 'pending',
+        status: 'uploading',
+        gcs_path: `gs://${GCS_BUCKET}/${getGcsPath(request_id, artifact.kind)}`,
+        gcs_bucket: GCS_BUCKET,
+        started_at: startedAt,
       };
     }
 

@@ -34,6 +34,8 @@ import type {
   FailureClass,
 } from './types.js';
 
+export { articleStatusDerive } from './article-status-trigger.js';
+
 if (getApps().length === 0) {
   initializeApp();
 }
@@ -49,17 +51,63 @@ const BACKFILL_USER_ID = defineString('BACKFILL_USER_ID', {
   default: 'TGtRF6GrQaSmfjGk9GEYJ8YZc0v1',
 });
 
-const BATCH_SIZE = defineInt('BACKFILL_BATCH_SIZE', { default: 25 });
+// Workstream C1 (archive-completion-rootcause.md): smaller batches + longer
+// stagger reduce BrowserQuotaDO contention so render/singlefile starts don't
+// queue past the stuck timeout. 12 items × 4s stagger ≈ 48s, well under the
+// 540s function budget.
+const BATCH_SIZE = defineInt('BACKFILL_BATCH_SIZE', { default: 12 });
 const SCAN_PAGE_SIZE = defineInt('BACKFILL_SCAN_PAGE_SIZE', { default: 250 });
-const STAGGER_MS = 2000;
+const STAGGER_MS = 4000;
 const TRACKER_DOC_PATH = 'backfill_state/tracker';
 const MAX_RETRIES = 2;
-const STUCK_TIMEOUT_MS = 30 * 60 * 1000;
+// Workstream C3: backstop above the observed ~43-min wall-clock tail so a job
+// that will still finalize isn't called "stuck" first. Keep in sync with
+// article-status.ts STUCK_TIMEOUT_MS and scripts/reconcile-status.mjs.
+const STUCK_TIMEOUT_MS = 45 * 60 * 1000;
 
 const DOMAIN_FAILURE_THRESHOLD = 2;
 const DOMAIN_BACKOFF_MS = 30 * 60 * 1000;
 const GLOBAL_PAUSE_MS = 20 * 60 * 1000;
 const LEASE_TTL_MS = 15 * 60 * 1000;
+
+// Per-class retry backoff schedule. Index by retry_count (0, 1, 2+).
+// WORKFLOW_TRIGGER: 10m → 1h → 4h (Cloudflare workflow ID collisions are
+// transient and usually clear within an hour).
+const WORKFLOW_TRIGGER_BACKOFF_MS = [
+  10 * 60 * 1000,
+  60 * 60 * 1000,
+  4 * 60 * 60 * 1000,
+];
+
+function failureBackoffUntil(
+  failure: Record<string, unknown> | null,
+  retryCount: number
+): number | null {
+  if (!failure) return null;
+  const cls = failure['class'];
+  const lastSeenAt = failure['last_seen_at'];
+  const lastSeenMs =
+    lastSeenAt && typeof lastSeenAt === 'object' &&
+    typeof (lastSeenAt as { toMillis?: unknown }).toMillis === 'function'
+      ? (lastSeenAt as { toMillis: () => number }).toMillis()
+      : null;
+  if (lastSeenMs === null) return null;
+
+  if (cls === 'WORKFLOW_TRIGGER') {
+    const idx = Math.min(retryCount, WORKFLOW_TRIGGER_BACKOFF_MS.length - 1);
+    const backoff = WORKFLOW_TRIGGER_BACKOFF_MS[idx] ?? 0;
+    return lastSeenMs + backoff;
+  }
+  return null;
+}
+
+function isClassPermanentlyAbandoned(
+  failure: Record<string, unknown> | null
+): boolean {
+  if (!failure) return false;
+  const cls = failure['class'];
+  return cls === 'DATA_ISSUE' || cls === 'ACCESS_OR_AUTH';
+}
 
 interface CanonicalCandidate {
   canonicalItemId: string;
@@ -112,7 +160,13 @@ function classifyGatewayFailure(message: string): FailureClass {
   if (
     lower.includes('invalid url') ||
     lower.includes('url is required') ||
-    lower.includes('base_url contains invalid characters')
+    lower.includes('base_url contains invalid characters') ||
+    // Workstream E1: short canonical ids (e.g. "54149", "0") fail the gateway
+    // request_id validator with HTTP 400. That is a permanent data problem, not
+    // a transient upstream blip — classify it so the row is abandoned, not
+    // retried 2× before giving up.
+    lower.includes('invalid request_id') ||
+    lower.includes('request_id format')
   ) {
     return 'DATA_ISSUE';
   }
@@ -268,13 +322,21 @@ async function markStuckAsFailed(
   db: FirebaseFirestore.Firestore,
   ids: string[]
 ): Promise<void> {
+  const now = Timestamp.now();
+  const settlement = {
+    status: 'stuck',
+    error: 'Stuck: no completion after 30 minutes',
+    created_at: now.toDate().toISOString(),
+  };
   for (const id of ids) {
+    // Status is derived by articleStatusDerive; persist the settlement
+    // event under archives.workflow_settlement so the derivation has signal.
     await db.collection('articles').doc(id).set(
       {
-        status: 'failed',
-        error: 'Stuck: no completion after 30 minutes',
-        failed_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
+        archives: { workflow_settlement: settlement },
+        error: settlement.error,
+        failed_at: now,
+        updated_at: now,
       },
       { merge: true }
     );
@@ -416,11 +478,22 @@ async function selectEligibleCanonicals(
     const doc = snapshot.data();
     const retryCount = getRetryCount(doc);
     const classification = classifyItem(doc, nowMs, STUCK_TIMEOUT_MS);
+    const failure =
+      doc && typeof doc['failure'] === 'object' && doc['failure'] !== null
+        ? (doc['failure'] as Record<string, unknown>)
+        : null;
 
     if (
       (classification === 'failed' || classification === 'stuck') &&
-      retryCount < MAX_RETRIES
+      retryCount < MAX_RETRIES &&
+      !isClassPermanentlyAbandoned(failure)
     ) {
+      const backoffUntil = failureBackoffUntil(failure, retryCount);
+      if (backoffUntil !== null && backoffUntil > nowMs) {
+        // Within per-class backoff window — skip this run, retry later.
+        nonEligible.push({ candidate, markTriggered: false });
+        continue;
+      }
       eligible.push({ candidate, isNew: false, retryCount });
     } else {
       const markTriggered = classification === 'complete' || classification === 'in_progress';
@@ -431,20 +504,31 @@ async function selectEligibleCanonicals(
   return { eligible, nonEligible, skippedBackoff };
 }
 
+interface UpsertResult {
+  articleRef: DocumentReference<DocumentData>;
+  hadFirstSeenFailure: boolean;
+}
+
 async function upsertArticleBeforeBegin(
   db: FirebaseFirestore.Firestore,
   candidate: CanonicalCandidate,
   retryCount: number
-): Promise<DocumentReference<DocumentData>> {
+): Promise<UpsertResult> {
   const articleRef = db.collection('articles').doc(candidate.canonicalItemId);
   const existing = await articleRef.get();
+  const existingData = existing.exists ? existing.data() : undefined;
+  const existingFailure =
+    existingData && typeof existingData['failure'] === 'object'
+      ? (existingData['failure'] as Record<string, unknown>)
+      : null;
+  const hadFirstSeenFailure = Boolean(existingFailure?.['first_seen_at']);
   const now = Timestamp.now();
 
+  // status is derived by articleStatusDerive — don't write it here.
   const patch: Record<string, unknown> = {
     item_id: candidate.canonicalItemId,
     url: candidate.url,
     domain: candidate.domain,
-    status: 'pending',
     retry_count: retryCount,
     updated_at: now,
   };
@@ -474,7 +558,7 @@ async function upsertArticleBeforeBegin(
   }
 
   await articleRef.set(patch, { merge: true });
-  return articleRef;
+  return { articleRef, hadFirstSeenFailure };
 }
 
 async function linkSourceUserDocs(
@@ -690,7 +774,11 @@ export const backfillArchiver = onSchedule(
       for (let i = 0; i < itemsToSend.length; i += 1) {
         const item = itemsToSend[i]!;
         const retryCount = item.isNew ? 0 : item.retryCount + 1;
-        const articleRef = await upsertArticleBeforeBegin(db, item.candidate, retryCount);
+        const { articleRef, hadFirstSeenFailure } = await upsertArticleBeforeBegin(
+          db,
+          item.candidate,
+          retryCount
+        );
 
         try {
           const beginResponse = await callGatewayBegin(
@@ -714,10 +802,11 @@ export const backfillArchiver = onSchedule(
             throw new Error('Gateway begin returned no request id');
           }
 
+          // status is derived by articleStatusDerive; processing_started_at
+          // is the signal the trigger uses to compute `processing`.
           await articleRef.set(
             {
               warg_request_id: requestId,
-              status: 'processing',
               processing_started_at: Timestamp.now(),
               updated_at: Timestamp.now(),
               error: FieldValue.delete(),
@@ -750,13 +839,34 @@ export const backfillArchiver = onSchedule(
             `[backfill] run=${runOwner} failed canonicalId=${item.candidate.canonicalItemId} domain=${item.candidate.domain} class=${failureClass}: ${message}`
           );
 
+          // status is derived by articleStatusDerive. Persist the failure
+          // class + a gateway_begin archive entry so the trigger can
+          // distinguish ACCESS_OR_AUTH (no retry) / DATA_ISSUE (abandoned)
+          // / WORKFLOW_TRIGGER / TRANSIENT_UPSTREAM.
+          const failedAt = Timestamp.now();
+          const failurePatch: Record<string, unknown> = {
+            class: failureClass,
+            last_seen_at: failedAt,
+            count: FieldValue.increment(1),
+            last_error_message: message,
+          };
+          if (!hadFirstSeenFailure) {
+            failurePatch['first_seen_at'] = failedAt;
+          }
           await articleRef.set(
             {
-              status: 'failed',
+              archives: {
+                gateway_begin: {
+                  status: 'failed',
+                  error: message,
+                  created_at: failedAt.toDate().toISOString(),
+                },
+              },
+              failure: failurePatch,
               error: message,
-              failed_at: Timestamp.now(),
+              failed_at: failedAt,
               retry_count: retryCount,
-              updated_at: Timestamp.now(),
+              updated_at: failedAt,
             },
             { merge: true }
           );
@@ -847,6 +957,66 @@ export const backfillStatus = onRequest(
       return;
     }
 
-    res.json({ status: 'ok', tracker });
+    const includeAbandoned = req.query['include_abandoned'] === '1';
+    if (!includeAbandoned) {
+      res.json({ status: 'ok', tracker });
+      return;
+    }
+
+    const limitRaw = Number(req.query['limit']);
+    const limit =
+      Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 100;
+
+    const abandonedSnap = await db
+      .collection('articles')
+      .where('status', '==', 'abandoned')
+      .limit(limit)
+      .get();
+
+    const classBreakdown: Record<string, number> = {};
+    const items: Array<{
+      item_id: string;
+      url?: string;
+      domain?: string;
+      class?: string;
+      last_error_message?: string;
+      retry_count?: number;
+      failed_at?: string;
+    }> = [];
+
+    for (const doc of abandonedSnap.docs) {
+      const data = doc.data();
+      const failure = (data['failure'] as Record<string, unknown> | undefined) ?? {};
+      const cls = typeof failure['class'] === 'string' ? failure['class'] : 'UNKNOWN';
+      classBreakdown[cls] = (classBreakdown[cls] ?? 0) + 1;
+      const failedAt = data['failed_at'];
+      items.push({
+        item_id: doc.id,
+        ...(typeof data['url'] === 'string' ? { url: data['url'] } : {}),
+        ...(typeof data['domain'] === 'string' ? { domain: data['domain'] } : {}),
+        ...(typeof cls === 'string' ? { class: cls } : {}),
+        ...(typeof failure['last_error_message'] === 'string'
+          ? { last_error_message: failure['last_error_message'] as string }
+          : {}),
+        ...(typeof data['retry_count'] === 'number'
+          ? { retry_count: data['retry_count'] }
+          : {}),
+        ...(failedAt && typeof failedAt === 'object' &&
+          typeof (failedAt as { toDate?: unknown }).toDate === 'function'
+            ? { failed_at: (failedAt as { toDate: () => Date }).toDate().toISOString() }
+            : {}),
+      });
+    }
+
+    res.json({
+      status: 'ok',
+      tracker,
+      abandoned: {
+        sampled: items.length,
+        limit,
+        class_breakdown: classBreakdown,
+        items,
+      },
+    });
   }
 );

@@ -146,13 +146,23 @@ export interface FinalizeResponse {
 
 /**
  * Archive entry in Firestore document.
+ *
+ * Lifecycle:
+ *   uploading → success    (happy path, finalized after GCS upload)
+ *   uploading → failed     (the upload itself errored)
+ *   uploading → <stuck>    (worker died; reconcile-archives-map.mjs promotes
+ *                           from GCS truth if bytes are present)
+ *
+ * `pending` is retained for backward-compat with older docs written before
+ * the journal-then-act change landed.
  */
 export interface ArchiveEntry {
-  status: 'pending' | 'success' | 'failed';
+  status: 'pending' | 'uploading' | 'success' | 'failed';
   gcs_path?: string;
   gcs_bucket?: string;
   compressed_size?: number;
   compression_ratio?: number;
+  started_at?: string;
   created_at?: string;
 }
 

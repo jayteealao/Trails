@@ -406,7 +406,7 @@ export default {
         const requestId = body.request_id ?? generateRequestId();
         if (body.request_id && !isValidRequestId(requestId)) {
           return Response.json(
-            { error: 'Invalid request_id format (UUID v4 or 8-40 char alphanumeric/hyphen/underscore required)' },
+            { error: 'Invalid request_id format (UUID v4 or 1-40 char alphanumeric/hyphen/underscore required)' },
             { status: 400 }
           );
         }

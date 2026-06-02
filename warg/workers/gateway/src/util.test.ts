@@ -172,10 +172,9 @@ describe('isValidRequestId', () => {
   });
 
   it('rejects invalid strings', () => {
-    expect(isValidRequestId('')).toBe(false);
+    expect(isValidRequestId('')).toBe(false);                     // empty
     expect(isValidRequestId('../../../etc/passwd')).toBe(false);  // dots and slashes
     expect(isValidRequestId('a'.repeat(100))).toBe(false);        // too long
-    expect(isValidRequestId('short')).toBe(false);                 // too short (5 chars)
   });
 
   it('accepts safe short hyphenated IDs (previously rejected)', () => {
@@ -185,12 +184,12 @@ describe('isValidRequestId', () => {
     expect(isValidRequestId('550e8400-e29b-11d4-a716-446655440000')).toBe(true);
   });
 
-  it('accepts alphanumeric IDs (8-40 chars)', () => {
+  it('accepts alphanumeric IDs (1-40 chars)', () => {
     expect(isValidRequestId('abc12345678901234567')).toBe(true);  // 20 chars (Firestore)
     expect(isValidRequestId('Abc12345DEF901234567')).toBe(true);
     expect(isValidRequestId('ABCDEFGHIJKLMNOPQRST')).toBe(true);
     expect(isValidRequestId('01234567890123456789')).toBe(true);
-    expect(isValidRequestId('abcd1234')).toBe(true);              // 8 chars (minimum)
+    expect(isValidRequestId('abcd1234')).toBe(true);              // 8 chars
   });
 
   it('accepts Pocket-style item IDs (base64url with hyphens/underscores)', () => {
@@ -202,9 +201,17 @@ describe('isValidRequestId', () => {
     expect(isValidRequestId('-D_whhy04nrNwD')).toBe(true);        // hyphen + underscore
   });
 
-  it('rejects IDs shorter than 8 or longer than 40 chars', () => {
-    expect(isValidRequestId('abc1234')).toBe(false);              // 7 chars
+  it('rejects empty and over-length IDs', () => {
+    expect(isValidRequestId('')).toBe(false);                     // 0 chars
     expect(isValidRequestId('a'.repeat(41))).toBe(false);         // 41 chars
+  });
+
+  it('accepts short legacy Pocket numeric IDs (1-7 chars)', () => {
+    // Previously rejected by the 8-char floor, which caused gateway 400s and
+    // abandoned backfill items (e.g. martinfowler.com id 54149, billjings.net id 0).
+    expect(isValidRequestId('54149')).toBe(true);                 // 5 chars
+    expect(isValidRequestId('0')).toBe(true);                     // 1 char
+    expect(isValidRequestId('abc1234')).toBe(true);               // 7 chars
   });
 
   it('rejects IDs with disallowed special characters', () => {
