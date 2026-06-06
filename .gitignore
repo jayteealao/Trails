@@ -31,3 +31,14 @@ hs_err_pid*.log
 .github/workflows/my.secrets
 .github/workflows/my.variables
 
+# Local automation scratch + per-machine Claude Code config
+.ai/
+.claude/
+
+# Ad-hoc article export / audit data — contains user data, never commit
+warg/scripts/articles-export.csv
+warg/scripts/articles-export-analysis.txt
+warg/scripts/gcs-ids.txt
+warg/scripts/*-audit.csv
+warg/scripts/export-articles-csv.mjs
+
