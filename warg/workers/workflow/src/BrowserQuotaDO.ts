@@ -1,13 +1,22 @@
 import { DurableObject } from 'cloudflare:workers';
+import {
+  evaluateAcquire,
+  lowestFreeSlot,
+  type LeaseKind,
+  type QuotaLimits,
+  type TokenBucket
+} from './quota-logic.js';
 
 /**
- * Lease record for an active browser session.
+ * Lease record for an active browser/sandbox session.
  */
 interface Lease {
   leaseId: string;
   requestId: string;
-  kind: 'bindings_launch' | 'rest_request';
+  kind: LeaseKind;
   acquiredAt: number;
+  /** Warm-pool slot index, assigned only to `sandbox_exec` leases. */
+  slot?: number;
 }
 
 /**
@@ -17,25 +26,42 @@ export interface AcquireResult {
   granted: boolean;
   leaseId?: string;
   retryAfterMs?: number;
+  /** Warm-pool slot index for `sandbox_exec` grants (stable container reuse). */
+  slot?: number;
+}
+
+interface StoredState {
+  leases: Array<[string, Lease]>;
+  launchTokens: number;
+  lastRefillMs: number | undefined;
 }
 
 /**
- * Global browser quota management Durable Object.
+ * Global browser/sandbox quota management Durable Object.
  *
- * Enforces Workers Paid limits:
- * - Max 30 concurrent browser instances
- * - Max 30 new browser launches per minute (rolling window)
- * - Leases auto-expire after 5 minutes via alarm
+ * Two independent concurrency pools, plus a launch-rate limiter:
+ * - Browser pool (`bindings_launch` + `rest_request`): max 100 concurrent
+ *   (platform allows 120/account; 100 leaves headroom for other consumers).
+ * - Sandbox pool (`sandbox_exec`, monolith): max 6 concurrent — gates the
+ *   Cloudflare Sandbox so a backfill batch can't burst-collapse it.
+ * - Launch rate: a token bucket modelling the platform's 1 new-browser/sec
+ *   fixed fill, with a small burst. Only `bindings_launch` consumes a token.
  *
- * State is persisted to DO storage to survive hibernation.
+ * Leases auto-expire after 5 minutes via alarm. State is persisted to DO
+ * storage to survive hibernation.
  */
 export class BrowserQuotaDO extends DurableObject<Env> {
   private activeLeases: Map<string, Lease> | undefined;
-  private launchTimestamps: number[] | undefined;
+  private bucket: TokenBucket | undefined;
 
-  private readonly MAX_CONCURRENT = 30;
-  private readonly MAX_PER_MINUTE = 30;
   private readonly LEASE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  private readonly limits: QuotaLimits = {
+    maxConcurrent: 100, // platform now 120/account; headroom for other consumers
+    maxSandboxConcurrent: 4, // under monolith container max_instances (5); leaves churn slack
+    launchRatePerSec: 1, // platform: 1 new browser/sec fixed fill
+    launchBurst: 3 // small burst tolerance
+  };
 
   /**
    * Load state from storage (lazy initialization).
@@ -43,17 +69,17 @@ export class BrowserQuotaDO extends DurableObject<Env> {
   private async loadState(): Promise<void> {
     if (this.activeLeases !== undefined) return;
 
-    const stored = await this.ctx.storage.get<{
-      leases: Array<[string, Lease]>;
-      timestamps: number[];
-    }>('state');
+    const stored = await this.ctx.storage.get<StoredState>('state');
 
     if (stored) {
       this.activeLeases = new Map(stored.leases);
-      this.launchTimestamps = stored.timestamps;
+      this.bucket = {
+        tokens: stored.launchTokens ?? this.limits.launchBurst,
+        lastRefillMs: stored.lastRefillMs
+      };
     } else {
       this.activeLeases = new Map();
-      this.launchTimestamps = [];
+      this.bucket = { tokens: this.limits.launchBurst, lastRefillMs: undefined };
     }
   }
 
@@ -61,66 +87,85 @@ export class BrowserQuotaDO extends DurableObject<Env> {
    * Persist state to storage.
    */
   private async saveState(): Promise<void> {
-    if (!this.activeLeases || !this.launchTimestamps) return;
+    if (!this.activeLeases || !this.bucket) return;
 
-    await this.ctx.storage.put('state', {
+    const state: StoredState = {
       leases: Array.from(this.activeLeases.entries()),
-      timestamps: this.launchTimestamps
-    });
+      launchTokens: this.bucket.tokens,
+      lastRefillMs: this.bucket.lastRefillMs
+    };
+    await this.ctx.storage.put('state', state);
   }
 
   /**
-   * Attempt to acquire a browser quota lease.
+   * Count currently-held leases of the given kinds.
+   */
+  private countByKind(...kinds: LeaseKind[]): number {
+    let count = 0;
+    for (const lease of this.activeLeases!.values()) {
+      if (kinds.includes(lease.kind)) count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Attempt to acquire a quota lease.
    * RPC method - called directly from workflow.
    */
-  async acquire(
-    kind: 'bindings_launch' | 'rest_request',
-    requestId: string
-  ): Promise<AcquireResult> {
+  async acquire(kind: LeaseKind, requestId: string): Promise<AcquireResult> {
     await this.loadState();
     this.cleanupExpiredLeases();
-    this.pruneOldTimestamps();
 
     const now = Date.now();
+    const decision = evaluateAcquire(
+      kind,
+      {
+        browserActive: this.countByKind('bindings_launch', 'rest_request'),
+        sandboxActive: this.countByKind('sandbox_exec'),
+        bucket: this.bucket!
+      },
+      this.limits,
+      now
+    );
 
-    // For bindings_launch, enforce both concurrent and per-minute limits
-    if (kind === 'bindings_launch') {
-      // Check concurrent limit
-      if (this.activeLeases!.size >= this.MAX_CONCURRENT) {
-        return { granted: false, retryAfterMs: 5000 };
+    this.bucket = decision.bucket;
+
+    if (!decision.granted) {
+      // Persist the refilled bucket so launch-rate accounting survives
+      // hibernation even across denied attempts.
+      if (decision.bucketChanged) {
+        await this.saveState();
       }
-
-      // Check per-minute limit
-      if (this.launchTimestamps!.length >= this.MAX_PER_MINUTE) {
-        const oldest = this.launchTimestamps![0];
-        if (oldest !== undefined) {
-          const waitMs = 60000 - (now - oldest) + 100;
-          return { granted: false, retryAfterMs: Math.max(waitMs, 100) };
-        }
-      }
-
-      // Record this launch timestamp
-      this.launchTimestamps!.push(now);
+      return { granted: false, retryAfterMs: decision.retryAfterMs };
     }
 
-    // Grant the lease
     const leaseId = crypto.randomUUID();
-    this.activeLeases!.set(leaseId, {
-      leaseId,
-      requestId,
-      kind,
-      acquiredAt: now
-    });
+    // sandbox_exec leases get a stable warm-pool slot so the monolith worker
+    // reuses a small fixed set of containers instead of cold-starting a unique
+    // sandbox per request (the cold-start churn that drives Sandbox exec-500s).
+    const slot = kind === 'sandbox_exec' ? this.assignSandboxSlot() : undefined;
+    this.activeLeases!.set(leaseId, { leaseId, requestId, kind, acquiredAt: now, slot });
 
-    // Persist state and schedule cleanup
     await this.saveState();
     this.scheduleCleanup();
 
-    return { granted: true, leaseId };
+    return slot === undefined ? { granted: true, leaseId } : { granted: true, leaseId, slot };
   }
 
   /**
-   * Release a browser quota lease.
+   * Pick the lowest free warm-pool slot in [0, MAX_SANDBOX_CONCURRENT).
+   * The concurrency check already guaranteed a slot is free before this runs.
+   */
+  private assignSandboxSlot(): number {
+    const used: number[] = [];
+    for (const lease of this.activeLeases!.values()) {
+      if (lease.kind === 'sandbox_exec' && lease.slot !== undefined) used.push(lease.slot);
+    }
+    return lowestFreeSlot(used);
+  }
+
+  /**
+   * Release a quota lease.
    * RPC method - called directly from workflow.
    * Idempotent - safe to call multiple times with same leaseId.
    */
@@ -144,7 +189,8 @@ export class BrowserQuotaDO extends DurableObject<Env> {
   }
 
   /**
-   * Remove expired leases (older than LEASE_TTL_MS).
+   * Remove expired leases (older than LEASE_TTL_MS). Covers stuck browser and
+   * sandbox leases alike.
    */
   private cleanupExpiredLeases(): void {
     const now = Date.now();
@@ -153,14 +199,6 @@ export class BrowserQuotaDO extends DurableObject<Env> {
         this.activeLeases!.delete(id);
       }
     }
-  }
-
-  /**
-   * Remove timestamps older than 60 seconds.
-   */
-  private pruneOldTimestamps(): void {
-    const cutoff = Date.now() - 60000;
-    this.launchTimestamps = this.launchTimestamps!.filter((ts) => ts > cutoff);
   }
 
   /**

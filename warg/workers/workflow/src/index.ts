@@ -774,7 +774,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     step: WorkflowStep,
     requestId: string,
     renderedHtmlKey: string,
-    monolithBaseUrl: string
+    monolithBaseUrl: string,
+    sandboxId: string | undefined
   ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
     // Workstream B2: monolith either produces in well under 2 min or it won't;
     // 3×5-min retries were the main driver of the derive-latency tail. Cap at
@@ -792,7 +793,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             return await callMonolith(this.env, {
               request_id: requestId,
               rendered_html_key: renderedHtmlKey,
-              base_url: monolithBaseUrl
+              base_url: monolithBaseUrl,
+              sandbox_id: sandboxId
             });
           }
         );
@@ -810,6 +812,65 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     }
 
     throw new Error('Monolith retry loop exhausted unexpectedly');
+  }
+
+  /**
+   * Run the monolith call under a Sandbox-exec concurrency lease (B1a).
+   *
+   * Monolith is the only pipeline step that drives the Cloudflare Sandbox, and
+   * a settling backfill batch fires many calls within a second — bursting the
+   * Sandbox provisioner into HTTP 500s on the host→container write. Gate
+   * concurrency through the same BrowserQuotaDO used for browser launches, via
+   * a separate `sandbox_exec` pool. The lease is held across the B2 retry loop
+   * (one lease per job; retries reuse it).
+   */
+  private async monolithWithQuota(
+    step: WorkflowStep,
+    requestId: string,
+    renderedHtmlKey: string,
+    monolithBaseUrl: string
+  ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
+    const { leaseId, slot } = await step.do(
+      'acquire-monolith-quota',
+      {
+        retries: { limit: 20, delay: '3 seconds', backoff: 'linear' },
+        timeout: '10 minutes'
+      },
+      async () => {
+        const stub = this.env.BROWSER_QUOTA.get(
+          this.env.BROWSER_QUOTA.idFromName('global')
+        );
+        const result = await stub.acquire('sandbox_exec', requestId);
+        if (!result.granted) {
+          throw new Error(`Sandbox quota unavailable, retry after ${result.retryAfterMs}ms`);
+        }
+        return { leaseId: result.leaseId!, slot: result.slot };
+      }
+    );
+
+    // Pin this job to a stable warm-pool container so the monolith worker reuses
+    // a fixed set of sandboxes instead of cold-starting a unique one per request.
+    // For instances whose acquire step was checkpointed before warm-pool rollout
+    // (cached result has no slot), send no id and let monolith use a per-request
+    // sandbox — never a shared `monolith-pool-undefined`.
+    const sandboxId = typeof slot === 'number' ? `monolith-pool-${slot}` : undefined;
+
+    try {
+      return await this.callMonolithWithRetry(
+        step,
+        requestId,
+        renderedHtmlKey,
+        monolithBaseUrl,
+        sandboxId
+      );
+    } finally {
+      await step.do('release-monolith-quota', async () => {
+        const stub = this.env.BROWSER_QUOTA.get(
+          this.env.BROWSER_QUOTA.idFromName('global')
+        );
+        await stub.release(leaseId);
+      });
+    }
   }
 
   private async persistArtifactsIncremental(
@@ -1105,7 +1166,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             });
           }
         ),
-        this.callMonolithWithRetry(
+        this.monolithWithQuota(
           step,
           requestId,
           renderedHtmlKey,
@@ -1221,7 +1282,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await logStepStarted(this.env, requestId, 'monolith');
     });
 
-    const monolithResult = await this.callMonolithWithRetry(
+    const monolithResult = await this.monolithWithQuota(
       step,
       requestId,
       renderedHtmlKey,

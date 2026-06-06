@@ -6,6 +6,9 @@
   "workers_dev": false,
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  "vars": {
+    "R2_BUCKET_NAME": "warg-archives"
+  },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives", "preview_bucket_name": "warg-archives" }
   ],
@@ -13,7 +16,10 @@
     {
       "class_name": "Sandbox",
       "image": "./Dockerfile",
-      "instance_type": "lite",
+      // Bumped lite (256 MiB) -> standard-1 (4 GiB) to test whether better-resourced
+      // containers provision more reliably (createSession 500s) and avoid OOM when
+      // monolith base64-inlines heavy pages. ("standard" is the deprecated alias.)
+      "instance_type": "standard-1",
       "max_instances": 5
     }
   ],
@@ -29,3 +35,8 @@
 // Secrets (via `wrangler secret put`):
 // - INTERNAL_API_KEY: shared key for internal worker auth
 // - MONOLITH_SERVICE_URL (optional): fallback HTTP service URL
+// R2 S3-API presign secrets (B1b) — required; create a read-only R2 API token
+// (Object Read scoped to warg-archives) in the Cloudflare dashboard:
+// - R2_ACCOUNT_ID: Cloudflare account id (R2 S3 endpoint host prefix)
+// - R2_ACCESS_KEY_ID: R2 access key id
+// - R2_SECRET_ACCESS_KEY: R2 secret access key

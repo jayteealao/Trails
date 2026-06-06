@@ -1,17 +1,19 @@
-import { getSandbox, type Sandbox } from '@cloudflare/sandbox';
-import { storeArtifact, timingSafeEqual } from '@warg/shared';
+import { getSandbox } from '@cloudflare/sandbox';
+import { getR2Key, storeArtifact, timingSafeEqual, type ArtifactMeta } from '@warg/shared';
 import type { MonolithRequest, MonolithSuccessResponse } from './types.js';
+import {
+  buildCurlCommand,
+  buildMonolithFileCommand,
+  buildMonolithUrlCommand,
+  buildUploadAndHashCommand,
+  parseUploadOutput,
+  SANDBOX_OUTPUT_PATH
+} from './monolith-command.js';
+import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-presign.js';
+import { isRpc32MiBLimit } from './failure-classify.js';
 
 // Re-export Sandbox for Durable Object binding
 export { Sandbox } from '@cloudflare/sandbox';
-
-// Monolith CLI flags for creating clean single-file HTML
-const MONOLITH_FLAGS = [
-  '-j', // remove JavaScript
-  '-a', // remove audio
-  '-v', // remove video
-  '-F' // remove frames/iframes
-];
 
 class MonolithServiceError extends Error {
   readonly code: string;
@@ -57,12 +59,7 @@ function normalizeSandboxId(requestId: string): string {
 function classifySandboxFailure(stderr: string, stdout: string): MonolithServiceError {
   const message = `${stderr}\n${stdout}`.toLowerCase();
 
-  if (
-    message.includes('message length too big') ||
-    message.includes('max allowed message length') ||
-    message.includes('33554432') ||
-    message.includes('32mib')
-  ) {
+  if (isRpc32MiBLimit(message)) {
     return new MonolithServiceError(
       'Monolith sandbox payload exceeded RPC size limit',
       'MONOLITH_RPC_32MIB_LIMIT',
@@ -122,64 +119,114 @@ function validateBaseUrl(url: string): string {
 }
 
 /**
- * Quote an argument for shell execution.
+ * Normalized result of a single sandbox exec. Exec RPC failures are folded into
+ * a failed outcome (not thrown) so the caller can attempt the curl fallback.
  */
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+interface ExecOutcome {
+  success: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+type SandboxHandle = ReturnType<typeof getSandbox>;
+
+async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<ExecOutcome> {
+  try {
+    const result = await sandbox.exec(command);
+    return {
+      success: result.success,
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, exitCode: -1, stdout: '', stderr: `Sandbox exec failed: ${message}` };
+  }
 }
 
 /**
- * Execute monolith in sandbox and return processed HTML.
+ * Assemble + validate the R2 presign config from worker secrets.
+ * Throws a clear, non-retryable config error if any secret is missing.
+ */
+function getPresignConfig(env: Env): R2PresignConfig {
+  const { R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID, R2_BUCKET_NAME } = env;
+  if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ACCOUNT_ID || !R2_BUCKET_NAME) {
+    throw new MonolithServiceError(
+      'R2 presign not configured (need R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID, R2_BUCKET_NAME)',
+      'MONOLITH_CONFIG',
+      500,
+      false
+    );
+  }
+  return {
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
+    accountId: R2_ACCOUNT_ID,
+    bucket: R2_BUCKET_NAME
+  };
+}
+
+/**
+ * Execute monolith in the sandbox and return processed HTML.
+ *
+ * Input is delivered over the container's own network via a presigned R2 GET
+ * URL (B1b) — monolith fetches it directly. If that fails (e.g. monolith's
+ * URL-fetch or `-b` override misbehaves), fall back to `curl`-to-file, which
+ * writes inside the container (normal fs) and feeds monolith a local path.
+ * Neither path uses the host→container `writeFile` RPC that was 500ing.
  */
 async function runMonolithInSandbox(
   env: Env,
   requestId: string,
-  html: string,
-  baseUrl: string
-): Promise<{ content: string; sandboxId: string }> {
+  renderedHtmlKey: string,
+  baseUrl: string,
+  poolSandboxId?: string
+): Promise<{ artifact: ArtifactMeta; sandboxId: string }> {
   const normalizedBaseUrl = validateBaseUrl(baseUrl);
-  const sandboxId = normalizeSandboxId(requestId);
+  // Prefer the warm-pool sandbox assigned by the workflow, but only if it is a
+  // well-formed pool id — otherwise fall back to a per-request sandbox so a
+  // malformed value can't funnel every job onto one shared container.
+  const usesPool = poolSandboxId !== undefined && /^monolith-pool-\d+$/.test(poolSandboxId);
+  const sandboxId = normalizeSandboxId(usesPool ? poolSandboxId! : requestId);
   console.log('[monolith] Getting sandbox for request:', requestId, 'sandbox:', sandboxId);
   const sandbox = getSandbox(env.Sandbox, sandboxId);
 
-  // Write input HTML to workspace
-  console.log('[monolith] Writing input HTML to sandbox...');
-  try {
-    await sandbox.writeFile('/workspace/in.html', html);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new MonolithServiceError(
-      `Sandbox write failed: ${message}`,
-      'MONOLITH_SANDBOX_500',
-      500,
-      true
-    );
-  }
+  // Warm-pool sandboxes are reused across requests, so clear any prior output
+  // before this run. Folded into the exec strings (no extra RPC); monolith's
+  // `-o` also truncates, this just closes the success-but-stale edge.
+  const cleanOut = `rm -f ${SANDBOX_OUTPUT_PATH}`;
 
-  // Build monolith command
-  // monolith -b <base_url> [flags] /workspace/in.html -o /workspace/out.html
-  const args = [
-    ...MONOLITH_FLAGS,
-    '-b',
-    normalizedBaseUrl,
-    '/workspace/in.html',
-    '-o',
-    '/workspace/out.html'
-  ];
-  const command = `monolith ${args.map(shellQuote).join(' ')}`;
+  // Mint a short-lived presigned GET URL for the rendered HTML. Never logged —
+  // it grants read access to the object for its TTL.
+  const documentUrl = await presignR2GetUrl(getPresignConfig(env), renderedHtmlKey);
 
-  console.log('[monolith] Executing:', command);
-  let result: Awaited<ReturnType<typeof sandbox.exec>>;
-  try {
-    result = await sandbox.exec(command);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new MonolithServiceError(
-      `Sandbox exec failed: ${message}`,
-      'MONOLITH_SANDBOX_500',
-      500,
-      true
-    );
+  // Primary: monolith fetches the URL directly (no curl dependency).
+  console.log('[monolith] Executing monolith via presigned URL fetch...');
+  let result = await execInSandbox(
+    sandbox,
+    `${cleanOut}; ${buildMonolithUrlCommand(documentUrl, normalizedBaseUrl)}`
+  );
+
+  // Fallback: curl the URL into a local file, then monolith reads the file.
+  if (!result.success) {
+    console.warn('[monolith] URL-fetch path failed, trying curl-to-file fallback', {
+      exitCode: result.exitCode,
+      stderr: result.stderr.slice(0, 500)
+    });
+    const curl = await execInSandbox(sandbox, buildCurlCommand(documentUrl));
+    if (curl.success) {
+      result = await execInSandbox(
+        sandbox,
+        `${cleanOut}; ${buildMonolithFileCommand(normalizedBaseUrl)}`
+      );
+    } else {
+      console.error('[monolith] curl fallback failed', {
+        exitCode: curl.exitCode,
+        stderr: curl.stderr.slice(0, 500)
+      });
+    }
   }
 
   if (!result.success) {
@@ -191,21 +238,32 @@ async function runMonolithInSandbox(
     throw classifySandboxFailure(result.stderr, result.stdout);
   }
 
-  console.log('[monolith] Execution complete, reading output...');
-  let outputFile: Awaited<ReturnType<typeof sandbox.readFile>>;
-  try {
-    outputFile = await sandbox.readFile('/workspace/out.html');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  // Upload the output straight to R2 via a presigned PUT URL, then read back its
+  // sha256 + byte size from stdout. Routing the bytes over the container network
+  // sidesteps the 32 MiB `readFile` RPC ceiling that heavy (base64-inlined)
+  // pages would otherwise overflow.
+  console.log('[monolith] Execution complete, uploading output to R2...');
+  const r2Key = getR2Key(requestId, 'monolith.html');
+  const putUrl = await presignR2PutUrl(getPresignConfig(env), r2Key);
+  const upload = await execInSandbox(sandbox, buildUploadAndHashCommand(putUrl));
+  if (!upload.success) {
+    console.error('[monolith] Output upload failed:', {
+      exitCode: upload.exitCode,
+      stderr: upload.stderr.slice(0, 500)
+    });
+    throw classifySandboxFailure(upload.stderr, upload.stdout);
+  }
+
+  const parsed = parseUploadOutput(upload.stdout);
+  if (!parsed) {
     throw new MonolithServiceError(
-      `Sandbox read failed: ${message}`,
+      'Monolith output upload did not report sha256/size',
       'MONOLITH_SANDBOX_500',
       500,
       true
     );
   }
-
-  if (!outputFile.content) {
+  if (parsed.bytes === 0) {
     throw new MonolithServiceError(
       'Monolith produced empty output',
       'MONOLITH_EMPTY_OUTPUT',
@@ -214,7 +272,14 @@ async function runMonolithInSandbox(
     );
   }
 
-  return { content: outputFile.content, sandboxId };
+  const artifact: ArtifactMeta = {
+    kind: 'monolith.html',
+    r2Key,
+    bytes: parsed.bytes,
+    sha256: parsed.sha256,
+    contentType: 'text/html'
+  };
+  return { artifact, sandboxId };
 }
 
 /**
@@ -280,34 +345,39 @@ export default {
         );
       }
 
-      // Fetch HTML from R2
-      console.log('[monolith] Fetching HTML from R2:', rendered_html_key);
-      const htmlObject = await env.ARCHIVE_BUCKET.get(rendered_html_key);
-      if (!htmlObject) {
+      // Validate the rendered HTML exists in R2 without reading it into the
+      // worker — the Sandbox fetches it directly via a presigned URL.
+      const htmlHead = await env.ARCHIVE_BUCKET.head(rendered_html_key);
+      if (!htmlHead) {
         return Response.json(
           { error: 'HTML not found in R2', key: rendered_html_key },
           { status: 404 }
         );
       }
-
-      const html = await htmlObject.text();
-      console.log('[monolith] HTML fetched, length:', html.length);
-
-      if (html.length < 100) {
+      if (htmlHead.size < 100) {
         return Response.json(
-          { error: 'HTML content too short', length: html.length },
+          { error: 'HTML content too short', length: htmlHead.size },
           { status: 400 }
         );
       }
+      console.log('[monolith] Rendered HTML present:', rendered_html_key, 'bytes:', htmlHead.size);
 
-      // Try sandbox execution first, fall back to HTTP service if configured
-      let monolithHtml: string;
+      // Try sandbox execution first, fall back to HTTP service if configured.
+      // The sandbox path uploads its output to R2 directly and returns artifact
+      // metadata; the HTTP fallback returns HTML that we store here.
+      let artifact: ArtifactMeta;
       let sandboxId: string | undefined;
       let method: 'sandbox' | 'http_fallback' = 'sandbox';
       const processingStart = Date.now();
       try {
-        const sandboxResult = await runMonolithInSandbox(env, request_id, html, base_url);
-        monolithHtml = sandboxResult.content;
+        const sandboxResult = await runMonolithInSandbox(
+          env,
+          request_id,
+          rendered_html_key,
+          base_url,
+          body.sandbox_id
+        );
+        artifact = sandboxResult.artifact;
         sandboxId = sandboxResult.sandboxId;
       } catch (sandboxError) {
         console.error('[monolith] Sandbox execution failed:', sandboxError);
@@ -315,27 +385,27 @@ export default {
         if (env.MONOLITH_SERVICE_URL && isRetryableSandboxError(sandboxError)) {
           console.log('[monolith] Trying HTTP fallback...');
           method = 'http_fallback';
-          monolithHtml = await runMonolithViaHttp(env.MONOLITH_SERVICE_URL, html, base_url, env.INTERNAL_API_KEY);
+          const htmlObject = await env.ARCHIVE_BUCKET.get(rendered_html_key);
+          if (!htmlObject) {
+            throw sandboxError;
+          }
+          const html = await htmlObject.text();
+          const monolithHtml = await runMonolithViaHttp(env.MONOLITH_SERVICE_URL, html, base_url, env.INTERNAL_API_KEY);
+          const data = new TextEncoder().encode(monolithHtml);
+          artifact = await storeArtifact(
+            env.ARCHIVE_BUCKET,
+            request_id,
+            'monolith.html',
+            data.buffer as ArrayBuffer,
+            'text/html'
+          );
         } else {
           throw sandboxError;
         }
       }
       const processingMs = Date.now() - processingStart;
 
-      console.log('[monolith] Monolith output length:', monolithHtml.length);
-
-      // Store artifact to R2
-      console.log('[monolith] Storing artifact to R2...');
-      const data = new TextEncoder().encode(monolithHtml);
-      const artifact = await storeArtifact(
-        env.ARCHIVE_BUCKET,
-        request_id,
-        'monolith.html',
-        data.buffer as ArrayBuffer,
-        'text/html'
-      );
-
-      console.log('[monolith] Success!', { r2Key: artifact.r2Key, bytes: artifact.bytes });
+      console.log('[monolith] Success!', { r2Key: artifact.r2Key, bytes: artifact.bytes, method });
       const response: MonolithSuccessResponse = {
         artifact,
         meta: {
