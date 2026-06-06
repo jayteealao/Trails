@@ -201,3 +201,40 @@ jobs:
             ${{ steps.find_outputs.outputs.mapping }}
             CHANGELOG-${{ steps.find_outputs.outputs.tag }}.md
 
+  # Verify the published release has its APK/AAB assets attached.
+  post-publish:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify GitHub Release assets
+        # Skipped under act (no real release is created locally).
+        if: ${{ env.ACT != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # build-and-release just created this release, so the check normally
+          # passes on the first attempt; the loop only guards against GitHub
+          # API propagation lag. Up to 30 min, polling every 60s.
+          MAX_WAIT=$(( 30 * 60 ))
+          POLL=60
+          ELAPSED=0
+          while :; do
+            ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+            echo "Assets for ${TAG}:"
+            echo "${ASSETS:-<none>}"
+            if echo "$ASSETS" | grep -qiE '\.apk$' && echo "$ASSETS" | grep -qiE '\.aab$'; then
+              echo "Post-publish check passed: APK and AAB are attached."
+              exit 0
+            fi
+            if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+              echo "Post-publish check FAILED: APK and/or AAB missing after ${MAX_WAIT}s."
+              exit 1
+            fi
+            sleep "$POLL"
+            ELAPSED=$(( ELAPSED + POLL ))
+          done
+

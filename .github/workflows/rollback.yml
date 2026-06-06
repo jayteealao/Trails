@@ -1,0 +1,51 @@
+name: Rollback
+
+# Demotes a bad Android GitHub Release so the previous stable release becomes
+# "Latest" again. Artifacts are preserved (not deleted) by default.
+#
+# The Warg backend (Cloudflare Workers + Cloud Functions) is NOT rolled back
+# here — its deploy is operator-run, not in CI. Roll those back locally with:
+#   pnpm --dir warg exec wrangler rollback --name <worker>
+# per affected worker. See docs/runbooks/ and the warg deploy script.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bad_version:
+        description: 'Release tag to roll back FROM / demote (e.g. v1.10.6)'
+        required: true
+      reason:
+        description: 'Reason for the rollback'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  rollback-android-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Demote bad release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.bad_version }}"
+          # Demote (do not destroy): mark as pre-release and clear "latest" so
+          # the prior stable release is surfaced again. To fully remove the
+          # release and its tag instead, replace the line below with:
+          #   gh release delete "$TAG" --yes --cleanup-tag
+          gh release edit "$TAG" --prerelease --latest=false
+          echo "Demoted ${TAG}: marked pre-release, no longer latest."
+          echo "Reason: ${{ inputs.reason }}"
+
+      - name: Record rollback
+        run: |
+          {
+            echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) rolled back ${{ inputs.bad_version }}: ${{ inputs.reason }}"
+          } >> .rollback-history.txt || true
+          echo "Reminder: roll back the Warg backend separately with 'wrangler rollback' per worker if it shipped alongside this release."
