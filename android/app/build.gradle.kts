@@ -135,6 +135,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests {
+            // Firebase enums (e.g. FirebaseFirestoreException.Code) statically
+            // touch android.util.SparseArray; without this their <clinit> throws
+            // "not mocked" under plain JVM unit tests.
+            isReturnDefaultValues = true
+        }
+    }
+
     kotlin {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
