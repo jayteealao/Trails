@@ -14,9 +14,10 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
-import io.mockk.mockkConstructor
+import io.mockk.mockk
+import io.mockk.mockkStatic
 import io.mockk.slot
-import io.mockk.unmockkConstructor
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -71,7 +72,7 @@ class ArticleListViewModelTest {
     @After
     fun tearDown() {
         clearAllMocks()
-        runCatching { unmockkConstructor(Unfurler::class) }
+        runCatching { unmockkStatic("me.saket.unfurl.UnfurlerKt") }
         Dispatchers.resetMain()
     }
 
@@ -80,8 +81,15 @@ class ArticleListViewModelTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)
 
-        mockkConstructor(Unfurler::class)
-        coEvery { anyConstructed<Unfurler>().unfurl(any()) } throws RuntimeException("unfurl failure")
+        // Unfurler is an interface built via the top-level Unfurler() factory, so it
+        // can't be mocked with mockkConstructor. Mock the factory so the ViewModel's
+        // `val unfurler = Unfurler()` receives a mock whose suspend unfurl() fails —
+        // this is the metadata-fetch-failure path under test.
+        val unfurler = mockk<Unfurler>()
+        coEvery { unfurler.unfurl(any<String>()) } throws RuntimeException("unfurl failure")
+        mockkStatic("me.saket.unfurl.UnfurlerKt")
+        every { Unfurler() } returns unfurler
+
         val upsertSlot = slot<Article>()
         coEvery { articleDao.upsertNewArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
 
@@ -113,7 +121,11 @@ class ArticleListViewModelTest {
         )
 
         val sharedUrl = "https://example.com/article"
-        viewModel.saveUrl(Uri.parse(sharedUrl), "Shared title")
+        // android.net.Uri has no JVM implementation; saveUrl() only reads
+        // givenUrl.toString(), so a mock that echoes the URL is sufficient.
+        val sharedUri = mockk<Uri>()
+        every { sharedUri.toString() } returns sharedUrl
+        viewModel.saveUrl(sharedUri, "Shared title")
         advanceUntilIdle()
 
         assertEquals(sharedUrl, upsertSlot.captured.url)
