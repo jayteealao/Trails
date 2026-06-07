@@ -1,0 +1,27 @@
+{
+  "name": "@warg/backfill-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Admin-SDK maintenance CLIs for the article-marker rollout: bulk marker backfill, a per-user coverage gate, and legacy debug_logs cleanup. Single-user scoped, dry-run-first, never destructive in the backfill path.",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm run build && node --test \"dist/__tests__/*.unit.test.js\"",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "backfill": "node dist/marker-backfill.js",
+    "gate": "node dist/coverage-gate.js",
+    "cleanup": "node dist/debug-logs-cleanup.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  }
+}

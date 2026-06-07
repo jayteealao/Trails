@@ -68,6 +68,13 @@ jobs:
           # without a typecheck script instead of failing.
           pnpm -r --if-present run typecheck
 
+      - name: Unit tests — backfill-scripts (pure, no emulator)
+        # Scoped to the one package with a CI-safe pure test suite (node:test).
+        # The package's emulator-backed integration suite needs Java + the
+        # Firestore emulator and is run on demand, not here. Broaden to a
+        # workspace-wide `pnpm -r test` once other packages have CI-safe suites.
+        run: pnpm --filter @warg/backfill-scripts test
+
   shared-types-drift:
     # Runs unconditionally when warg-ci is triggered. The workflow-level
     # paths filter already gates this to PRs that touch warg/firebase/shared-types.

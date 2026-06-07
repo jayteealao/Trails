@@ -34,8 +34,11 @@ requires updating every producer and the rules/tests in the same commit.**
   article key on backup (`source: "sync"`) and on read-denial self-heal
   (`source: "self-heal"`), via the `ARTICLE_MARKERS_COLLECTION` constant.
   [`android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt`](../android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt)
-- **Warg backfill (planned)** — a one-off Admin SDK backfill writes the same
-  docs with `source: "backfill"` for historical articles.
+- **Warg backfill** — the Admin-SDK `@warg/backfill-scripts` package writes the
+  same docs with `source: "backfill"` for historical articles, deriving keys via
+  the shared `ARTICLE_MARKERS_COLLECTION` constant + `deriveMarkerKeys` (parity
+  port of the Android `markerKeysFor`).
+  [`warg/cloud-functions/backfill-scripts/src/keys.ts`](../warg/cloud-functions/backfill-scripts/src/keys.ts)
 
 ## Consumer
 
@@ -49,6 +52,7 @@ written for every key.
 1. Update the table above.
 2. Update `markerBody(...)` and the `ARTICLE_MARKERS_COLLECTION` constant in
    `FirestoreBackupService.kt`.
-3. Update the Warg backfill writer when it is added.
+3. Update `deriveMarkerKeys`/`markerBody` and the `ARTICLE_MARKERS_COLLECTION`
+   constant in `warg/cloud-functions/backfill-scripts/src/keys.ts`.
 4. Update `firebase/firestore.rules` and `firebase/test/firestore-rules.test.ts`.
 5. Run `node --experimental-strip-types shared-types/check-drift.ts` locally.

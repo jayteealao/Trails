@@ -43,6 +43,12 @@ const TRAILS_MARKER_WRITER = resolve(
   repoRoot,
   'android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt',
 );
+// Second marker producer: the Warg Admin-SDK backfill. Its pure key module is
+// the source of truth for the collection name + field body it writes.
+const WARG_MARKER_BACKFILL = resolve(
+  repoRoot,
+  'warg/cloud-functions/backfill-scripts/src/keys.ts',
+);
 
 // Trails only reads a subset of fields; fields listed here are exempt from
 // the Trails-side check.
@@ -91,30 +97,50 @@ function findMissing(haystack: string, needles: readonly string[]): string[] {
   return needles.filter((needle) => !haystack.includes(needle));
 }
 
-// Returns true if marker-contract drift was detected.
-function checkMarkerContract(): boolean {
-  const markerFields = extractMarkerFields(readFile(MARKER_DOC));
-  console.log(`[drift] marker fields: ${markerFields.join(', ')}`);
-
-  const writerSrc = readFile(TRAILS_MARKER_WRITER);
+// Assert one marker producer references the collection name + every field.
+// Returns true if drift was detected for that producer.
+function checkMarkerProducer(
+  label: string,
+  path: string,
+  markerFields: readonly string[],
+): boolean {
+  const src = readFile(path);
   let drift = false;
 
-  if (!writerSrc.includes(MARKER_COLLECTION)) {
+  if (!src.includes(MARKER_COLLECTION)) {
     console.error(
-      `[drift] FirestoreBackupService.kt does not reference the marker collection "${MARKER_COLLECTION}".`,
+      `[drift] ${label} does not reference the marker collection "${MARKER_COLLECTION}".`,
     );
     drift = true;
   }
 
-  const missing = findMissing(writerSrc, markerFields);
+  const missing = findMissing(src, markerFields);
   if (missing.length > 0) {
-    console.error(
-      `[drift] FirestoreBackupService.kt is missing marker field name(s): ${missing.join(', ')}`,
-    );
+    console.error(`[drift] ${label} is missing marker field name(s): ${missing.join(', ')}`);
     drift = true;
   }
 
   return drift;
+}
+
+// Returns true if marker-contract drift was detected in any producer.
+function checkMarkerContract(): boolean {
+  const markerFields = extractMarkerFields(readFile(MARKER_DOC));
+  console.log(`[drift] marker fields: ${markerFields.join(', ')}`);
+
+  // Both producers must agree on the path + field names.
+  const trailsDrift = checkMarkerProducer(
+    'FirestoreBackupService.kt',
+    TRAILS_MARKER_WRITER,
+    markerFields,
+  );
+  const wargDrift = checkMarkerProducer(
+    'backfill-scripts/src/keys.ts',
+    WARG_MARKER_BACKFILL,
+    markerFields,
+  );
+
+  return trailsDrift || wargDrift;
 }
 
 function main(): void {
