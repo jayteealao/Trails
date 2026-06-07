@@ -1,27 +1,35 @@
 package com.jayteealao.trails.common
 
 import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import timber.log.Timber
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Debug-only Timber tree that aggregates log entries per article session in Firestore.
  *
- * Structure: debug_logs/{sessionId}_{articleId}
+ * Structure: debug_logs/{uid}/sessions/{sessionId}_{articleId}
  *   - sessionId, articleId, device, enteredAt
  *   - events: [ { ts, tag, msg, level, error? }, ... ]
  *
- * Only logs from archive-related tags are forwarded.
+ * Owner-scoped under the signed-in user's uid (matches the firestore.rules
+ * `debug_logs/{userId}/sessions/{sessionId}` match). Logging is skipped when no
+ * user is signed in. Only logs from archive-related tags are forwarded.
  * Article ID is extracted from log message patterns like method(articleId).
  */
-class FirestoreLogTree : Timber.DebugTree() {
+@Singleton
+class FirestoreLogTree @Inject constructor(
+    private val firestore: FirebaseFirestore,
+    private val auth: FirebaseAuth,
+) : Timber.DebugTree() {
 
     private val sessionId = UUID.randomUUID().toString().take(8)
-    private val firestore = FirebaseFirestore.getInstance()
     private val articleDocs = ConcurrentHashMap<String, DocumentReference>()
 
     private val relevantTags = setOf(
@@ -40,8 +48,10 @@ class FirestoreLogTree : Timber.DebugTree() {
         val isRelevant = tag != null && relevantTags.any { tag.contains(it) }
         if (!isRelevant) return
 
+        // Owner-scoped path requires a signed-in uid; skip otherwise.
+        val uid = auth.currentUser?.uid ?: return
         val articleId = extractArticleId(message) ?: "session"
-        val docRef = getOrCreateDoc(articleId)
+        val docRef = getOrCreateDoc(uid, articleId)
 
         val event = mutableMapOf<String, Any>(
             "ts" to System.currentTimeMillis(),
@@ -62,10 +72,13 @@ class FirestoreLogTree : Timber.DebugTree() {
         return id.ifEmpty { null }
     }
 
-    private fun getOrCreateDoc(articleId: String): DocumentReference {
+    private fun getOrCreateDoc(uid: String, articleId: String): DocumentReference {
         return articleDocs.getOrPut(articleId) {
             val docId = "${sessionId}_${articleId}"
-            val ref = firestore.collection("debug_logs").document(docId)
+            val ref = firestore.collection("debug_logs")
+                .document(uid)
+                .collection("sessions")
+                .document(docId)
             ref.set(
                 mapOf(
                     "sessionId" to sessionId,

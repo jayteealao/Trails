@@ -7,11 +7,58 @@ on:
     paths:
       - 'firebase/**'
       - '.github/workflows/firebase-rules.yml'
+  pull_request:
+    paths:
+      - 'firebase/**'
+      - '.github/workflows/firebase-rules.yml'
   workflow_dispatch:
 
 jobs:
+  # Validate the ruleset against the Firestore emulator before it can be
+  # deployed. This job gates deploy-rules and also runs on pull requests so a
+  # broken ruleset is caught before merge.
+  rules-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: firebase/test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java (Firestore emulator runtime)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Cache Firebase emulator binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('firebase/test/package.json') }}
+          restore-keys: |
+            firebase-emulators-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Firestore rules tests (emulator)
+        run: npm test
+
   deploy-rules:
     runs-on: ubuntu-latest
+    # Never deploy from a pull request; only push-to-main and manual dispatch.
+    if: github.event_name != 'pull_request'
+    needs: rules-test
     permissions:
       contents: read
     defaults:

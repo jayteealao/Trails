@@ -331,6 +331,9 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("io.mockk:mockk:1.14.5")
+    // Provides Tasks + Task.await() on the unit-test classpath (version-aligned
+    // with kotlinx-coroutines-test) so Firestore Task mocks resolve correctly.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
     // Instrumented tests: jUnit rules and runners
 

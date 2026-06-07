@@ -11,5 +11,10 @@
       "rules": "storage.rules",
       "target": "archives"
     }
-  ]
+  ],
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    }
+  }
 }

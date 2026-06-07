@@ -16,6 +16,7 @@ Project ID: `trails-e428e` (also referenced from `warg/scripts/deploy.sh`).
 | `firebase.json` | Hosting/Firestore/Storage config |
 | `firestore.rules` | Security rules for the Firestore documents Trails reads and Warg writes |
 | `storage.rules` | Security rules for the GCS bucket Warg uses for archive artifacts |
+| `test/` | Standalone `@firebase/rules-unit-testing` suite run against the Firestore emulator; gates deploy in CI (`firebase-rules.yml`). `cd test && npm install && npm test`. |
 
 ## Deploying
 
@@ -24,6 +25,19 @@ From this directory:
 ```bash
 firebase deploy --only firestore:rules,storage
 ```
+
+## Article markers & sequenced read tightening
+
+The top-level `articles` read rule is intentionally still `isAuthenticated()`.
+Tightening it to a marker-gated, get-only read is a **later, separately
+deployed** change: it can only land once every saved article has a per-user
+existence marker at `users/{uid}/articleMarkers/{key}` (see
+[`../shared-types/MarkerSchema.md`](../shared-types/MarkerSchema.md)).
+
+Markers are written by the Android client on every sync/backup and on
+read-denial self-heal; historical articles are covered by a one-off backfill.
+Because rules auto-deploy on push to `main`, the read-tightening commit must be
+the **last** to merge so reads keep working until coverage is in place.
 
 ## Why this is here, not under android/ or warg/
 

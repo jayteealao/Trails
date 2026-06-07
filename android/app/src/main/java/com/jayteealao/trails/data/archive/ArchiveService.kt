@@ -7,13 +7,19 @@ import android.util.Base64
 import com.google.android.gms.auth.GoogleAuthUtil
 import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +56,8 @@ private const val THUMBNAIL_QUALITY = 80
 @Singleton
 class ArchiveService @Inject constructor(
     private val firestore: FirebaseFirestore,
+    private val auth: FirebaseAuth,
+    private val backupService: FirestoreBackupService,
     private val okHttpClient: OkHttpClient,
     private val localArchiveDao: LocalArchiveDao,
     private val articleDao: ArticleDao,
@@ -67,31 +75,55 @@ class ArchiveService @Inject constructor(
     fun observeRemoteArchives(itemId: String): Flow<Map<String, ArchiveStatus>> = callbackFlow {
         Timber.d("observeRemoteArchives($itemId) — attaching Firestore listener")
         val docRef = firestore.collection("articles").document(itemId)
-        val listener = docRef.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                Timber.e(error, "observeRemoteArchives($itemId) — listener error")
-                return@addSnapshotListener
-            }
-            if (snapshot == null || !snapshot.exists()) {
-                Timber.d("observeRemoteArchives($itemId) — doc missing or null, emitting empty")
-                trySend(emptyMap())
-                return@addSnapshotListener
-            }
+        var hasSelfHealed = false
+        var registration: ListenerRegistration? = null
 
-            val archives = mutableMapOf<String, ArchiveStatus>()
-            @Suppress("UNCHECKED_CAST")
-            val archivesMap = snapshot.get("archives") as? Map<String, Map<String, Any>> ?: emptyMap()
-            for ((key, value) in archivesMap) {
-                val status = value["status"] as? String ?: continue
-                val gcsPath = value["gcs_path"] as? String
-                archives[key] = ArchiveStatus(status, gcsPath)
+        fun attach() {
+            registration = docRef.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    // Self-heal once on a denied read for an article we own:
+                    // write the existence marker and re-attach the listener.
+                    if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED &&
+                        !hasSelfHealed && auth.currentUser != null
+                    ) {
+                        hasSelfHealed = true
+                        Timber.w(error, "observeRemoteArchives($itemId) — read denied, self-healing marker")
+                        launch {
+                            backupService.writeArticleMarker(itemId)
+                            registration?.remove()
+                            attach()
+                        }
+                        return@addSnapshotListener
+                    }
+                    // Unrecoverable (or already healed): surface a graceful empty
+                    // state instead of leaving the flow hanging — never crash.
+                    Timber.e(error, "observeRemoteArchives($itemId) — listener error, emitting empty")
+                    trySend(emptyMap())
+                    return@addSnapshotListener
+                }
+                if (snapshot == null || !snapshot.exists()) {
+                    Timber.d("observeRemoteArchives($itemId) — doc missing or null, emitting empty")
+                    trySend(emptyMap())
+                    return@addSnapshotListener
+                }
+
+                val archives = mutableMapOf<String, ArchiveStatus>()
+                @Suppress("UNCHECKED_CAST")
+                val archivesMap = snapshot.get("archives") as? Map<String, Map<String, Any>> ?: emptyMap()
+                for ((key, value) in archivesMap) {
+                    val status = value["status"] as? String ?: continue
+                    val gcsPath = value["gcs_path"] as? String
+                    archives[key] = ArchiveStatus(status, gcsPath)
+                }
+                Timber.d("observeRemoteArchives($itemId) — emitting ${archives.size} archives: ${archives.map { "${it.key}=${it.value.status}" }}")
+                trySend(archives)
             }
-            Timber.d("observeRemoteArchives($itemId) — emitting ${archives.size} archives: ${archives.map { "${it.key}=${it.value.status}" }}")
-            trySend(archives)
         }
+
+        attach()
         awaitClose {
             Timber.d("observeRemoteArchives($itemId) — listener removed")
-            listener.remove()
+            registration?.remove()
         }
     }
 
@@ -215,6 +247,37 @@ class ArchiveService @Inject constructor(
         Timber.d("syncArchives($itemId) — all downloads complete")
     }
 
+    // ── Top-level article read with self-heal ───────────────────────────
+
+    /**
+     * Read the top-level articles/{itemId} doc, self-healing once on a
+     * PERMISSION_DENIED: write the owner's existence marker for [itemId] and
+     * retry the read a single time. Returns null on a missing doc or an
+     * unrecoverable failure — callers surface a graceful unavailable state and
+     * never crash. The `articles` read rule is not yet tightened, so this path
+     * is proven by unit test now and exercised end-to-end once it is tightened.
+     */
+    private suspend fun getArticleDocWithSelfHeal(itemId: String): DocumentSnapshot? {
+        val docRef = firestore.collection("articles").document(itemId)
+        var hasSelfHealed = false
+        while (true) {
+            try {
+                return docRef.get().await()
+            } catch (e: FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED &&
+                    !hasSelfHealed && auth.currentUser != null
+                ) {
+                    hasSelfHealed = true
+                    Timber.w(e, "getArticleDoc($itemId) — read denied, writing marker and retrying once")
+                    backupService.writeArticleMarker(itemId)
+                    continue
+                }
+                Timber.w(e, "getArticleDoc($itemId) — read failed (${e.code}), surfacing unavailable")
+                return null
+            }
+        }
+    }
+
     // ── e) Screenshot → image fallback ──────────────────────────────────
 
     suspend fun applyScreenshotAsImage(itemId: String) = withContext(ioDispatcher) {
@@ -223,7 +286,7 @@ class ArchiveService @Inject constructor(
         if (article != null && !article.image.isNullOrBlank()) return@withContext
 
         // Fetch remote archive status to get screenshot gcs_path
-        val doc = firestore.collection("articles").document(itemId).get().await()
+        val doc = getArticleDocWithSelfHeal(itemId) ?: return@withContext
         if (!doc.exists()) return@withContext
 
         @Suppress("UNCHECKED_CAST")
@@ -273,7 +336,7 @@ class ArchiveService @Inject constructor(
     // ── f) Metadata fetch ───────────────────────────────────────────────
 
     suspend fun fetchWargMetadata(itemId: String): WargMetadata? = withContext(ioDispatcher) {
-        val doc = firestore.collection("articles").document(itemId).get().await()
+        val doc = getArticleDocWithSelfHeal(itemId) ?: return@withContext null
         if (!doc.exists()) return@withContext null
 
         @Suppress("UNCHECKED_CAST")

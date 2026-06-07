@@ -2,8 +2,10 @@ package com.jayteealao.trails.services.firestore
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.WriteBatch
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.network.ArticleAuthors
 import com.jayteealao.trails.network.ArticleImages
@@ -27,6 +29,7 @@ class FirestoreBackupService @Inject constructor(
     companion object {
         private const val USERS_COLLECTION = "users"
         private const val ARTICLES_COLLECTION = "articles"
+        private const val ARTICLE_MARKERS_COLLECTION = "articleMarkers"
         private const val TAGS_COLLECTION = "tags"
         private const val IMAGES_COLLECTION = "images"
         private const val VIDEOS_COLLECTION = "videos"
@@ -49,6 +52,74 @@ class FirestoreBackupService @Inject constructor(
         firestore.collection(USERS_COLLECTION)
             .document(userId)
             .collection(ARTICLES_COLLECTION)
+
+    /**
+     * Get the user's article-marker collection reference.
+     * One existence marker is written per saved article key under
+     * users/{userId}/articleMarkers/{key}; this gates the (later) tightened
+     * top-level `articles` read.
+     */
+    private fun getUserMarkersCollection(userId: String) =
+        firestore.collection(USERS_COLLECTION)
+            .document(userId)
+            .collection(ARTICLE_MARKERS_COLLECTION)
+
+    /**
+     * Marker doc keys for an article: its [Article.itemId] always, plus
+     * [Article.resolvedId] when present and distinct (the network mapper
+     * sometimes leaves it blank). Deduped so the read rule's single exists()
+     * check matches whichever key a reader passes.
+     */
+    private fun markerKeysFor(article: Article): List<String> {
+        val keys = mutableListOf(article.itemId)
+        val resolved = article.resolvedId
+        if (!resolved.isNullOrBlank() && resolved != article.itemId) {
+            keys.add(resolved)
+        }
+        return keys
+    }
+
+    /** Minimal marker body — the read rule only checks existence; the fields aid backfill idempotency and audit. */
+    private fun markerBody(key: String, source: String): Map<String, Any> =
+        mapOf(
+            "key" to key,
+            "createdAt" to FieldValue.serverTimestamp(),
+            "source" to source,
+        )
+
+    /**
+     * Queue marker writes for [article] onto an existing [batch] so they
+     * commit atomically with the article doc. Keyed by [markerKeysFor].
+     */
+    private fun addMarkerWrites(batch: WriteBatch, userId: String, article: Article) {
+        val markers = getUserMarkersCollection(userId)
+        markerKeysFor(article).forEach { key ->
+            batch.set(markers.document(key), markerBody(key, "sync"), SetOptions.merge())
+        }
+    }
+
+    /**
+     * Write a single article-existence marker for the current user. Reused by
+     * the archive read-path self-heal when a read is denied for an owned
+     * article key. Idempotent (merge); records source = "self-heal".
+     */
+    suspend fun writeArticleMarker(key: String): Result<Unit> {
+        return try {
+            val user = getCurrentUser()
+                ?: return Result.failure(Exception("User not authenticated"))
+
+            getUserMarkersCollection(user.uid)
+                .document(key)
+                .set(markerBody(key, "self-heal"), SetOptions.merge())
+                .await()
+
+            Timber.d("Wrote self-heal marker for key $key")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to write self-heal marker for key $key")
+            Result.failure(e)
+        }
+    }
 
     /**
      * Backup a single article with all its related data
@@ -126,6 +197,9 @@ class FirestoreBackupService @Inject constructor(
                     .document("metadata")
                 batch.set(metadataRef, metadata, SetOptions.merge())
             }
+
+            // Write existence marker(s) atomically with the article doc
+            addMarkerWrites(batch, user.uid, article)
 
             // Commit batch
             batch.commit().await()
@@ -515,6 +589,11 @@ class FirestoreBackupService @Inject constructor(
                     }
 
                     batch.set(articleRef, articleToSave, SetOptions.merge())
+
+                    // Write existence marker(s) alongside each article in the chunk.
+                    // Worst case per 50-article chunk: 50 article + (≤50 text) +
+                    // (≤100 marker) sets ≈ 200 ops — safely under the 500-op cap.
+                    addMarkerWrites(batch, user.uid, article)
                 }
 
                 batch.commit().await()

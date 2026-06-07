@@ -13,23 +13,31 @@ service cloud.firestore {
     }
 
     // Top-level articles collection (written by Warg backend, read-only for app)
+    // NOTE: read is intentionally still `isAuthenticated()` — the marker-gated
+    // get-only tightening (and `list: if false`) is a later, separately
+    // deployed change once per-user markers are written and backfilled.
     match /articles/{itemId} {
       allow read: if isAuthenticated();
       allow write: if false;  // Backend service account only
     }
 
-    // Debug logs (debug builds only, temporary)
-    match /debug_logs/{sessionId} {
-      allow read, write: if isAuthenticated();
-      match /entries/{entryId} {
-        allow read, write: if isAuthenticated();
-      }
+    // Debug logs (debug builds only, temporary) — owner-scoped per uid.
+    // Session docs live under debug_logs/{uid}/sessions/{sessionId}; the old
+    // flat debug_logs/{sessionId} layout is intentionally denied by default.
+    match /debug_logs/{userId}/sessions/{sessionId} {
+      allow read, write: if isOwner(userId);
     }
 
     // Users collection - each user can only access their own data
     match /users/{userId} {
       // Allow users to read and write their own user document
       allow read, write: if isOwner(userId);
+
+      // Article existence markers - one doc per saved article key, used to
+      // gate the (later) tightened top-level `articles` read. Owner-scoped.
+      match /articleMarkers/{markerId} {
+        allow read, write: if isOwner(userId);
+      }
 
       // Articles subcollection - user can only access their own articles
       match /articles/{articleId} {
