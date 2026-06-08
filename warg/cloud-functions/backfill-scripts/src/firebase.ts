@@ -59,7 +59,11 @@ export function parseArgs(argv: readonly string[] = process.argv.slice(2)): CliA
  * a CLI module for its exported logic never touches credentials. */
 export function getDb(): Firestore {
   if (getApps().length === 0) {
-    initializeApp();
+    // Pin the production project so the script can never silently target
+    // whatever project ambient ADC resolves to. The emulator path keeps default
+    // resolution — FIRESTORE_EMULATOR_HOST routes the SDK to the emulator.
+    const usingEmulator = process.env['FIRESTORE_EMULATOR_HOST'] != null;
+    initializeApp(usingEmulator ? undefined : { projectId: PROJECT_ID });
   }
   return getFirestore();
 }
