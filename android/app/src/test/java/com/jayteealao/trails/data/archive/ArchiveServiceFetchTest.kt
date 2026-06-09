@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GetTokenResult
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.di.ARCHIVE_SIGNED_URL_BASE_KEY
 import com.jayteealao.trails.network.ArchiveUrlService
 import com.jayteealao.trails.services.firestore.FirestoreBackupService
