@@ -117,4 +117,34 @@ class ArchiveServiceTest {
         coVerify(exactly = 1) { backupService.writeArticleMarker("item1") }
         verify(exactly = 2) { docRef.get() }
     }
+
+    /**
+     * TST-03 — ownership scoping: the self-heal writes the marker keyed by the
+     * article's own itemId (not any other id), and the call is delegated entirely
+     * to backupService (which routes under users/{uid}/articleMarkers/{key}).
+     * A second article's self-heal must NOT write a marker for the first article's
+     * key, confirming per-item isolation.
+     */
+    @Test
+    fun `self-heal marker is written only for the denied item, not for other items`() = runTest {
+        // Set up a second document reference for "item2".
+        val articlesCollection = mockk<CollectionReference>()
+        val docRef2 = mockk<DocumentReference>()
+        every { firestore.collection("articles") } returns articlesCollection
+        every { articlesCollection.document("item1") } returns docRef
+        every { articlesCollection.document("item2") } returns docRef2
+
+        val snapshot = mockk<DocumentSnapshot>()
+        every { snapshot.exists() } returns false
+        // item1: denied then succeeds; item2: immediately succeeds (no denial).
+        every { docRef.get() } returnsMany listOf(Tasks.forException(denied), Tasks.forResult(snapshot))
+        every { docRef2.get() } returns Tasks.forResult(snapshot)
+
+        service.fetchWargMetadata("item1")
+        service.fetchWargMetadata("item2")
+
+        // Self-heal must have been invoked exactly once, and only for item1.
+        coVerify(exactly = 1) { backupService.writeArticleMarker("item1") }
+        coVerify(exactly = 0) { backupService.writeArticleMarker("item2") }
+    }
 }

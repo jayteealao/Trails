@@ -17,6 +17,7 @@ import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -129,5 +130,61 @@ class FirestoreBackupServiceTest {
         assertTrue(result.isSuccess)
         verify(exactly = 1) { markersCollection.document(any()) }
         verify(exactly = 1) { batch.set(any(), match<Map<String, Any>> { it["source"] == "sync" }, any()) }
+    }
+
+    /**
+     * TST-04 — writeArticleMarker happy path: the marker doc is written under
+     * users/{uid}/articleMarkers/{key} (owner's uid path) with source = "self-heal".
+     */
+    @Test
+    fun `writeArticleMarker writes marker under owner uid path with self-heal source`() = runTest {
+        val markerDoc = mockk<DocumentReference>()
+        every { markersCollection.document("key1") } returns markerDoc
+        every { markerDoc.set(any(), any()) } returns Tasks.forResult(null)
+
+        val result = service.writeArticleMarker("key1")
+
+        assertTrue(result.isSuccess)
+        // Must set on the doc under users/u1/articleMarkers/key1.
+        verify(exactly = 1) {
+            markerDoc.set(
+                match<Map<String, Any>> { it["key"] == "key1" && it["source"] == "self-heal" },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * TST-04 — writeArticleMarker failure path: when Firestore throws, the
+     * function returns a failed Result instead of propagating the exception.
+     */
+    @Test
+    fun `writeArticleMarker returns failure result when Firestore set throws`() = runTest {
+        val markerDoc = mockk<DocumentReference>()
+        every { markersCollection.document("key1") } returns markerDoc
+        every { markerDoc.set(any(), any()) } returns Tasks.forException(RuntimeException("network error"))
+
+        val result = service.writeArticleMarker("key1")
+
+        assertFalse(result.isSuccess)
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun `backupArticles bulk path writes sync markers for every article`() = runTest {
+        val markerDoc1 = mockk<DocumentReference>()
+        val markerDoc2 = mockk<DocumentReference>()
+        every { markersCollection.document("a1") } returns markerDoc1
+        every { markersCollection.document("a2") } returns markerDoc2
+
+        val result = service.backupArticles(listOf(article("a1", null), article("a2", null)))
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) {
+            batch.set(markerDoc1, match<Map<String, Any>> { it["key"] == "a1" && it["source"] == "sync" }, any())
+        }
+        verify(exactly = 1) {
+            batch.set(markerDoc2, match<Map<String, Any>> { it["key"] == "a2" && it["source"] == "sync" }, any())
+        }
     }
 }

@@ -159,4 +159,21 @@ class ArchiveServiceFetchTest {
         assertNull(bytes)
         assertEquals(0, recorded.size)
     }
+
+    @Test
+    fun `returns null and never calls the endpoint when ID token is null`() = runTest {
+        // User is non-null but getIdToken(false).await().token returns null.
+        val user = mockk<FirebaseUser>()
+        val tokenResult = mockk<GetTokenResult>()
+        every { tokenResult.token } returns null
+        every { user.getIdToken(false) } returns Tasks.forResult(tokenResult)
+        every { auth.currentUser } returns user
+
+        val bytes = service.downloadArchive("item1234", "readability")
+
+        assertNull(bytes)
+        // No HTTP requests should have been made — not to the signed-URL endpoint,
+        // not to any object URL.
+        assertEquals(0, recorded.size)
+    }
 }

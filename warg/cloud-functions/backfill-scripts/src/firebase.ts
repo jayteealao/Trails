@@ -5,13 +5,6 @@ import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
 
-/**
- * The single real production user. The other ~4 accounts are test users that
- * rely on the app's steady-state marker write + read-denial self-heal once the
- * tightened read rule deploys. Mirrors `BACKFILL_USER_ID` in backfill-archiver.
- */
-export const DEFAULT_USER_ID = 'TGtRF6GrQaSmfjGk9GEYJ8YZc0v1';
-
 /** Production Firestore project these scripts target via ADC. */
 export const PROJECT_ID = 'trails-e428e';
 
@@ -39,7 +32,11 @@ function readFlagValue(argv: readonly string[], flag: string): string | undefine
 export function parseArgs(argv: readonly string[] = process.argv.slice(2)): CliArgs {
   const apply = argv.includes('--apply');
   const yes = argv.includes('--yes');
-  const user = readFlagValue(argv, '--user') ?? DEFAULT_USER_ID;
+  const userFlag = readFlagValue(argv, '--user');
+  const user = userFlag ?? process.env['BACKFILL_USER_ID'];
+  if (!user) {
+    throw new Error('set --user or BACKFILL_USER_ID; refusing to guess the target user');
+  }
 
   let limit = Number.POSITIVE_INFINITY;
   const limitRaw = readFlagValue(argv, '--limit');

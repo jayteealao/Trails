@@ -41,6 +41,14 @@ export async function computeUserCoverage(
 
 async function main(): Promise<void> {
   const args = parseArgs();
+  if (Number.isFinite(args.limit)) {
+    process.stderr.write(
+      '[gate] ERROR: --limit is not allowed on the coverage gate. ' +
+        'The gate must always scan the full article set to be a valid safety precondition. ' +
+        'Remove --limit and re-run.\n',
+    );
+    process.exit(1);
+  }
   const db = getDb();
 
   const result = await computeUserCoverage(db, args.user, args.limit);

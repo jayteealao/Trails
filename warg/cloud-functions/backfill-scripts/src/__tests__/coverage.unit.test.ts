@@ -28,3 +28,15 @@ test('computeCoverage: empty expected is trivially covered', () => {
   assert.equal(result.covered, true);
   assert.equal(result.expectedCount, 0);
 });
+
+// When a --limit sample is applied, `expected` contains only the sampled keys
+// while `existing` may hold more. Extra existing keys must not affect coverage.
+test('computeCoverage: limit-sampled expected covered by larger existing set', () => {
+  // Simulates: limit=2 sampled keys ['a','b']; user already has markers for
+  // those plus additional historical keys ['c','d'].
+  const result = computeCoverage(new Set(['a', 'b']), new Set(['a', 'b', 'c', 'd']));
+  assert.equal(result.covered, true);
+  assert.deepEqual(result.missing, []);
+  assert.equal(result.expectedCount, 2);
+  assert.equal(result.existingCount, 4);
+});

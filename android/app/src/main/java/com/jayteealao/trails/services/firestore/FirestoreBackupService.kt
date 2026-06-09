@@ -230,6 +230,10 @@ class FirestoreBackupService @Inject constructor(
                     val articleRef = getUserArticlesCollection(user.uid)
                         .document(article.itemId)
                     batch.set(articleRef, article, SetOptions.merge())
+
+                    // Write existence marker(s) atomically with the article doc so
+                    // the tightened `articles` read rule can verify ownership.
+                    addMarkerWrites(batch, user.uid, article)
                 }
 
                 batch.commit().await()

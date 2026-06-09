@@ -47,29 +47,42 @@ export async function cleanupDebugLogs(
   const sampleLegacyIds: string[] = [];
   const legacyRefs: DocumentReference[] = [];
 
-  for (const ref of refs) {
-    if (scanned >= limit) break;
-    scanned += 1;
+  const CONCURRENCY = 20;
+  const refsToScan = refs.slice(0, limit);
 
-    const [snapshot, subcollections] = await Promise.all([
-      ref.get(),
-      ref.listCollections(),
-    ]);
-    const hasSessions = subcollections.some((c) => c.id === SESSIONS_SUBCOLLECTION);
+  // Fan out classification reads with bounded concurrency (CONCURRENCY docs in
+  // flight at once) so the scan is not a strict sequential RTT waterfall.
+  // Safety guards (legacy-flat-only delete, dry-run default) are unchanged —
+  // they operate on the collected legacyRefs after all reads complete.
+  for (let i = 0; i < refsToScan.length; i += CONCURRENCY) {
+    const batch = refsToScan.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (ref) => {
+        const [snapshot, subcollections] = await Promise.all([
+          ref.get(),
+          ref.listCollections(),
+        ]);
+        return { ref, snapshot, subcollections };
+      }),
+    );
 
-    const cls = classifyDebugLogDoc({
-      id: ref.id,
-      data: snapshot.exists ? snapshot.data() : undefined,
-      hasSessionsSubcollection: hasSessions,
-    });
+    for (const { ref, snapshot, subcollections } of results) {
+      scanned += 1;
+      const hasSessions = subcollections.some((c) => c.id === SESSIONS_SUBCOLLECTION);
+      const cls = classifyDebugLogDoc({
+        id: ref.id,
+        data: snapshot.exists ? snapshot.data() : undefined,
+        hasSessionsSubcollection: hasSessions,
+      });
 
-    if (cls === 'legacy-flat') {
-      legacyRefs.push(ref);
-      if (sampleLegacyIds.length < 10) sampleLegacyIds.push(ref.id);
-    } else if (cls === 'owner-parent') {
-      ownerParent += 1;
-    } else {
-      unknown += 1;
+      if (cls === 'legacy-flat') {
+        legacyRefs.push(ref);
+        if (sampleLegacyIds.length < 10) sampleLegacyIds.push(ref.id);
+      } else if (cls === 'owner-parent') {
+        ownerParent += 1;
+      } else {
+        unknown += 1;
+      }
     }
   }
 

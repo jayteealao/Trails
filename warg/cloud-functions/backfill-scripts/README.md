@@ -48,9 +48,9 @@ want the emulator.
 
 All three scripts accept:
 
-- `--user <uid>` — target user. Defaults to the single production user
-  (`TGtRF6GrQaSmfjGk9GEYJ8YZc0v1`). The other accounts are test users covered by
-  the app's steady-state marker write + read-denial self-heal.
+- `--user <uid>` — target user (**required** — no default). Pass the uid
+  explicitly, or export `BACKFILL_USER_ID=<uid>` in the environment. Omitting
+  both causes the script to exit with a clear error.
 - `--apply` — perform writes/deletes. **Omitted = dry-run** (the default): the
   script reports exact counts and a sample of affected keys/ids without
   changing anything.
@@ -63,12 +63,16 @@ All three scripts accept:
 # 0. build
 pnpm --filter @warg/backfill-scripts build
 
+# Set the target uid (or pass --user <uid> to each command below)
+export BACKFILL_USER_ID=<your-uid>
+
 # 1. backfill — review counts first, then apply
 node dist/marker-backfill.js                 # dry-run: prints wouldWrite / alreadyPresent
 node dist/marker-backfill.js --apply         # writes only the missing markers
 
 # 2. gate — must exit 0 before the read-rule flip is deployed
 node dist/coverage-gate.js                   # exits 0 when covered, 1 on any gap
+                                             # (--limit is rejected by the gate)
 
 # 3. cleanup — review, then apply, then confirm 0 remain
 node dist/debug-logs-cleanup.js              # dry-run: legacy-flat count + sample ids

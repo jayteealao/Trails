@@ -6,6 +6,9 @@ import { resolveCanonicalItemId } from './util.js';
 const GCS_BUCKET = process.env['GCS_BUCKET'] || 'htbase-archives-standard';
 const GCS_PROJECT_ID = process.env['GCS_PROJECT_ID'] || 'trails-414917';
 const SIGNED_URL_EXPIRY_MINUTES = 15;
+
+// M5: Single Storage client reused across invocations (not re-created per request).
+const sharedStorage = new Storage({ projectId: GCS_PROJECT_ID });
 const ARCHIVE_ALIASES: Partial<Record<string, readonly string[]>> = {
   readability: ['readability', 'readability_json'],
   markdown: ['markdown', 'readability_md'],
@@ -38,8 +41,7 @@ export type ResolveAndSignResult =
 export type ArchiveSigner = (objectPath: string, expiresAt: Date) => Promise<string>;
 
 const defaultSigner: ArchiveSigner = async (objectPath, expiresAt) => {
-  const storage = new Storage({ projectId: GCS_PROJECT_ID });
-  const file = storage.bucket(GCS_BUCKET).file(objectPath);
+  const file = sharedStorage.bucket(GCS_BUCKET).file(objectPath);
   const [signedUrl] = await file.getSignedUrl({
     version: 'v4',
     action: 'read',
@@ -88,12 +90,31 @@ function resolveArchiveWithAlias(
   return undefined;
 }
 
-/** Strip the gs://bucket-name/ prefix to get the object path within the bucket. */
+/**
+ * Strip the gs://bucket-name/ prefix to get the object path within the bucket.
+ *
+ * CR-2 (cross-stack contract note): this module trims the resolved canonical id
+ * (`resolvedId`) when looking up the top-level articles doc. The backfill script's
+ * `deriveMarkerKeys` preserves the raw value for Android parity — the divergence is
+ * intentional (two separate read paths with different normalization needs) and is NOT
+ * a bug.
+ *
+ * M2 (bucket assertion): if the path includes an explicit bucket segment we verify it
+ * matches the configured GCS_BUCKET so a doc whose gcs_path points at a different
+ * bucket is rejected rather than silently re-routed.
+ */
 function toObjectPath(gcsPath: string): string {
   if (!gcsPath.startsWith('gs://')) return gcsPath;
-  const withoutScheme = gcsPath.slice(5);
+  const withoutScheme = gcsPath.slice(5); // strip "gs://"
   const slashIdx = withoutScheme.indexOf('/');
-  return slashIdx >= 0 ? withoutScheme.slice(slashIdx + 1) : withoutScheme;
+  if (slashIdx < 0) return withoutScheme; // no object path component — pass through as-is
+  const embeddedBucket = withoutScheme.slice(0, slashIdx);
+  if (embeddedBucket !== GCS_BUCKET) {
+    throw new Error(
+      `gcs_path bucket mismatch: expected '${GCS_BUCKET}', got '${embeddedBucket}'`
+    );
+  }
+  return withoutScheme.slice(slashIdx + 1);
 }
 
 /**
@@ -153,7 +174,21 @@ export async function resolveAndSignArchive(params: {
 
   const objectPath = toObjectPath(archive.gcs_path);
   const expiresAt = new Date(Date.now() + SIGNED_URL_EXPIRY_MINUTES * 60 * 1000);
-  const signedUrl = await sign(objectPath, expiresAt);
+
+  // M4: catch IAM / network failures from the GCS sign() call so they produce a
+  // structured 502 rather than propagating to the generic top-level 500 handler.
+  let signedUrl: string;
+  try {
+    signedUrl = await sign(objectPath, expiresAt);
+  } catch (err) {
+    console.error('GCS sign() failed', {
+      objectPath,
+      archiveKey,
+      ownerUid,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false, status: 502, error: 'Failed to generate signed URL' };
+  }
 
   return {
     ok: true,

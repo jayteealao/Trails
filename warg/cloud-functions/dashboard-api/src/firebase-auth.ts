@@ -1,30 +1,25 @@
-import { getAuth, type Auth } from 'firebase-admin/auth';
+import { getAuth } from 'firebase-admin/auth';
 import type { Request, Response } from 'express';
 
 const BEARER_PREFIX = 'Bearer ';
 
-// Lazily instantiate and cache the Auth client. It is NOT created at module
-// scope because route modules are imported before index.ts runs
-// initializeApp(); an eager getAuth() would throw "default app does not
-// exist" at import time. First request (after init) populates the cache, which
-// is then reused for the warm instance's lifetime — the SDK caches the public
-// signing keys separately, so per-request verification stays cheap.
-let cachedAuth: Auth | undefined;
-function auth(): Auth {
-  return (cachedAuth ??= getAuth());
-}
-
 /**
  * Verifies an ID token and returns the uid + sign-in provider. Injectable so
  * the middleware can be unit-tested without the Admin SDK or a real token; the
- * production default delegates to the cached Auth client.
+ * production default delegates to the Admin SDK's Auth singleton.
+ *
+ * Note: getAuth() is NOT called at module scope — route modules are imported
+ * before index.ts runs initializeApp(), so an eager call would throw "default
+ * app does not exist". Calling it inside the verifier (at request time) is
+ * safe; the Admin SDK caches the Auth instance and the public signing keys
+ * internally, so per-request calls are cheap.
  */
 export type IdTokenVerifier = (
   token: string
 ) => Promise<{ uid: string; signInProvider: string }>;
 
 const defaultVerifier: IdTokenVerifier = async (token) => {
-  const decoded = await auth().verifyIdToken(token);
+  const decoded = await getAuth().verifyIdToken(token);
   return { uid: decoded.uid, signInProvider: decoded.firebase.sign_in_provider };
 };
 

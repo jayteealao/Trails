@@ -202,3 +202,71 @@ test('returns 404 when the requested archive is missing or not successful', asyn
   assert.equal(result.ok, false);
   assert.equal(result.ok === false && result.status, 404);
 });
+
+// M2: gcs_path bucket mismatch should surface as an error (thrown from toObjectPath,
+// propagates as an unhandled rejection — callers will see a thrown error, not a
+// structured result, which is intentional: bucket mismatch is a data-integrity bug).
+test('throws when gcs_path references a different bucket', async () => {
+  const db = makeDb({
+    userArticles: { 'item1234': {} },
+    canonical: {
+      'item1234': {
+        archives: {
+          readability: {
+            status: 'success',
+            gcs_path: 'gs://wrong-bucket/a/read.json',
+          },
+        },
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      resolveAndSignArchive({
+        db,
+        ownerUid: 'u1',
+        itemId: 'item1234',
+        archiveKey: 'readability',
+        sign: fakeSign,
+      }),
+    (err: unknown) => {
+      assert.ok(err instanceof Error);
+      assert.ok(err.message.includes('bucket mismatch'));
+      return true;
+    }
+  );
+});
+
+// M4: sign() failure should return a structured 502, not propagate.
+test('returns 502 when sign() throws', async () => {
+  const db = makeDb({
+    userArticles: { 'item1234': {} },
+    canonical: {
+      'item1234': {
+        archives: {
+          readability: {
+            status: 'success',
+            gcs_path: 'gs://htbase-archives-standard/a/read.json',
+          },
+        },
+      },
+    },
+  });
+
+  const failSign: ArchiveSigner = async () => {
+    throw new Error('IAM signBlob unavailable');
+  };
+
+  const result = await resolveAndSignArchive({
+    db,
+    ownerUid: 'u1',
+    itemId: 'item1234',
+    archiveKey: 'readability',
+    sign: failSign,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.status, 502);
+  assert.equal(result.ok === false && result.error, 'Failed to generate signed URL');
+});

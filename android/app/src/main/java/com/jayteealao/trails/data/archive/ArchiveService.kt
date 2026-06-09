@@ -20,6 +20,7 @@ import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicReference
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
@@ -77,10 +79,12 @@ class ArchiveService @Inject constructor(
         Timber.d("observeRemoteArchives($itemId) — attaching Firestore listener")
         val docRef = firestore.collection("articles").document(itemId)
         var hasSelfHealed = false
-        var registration: ListenerRegistration? = null
+        // Single source of truth for the current registration, visible across the
+        // Firestore callback thread and the coroutine launched for self-heal.
+        val registrationRef = AtomicReference<ListenerRegistration?>(null)
 
         fun attach() {
-            registration = docRef.addSnapshotListener { snapshot, error ->
+            registrationRef.set(docRef.addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     // Self-heal once on a denied read for an article we own:
                     // write the existence marker and re-attach the listener.
@@ -90,9 +94,18 @@ class ArchiveService @Inject constructor(
                         hasSelfHealed = true
                         Timber.w(error, "observeRemoteArchives($itemId) — read denied, self-healing marker")
                         launch {
-                            backupService.writeArticleMarker(itemId)
-                            registration?.remove()
-                            attach()
+                            val result = backupService.writeArticleMarker(itemId)
+                            result.onFailure { t ->
+                                Timber.w(t, "observeRemoteArchives($itemId) — self-heal marker write failed for $itemId")
+                            }
+                            // Remove the stale registration and re-attach only if
+                            // the producer scope is still alive; if the collector
+                            // cancelled during the marker write we must not create
+                            // a new listener that would never be removed.
+                            registrationRef.getAndSet(null)?.remove()
+                            if (isActive) {
+                                attach()
+                            }
                         }
                         return@addSnapshotListener
                     }
@@ -118,13 +131,13 @@ class ArchiveService @Inject constructor(
                 }
                 Timber.d("observeRemoteArchives($itemId) — emitting ${archives.size} archives: ${archives.map { "${it.key}=${it.value.status}" }}")
                 trySend(archives)
-            }
+            })
         }
 
         attach()
         awaitClose {
             Timber.d("observeRemoteArchives($itemId) — listener removed")
-            registration?.remove()
+            registrationRef.getAndSet(null)?.remove()
         }
     }
 
@@ -266,7 +279,10 @@ class ArchiveService @Inject constructor(
                 ) {
                     hasSelfHealed = true
                     Timber.w(e, "getArticleDoc($itemId) — read denied, writing marker and retrying once")
-                    backupService.writeArticleMarker(itemId)
+                    val result = backupService.writeArticleMarker(itemId)
+                    result.onFailure { t ->
+                        Timber.w(t, "getArticleDoc($itemId) — self-heal marker write failed for $itemId")
+                    }
                     continue
                 }
                 Timber.w(e, "getArticleDoc($itemId) — read failed (${e.code}), surfacing unavailable")
@@ -387,7 +403,7 @@ class ArchiveService @Inject constructor(
             return null
         }
 
-        return fetchObjectBytes(signedUrl)
+        return withContext(ioDispatcher) { fetchObjectBytes(signedUrl) }
     }
 
     /**
