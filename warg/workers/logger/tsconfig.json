@@ -8,5 +8,9 @@
       "./worker-configuration.d.ts"
     ]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "../../node_modules/@cloudflare/vitest-pool-workers/types/cloudflare-test.d.ts"
+  ]
 }

@@ -9,9 +9,8 @@ export default defineConfig({
     // The emulator is shared process-wide; a single fork keeps clearEmulator()
     // between tests from racing parallel workers.
     pool: 'forks',
-    poolOptions: {
-      forks: { singleFork: true },
-    },
+    maxWorkers: 1,
+    isolate: false,
     testTimeout: 30_000,
     hookTimeout: 30_000,
   },

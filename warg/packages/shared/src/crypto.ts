@@ -2,7 +2,7 @@
  * Computes SHA-256 hash of data using WebCrypto API.
  * Works in both Node.js and Cloudflare Workers.
  */
-export async function sha256(data: ArrayBuffer | Uint8Array): Promise<string> {
+export async function sha256(data: BufferSource): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = new Uint8Array(hashBuffer);
   return Array.from(hashArray)

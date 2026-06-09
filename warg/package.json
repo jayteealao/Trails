@@ -18,15 +18,30 @@
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.0.5",
-    "@typescript-eslint/eslint-plugin": "^8.21.0",
-    "@typescript-eslint/parser": "^8.21.0",
+    "@typescript-eslint/eslint-plugin": "^8.61.0",
+    "@typescript-eslint/parser": "^8.61.0",
     "concurrently": "^9.1.2",
-    "eslint": "^9.18.0",
+    "eslint": "^9.39.4",
     "prettier": "^3.4.2",
     "typescript": "^5.7.3",
-    "wrangler": "^4.65.0"
+    "wrangler": "^4.99.0"
   },
   "dependencies": {
     "@cloudflare/workerd-windows-64": "^1.20260131.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "rollup": ">=4.59.0",
+      "undici": ">=7.24.0",
+      "defu": ">=6.1.5",
+      "protobufjs": ">=7.5.6 <8",
+      "path-to-regexp": ">=0.1.13",
+      "fast-xml-parser": ">=5.5.6",
+      "basic-ftp": ">=5.3.1",
+      "minimatch": ">=9.0.7",
+      "flatted": ">=3.4.2",
+      "picomatch": ">=4.0.4",
+      "shell-quote": ">=1.8.4"
+    }
   }
 }

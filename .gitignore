@@ -42,3 +42,6 @@ warg/scripts/gcs-ids.txt
 warg/scripts/*-audit.csv
 warg/scripts/export-articles-csv.mjs
 
+Analytics _ Dashboards _ Jayteealao@gmail.PDF
+firebase/test/node_modules/**/*
+firebase/test/firestore-debug.log

@@ -1,7 +1,7 @@
-declare module 'cloudflare:test' {
-  interface ProvidedEnv {
+declare namespace Cloudflare {
+  interface Env {
     LOGGER_DO: DurableObjectNamespace;
     INDEX_DB: D1Database;
-    TEST_MIGRATIONS: D1Migration[];
+    TEST_MIGRATIONS: import('@cloudflare/vitest-pool-workers').D1Migration[];
   }
 }

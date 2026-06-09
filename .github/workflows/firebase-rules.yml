@@ -49,7 +49,7 @@ jobs:
             firebase-emulators-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run Firestore rules tests (emulator)
         run: npm test
