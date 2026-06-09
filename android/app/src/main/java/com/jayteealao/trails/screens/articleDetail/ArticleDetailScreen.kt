@@ -3,10 +3,7 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.res.Configuration
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -61,15 +58,6 @@ fun ArticleDetailScreen(
     article: Article,
     viewStore: ViewStore<ArticleDetailState, ArticleDetailEvent, ArticleDetailViewModel> = rememberViewStore { hiltViewModel() }
 ) {
-    // Launcher for Google storage consent — one-time approval
-    val consentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            viewStore.action { retryArchiveSync() }
-        }
-    }
-
     // Mark as read when screen opens (article loading handled by MainNavigation)
     LaunchedEffect(article.itemId) {
         viewStore.action {
@@ -88,10 +76,6 @@ fun ArticleDetailScreen(
 
     viewStore.handle<ArticleDetailEvent.ShowToast> { event ->
         // Show toast message
-    }
-
-    viewStore.handle<ArticleDetailEvent.StorageConsentNeeded> { event ->
-        consentLauncher.launch(event.intent)
     }
 
     val currentArticle = viewStore.state.article ?: article

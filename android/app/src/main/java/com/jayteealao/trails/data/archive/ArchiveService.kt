@@ -4,17 +4,18 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
-import com.google.android.gms.auth.GoogleAuthUtil
-import com.google.android.gms.auth.UserRecoverableAuthException
-import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.di.ARCHIVE_SIGNED_URL_BASE_KEY
+import com.jayteealao.trails.di.DEFAULT_DASHBOARD_API_URL
+import com.jayteealao.trails.network.ArchiveUrlService
 import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
@@ -33,7 +34,6 @@ import timber.log.Timber
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.net.URLEncoder
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import javax.inject.Inject
@@ -48,7 +48,6 @@ data class WargMetadata(
     val wordCount: Int?,
 )
 
-private const val GCS_BUCKET = "htbase-archives-standard"
 private const val MAX_DOWNLOAD_BYTES = 50L * 1024 * 1024 // 50MB
 private const val THUMBNAIL_SIZE = 160
 private const val THUMBNAIL_QUALITY = 80
@@ -59,6 +58,8 @@ class ArchiveService @Inject constructor(
     private val auth: FirebaseAuth,
     private val backupService: FirestoreBackupService,
     private val okHttpClient: OkHttpClient,
+    private val archiveUrlService: ArchiveUrlService,
+    private val remoteConfig: FirebaseRemoteConfig,
     private val localArchiveDao: LocalArchiveDao,
     private val articleDao: ArticleDao,
     private val application: Application,
@@ -132,11 +133,10 @@ class ArchiveService @Inject constructor(
     suspend fun downloadAndStoreArchive(
         itemId: String,
         type: ArchiveType,
-        gcsPath: String,
     ): LocalArchive? = withContext(ioDispatcher) {
-        Timber.d("downloadAndStore($itemId, ${type.archiveKey}) — fetching from GCS: $gcsPath")
+        Timber.d("downloadAndStore($itemId, ${type.archiveKey}) — fetching via signed URL")
 
-        val rawBytes = downloadFromGcs(gcsPath)
+        val rawBytes = downloadArchive(itemId, type.archiveKey)
         if (rawBytes == null) {
             Timber.w("downloadAndStore($itemId, ${type.archiveKey}) — download returned null, skipping")
             return@withContext null
@@ -234,10 +234,7 @@ class ArchiveService @Inject constructor(
             async {
                 downloadSemaphore.withPermit {
                     try {
-                        downloadAndStoreArchive(itemId, type, status.gcsPath)
-                    } catch (e: UserRecoverableAuthException) {
-                        Timber.w("Storage consent needed for ${type.archiveKey} download")
-                        throw e // Propagate so caller can handle consent UI
+                        downloadAndStoreArchive(itemId, type)
                     } catch (e: Exception) {
                         Timber.e(e, "Failed to download ${type.archiveKey} for $itemId")
                     }
@@ -295,10 +292,12 @@ class ArchiveService @Inject constructor(
 
         val status = screenshotEntry["status"] as? String
         val gcsPath = screenshotEntry["gcs_path"] as? String
+        // gcs_path presence is the readiness signal; the object is fetched via
+        // the scoped signed-URL path, not the gs:// path directly.
         if (status != "success" || gcsPath == null) return@withContext
 
         // Download screenshot PNG transiently
-        val rawBytes = downloadFromGcs(gcsPath)
+        val rawBytes = downloadArchive(itemId, "screenshot")
         if (rawBytes == null) {
             Timber.d("applyScreenshotAsImage($itemId) — screenshot download returned null")
             return@withContext
@@ -350,43 +349,65 @@ class ArchiveService @Inject constructor(
         )
     }
 
-    // ── GCS download via JSON API ──────────────────────────────────────
+    // ── Scoped archive download via per-user signed URL ─────────────────
 
-    private fun downloadFromGcs(gcsPath: String): ByteArray? {
-        val objectPath = gcsPath
-            .removePrefix("gs://$GCS_BUCKET/")
-            .removePrefix("gs://htbase-archives-standard/")
-        val encodedPath = URLEncoder.encode(objectPath, "UTF-8")
-        val url = "https://storage.googleapis.com/storage/v1/b/$GCS_BUCKET/o/$encodedPath?alt=media"
-
-        val googleAccount = GoogleSignIn.getLastSignedInAccount(application)?.account
-        if (googleAccount == null) {
-            Timber.w("downloadFromGcs — no Google account signed in")
+    /**
+     * Fetch an archive object via the scoped, owner-checked signed-URL path:
+     * exchange the signed-in user's Firebase ID token at `/app/signed-url` for a
+     * short-lived V4 signed GCS URL, then GET the object directly (the signed
+     * URL carries its own auth in the query string — no Authorization header).
+     *
+     * Returns null when the user is not signed in, the signing request fails, or
+     * the object fetch fails — callers degrade to a graceful unavailable state.
+     */
+    // internal (not private) so the signed-URL fetch path can be unit-tested
+    // directly without exercising the file-I/O / bitmap decode of the public
+    // callers (see ArchiveServiceFetchTest).
+    internal suspend fun downloadArchive(itemId: String, archiveKey: String): ByteArray? {
+        val user = auth.currentUser
+        if (user == null) {
+            Timber.w("downloadArchive($itemId, $archiveKey) — no signed-in user, skipping")
             return null
         }
-        // GoogleAuthUtil.getToken() may throw UserRecoverableAuthException — let it propagate
-        val accessToken = GoogleAuthUtil.getToken(
-            application,
-            googleAccount,
-            "oauth2:https://www.googleapis.com/auth/devstorage.read_only",
-        )
 
-        val request = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $accessToken")
-            .build()
+        val token = user.getIdToken(false).await().token
+        if (token == null) {
+            Timber.w("downloadArchive($itemId, $archiveKey) — null ID token, skipping")
+            return null
+        }
 
+        val base = remoteConfig.getString(ARCHIVE_SIGNED_URL_BASE_KEY)
+            .ifBlank { DEFAULT_DASHBOARD_API_URL }
+        val endpoint = "$base/app/signed-url"
+
+        val signedUrl = try {
+            archiveUrlService.getSignedUrl(endpoint, "Bearer $token", itemId, archiveKey).url
+        } catch (e: Exception) {
+            Timber.w(e, "downloadArchive($itemId, $archiveKey) — signed-URL request failed")
+            return null
+        }
+
+        return fetchObjectBytes(signedUrl)
+    }
+
+    /**
+     * GET an object URL with a bounded read (no Authorization header — the
+     * signed URL is self-authorizing). Enforces [MAX_DOWNLOAD_BYTES] whether or
+     * not the server reports a Content-Length.
+     */
+    private fun fetchObjectBytes(url: String): ByteArray? {
+        val request = Request.Builder().url(url).build()
         return try {
             okHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Timber.w("GCS download failed: HTTP ${response.code} for $objectPath")
+                    Timber.w("Signed-URL object fetch failed: HTTP ${response.code}")
                     return@use null
                 }
 
                 // Pre-check: reject before downloading if Content-Length is known and too large
                 val contentLength = response.header("Content-Length")?.toLongOrNull()
                 if (contentLength != null && contentLength > MAX_DOWNLOAD_BYTES) {
-                    Timber.w("GCS object too large: $contentLength bytes (limit: $MAX_DOWNLOAD_BYTES) for $objectPath")
+                    Timber.w("Archive object too large: $contentLength bytes (limit: $MAX_DOWNLOAD_BYTES)")
                     return@use null
                 }
 
@@ -399,14 +420,14 @@ class ArchiveService @Inject constructor(
                     if (bytesRead == -1L) break
                     totalRead += bytesRead
                     if (totalRead > MAX_DOWNLOAD_BYTES) {
-                        Timber.w("GCS download exceeded $MAX_DOWNLOAD_BYTES bytes, aborting for $objectPath")
+                        Timber.w("Archive download exceeded $MAX_DOWNLOAD_BYTES bytes, aborting")
                         return@use null
                     }
                 }
                 buffer.readByteArray()
             }
         } catch (e: java.io.IOException) {
-            Timber.w(e, "downloadFromGcs — network error for $objectPath")
+            Timber.w(e, "fetchObjectBytes — network error")
             null
         }
     }

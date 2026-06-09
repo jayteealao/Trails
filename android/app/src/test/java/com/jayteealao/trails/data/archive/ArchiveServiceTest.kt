@@ -9,7 +9,9 @@ import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.network.ArchiveUrlService
 import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
@@ -43,6 +45,8 @@ class ArchiveServiceTest {
     @MockK private lateinit var auth: FirebaseAuth
     @MockK private lateinit var backupService: FirestoreBackupService
     @MockK(relaxed = true) private lateinit var okHttpClient: OkHttpClient
+    @MockK(relaxed = true) private lateinit var archiveUrlService: ArchiveUrlService
+    @MockK(relaxed = true) private lateinit var remoteConfig: FirebaseRemoteConfig
     @MockK(relaxed = true) private lateinit var localArchiveDao: LocalArchiveDao
     @MockK(relaxed = true) private lateinit var articleDao: ArticleDao
     @MockK(relaxed = true) private lateinit var application: Application
@@ -75,6 +79,8 @@ class ArchiveServiceTest {
             auth = auth,
             backupService = backupService,
             okHttpClient = okHttpClient,
+            archiveUrlService = archiveUrlService,
+            remoteConfig = remoteConfig,
             localArchiveDao = localArchiveDao,
             articleDao = articleDao,
             application = application,

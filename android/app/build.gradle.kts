@@ -230,6 +230,7 @@ dependencies {
     implementation(libs.firebase.ai)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.config)
     implementation(libs.play.services.auth)
 
     // Navigation 3

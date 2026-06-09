@@ -2,7 +2,6 @@ package com.jayteealao.trails.screens.articleDetail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.auth.UserRecoverableAuthException
 import com.jayteealao.trails.common.UrlModifier
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
@@ -211,9 +210,6 @@ class ArticleDetailViewModel @Inject constructor(
                         try {
                             archiveService.syncArchives(itemId, remoteMap)
                             Timber.d("loadArchives($itemId) — syncArchives completed")
-                        } catch (e: UserRecoverableAuthException) {
-                            Timber.w("loadArchives($itemId) — storage consent needed")
-                            e.intent?.let { _event.emit(ArticleDetailEvent.StorageConsentNeeded(it)) }
                         } catch (e: Exception) {
                             Timber.e(e, "Failed to sync archives for $itemId")
                         } finally {
@@ -283,12 +279,6 @@ class ArticleDetailViewModel @Inject constructor(
                 }
             }
         }
-    }
-
-    fun retryArchiveSync() {
-        val itemId = _article.value?.itemId ?: return
-        Timber.d("retryArchiveSync($itemId) — user granted consent, retrying")
-        loadArchives(itemId)
     }
 
     fun getAvailableArchiveTypes(): List<ArchiveType> {

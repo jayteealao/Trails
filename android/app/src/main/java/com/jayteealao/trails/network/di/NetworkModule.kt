@@ -6,6 +6,7 @@ import com.chuckerteam.chucker.api.ChuckerInterceptor
 import com.chuckerteam.chucker.api.RetentionManager
 import com.google.gson.GsonBuilder
 import com.jayteealao.trails.data.SharedPreferencesManager
+import com.jayteealao.trails.network.ArchiveUrlService
 import com.jayteealao.trails.network.pocket.PocketService
 import com.jayteealao.trails.services.postgrest.PostgrestService
 import com.jayteealao.trails.services.semanticSearch.modal.ModalService
@@ -128,6 +129,21 @@ object NetworkModule {
             .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
             .build()
         return retrofit.create(ModalService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideArchiveUrlService(okHttpClient: OkHttpClient): ArchiveUrlService {
+        val gson = GsonBuilder().create()
+        val retrofit = Retrofit.Builder()
+            .client(okHttpClient)
+            // The signed-URL call uses @Url to supply the absolute endpoint per
+            // call (driven by Remote Config), so this base is only the nominal
+            // value Retrofit requires — it is never used to build the request.
+            .baseUrl("https://us-central1-trails-e428e.cloudfunctions.net/")
+            .addConverterFactory(GsonConverterFactory.create(gson))
+            .build()
+        return retrofit.create(ArchiveUrlService::class.java)
     }
 
     @Provides

@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "pnpm run build && node --test \"dist/__tests__/*.test.js\"",
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions --project trails-e428e"
   },

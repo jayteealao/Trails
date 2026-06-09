@@ -177,6 +177,7 @@ firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "fir
 firebase-ai = { module = "com.google.firebase:firebase-ai" }
 firebase-auth = { module = "com.google.firebase:firebase-auth", version.ref = "firebaseAuth" }
 firebase-firestore = { module = "com.google.firebase:firebase-firestore" }
+firebase-config = { module = "com.google.firebase:firebase-config" }
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 google-signin = { group = "com.google.android.gms", name = "play-services-auth", version = "21.0.0" }
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "nav3Core" }
