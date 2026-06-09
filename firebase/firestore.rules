@@ -12,12 +12,15 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Top-level articles collection (written by Warg backend, read-only for app)
-    // NOTE: read is intentionally still `isAuthenticated()` — the marker-gated
-    // get-only tightening (and `list: if false`) is a later, separately
-    // deployed change once per-user markers are written and backfilled.
+    // Top-level articles collection (written by Warg backend, read-only for app).
+    // A user may `get` a dedup doc only if they hold a per-user existence marker
+    // for that key (i.e. they saved that article). Enumeration is disabled; writes
+    // are backend-only. Markers: users/{uid}/articleMarkers/{key} (written by sync,
+    // the one-off backfill, and read-denial self-heal).
     match /articles/{itemId} {
-      allow read: if isAuthenticated();
+      allow get:   if isAuthenticated()
+                   && exists(/databases/$(database)/documents/users/$(request.auth.uid)/articleMarkers/$(itemId));
+      allow list:  if false;
       allow write: if false;  // Backend service account only
     }
 

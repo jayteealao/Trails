@@ -8,7 +8,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { afterAll, afterEach, beforeAll, describe, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +41,11 @@ afterAll(async () => {
 const ownerDb = () => testEnv.authenticatedContext(OWNER).firestore();
 const otherDb = () => testEnv.authenticatedContext(OTHER).firestore();
 const anonDb = () => testEnv.unauthenticatedContext().firestore();
+// Signed-in but via Anonymous Auth (request.auth != null, sign_in_provider 'anonymous').
+const anonAuthDb = () =>
+  testEnv
+    .authenticatedContext('anon-uid', { firebase: { sign_in_provider: 'anonymous' } })
+    .firestore();
 
 describe('articleMarkers (users/{uid}/articleMarkers/{key})', () => {
   // ── reads ────────────────────────────────────────────────────────────────
@@ -234,14 +239,60 @@ describe('debug_logs (debug_logs/{uid}/sessions/{sessionId})', () => {
   });
 });
 
-describe('articles read rule (unchanged this slice)', () => {
-  it('an authenticated user can still read a top-level article (deploy-safety)', async () => {
-    await testEnv.withSecurityRulesDisabled(async (ctx) => {
-      await setDoc(doc(ctx.firestore(), 'articles/article-1'), { title: 'hello' });
+describe('articles (top-level get/list/write matrix)', () => {
+  // Seed a top-level article and (optionally) the owner's existence marker for it.
+  const seedArticle = (itemId: string, withOwnerMarker: boolean) =>
+    testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, `articles/${itemId}`), { title: 'hello' });
+      if (withOwnerMarker) {
+        await setDoc(doc(db, `users/${OWNER}/articleMarkers/${itemId}`), {
+          key: itemId,
+          source: 'backfill',
+        });
+      }
     });
-    const db = ownerDb();
-    await assertSucceeds(getDoc(doc(db, 'articles/article-1')));
-    // The marker-gated get-only / `list: if false` tightening and its full
-    // get/list matrix are a later, separately deployed change — not asserted here.
+
+  it('get: owner WITH a marker can read the article', async () => {
+    // Seed BOTH the article and the marker — a marker without the article would
+    // "pass" the rule but return an empty read, which is not a meaningful success.
+    await seedArticle('article-1', true);
+    await assertSucceeds(getDoc(doc(ownerDb(), 'articles/article-1')));
+  });
+
+  it('get: owner WITHOUT a marker is denied', async () => {
+    await seedArticle('article-2', false);
+    await assertFails(getDoc(doc(ownerDb(), 'articles/article-2')));
+  });
+
+  it('get: a different signed-in user (no marker) is denied', async () => {
+    await seedArticle('article-1', true); // owner's marker exists, other's does not
+    await assertFails(getDoc(doc(otherDb(), 'articles/article-1')));
+  });
+
+  it('get: an anonymous-auth user (no marker) is denied', async () => {
+    await seedArticle('article-1', false);
+    await assertFails(getDoc(doc(anonAuthDb(), 'articles/article-1')));
+  });
+
+  it('get: an unauthenticated user is denied', async () => {
+    await seedArticle('article-1', false);
+    await assertFails(getDoc(doc(anonDb(), 'articles/article-1')));
+  });
+
+  it('list: collection queries are denied for every actor', async () => {
+    await seedArticle('article-1', true);
+    await assertFails(getDocs(collection(ownerDb(), 'articles')));
+    await assertFails(getDocs(collection(anonAuthDb(), 'articles')));
+    await assertFails(getDocs(collection(anonDb(), 'articles')));
+  });
+
+  it('list: a signed-in non-owner (no marker) is denied a collection query', async () => {
+    await seedArticle('article-1', true); // owner has a marker; OTHER does not
+    await assertFails(getDocs(collection(otherDb(), 'articles')));
+  });
+
+  it('write: client writes to articles stay denied', async () => {
+    await assertFails(setDoc(doc(ownerDb(), 'articles/article-1'), { title: 'nope' }));
   });
 });
