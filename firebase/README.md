@@ -28,16 +28,102 @@ firebase deploy --only firestore:rules,storage
 
 ## Article markers & sequenced read tightening
 
-The top-level `articles` read rule is intentionally still `isAuthenticated()`.
-Tightening it to a marker-gated, get-only read is a **later, separately
-deployed** change: it can only land once every saved article has a per-user
-existence marker at `users/{uid}/articleMarkers/{key}` (see
-[`../shared-types/MarkerSchema.md`](../shared-types/MarkerSchema.md)).
+The top-level `articles` read rule is **marker-gated**: an authenticated user may
+`get articles/{itemId}` only if they hold a per-user existence marker at
+`users/{uid}/articleMarkers/{itemId}` (i.e. they saved that article).
+Enumeration (`list`) is disabled and client `write` stays backend-only (see
+[`../shared-types/MarkerSchema.md`](../shared-types/MarkerSchema.md)):
+
+```
+match /articles/{itemId} {
+  allow get:   if isAuthenticated()
+               && exists(/databases/$(database)/documents/users/$(request.auth.uid)/articleMarkers/$(itemId));
+  allow list:  if false;
+  allow write: if false;  // Backend service account only
+}
+```
 
 Markers are written by the Android client on every sync/backup and on
-read-denial self-heal; historical articles are covered by a one-off backfill.
-Because rules auto-deploy on push to `main`, the read-tightening commit must be
-the **last** to merge so reads keep working until coverage is in place.
+read-denial self-heal; historical articles are covered by a one-off backfill
+(`@warg/backfill-scripts`). Because rules auto-deploy on push to `main`, this
+tightening **must be the last change to merge**, and only after every saved
+article for the active user has a marker — otherwise reads break.
+
+### Two-push deploy sequence (load-bearing — the tightening is fail-safe only in this order)
+
+The marker infrastructure (the `articleMarkers` / owner-scoped `debug_logs`
+rules, the Android marker writes + self-heal, and the emulator harness) is
+**additive and deploy-safe**: it leaves the `articles` read permissive. The
+read-flip is the only breaking change, so it is split off as its own push:
+
+1. **Push 1 — additive infrastructure.** Merge everything *except* the read-flip
+   commit. `firebase-rules.yml` runs the emulator suite then deploys the
+   still-permissive ruleset (`articles` read = `isAuthenticated()`). No reads
+   break.
+2. **Run the prod backfill + wait for the coverage gate to go green** against the
+   deployed infra (runbook:
+   [`../warg/cloud-functions/backfill-scripts/README.md`](../warg/cloud-functions/backfill-scripts/README.md)):
+   ```bash
+   marker-backfill --user <uid> --apply     # writes only-missing markers; idempotent, never deletes
+   coverage-gate   --user <uid>             # must exit 0 (markers ≥ every derived article key)
+   ```
+   The gate is a **hard precondition**: do not proceed until it exits 0.
+3. **Push 2 — the read-flip commit alone.** Merge the `firestore.rules` flip.
+   `firebase-rules.yml` runs the suite (now including the tightened `articles`
+   matrix) then deploys the tightened rule. Propagation: ~1 min for new requests,
+   up to ~10 min for active listeners.
+
+### Prior-ruleset snapshot (rollback reference)
+
+Live `trails-e428e` Firestore ruleset captured **2026-06-09T16:00Z**, before any
+of this branch deployed (flat `debug_logs`, no `articleMarkers` — the pre-branch
+prod state). Recorded as the recovery reference:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() { return request.auth != null; }
+    function isOwner(userId) { return isAuthenticated() && request.auth.uid == userId; }
+
+    match /articles/{itemId} {
+      allow read: if isAuthenticated();
+      allow write: if false;  // Backend service account only
+    }
+    match /debug_logs/{sessionId} {
+      allow read, write: if isAuthenticated();
+      match /entries/{entryId} { allow read, write: if isAuthenticated(); }
+    }
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      match /articles/{articleId} {
+        allow read, write: if isOwner(userId);
+        match /tags/{tagId}            { allow read, write: if isOwner(userId); }
+        match /images/{imageId}        { allow read, write: if isOwner(userId); }
+        match /videos/{videoId}        { allow read, write: if isOwner(userId); }
+        match /authors/{authorId}      { allow read, write: if isOwner(userId); }
+        match /domainMetadata/{metadataId} { allow read, write: if isOwner(userId); }
+      }
+      match /settings/{settingId} { allow read, write: if isOwner(userId); }
+    }
+  }
+}
+```
+
+### Rollback
+
+Firestore rules have **no native rollback** — redeploy the prior ruleset by
+reverting and re-pushing:
+
+```bash
+git revert <read-flip-commit>   # restores the post-push-1 ruleset (articles read permissive again)
+git push origin main            # firebase-rules.yml redeploys it (~1 min new / ~10 min listeners)
+```
+
+`git revert` of the flip commit restores the **push-1** ruleset (additive infra
+present, `articles` read permissive) — the correct fail-safe state, since markers
+remain in place. The snapshot above is the deeper pre-branch baseline, kept only
+as a recovery reference if a full rollback is ever needed.
 
 ## Archive content reads (GCS bucket lockdown)
 
