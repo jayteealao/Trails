@@ -35,12 +35,12 @@ test('ARTICLE_MARKERS_COLLECTION is the pinned name', () => {
 });
 
 test('markerBody: carries key, default source backfill, and a createdAt sentinel', () => {
-  const body = markerBody('k1');
+  const body = markerBody('k1', 'item-1');
   assert.equal(body['key'], 'k1');
   assert.equal(body['source'], 'backfill');
   assert.ok('createdAt' in body);
 });
 
 test('markerBody: honors an explicit source', () => {
-  assert.equal(markerBody('k1', 'sync')['source'], 'sync');
+  assert.equal(markerBody('k1', 'item-1', 'sync')['source'], 'sync');
 });
