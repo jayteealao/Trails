@@ -146,3 +146,32 @@ test('returns 404 for an article the user does not own', async () => {
 
   assert.equal(captured.status, 404);
 });
+
+// anonymous tokens are accepted by the auth middleware; the ownership check is
+// the real gate. A fresh anonymous uid that doesn't own the article gets 404,
+// not a blanket provider-level rejection.
+test('returns 404 for an anonymous uid that does not own the article', async () => {
+  const emptyDb = {
+    collection: (name: string) =>
+      name === 'users'
+        ? {
+            doc: () => ({
+              collection: () => ({
+                doc: () => ({ get: async () => ({ exists: false, data: () => undefined }) }),
+              }),
+            }),
+          }
+        : { doc: () => ({ get: async () => ({ exists: false, data: () => undefined }) }) },
+  } as unknown as Firestore;
+  const { res, captured } = makeRes();
+
+  await handleAppSignedUrl(
+    makeReq({ itemId: 'item1234', archiveKey: 'readability' }),
+    res,
+    'anon-uid-fresh',
+    emptyDb,
+    async () => 'unused'
+  );
+
+  assert.equal(captured.status, 404);
+});

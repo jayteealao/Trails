@@ -24,8 +24,8 @@ function makeRes() {
   return { res, captured };
 }
 
-test('hands the uid to next for a valid, non-anonymous token', async () => {
-  const verify: IdTokenVerifier = async () => ({ uid: 'u1', signInProvider: 'google.com' });
+test('hands the uid to next for a valid token', async () => {
+  const verify: IdTokenVerifier = async () => ({ uid: 'u1' });
   const { res, captured } = makeRes();
   let nextUid: string | undefined;
 
@@ -37,17 +37,17 @@ test('hands the uid to next for a valid, non-anonymous token', async () => {
   assert.equal(captured.status, undefined);
 });
 
-test('rejects an anonymous token with 403 and does not call next', async () => {
-  const verify: IdTokenVerifier = async () => ({ uid: 'anon-1', signInProvider: 'anonymous' });
+test('hands the uid to next for a valid anonymous token', async () => {
+  const verify: IdTokenVerifier = async () => ({ uid: 'anon-1' });
   const { res, captured } = makeRes();
-  let nextCalled = false;
+  let nextUid: string | undefined;
 
-  await verifyFirebaseToken(makeReq('Bearer anon-token'), res, async () => {
-    nextCalled = true;
+  await verifyFirebaseToken(makeReq('Bearer anon-token'), res, async (uid) => {
+    nextUid = uid;
   }, verify);
 
-  assert.equal(captured.status, 403);
-  assert.equal(nextCalled, false);
+  assert.equal(nextUid, 'anon-1');
+  assert.equal(captured.status, undefined);
 });
 
 test('returns 401 when verification throws', async () => {
@@ -66,7 +66,7 @@ test('returns 401 when verification throws', async () => {
 });
 
 test('returns 401 when the Authorization header is missing', async () => {
-  const verify: IdTokenVerifier = async () => ({ uid: 'u1', signInProvider: 'google.com' });
+  const verify: IdTokenVerifier = async () => ({ uid: 'u1' });
   const { res, captured } = makeRes();
 
   await verifyFirebaseToken(makeReq(), res, async () => {}, verify);
@@ -75,7 +75,7 @@ test('returns 401 when the Authorization header is missing', async () => {
 });
 
 test('returns 401 when the header is not a Bearer token', async () => {
-  const verify: IdTokenVerifier = async () => ({ uid: 'u1', signInProvider: 'google.com' });
+  const verify: IdTokenVerifier = async () => ({ uid: 'u1' });
   const { res, captured } = makeRes();
 
   await verifyFirebaseToken(makeReq('Basic abc123'), res, async () => {}, verify);
@@ -84,7 +84,7 @@ test('returns 401 when the header is not a Bearer token', async () => {
 });
 
 test('returns 401 when the bearer token is empty', async () => {
-  const verify: IdTokenVerifier = async () => ({ uid: 'u1', signInProvider: 'google.com' });
+  const verify: IdTokenVerifier = async () => ({ uid: 'u1' });
   const { res, captured } = makeRes();
 
   await verifyFirebaseToken(makeReq('Bearer    '), res, async () => {}, verify);

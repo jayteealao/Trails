@@ -14,23 +14,21 @@ const BEARER_PREFIX = 'Bearer ';
  * safe; the Admin SDK caches the Auth instance and the public signing keys
  * internally, so per-request calls are cheap.
  */
-export type IdTokenVerifier = (
-  token: string
-) => Promise<{ uid: string; signInProvider: string }>;
+export type IdTokenVerifier = (token: string) => Promise<{ uid: string }>;
 
 const defaultVerifier: IdTokenVerifier = async (token) => {
   const decoded = await getAuth().verifyIdToken(token);
-  return { uid: decoded.uid, signInProvider: decoded.firebase.sign_in_provider };
+  return { uid: decoded.uid };
 };
 
 /**
  * Verify a Firebase ID token from the `Authorization: Bearer <token>` header.
  *
  * - Missing/malformed header or unverifiable token → 401.
- * - Anonymous Firebase users (real uid, `sign_in_provider === 'anonymous'`)
- *   are explicitly rejected → 403. Anonymous accounts own no articles, but we
- *   reject before any Firestore work so the signing lane is never reachable by
- *   an unauthenticated identity.
+ * - Anonymous tokens are accepted: anonymous users receive a real uid and can
+ *   own synced articles. Per-user ownership is enforced downstream by the
+ *   handler (users/{uid}/articles/{itemId}), which an attacker's fresh
+ *   anonymous uid cannot satisfy.
  * - Otherwise the decoded uid is handed to `next`.
  */
 export async function verifyFirebaseToken(
@@ -52,22 +50,15 @@ export async function verifyFirebaseToken(
   }
 
   let uid: string;
-  let signInProvider: string;
   try {
     const result = await verify(token);
     uid = result.uid;
-    signInProvider = result.signInProvider;
   } catch (err) {
     console.error(
       '[firebase-auth] verifyIdToken failed:',
       err instanceof Error ? err.message : 'unknown error'
     );
     res.status(401).json({ error: 'Invalid or expired token' });
-    return;
-  }
-
-  if (signInProvider === 'anonymous') {
-    res.status(403).json({ error: 'Anonymous users are not permitted' });
     return;
   }
 
