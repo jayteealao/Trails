@@ -17,8 +17,14 @@ const ORPHAN_SWEEP_DEFAULT_MIN_AGE_MS = 10 * 60 * 1000;
 const ORPHAN_SWEEP_WORKFLOW_ATTEMPTS = 2;
 // Leases older than this had their job finish long ago (P99 monolith wall time
 // is ~3 min) — the workflow likely crashed before release(), so the container
-// behind the lease may still be running. Matches BrowserQuotaDO.LEASE_TTL_MS.
-const CONTAINER_SWEEP_MIN_LEASE_AGE_MS = 5 * 60 * 1000;
+// behind the lease may still be running.
+// MUST be kept in sync with `LEASE_TTL_MS` in
+// `warg/workers/workflow/src/BrowserQuotaDO.ts`.
+// If this value is LOWER than LEASE_TTL_MS: sweep will stop containers under
+// still-valid leases (premature kill).
+// If this value is HIGHER than LEASE_TTL_MS: orphaned containers are missed
+// until the excess gap elapses (delayed cleanup).
+export const CONTAINER_SWEEP_MIN_LEASE_AGE_MS = 5 * 60 * 1000;
 
 interface LoggerRequestRow {
   requestId?: string;
@@ -393,7 +399,7 @@ export interface ContainerSweepResult {
 /**
  * Stop monolith containers whose quota lease outlived the TTL — the third
  * lifecycle layer after the monolith worker's per-job stop() and the Sandbox
- * class's 30s sleepAfter backstop. Lists active sandbox leases from the
+ * class's 5m sleepAfter backstop. Lists active sandbox leases from the
  * workflow worker and asks the monolith worker to stop each stale lease's
  * container. Best-effort: per-container failures are reported, not thrown.
  */
@@ -410,7 +416,8 @@ export async function sweepOrphanContainers(
   };
 
   const response = await env.WORKFLOW.fetch('https://workflow/browser-quota/sandbox-leases', {
-    headers: { 'X-Internal-API-Key': env.INTERNAL_API_KEY }
+    headers: { 'X-Internal-API-Key': env.INTERNAL_API_KEY },
+    signal: AbortSignal.timeout(10_000)
   });
   if (!response.ok) {
     const body = (await response.text()).slice(0, 300);
@@ -434,7 +441,8 @@ export async function sweepOrphanContainers(
           'Content-Type': 'application/json',
           'X-Internal-API-Key': env.INTERNAL_API_KEY
         },
-        body: JSON.stringify({ request_id: lease.requestId })
+        body: JSON.stringify({ request_id: lease.requestId }),
+        signal: AbortSignal.timeout(10_000)
       });
       if (stopResponse.ok) {
         summary.stopped += 1;
@@ -693,8 +701,10 @@ export default {
       (async () => {
         try {
           const summary = await sweepOrphanContainers(env, `cron:${controller.cron ?? 'unknown'}`);
-          if (summary.stale > 0 || summary.failures.length > 0) {
-            console.log('[gateway] container sweep summary:', JSON.stringify(summary));
+          if (summary.failures.length > 0) {
+            console.error('[gateway] container sweep partial failures:', JSON.stringify(summary));
+          } else {
+            console.log('[gateway] container sweep done:', JSON.stringify({ leases: summary.leases, stale: summary.stale, stopped: summary.stopped }));
           }
         } catch (err) {
           console.error('[gateway] container sweep failed:', err);

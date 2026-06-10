@@ -50,17 +50,6 @@ export interface AcquireDecision {
 }
 
 /**
- * Pick the lowest non-negative slot index not present in `usedSlots`.
- * Used to assign a stable warm-pool container to a `sandbox_exec` lease.
- */
-export function lowestFreeSlot(usedSlots: Iterable<number>): number {
-  const used = new Set(usedSlots);
-  let slot = 0;
-  while (used.has(slot)) slot += 1;
-  return slot;
-}
-
-/**
  * Refill the bucket based on elapsed wall-clock time, capped at `burst`.
  * Returns a new bucket; never mutates the input.
  */

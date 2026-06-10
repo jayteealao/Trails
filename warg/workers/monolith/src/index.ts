@@ -297,7 +297,7 @@ export async function runMonolithInSandbox(
     try {
       await sandbox.stop();
     } catch (stopErr) {
-      console.warn('[monolith] stop() failed (non-fatal):', stopErr);
+      console.warn(`[monolith] stop() failed for ${requestId} (sandbox: ${sandboxId}) — non-fatal, sleepAfter backstop covers:`, stopErr);
     }
   }
 }
@@ -364,9 +364,18 @@ export default {
           return Response.json({ error: 'Missing required field: request_id' }, { status: 400 });
         }
         const sandboxId = normalizeSandboxId(stopBody.request_id);
-        await getSandbox(env.Sandbox, sandboxId).stop();
-        console.log('[monolith] Stopped container via /container/stop:', sandboxId);
-        return Response.json({ ok: true, sandboxId });
+        try {
+          await getSandbox(env.Sandbox, sandboxId).stop();
+          console.log('[monolith] Stopped container via /container/stop:', sandboxId);
+        } catch (stopErr) {
+          const msg = stopErr instanceof Error ? stopErr.message : String(stopErr);
+          if (/not found|already stopped|no container|does not exist|not running/i.test(msg)) {
+            console.log('[monolith] /container/stop benign (container already stopped or never started):', sandboxId, 'request_id:', stopBody.request_id);
+            return Response.json({ ok: true, note: 'container already stopped or never started' });
+          }
+          throw stopErr;
+        }
+        return Response.json({ ok: true });
       }
 
       // Parse request body

@@ -14,7 +14,8 @@
     "deploy": "bash scripts/deploy.sh",
     "deploy:pages": "bash scripts/deploy.sh --with-pages",
     "deploy:all": "bash scripts/deploy.sh --all",
-    "deploy:quick": "bash scripts/deploy.sh --skip-checks"
+    "deploy:quick": "bash scripts/deploy.sh --skip-checks",
+    "deploy:workers": "pnpm --filter @warg/logger deploy && pnpm --filter @warg/monolith deploy && pnpm --filter @warg/workflow deploy && pnpm --filter @warg/gateway deploy"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.0.5",

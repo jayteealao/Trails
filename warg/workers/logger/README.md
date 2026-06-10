@@ -18,10 +18,11 @@ the same timestamp, so they can never disagree across an hour boundary.
 
 ### Routing
 
-- **Writes after init** (`POST /event`, `POST /artifact`): look up
-  `requests_index.created_at` in D1, derive the bucket, write there. If D1
-  has no row (its best-effort insert failed), the write falls back to the
-  current-hour bucket rather than being dropped.
+- **Writes after init** (`POST /event`, `POST /events/batch`, `POST /artifact`):
+  look up `requests_index.created_at` in D1, derive the bucket, write there.
+  If D1 has no row (its best-effort insert failed), the write falls back to the
+  current-hour bucket rather than being dropped — a data-locality trade-off
+  accepted over event loss.
 - **Reads** (`GET /request/:id`, `/events`, `/stream`): same D1-derived
   bucket first; if the bucket returns no row for the request id, fall back to
   the **legacy per-request instance** (`idFromName(requestId)`, the
@@ -44,11 +45,12 @@ request. It is idempotent.
 | Route | Notes |
 |---|---|
 | `POST /request/init` | creates request row + D1 index row |
-| `POST /event` | appends event, replays derived summary |
+| `POST /event` | appends a single event, replays derived summary |
+| `POST /events/batch` | atomically appends up to 100 events in one DO round-trip; body `{ requestId, events[] }`; returns `{ eventIds, derivedUpdated }`; terminal events are sent per-event by design |
 | `POST /artifact` | upserts artifact metadata |
-| `PATCH /request/:id` | manifest key / external json |
-| `GET /request/:id` | canonical view (dual-read) |
-| `GET /request/:id/events` | paginated events (dual-read) |
+| `PATCH /request/:id` | manifest key / external json; returns **404** for unknown request ids |
+| `GET /request/:id` | canonical view (dual-read); returns **404** for unknown request ids |
+| `GET /request/:id/events` | paginated events (dual-read); returns **200 `{ events: [] }`** for unknown ids (intentional historical wire shape — `GET /request/:id` is the authoritative existence check) |
 | `GET /request/:id/stream` | SSE, 3s poll, 2-minute cap (dual-read) |
 | `GET /requests`, `GET /stats`, `POST /requests/batch` | served from D1 index |
 | `POST /maintenance/backfill-diagnostics` | recompute legacy diagnostics (dual-read) |

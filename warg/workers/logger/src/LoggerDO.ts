@@ -11,6 +11,7 @@ import type {
   TerminalState
 } from '@warg/shared';
 import { initSchema, migrateSchema } from './schema.js';
+import { asNumber, asString, asBoolean, asRecord } from './value-helpers.js';
 
 interface LoggerDoEnv {
   INDEX_DB: D1Database;
@@ -73,25 +74,6 @@ function deriveStage(
   if (eventType === 'workflow.started') return 'queued';
   if (eventType === 'request.created') return 'queued';
   return undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-  if (typeof value !== 'number' || Number.isNaN(value)) return undefined;
-  return value;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function asBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -261,6 +243,38 @@ function extractDomain(url: string): string {
   }
 }
 
+/**
+ * Apply a single event to a mutable DerivedSummary in-place.
+ * Encapsulates the stage machine, terminal flags, errorCount, lastEventTs,
+ * diagnostics update, and the degraded-monolith incomplete override.
+ * Pure with respect to storage — no SQL side-effects.
+ */
+function applyEventToDerived(derived: DerivedSummary, event: LogEvent): void {
+  const newStage = deriveStage(event.type, event.data);
+  if (newStage) {
+    derived.stage = newStage;
+    derived.terminal =
+      newStage === 'done' ||
+      newStage === 'failed' ||
+      newStage === 'incomplete';
+  }
+
+  if (event.level === 'error') {
+    derived.errorCount++;
+  }
+
+  derived.lastEventTs = event.ts;
+  derived.diagnostics = updateDiagnostics(derived.diagnostics, event);
+
+  if (
+    (event.type === 'request.done' || event.type === 'workflow.completed') &&
+    shouldMarkIncompleteFromDiagnostics(derived.diagnostics)
+  ) {
+    derived.stage = 'incomplete';
+    derived.terminal = true;
+  }
+}
+
 export class LoggerDO extends DurableObject<LoggerDoEnv> {
   private sql: SqlStorage;
   private initialized = false;
@@ -270,11 +284,68 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
     this.sql = ctx.storage.sql;
   }
 
+  /**
+   * Initialise the SQLite schema on first use.
+   * Relies on the DO single-threaded execution model (one request at a time
+   * per instance) — no locking is needed; a concurrent "fix" adding a mutex
+   * here would be unnecessary.
+   */
   private ensureSchema(): void {
     if (!this.initialized) {
       initSchema(this.sql);
       migrateSchema(this.sql);
       this.initialized = true;
+    }
+  }
+
+  /**
+   * Update the D1 requests_index row for a request (best-effort).
+   * @param requestId   - The request to update.
+   * @param lastEventTs - The ts of the event that drove the derived change.
+   * @param derived     - Final derived summary to write.
+   */
+  private async updateD1Index(
+    requestId: string,
+    lastEventTs: string,
+    derived: DerivedSummary
+  ): Promise<void> {
+    try {
+      await this.env.INDEX_DB.prepare(
+        `UPDATE requests_index
+         SET updated_at = ?, last_event_ts = ?, stage = ?,
+             terminal_state = ?, error_count = ?,
+             last_error_code = ?, last_error_message = ?, last_error_source = ?,
+             retry_count = ?, render_ms = ?, derive_ms = ?, persist_ms = ?,
+             last_trace_id = ?, render_provider = ?, render_fallback_used = ?,
+             render_fallback_reason = ?, degraded = ?, degraded_steps = ?
+         WHERE request_id = ?`
+      )
+        .bind(
+          new Date().toISOString(),
+          lastEventTs,
+          derived.stage,
+          derived.terminal ? 1 : 0,
+          derived.errorCount,
+          derived.diagnostics?.errorCode ?? null,
+          derived.diagnostics?.errorMessage ?? null,
+          derived.diagnostics?.errorSource ?? null,
+          derived.diagnostics?.retryCount ?? 0,
+          derived.diagnostics?.renderMs ?? null,
+          derived.diagnostics?.deriveMs ?? null,
+          derived.diagnostics?.persistMs ?? null,
+          derived.diagnostics?.lastTraceId ?? null,
+          derived.diagnostics?.renderProvider ?? null,
+          derived.diagnostics?.renderFallbackUsed === true ? 1 : 0,
+          derived.diagnostics?.renderFallbackReason ?? null,
+          derived.diagnostics?.degraded === true ? 1 : 0,
+          derived.diagnostics?.degradedSteps?.length
+            ? JSON.stringify(derived.diagnostics.degradedSteps)
+            : null,
+          requestId
+        )
+        .run();
+    } catch (err) {
+      console.error(`D1 index update failed for ${requestId}:`, err instanceof Error ? err.message : err);
     }
   }
 
@@ -288,7 +359,7 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
    */
   async initRequest(
     payload: InitRequestPayload,
-    createdAt: string = new Date().toISOString()
+    createdAt: string
   ): Promise<{ created: boolean }> {
     this.ensureSchema();
 
@@ -348,10 +419,11 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
   async appendEvent(requestId: string, event: LogEvent): Promise<{ eventId: number }> {
     this.ensureSchema();
 
-    // Insert event
-    this.sql.exec(
+    // Insert event and retrieve its auto-increment id in one statement
+    const insertRow = this.sql.exec<{ id: number }>(
       `INSERT INTO events (request_id, ts, source, type, level, message, attempt, data_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`,
       requestId,
       event.ts,
       event.source,
@@ -360,50 +432,25 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
       event.message,
       event.attempt ?? null,
       event.data ? JSON.stringify(event.data) : null
-    );
-
-    // Get the inserted event ID
-    const lastRow = this.sql.exec<{ id: number }>('SELECT last_insert_rowid() as id').one();
-    const eventId = lastRow?.id ?? 0;
+    ).one();
+    const eventId = insertRow?.id ?? 0;
 
     const artifact = artifactFromEvent(event);
     if (artifact) {
       this.upsertArtifact(requestId, artifact);
     }
 
-    // Update derived summary
-    const requestRows = this.sql
-      .exec<RequestRow>('SELECT * FROM requests WHERE request_id = ? LIMIT 1', requestId)
-      .toArray();
-    const requestRow = requestRows[0];
+    // Update derived summary (only request_id + derived_json needed here)
+    const requestRow = this.sql
+      .exec<Pick<RequestRow, 'request_id' | 'derived_json'>>(
+        'SELECT request_id, derived_json FROM requests WHERE request_id = ? LIMIT 1',
+        requestId
+      )
+      .one();
     if (requestRow) {
       const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
 
-      // Update stage if event implies a new stage
-      const newStage = deriveStage(event.type, event.data);
-      if (newStage) {
-        derived.stage = newStage;
-        derived.terminal =
-          newStage === 'done' ||
-          newStage === 'failed' ||
-          newStage === 'incomplete';
-      }
-
-      // Increment error count for error-level events
-      if (event.level === 'error') {
-        derived.errorCount++;
-      }
-
-      derived.lastEventTs = event.ts;
-      derived.diagnostics = updateDiagnostics(derived.diagnostics, event);
-
-      if (
-        (event.type === 'request.done' || event.type === 'workflow.completed') &&
-        shouldMarkIncompleteFromDiagnostics(derived.diagnostics)
-      ) {
-        derived.stage = 'incomplete';
-        derived.terminal = true;
-      }
+      applyEventToDerived(derived, event);
 
       this.sql.exec(
         'UPDATE requests SET derived_json = ? WHERE request_id = ?',
@@ -411,45 +458,7 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
         requestRow.request_id
       );
 
-      // Update D1 index (best-effort)
-      try {
-        await this.env.INDEX_DB.prepare(
-          `UPDATE requests_index
-           SET updated_at = ?, last_event_ts = ?, stage = ?,
-               terminal_state = ?, error_count = ?,
-               last_error_code = ?, last_error_message = ?, last_error_source = ?,
-               retry_count = ?, render_ms = ?, derive_ms = ?, persist_ms = ?,
-               last_trace_id = ?, render_provider = ?, render_fallback_used = ?,
-               render_fallback_reason = ?, degraded = ?, degraded_steps = ?
-           WHERE request_id = ?`
-        )
-          .bind(
-            new Date().toISOString(),
-            event.ts,
-            derived.stage,
-            derived.terminal ? 1 : 0,
-            derived.errorCount,
-            derived.diagnostics?.errorCode ?? null,
-            derived.diagnostics?.errorMessage ?? null,
-            derived.diagnostics?.errorSource ?? null,
-            derived.diagnostics?.retryCount ?? 0,
-            derived.diagnostics?.renderMs ?? null,
-            derived.diagnostics?.deriveMs ?? null,
-            derived.diagnostics?.persistMs ?? null,
-            derived.diagnostics?.lastTraceId ?? null,
-            derived.diagnostics?.renderProvider ?? null,
-            derived.diagnostics?.renderFallbackUsed === true ? 1 : 0,
-            derived.diagnostics?.renderFallbackReason ?? null,
-            derived.diagnostics?.degraded === true ? 1 : 0,
-            derived.diagnostics?.degradedSteps?.length
-              ? JSON.stringify(derived.diagnostics.degradedSteps)
-              : null,
-            requestRow.request_id
-          )
-          .run();
-      } catch (err) {
-        console.error(`D1 index update failed for ${requestRow.request_id}:`, err instanceof Error ? err.message : err);
-      }
+      await this.updateD1Index(requestRow.request_id, event.ts, derived);
     }
 
     return { eventId };
@@ -457,134 +466,108 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
 
   /**
    * Append a batch of events to the request trace atomically.
+   *
    * Replays the same per-event state machine as appendEvent in order, so the
    * final derived summary is identical to N sequential appendEvent calls.
    * All SQLite writes happen in one transaction (all-or-nothing); the D1
    * index is updated once with the final derived state instead of per event.
+   *
+   * ASSUMPTION: callers supply events in chronological order. The last
+   * event's `ts` becomes D1's `last_event_ts`.
+   *
+   * @returns `eventIds` — the inserted row ids in order.
+   * @returns `derivedUpdated` — true when a request row existed and
+   *   derived_json was updated. False means no request row was found (routing
+   *   anomaly): events are still stored but derived state is unchanged.
    */
-  async appendEvents(requestId: string, events: LogEvent[]): Promise<{ eventIds: number[] }> {
+  async appendEvents(
+    requestId: string,
+    events: LogEvent[]
+  ): Promise<{ eventIds: number[]; derivedUpdated: boolean }> {
     this.ensureSchema();
 
     if (events.length === 0) {
-      return { eventIds: [] };
+      return { eventIds: [], derivedUpdated: false };
     }
 
-    const eventIds: number[] = [];
+    // These are reset at the top of the transactionSync callback so a runtime
+    // retry of the callback cannot accumulate duplicates (M9a).
+    let eventIds: number[] = [];
     let finalDerived: DerivedSummary | undefined;
+    let derivedUpdated = false;
 
-    this.ctx.storage.transactionSync(() => {
-      const requestRows = this.sql
-        .exec<RequestRow>('SELECT * FROM requests WHERE request_id = ? LIMIT 1', requestId)
-        .toArray();
-      const requestRow = requestRows[0];
-      // Same contract as appendEvent: events are stored even when this
-      // instance holds no request row; only the derived update is skipped.
-      const derived: DerivedSummary | undefined = requestRow
-        ? JSON.parse(requestRow.derived_json)
-        : undefined;
+    try {
+      this.ctx.storage.transactionSync(() => {
+        // Reset closure state here so a callback retry starts clean (M9a).
+        eventIds = [];
+        finalDerived = undefined;
 
-      for (const event of events) {
-        this.sql.exec(
-          `INSERT INTO events (request_id, ts, source, type, level, message, attempt, data_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          requestId,
-          event.ts,
-          event.source,
-          event.type,
-          event.level,
-          event.message,
-          event.attempt ?? null,
-          event.data ? JSON.stringify(event.data) : null
-        );
-        const lastRow = this.sql.exec<{ id: number }>('SELECT last_insert_rowid() as id').one();
-        eventIds.push(lastRow?.id ?? 0);
-
-        const artifact = artifactFromEvent(event);
-        if (artifact) {
-          this.upsertArtifact(requestId, artifact);
-        }
-
-        if (!derived) continue;
-
-        const newStage = deriveStage(event.type, event.data);
-        if (newStage) {
-          derived.stage = newStage;
-          derived.terminal =
-            newStage === 'done' ||
-            newStage === 'failed' ||
-            newStage === 'incomplete';
-        }
-
-        if (event.level === 'error') {
-          derived.errorCount++;
-        }
-
-        derived.lastEventTs = event.ts;
-        derived.diagnostics = updateDiagnostics(derived.diagnostics, event);
-
-        if (
-          (event.type === 'request.done' || event.type === 'workflow.completed') &&
-          shouldMarkIncompleteFromDiagnostics(derived.diagnostics)
-        ) {
-          derived.stage = 'incomplete';
-          derived.terminal = true;
-        }
-      }
-
-      if (requestRow && derived) {
-        this.sql.exec(
-          'UPDATE requests SET derived_json = ? WHERE request_id = ?',
-          JSON.stringify(derived),
-          requestRow.request_id
-        );
-        finalDerived = derived;
-      }
-    });
-
-    // Update D1 index once with the final state (best-effort)
-    if (finalDerived) {
-      const lastEvent = events[events.length - 1]!;
-      try {
-        await this.env.INDEX_DB.prepare(
-          `UPDATE requests_index
-           SET updated_at = ?, last_event_ts = ?, stage = ?,
-               terminal_state = ?, error_count = ?,
-               last_error_code = ?, last_error_message = ?, last_error_source = ?,
-               retry_count = ?, render_ms = ?, derive_ms = ?, persist_ms = ?,
-               last_trace_id = ?, render_provider = ?, render_fallback_used = ?,
-               render_fallback_reason = ?, degraded = ?, degraded_steps = ?
-           WHERE request_id = ?`
-        )
-          .bind(
-            new Date().toISOString(),
-            lastEvent.ts,
-            finalDerived.stage,
-            finalDerived.terminal ? 1 : 0,
-            finalDerived.errorCount,
-            finalDerived.diagnostics?.errorCode ?? null,
-            finalDerived.diagnostics?.errorMessage ?? null,
-            finalDerived.diagnostics?.errorSource ?? null,
-            finalDerived.diagnostics?.retryCount ?? 0,
-            finalDerived.diagnostics?.renderMs ?? null,
-            finalDerived.diagnostics?.deriveMs ?? null,
-            finalDerived.diagnostics?.persistMs ?? null,
-            finalDerived.diagnostics?.lastTraceId ?? null,
-            finalDerived.diagnostics?.renderProvider ?? null,
-            finalDerived.diagnostics?.renderFallbackUsed === true ? 1 : 0,
-            finalDerived.diagnostics?.renderFallbackReason ?? null,
-            finalDerived.diagnostics?.degraded === true ? 1 : 0,
-            finalDerived.diagnostics?.degradedSteps?.length
-              ? JSON.stringify(finalDerived.diagnostics.degradedSteps)
-              : null,
+        const requestRow = this.sql
+          .exec<Pick<RequestRow, 'request_id' | 'derived_json'>>(
+            'SELECT request_id, derived_json FROM requests WHERE request_id = ? LIMIT 1',
             requestId
           )
-          .run();
-      } catch (err) {
-        console.error(`D1 index batch update failed for ${requestId}:`, err instanceof Error ? err.message : err);
-      }
+          .one();
+        // Same contract as appendEvent: events are stored even when this
+        // instance holds no request row; only the derived update is skipped.
+        const derived: DerivedSummary | undefined = requestRow
+          ? JSON.parse(requestRow.derived_json)
+          : undefined;
+
+        for (const event of events) {
+          const insertRow = this.sql.exec<{ id: number }>(
+            `INSERT INTO events (request_id, ts, source, type, level, message, attempt, data_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             RETURNING id`,
+            requestId,
+            event.ts,
+            event.source,
+            event.type,
+            event.level,
+            event.message,
+            event.attempt ?? null,
+            event.data ? JSON.stringify(event.data) : null
+          ).one();
+          eventIds.push(insertRow?.id ?? 0);
+
+          const artifact = artifactFromEvent(event);
+          if (artifact) {
+            this.upsertArtifact(requestId, artifact);
+          }
+
+          if (!derived) continue;
+
+          applyEventToDerived(derived, event);
+        }
+
+        if (requestRow && derived) {
+          this.sql.exec(
+            'UPDATE requests SET derived_json = ? WHERE request_id = ?',
+            JSON.stringify(derived),
+            requestRow.request_id
+          );
+          finalDerived = derived;
+          derivedUpdated = true;
+        }
+      });
+    } catch (err) {
+      console.error(
+        `[logger] appendEvents transaction failed for ${requestId} (${events.length} events):`,
+        err instanceof Error ? err.message : err
+      );
+      throw err; // re-throw so the workflow step can retry
     }
 
-    return { eventIds };
+    // Update D1 index once with the final state (best-effort).
+    // Non-terminal batches skip the best-effort D1 update so they never
+    // race/regress the subsequent terminal event's D1 write (terminals are
+    // sent per-event by design via appendEvent).
+    if (finalDerived?.terminal) {
+      const lastEvent = events[events.length - 1]!;
+      await this.updateD1Index(requestId, lastEvent.ts, finalDerived);
+    }
+
+    return { eventIds, derivedUpdated };
   }
 
   /**

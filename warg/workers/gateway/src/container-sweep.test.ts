@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { sweepOrphanContainers } from './index.js';
+import { sweepOrphanContainers, CONTAINER_SWEEP_MIN_LEASE_AGE_MS } from './index.js';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -110,5 +110,46 @@ describe('sweepOrphanContainers', () => {
     const { env } = createEnv(jsonResponse({ error: 'nope' }, 503));
 
     await expect(sweepOrphanContainers(env, 'test')).rejects.toThrow(/sandbox-leases fetch failed/);
+  });
+
+  it('attempts all stale leases and isolates per-container failures', async () => {
+    // Two stale leases; first stop responds 500, second responds ok.
+    // Both stops must be attempted and only the first failure is recorded.
+    const monolithFetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ error: 'internal error' }, 500))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const workflowFetch = vi.fn(async () =>
+      jsonResponse({
+        leases: [
+          { leaseId: 'l1', requestId: 'req-fail', acquiredAt: Date.now() - STALE_MS },
+          { leaseId: 'l2', requestId: 'req-ok', acquiredAt: Date.now() - STALE_MS }
+        ]
+      })
+    );
+    const env = {
+      INTERNAL_API_KEY: 'internal-key',
+      WORKFLOW: { fetch: workflowFetch } as unknown as Fetcher,
+      MONOLITH: { fetch: monolithFetch } as unknown as Fetcher
+    } as Env;
+
+    const summary = await sweepOrphanContainers(env, 'test');
+
+    // Both containers were attempted
+    expect(monolithFetch).toHaveBeenCalledTimes(2);
+    expect(summary.stale).toBe(2);
+    expect(summary.stopped).toBe(1);
+    expect(summary.failures).toHaveLength(1);
+    // The first lease (req-fail) is the only failure
+    expect(summary.failures[0]?.requestId).toBe('req-fail');
+    expect(summary.failures[0]?.error).toContain('500');
+  });
+});
+
+describe('CONTAINER_SWEEP_MIN_LEASE_AGE_MS', () => {
+  it('equals 5 * 60 * 1000 — must stay in sync with LEASE_TTL_MS in warg/workers/workflow/src/BrowserQuotaDO.ts', () => {
+    // Tripwire: if this constant drifts from BrowserQuotaDO.LEASE_TTL_MS the
+    // sweep will either kill valid leases (too low) or miss orphans (too high).
+    expect(CONTAINER_SWEEP_MIN_LEASE_AGE_MS).toBe(5 * 60 * 1000);
   });
 });

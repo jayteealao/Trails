@@ -67,6 +67,28 @@ describe('acquireQuotaWithSleep', () => {
     expect(step.sleep).toHaveBeenCalledTimes(4);
   });
 
+  it('uses the injected createExhaustionError factory for the exhaustion throw', async () => {
+    const step = makeMockStep();
+
+    class CustomExhaustionError extends Error {
+      constructor(msg: string) {
+        super(msg);
+        this.name = 'CustomExhaustionError';
+      }
+    }
+
+    const factory = vi.fn((msg: string) => new CustomExhaustionError(msg));
+
+    await expect(
+      acquireQuotaWithSleep(step, 'render', denyTimes(Infinity), 3, undefined, factory)
+    ).rejects.toBeInstanceOf(CustomExhaustionError);
+
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(factory).toHaveBeenCalledWith(
+      'render quota not acquired after 3 attempts; resubmit the request to retry'
+    );
+  });
+
   it('uses deterministic step and sleep names with the attempt counter', async () => {
     const step = makeMockStep();
 
@@ -98,5 +120,20 @@ describe('acquireQuotaWithSleep', () => {
   it('pins the budget confirmed for the 10-minute cron-sweep window', () => {
     expect(MAX_QUOTA_ATTEMPTS).toBe(20);
     expect(QUOTA_SLEEP_DURATION).toBe('30 seconds');
+  });
+
+  it('exhausts the DEFAULT budget (20 attempts), reports "20 attempts", and sleeps exactly 19 times', async () => {
+    const step = makeMockStep();
+
+    await expect(
+      acquireQuotaWithSleep(step, 'render', denyTimes(Infinity))
+    ).rejects.toThrow('render quota not acquired after 20 attempts');
+
+    // All 20 attempt slots consumed
+    expect(step.do).toHaveBeenCalledTimes(20);
+    // Sleep called between each denied attempt — 19 times (not after the final one)
+    expect(step.sleep).toHaveBeenCalledTimes(19);
+    // Every sleep uses the canonical duration constant
+    expect(step.sleep.mock.calls.every((call) => call[1] === QUOTA_SLEEP_DURATION)).toBe(true);
   });
 });

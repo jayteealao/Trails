@@ -143,7 +143,7 @@ describe('runMonolithInSandbox container lifecycle', () => {
     expect(result.artifact.bytes).toBe(1234);
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(
-      '[monolith] stop() failed (non-fatal):',
+      expect.stringMatching(/\[monolith\] stop\(\) failed for req-stop-fail \(sandbox: req-stop-fail\) — non-fatal/),
       expect.any(Error)
     );
     warnSpy.mockRestore();
@@ -165,5 +165,27 @@ describe('runMonolithInSandbox container lifecycle', () => {
 
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
+  });
+
+  it('returns success and stops the container once when primary exec fails but curl fallback succeeds', async () => {
+    // Queue: [primary fail, curl ok, monolith-file ok, upload ok]
+    const sandbox = fakeSandbox([
+      execFail('monolith: presigned URL fetch error'),
+      execOk(),                       // curl download succeeds
+      execOk(),                       // monolith file-path run succeeds
+      execOk(UPLOAD_OK_STDOUT)        // upload + hash succeeds
+    ]);
+
+    const result = await runMonolithInSandbox(
+      createEnv(),
+      'req-curl-fallback',
+      'archives/req-curl-fallback/raw/rendered.html',
+      'https://example.com'
+    );
+
+    expect(result.artifact.kind).toBe('monolith.html');
+    expect(result.artifact.bytes).toBe(1234);
+    expect(result.artifact.sha256).toBe('a'.repeat(64));
+    expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,4 @@
-import { env, runInDurableObject } from 'cloudflare:test';
+import { env, runInDurableObject, SELF } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 import type {
   InitRequestPayload,
@@ -22,9 +22,9 @@ interface LoggerEventWithId {
 }
 
 interface LoggerStub {
-  initRequest(payload: InitRequestPayload, createdAt?: string): Promise<{ created: boolean }>;
+  initRequest(payload: InitRequestPayload, createdAt: string): Promise<{ created: boolean }>;
   appendEvent(requestId: string, event: LogEvent): Promise<{ eventId: number }>;
-  appendEvents(requestId: string, events: LogEvent[]): Promise<{ eventIds: number[] }>;
+  appendEvents(requestId: string, events: LogEvent[]): Promise<{ eventIds: number[]; derivedUpdated: boolean }>;
   upsertArtifact(requestId: string, artifact: ArtifactRecord): Promise<void> | void;
   updateRequestFields(requestId: string, patch: RequestFieldsPatch): Promise<{ updated: boolean }>;
   getRequestView(
@@ -85,7 +85,7 @@ describe('LoggerDO', () => {
         requestId,
         url: 'https://example.com/page',
         optionsR2Key: 'archives/test/input/options.json'
-      });
+      }, new Date().toISOString());
 
       expect(result.created).toBe(true);
     });
@@ -99,8 +99,9 @@ describe('LoggerDO', () => {
         url: 'https://example.com/page'
       };
 
-      const first = await stub.initRequest(payload);
-      const second = await stub.initRequest(payload);
+      const nowIso = new Date().toISOString();
+      const first = await stub.initRequest(payload, nowIso);
+      const second = await stub.initRequest(payload, nowIso);
 
       expect(first.created).toBe(true);
       expect(second.created).toBe(false);
@@ -124,8 +125,9 @@ describe('LoggerDO', () => {
       const reqA = `bucket-test-${Date.now()}-a`;
       const reqB = `bucket-test-${Date.now()}-b`;
 
-      await stub.initRequest({ requestId: reqA, url: 'https://example.com/a' });
-      await stub.initRequest({ requestId: reqB, url: 'https://example.com/b' });
+      const nowIsoA = new Date().toISOString();
+      await stub.initRequest({ requestId: reqA, url: 'https://example.com/a' }, nowIsoA);
+      await stub.initRequest({ requestId: reqB, url: 'https://example.com/b' }, nowIsoA);
 
       await stub.appendEvent(reqA, infoEvent('step.started', 'Render A', { step: 'render' }));
       await stub.appendEvent(reqA, {
@@ -266,7 +268,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-3`;
       const stub = getStub('bucket:2026060911');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       const event: LogEvent = {
         ts: new Date().toISOString(),
@@ -284,7 +286,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-4`;
       const stub = getStub('bucket:2026060911');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       const errorEvent: LogEvent = {
         ts: new Date().toISOString(),
@@ -305,7 +307,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-5`;
       const stub = getStub('bucket:2026060911');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       {
         const view1 = await stub.getRequestView(requestId);
@@ -374,7 +376,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-5b`;
       const stub = getStub('bucket:2026060912');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       await stub.appendEvent(requestId, {
         ts: new Date().toISOString(),
@@ -458,7 +460,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-5c-incomplete`;
       const stub = getStub('bucket:2026060912');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       await stub.appendEvent(requestId, {
         ts: new Date().toISOString(),
@@ -483,7 +485,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-5c`;
       const stub = getStub('bucket:2026060912');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       await stub.appendEvent(requestId, {
         ts: new Date().toISOString(),
@@ -533,7 +535,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-5d`;
       const stub = getStub('bucket:2026060913');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       await stub.appendEvent(requestId, {
         ts: new Date().toISOString(),
@@ -552,7 +554,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-5e`;
       const stub = getStub('bucket:2026060913');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       await stub.appendEvent(requestId, {
         ts: new Date().toISOString(),
@@ -580,7 +582,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-5f`;
       const stub = getStub('bucket:2026060913');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       await stub.appendEvent(requestId, {
         ts: new Date().toISOString(),
@@ -605,10 +607,11 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-be`;
       const stub = getStub('bucket:2026061010');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       const result = await stub.appendEvents(requestId, []);
       expect(result.eventIds).toEqual([]);
+      expect(result.derivedUpdated).toBe(false);
 
       const view = await stub.getRequestView(requestId);
       expect(view?.events).toHaveLength(0);
@@ -619,9 +622,10 @@ describe('LoggerDO', () => {
       const seqId = `test-${Date.now()}-bs`;
       const batchId = `test-${Date.now()}-bb`;
       const stub = getStub('bucket:2026061011');
+      const nowIsoBatch1 = new Date().toISOString();
 
-      await stub.initRequest({ requestId: seqId, url: 'https://example.com' });
-      await stub.initRequest({ requestId: batchId, url: 'https://example.com' });
+      await stub.initRequest({ requestId: seqId, url: 'https://example.com' }, nowIsoBatch1);
+      await stub.initRequest({ requestId: batchId, url: 'https://example.com' }, nowIsoBatch1);
 
       // Same event objects replayed both ways, so ts values match exactly
       const events: LogEvent[] = [
@@ -643,6 +647,7 @@ describe('LoggerDO', () => {
       const result = await stub.appendEvents(batchId, events);
 
       expect(result.eventIds).toHaveLength(events.length);
+      expect(result.derivedUpdated).toBe(true);
 
       const seqView = await stub.getRequestView(seqId);
       const batchView = await stub.getRequestView(batchId);
@@ -656,7 +661,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-bt`;
       const stub = getStub('bucket:2026061012');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       await stub.appendEvents(requestId, [
         infoEvent('step.started', 'Renderer step started', { step: 'render' }),
@@ -672,7 +677,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-bk`;
       const stub = getStub('bucket:2026061013');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       // step.completed maps to no stage, so the sequential state machine
       // leaves the terminal 'done' untouched — the batch replay must too
@@ -690,7 +695,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-ba`;
       const stub = getStub('bucket:2026061014');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       const result = await stub.appendEvents(requestId, [
         infoEvent('artifact.written', 'Artifact written: rendered.html', {
@@ -710,6 +715,7 @@ describe('LoggerDO', () => {
       ]);
 
       expect(result.eventIds).toHaveLength(2);
+      expect(result.derivedUpdated).toBe(true);
 
       const view = await stub.getRequestView(requestId);
       expect(view?.artifacts).toHaveLength(2);
@@ -721,9 +727,10 @@ describe('LoggerDO', () => {
       const seqId = `test-${Date.now()}-bcs`;
       const batchId = `test-${Date.now()}-bcb`;
       const stub = getStub('bucket:2026061015');
+      const nowIsoBatch2 = new Date().toISOString();
 
-      await stub.initRequest({ requestId: seqId, url: 'https://example.com' });
-      await stub.initRequest({ requestId: batchId, url: 'https://example.com' });
+      await stub.initRequest({ requestId: seqId, url: 'https://example.com' }, nowIsoBatch2);
+      await stub.initRequest({ requestId: batchId, url: 'https://example.com' }, nowIsoBatch2);
 
       const events: LogEvent[] = [
         infoEvent('workflow.started', 'Workflow started'),
@@ -781,7 +788,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-6`;
       const stub = getStub('bucket:2026060916');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       const artifact: ArtifactRecord = {
         kind: 'rendered.html',
@@ -803,7 +810,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-7`;
       const stub = getStub('bucket:2026060916');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       const artifact1: ArtifactRecord = {
         kind: 'rendered.html',
@@ -836,7 +843,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-8`;
       const stub = getStub('bucket:2026060917');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       const result = await stub.updateRequestFields(requestId, {
         manifestR2Key: `archives/${requestId}/manifest.json`
@@ -851,7 +858,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-9`;
       const stub = getStub('bucket:2026060917');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       const result = await stub.updateRequestFields(requestId, {
         externalJson: { firestoreDocId: 'doc123', gcsPath: 'gs://bucket/path' }
@@ -883,7 +890,7 @@ describe('LoggerDO', () => {
         requestId,
         url: 'https://example.com/article',
         optionsR2Key: `archives/${requestId}/input/options.json`
-      });
+      }, new Date().toISOString());
 
       await stub.appendEvent(requestId, {
         ts: new Date().toISOString(),
@@ -917,7 +924,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-11`;
       const stub = getStub('bucket:2026060919');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       // Add 5 events
       for (let i = 0; i < 5; i++) {
@@ -962,7 +969,7 @@ describe('LoggerDO', () => {
       const requestId = `test-${Date.now()}-12`;
       const stub = getStub('bucket:2026060920');
 
-      await stub.initRequest({ requestId, url: 'https://example.com' });
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
 
       for (let i = 0; i < 3; i++) {
         await stub.appendEvent(requestId, {
@@ -989,5 +996,103 @@ describe('LoggerDO', () => {
         expect(result2?.nextCursor).toBeUndefined();
       }
     });
+  });
+});
+
+/**
+ * HTTP-layer dual-read routing tests via the SELF fetcher.
+ *
+ * These tests exercise the service worker's fetch handler (index.ts default
+ * export) rather than the DO RPC methods directly.  Each test populates the
+ * D1 index and/or the relevant DO instances via the DO stub API (same path
+ * as the DO-level tests above) and then issues HTTP requests through SELF.
+ *
+ * INTERNAL_API_KEY is set in .dev.vars and is read by the worker at runtime.
+ */
+describe('Logger HTTP service routing (dual-read)', () => {
+  // The key stored in .dev.vars and read by the worker
+  const API_KEY = 'verify-test-key-local-only';
+
+  function serviceGet(path: string): Promise<Response> {
+    return SELF.fetch(`https://logger.internal${path}`, {
+      headers: { 'X-Internal-API-Key': API_KEY }
+    });
+  }
+
+  function servicePatch(path: string, body: unknown): Promise<Response> {
+    return SELF.fetch(`https://logger.internal${path}`, {
+      method: 'PATCH',
+      headers: {
+        'X-Internal-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+  }
+
+  it('GET /request/:id — bucket hit: D1 row resolves bucket key, bucket DO has data, returns view', async () => {
+    const requestId = `svc-bucket-hit-${Date.now()}`;
+    // Pick a fixed creation hour so the bucket key is deterministic
+    const createdAt = '2026-06-08T07:00:00.000Z';
+    const bucketKey = 'bucket:2026060807';
+
+    // Seed the bucket DO with the request
+    const bucketStub = getStub(bucketKey);
+    await bucketStub.initRequest({ requestId, url: 'https://example.com/bucket-hit' }, createdAt);
+    await bucketStub.appendEvent(requestId, infoEvent('request.created', 'created'));
+
+    // Seed the D1 index so the service can derive the bucket key
+    await env.INDEX_DB.prepare(
+      `INSERT OR IGNORE INTO requests_index
+       (request_id, url, domain, created_at, updated_at, stage)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+      .bind(requestId, 'https://example.com/bucket-hit', 'example.com', createdAt, createdAt, 'queued')
+      .run();
+
+    const res = await serviceGet(`/request/${requestId}`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { url: string; events: unknown[] };
+    expect(body.url).toBe('https://example.com/bucket-hit');
+    expect(body.events).toHaveLength(1);
+  });
+
+  it('GET /request/:id — bucket miss with D1 row: falls back to legacy per-request DO', async () => {
+    const requestId = `svc-bucket-miss-${Date.now()}`;
+    // created_at points to a bucket that holds NO data for this request
+    const createdAt = '2026-06-08T08:00:00.000Z'; // bucket:2026060808 — intentionally left empty
+    // Seed ONLY the legacy per-request DO (instance keyed by requestId)
+    const legacyStub = getStub(requestId);
+    await legacyStub.initRequest({ requestId, url: 'https://example.com/legacy-fallback' }, createdAt);
+    await legacyStub.appendEvent(requestId, infoEvent('request.created', 'legacy created'));
+
+    // Seed D1 so the service looks up the (empty) bucket and falls through to legacy
+    await env.INDEX_DB.prepare(
+      `INSERT OR IGNORE INTO requests_index
+       (request_id, url, domain, created_at, updated_at, stage)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+      .bind(requestId, 'https://example.com/legacy-fallback', 'example.com', createdAt, createdAt, 'queued')
+      .run();
+
+    const res = await serviceGet(`/request/${requestId}`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { url: string; events: unknown[] };
+    expect(body.url).toBe('https://example.com/legacy-fallback');
+    expect(body.events).toHaveLength(1);
+  });
+
+  it('GET /request/:id — both miss: no D1 row, no DO data → 404', async () => {
+    const requestId = `svc-both-miss-${Date.now()}`;
+    // No D1 row, no DO data — nothing to find
+    const res = await serviceGet(`/request/${requestId}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('PATCH /request/:id — unknown request id → 404', async () => {
+    const requestId = `svc-patch-unknown-${Date.now()}`;
+    // No D1 row, no DO data
+    const res = await servicePatch(`/request/${requestId}`, { manifestR2Key: 'some/key' });
+    expect(res.status).toBe(404);
   });
 });

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   evaluateAcquire,
-  lowestFreeSlot,
   refillBucket,
   type QuotaLimits,
   type QuotaSnapshot,
@@ -54,24 +53,6 @@ describe('refillBucket', () => {
   it('does not refill on backward clock skew', () => {
     const bucket: TokenBucket = { tokens: 2, lastRefillMs: 2_000 };
     expect(refillBucket(bucket, 1_000, 1, 3)).toBe(bucket);
-  });
-});
-
-describe('lowestFreeSlot', () => {
-  it('returns 0 when nothing is in use', () => {
-    expect(lowestFreeSlot([])).toBe(0);
-  });
-
-  it('fills the lowest gap', () => {
-    expect(lowestFreeSlot([0, 2])).toBe(1);
-  });
-
-  it('appends past a contiguous run', () => {
-    expect(lowestFreeSlot([0, 1, 2])).toBe(3);
-  });
-
-  it('ignores duplicates and order', () => {
-    expect(lowestFreeSlot([2, 0, 2, 0])).toBe(1);
   });
 });
 

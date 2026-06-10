@@ -11,6 +11,7 @@ import type {
 import { timingSafeEqual } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 import { LoggerDO } from './LoggerDO.js';
+import { asString, asNumber, asBoolean, asRecord } from './value-helpers.js';
 
 export { LoggerDO };
 
@@ -62,9 +63,9 @@ interface LoggerEventWithId {
 }
 
 interface LoggerStub {
-  initRequest(payload: InitRequestPayload, createdAt?: string): Promise<{ created: boolean }>;
+  initRequest(payload: InitRequestPayload, createdAt: string): Promise<{ created: boolean }>;
   appendEvent(requestId: string, event: LogEvent): Promise<{ eventId: number }>;
-  appendEvents(requestId: string, events: LogEvent[]): Promise<{ eventIds: number[] }>;
+  appendEvents(requestId: string, events: LogEvent[]): Promise<{ eventIds: number[]; derivedUpdated: boolean }>;
   upsertArtifact(requestId: string, artifact: ArtifactRecord): Promise<void> | void;
   updateRequestFields(requestId: string, patch: RequestFieldsPatch): Promise<{ updated: boolean }>;
   getRequestView(
@@ -153,24 +154,6 @@ function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
     degraded: row.degraded === null ? undefined : row.degraded === 1,
     degradedSteps: parseStringArray(row.degraded_steps),
   };
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
-
-function asNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-}
-
-function asBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }
 
 function defaultRetryableForCode(code: RequestErrorCode): boolean {
@@ -448,6 +431,33 @@ async function getBucketStubForWrite(
   requestId: string
 ): Promise<LoggerStub> {
   const key = await getBucketKeyFromD1(env, requestId);
+  if (key === null) {
+    // H8a: D1 miss — falling back to current-hour bucket; events may be
+    // unresolvable on read if the request was created in a different hour.
+    console.warn(`[logger] getBucketStubForWrite: D1 miss for ${requestId} — using current-hour bucket`);
+
+    // M24: best-effort self-heal — insert a D1 row anchored to now so all
+    // future writes and reads converge on the current-hour bucket.
+    // url/domain are NOT NULL; we use placeholder values since we don't have
+    // the originals here (the canonical values were written by initRequest and
+    // must not be overwritten — INSERT OR IGNORE preserves the original row).
+    const nowIso = new Date().toISOString();
+    try {
+      await env.INDEX_DB.prepare(
+        `INSERT OR IGNORE INTO requests_index
+         (request_id, url, domain, created_at, updated_at, stage)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+        .bind(requestId, '', 'unknown', nowIso, nowIso, 'queued')
+        .run();
+    } catch (err) {
+      // Best-effort: never block the write path
+      console.warn(
+        `[logger] getBucketStubForWrite: self-heal D1 insert failed for ${requestId}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
   return getStubForKey(env, key ?? bucketKeyForTs(new Date().toISOString()));
 }
 
@@ -466,31 +476,413 @@ async function readRequestView(
   if (key) {
     const view = await getStubForKey(env, key).getRequestView(requestId, cursor, limit);
     if (view) return view;
+    // H8b: D1 had a key but the bucket returned null — bucket miss with a
+    // valid key; falling back to legacy per-request DO.
+    console.warn(`[logger] readRequestView: bucket miss for ${requestId} (key=${key}) — falling back to legacy DO`);
   }
   return getLegacyStub(env, requestId).getRequestView(requestId, cursor, limit);
 }
 
 /**
- * Dual-read stub resolution for the SSE stream, which holds one stub across
- * its poll loop. Probes the bucket DO first, then the legacy per-request DO.
- * Returns null when neither knows the request.
+ * H7: Combined resolver for the SSE stream handshake.
+ * Single D1 lookup → bucket getRequestView → (on null) legacy getRequestView.
+ * Returns both the stub and the already-fetched view so the SSE `init` event
+ * can be sent without a second round-trip.  Returns null when neither DO knows
+ * the request.
+ *
+ * H8b: warns when D1 had a key but the bucket returned null.
  */
-async function resolveReadStub(
+async function resolveReadStubWithView(
   env: LoggerServiceEnv,
   requestId: string
-): Promise<LoggerStub | null> {
+): Promise<{ stub: LoggerStub; view: CanonicalRequestView } | null> {
   const key = await getBucketKeyFromD1(env, requestId);
   if (key) {
     const stub = getStubForKey(env, key);
-    if ((await stub.getEventsForStream(requestId, undefined, 1)) !== null) {
-      return stub;
-    }
+    const view = await stub.getRequestView(requestId);
+    if (view) return { stub, view };
+    // H8b: bucket miss with valid key
+    console.warn(`[logger] resolveReadStubWithView: bucket miss for ${requestId} (key=${key}) — falling back to legacy DO`);
   }
   const legacy = getLegacyStub(env, requestId);
-  if ((await legacy.getEventsForStream(requestId, undefined, 1)) !== null) {
-    return legacy;
-  }
+  const view = await legacy.getRequestView(requestId);
+  if (view) return { stub: legacy, view };
   return null;
+}
+
+/**
+ * SSE stream handler for GET /request/:id/stream.
+ * H7: combined resolver — one D1 lookup + one getRequestView; the
+ * returned view is used directly for the `init` event below.
+ * M2a: bound the resolver so a slow DO wake never hangs the handshake.
+ */
+async function handleSseStream(
+  env: LoggerServiceEnv,
+  requestId: string,
+  reconnectCursor: number | undefined,
+  resolveResult: { stub: LoggerStub; view: CanonicalRequestView }
+): Promise<Response> {
+  const { stub, view: initView } = resolveResult;
+
+  const MAX_STREAM_MS = 2 * 60 * 1000; // 2 minutes
+  const requestIdCapture = requestId;
+  const abortFlag = { stopped: false };
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const streamStart = Date.now();
+      let lastCursor = reconnectCursor;
+
+      const send = (event: string, data: unknown, id?: number) => {
+        let msg = `event: ${event}\n`;
+        if (id !== undefined) msg += `id: ${id}\n`;
+        msg += `data: ${JSON.stringify(data)}\n\n`;
+        controller.enqueue(encoder.encode(msg));
+      };
+
+      try {
+        // H7: use the view already fetched by resolveReadStubWithView —
+        // no second round-trip needed.
+        const view = initView;
+
+        // Send init event with request metadata (always includes artifacts)
+        send('init', {
+          requestId: view.requestId,
+          url: view.url,
+          createdAt: view.createdAt,
+          derived: view.derived,
+          artifacts: view.artifacts,
+        });
+
+        // M15: track last-sent artifacts so state events only include
+        // artifacts when they have changed (cheap JSON.stringify comparison).
+        let lastArtifactsJson = JSON.stringify(view.artifacts);
+
+        // Fetch events from cursor (or all events)
+        const data = await stub.getEventsForStream(requestIdCapture, lastCursor, 500);
+        if (data) {
+          for (const event of data.events) {
+            send('log', {
+              ts: event.ts,
+              source: event.source,
+              type: event.type,
+              level: event.level,
+              message: event.message,
+              attempt: event.attempt,
+              data: event.data,
+            }, event.id);
+            lastCursor = event.id;
+          }
+        }
+
+        // If already terminal, close immediately
+        if (view.derived.terminal) {
+          send('done', {});
+          controller.close();
+          return;
+        }
+
+        // Poll loop: check for new events every 3 seconds
+        while (!abortFlag.stopped) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          if (abortFlag.stopped) break;
+
+          // Enforce max stream duration
+          if (Date.now() - streamStart > MAX_STREAM_MS) {
+            send('timeout', {});
+            controller.close();
+            return;
+          }
+
+          const update = await stub.getEventsForStream(requestIdCapture, lastCursor, 100);
+          if (!update) break;
+
+          // Send new events
+          for (const event of update.events) {
+            send('log', {
+              ts: event.ts,
+              source: event.source,
+              type: event.type,
+              level: event.level,
+              message: event.message,
+              attempt: event.attempt,
+              data: event.data,
+            }, event.id);
+            lastCursor = event.id;
+          }
+
+          // Send state update if there were new events.
+          // M15: only include artifacts when they changed.
+          if (update.events.length > 0) {
+            const newArtifactsJson = JSON.stringify(update.artifacts);
+            const artifactsChanged = newArtifactsJson !== lastArtifactsJson;
+            if (artifactsChanged) {
+              lastArtifactsJson = newArtifactsJson;
+            }
+            send('state', {
+              derived: update.derived,
+              ...(artifactsChanged ? { artifacts: update.artifacts } : {}),
+            });
+          }
+
+          // Close on terminal
+          if (update.derived.terminal) {
+            send('done', {});
+            controller.close();
+            return;
+          }
+        }
+      } catch (err) {
+        console.error(`[logger] SSE stream error for ${requestIdCapture}:`, err);
+      }
+
+      try { controller.close(); } catch { /* already closed */ }
+    },
+    cancel() {
+      abortFlag.stopped = true;
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
+/**
+ * GET /stats handler — aggregate metrics from D1 index.
+ */
+async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
+  const [
+    stageResult,
+    totalResult,
+    recentResult,
+    domainsResult,
+    failuresResult,
+    stuckResult,
+    orphanQueuedResult,
+    orphanQueuedOlder10mResult,
+    orphanQueuedOlder60mResult
+  ] = await Promise.all([
+    env.INDEX_DB.prepare(
+      'SELECT stage, COUNT(*) as count FROM requests_index GROUP BY stage'
+    ).all<{ stage: string | null; count: number }>(),
+    env.INDEX_DB.prepare(
+      'SELECT COUNT(*) as total FROM requests_index'
+    ).first<{ total: number }>(),
+    env.INDEX_DB.prepare(
+      `SELECT
+        SUM(CASE WHEN created_at > datetime('now', '-1 hour') THEN 1 ELSE 0 END) as last1h,
+        SUM(CASE WHEN created_at > datetime('now', '-24 hours') THEN 1 ELSE 0 END) as last24h
+      FROM requests_index`
+    ).first<{ last1h: number; last24h: number }>(),
+    env.INDEX_DB.prepare(
+      'SELECT domain, COUNT(*) as count FROM requests_index GROUP BY domain ORDER BY count DESC LIMIT 10'
+    ).all<{ domain: string; count: number }>(),
+    env.INDEX_DB.prepare(
+      `SELECT request_id, url, created_at FROM requests_index
+       WHERE stage = 'failed' ORDER BY created_at DESC LIMIT 5`
+    ).all<{ request_id: string; url: string; created_at: string }>(),
+    env.INDEX_DB.prepare(
+      `SELECT COUNT(*) as count FROM requests_index
+       WHERE terminal_state = 0 AND created_at < datetime('now', '-1 hour')`
+    ).first<{ count: number }>(),
+    env.INDEX_DB.prepare(
+      `SELECT COUNT(*) as count FROM requests_index
+       WHERE stage = 'queued'
+         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')`
+    ).first<{ count: number }>(),
+    env.INDEX_DB.prepare(
+      `SELECT COUNT(*) as count FROM requests_index
+       WHERE stage = 'queued'
+         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
+         AND created_at < datetime('now', '-10 minutes')`
+    ).first<{ count: number }>(),
+    env.INDEX_DB.prepare(
+      `SELECT COUNT(*) as count FROM requests_index
+       WHERE stage = 'queued'
+         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
+         AND created_at < datetime('now', '-1 hour')`
+    ).first<{ count: number }>(),
+  ]);
+
+  const total = totalResult?.total ?? 0;
+  const byStage: Record<string, number> = {};
+  let doneCount = 0;
+  let failedCount = 0;
+  let activeCount = 0;
+
+  for (const row of stageResult.results) {
+    const stage = row.stage ?? 'unknown';
+    byStage[stage] = row.count;
+    if (stage === 'done') doneCount = row.count;
+    else if (stage === 'failed') failedCount = row.count;
+    else activeCount += row.count;
+  }
+
+  const terminal = doneCount + failedCount;
+  const successRate = terminal > 0 ? doneCount / terminal : 0;
+  const failureRate = terminal > 0 ? failedCount / terminal : 0;
+
+  return Response.json({
+    total,
+    byStage,
+    successRate: Math.round(successRate * 1000) / 1000,
+    failureRate: Math.round(failureRate * 1000) / 1000,
+    activeCount,
+    stuckCount: stuckResult?.count ?? 0,
+    orphanQueue: {
+      total: orphanQueuedResult?.count ?? 0,
+      olderThan10m: orphanQueuedOlder10mResult?.count ?? 0,
+      olderThan60m: orphanQueuedOlder60mResult?.count ?? 0,
+    },
+    recentActivity: {
+      last1h: recentResult?.last1h ?? 0,
+      last24h: recentResult?.last24h ?? 0,
+    },
+    topDomains: domainsResult.results.map((r: { domain: string; count: number }) => ({
+      domain: r.domain,
+      count: r.count,
+    })),
+    recentFailures: failuresResult.results.map((r: { request_id: string; url: string; created_at: string }) => ({
+      requestId: r.request_id,
+      url: r.url,
+      createdAt: r.created_at,
+    })),
+  });
+}
+
+/**
+ * POST /maintenance/backfill-diagnostics handler — recompute missing
+ * diagnostics for legacy rows.
+ */
+async function handleBackfillDiagnostics(
+  env: LoggerServiceEnv,
+  body: { limit?: number; dryRun?: boolean }
+): Promise<Response> {
+  const limit = Math.min(Math.max(body.limit ?? 200, 1), 1000);
+  const dryRun = body.dryRun === true;
+
+  const candidates = await env.INDEX_DB.prepare(
+    `SELECT * FROM requests_index
+     WHERE error_count > 0
+       AND (last_error_code IS NULL OR last_error_message IS NULL OR last_error_source IS NULL)
+     ORDER BY created_at DESC
+     LIMIT ?`
+  ).bind(limit).all<RequestsIndexRow>();
+
+  let updated = 0;
+  let derivedFromEvents = 0;
+  let skipped = 0;
+  const failures: Array<{ requestId: string; error: string }> = [];
+
+  for (const row of candidates.results) {
+    try {
+      // Dual-read: bucket derived from the row's own created_at, then
+      // the legacy per-request DO for pre-bucket rows.
+      // M13: skip rows whose created_at is falsy or unparseable — fall
+      // through to the legacy per-request DO below.
+      let bucketKey: string | null = null;
+      if (row.created_at) {
+        try {
+          bucketKey = bucketKeyForTs(row.created_at);
+        } catch {
+          // invalid timestamp; legacy fallback below
+        }
+      }
+      let view = bucketKey
+        ? await getStubForKey(env, bucketKey).getRequestView(row.request_id, undefined, 1000)
+        : null;
+      if (!view) {
+        view = await getLegacyStub(env, row.request_id).getRequestView(
+          row.request_id,
+          undefined,
+          1000
+        );
+      }
+      if (!view) {
+        skipped++;
+        continue;
+      }
+
+      const existing = view.derived?.diagnostics;
+      const diagnostics =
+        existing?.errorCode && existing?.errorMessage && existing?.errorSource
+          ? existing
+          : recomputeDiagnosticsFromEvents(view.events);
+
+      if (!diagnostics.errorCode && !diagnostics.errorMessage && !diagnostics.errorSource) {
+        skipped++;
+        continue;
+      }
+
+      if (!(existing?.errorCode && existing?.errorMessage && existing?.errorSource)) {
+        derivedFromEvents++;
+      }
+
+      if (!dryRun) {
+        await env.INDEX_DB.prepare(
+          `UPDATE requests_index
+           SET last_error_code = ?,
+               last_error_message = ?,
+               last_error_source = ?,
+               retry_count = ?,
+               render_ms = ?,
+               derive_ms = ?,
+               persist_ms = ?,
+               last_trace_id = ?,
+               render_provider = ?,
+               render_fallback_used = ?,
+               render_fallback_reason = ?,
+               degraded = ?,
+               degraded_steps = ?,
+               updated_at = ?
+           WHERE request_id = ?`
+        )
+          .bind(
+            diagnostics.errorCode ?? null,
+            diagnostics.errorMessage ?? null,
+            diagnostics.errorSource ?? null,
+            diagnostics.retryCount ?? 0,
+            diagnostics.renderMs ?? null,
+            diagnostics.deriveMs ?? null,
+            diagnostics.persistMs ?? null,
+            diagnostics.lastTraceId ?? null,
+            diagnostics.renderProvider ?? null,
+            diagnostics.renderFallbackUsed === undefined
+              ? null
+              : diagnostics.renderFallbackUsed ? 1 : 0,
+            diagnostics.renderFallbackReason ?? null,
+            diagnostics.degraded === undefined ? null : diagnostics.degraded ? 1 : 0,
+            diagnostics.degradedSteps?.length
+              ? JSON.stringify(diagnostics.degradedSteps)
+              : null,
+            new Date().toISOString(),
+            row.request_id
+          )
+          .run();
+      }
+
+      updated++;
+    } catch (err) {
+      failures.push({
+        requestId: row.request_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return Response.json({
+    dryRun,
+    scanned: candidates.results.length,
+    updated,
+    derivedFromEvents,
+    skipped,
+    failures,
+  });
 }
 
 /**
@@ -556,6 +948,12 @@ export default {
       // POST /event - Append an event (requires requestId in body)
       if (method === 'POST' && path === '/event') {
         const body = (await request.json()) as { requestId: string; event: LogEvent };
+        if (typeof body.requestId !== 'string' || body.requestId.length === 0) {
+          return Response.json(
+            { error: 'Body must contain a non-empty string requestId' },
+            { status: 400 }
+          );
+        }
         const stub = await getBucketStubForWrite(env, body.requestId);
         const result = await stub.appendEvent(body.requestId, body.event);
         return Response.json(result);
@@ -565,11 +963,15 @@ export default {
       // One bucket lookup + one DO round-trip for the whole batch.
       if (method === 'POST' && path === '/events/batch') {
         const body = (await request.json()) as { requestId: string; events: LogEvent[] };
-        if (typeof body.requestId !== 'string' || !Array.isArray(body.events)) {
+        if (typeof body.requestId !== 'string' || body.requestId.length === 0 || !Array.isArray(body.events)) {
           return Response.json(
             { error: 'Body must be { requestId: string, events: LogEvent[] }' },
             { status: 400 }
           );
+        }
+        // M3c: short-circuit empty batch before any DO/bucket lookup
+        if (body.events.length === 0) {
+          return Response.json({ eventIds: [], derivedUpdated: false });
         }
         if (body.events.length > MAX_BATCH_EVENTS) {
           return Response.json(
@@ -579,12 +981,21 @@ export default {
         }
         const stub = await getBucketStubForWrite(env, body.requestId);
         const result = await stub.appendEvents(body.requestId, body.events);
+        if (!result.derivedUpdated) {
+          console.warn(`[logger] appendEvents: no request row found for ${body.requestId} — routing anomaly`);
+        }
         return Response.json(result);
       }
 
       // POST /artifact - Upsert an artifact (requires requestId in body)
       if (method === 'POST' && path === '/artifact') {
         const body = (await request.json()) as { requestId: string; artifact: ArtifactRecord };
+        if (typeof body.requestId !== 'string' || body.requestId.length === 0) {
+          return Response.json(
+            { error: 'Body must contain a non-empty string requestId' },
+            { status: 400 }
+          );
+        }
         const stub = await getBucketStubForWrite(env, body.requestId);
         await stub.upsertArtifact(body.requestId, body.artifact);
         return Response.json({ ok: true });
@@ -628,8 +1039,22 @@ export default {
 
       // GET /request/:id/stream - SSE event stream (dual-read stub)
       if (method === 'GET' && path === '/request/:id/stream' && requestId) {
-        const stub = await resolveReadStub(env, requestId);
-        if (!stub) {
+        // H7: combined resolver — one D1 lookup + one getRequestView; the
+        // returned view is used directly for the `init` event below.
+        // M2a: bound the resolver so a slow DO wake never hangs the handshake.
+        const RESOLVER_TIMEOUT_MS = 10_000;
+        const TIMEOUT_SENTINEL = Symbol('timeout');
+        const resolveTimeout = new Promise<typeof TIMEOUT_SENTINEL>((resolve) =>
+          setTimeout(() => resolve(TIMEOUT_SENTINEL), RESOLVER_TIMEOUT_MS)
+        );
+        const resolveResult = await Promise.race([
+          resolveReadStubWithView(env, requestId),
+          resolveTimeout,
+        ]);
+        if (resolveResult === TIMEOUT_SENTINEL) {
+          return Response.json({ error: 'Resolver timeout' }, { status: 503 });
+        }
+        if (!resolveResult) {
           return Response.json({ error: 'Request not found' }, { status: 404 });
         }
 
@@ -638,126 +1063,7 @@ export default {
         const parsed = lastEventIdHeader ? parseInt(lastEventIdHeader, 10) : undefined;
         const reconnectCursor = parsed !== undefined && !Number.isNaN(parsed) ? parsed : undefined;
 
-        const MAX_STREAM_MS = 2 * 60 * 1000; // 2 minutes
-        const requestIdCapture = requestId;
-        const abortFlag = { stopped: false };
-        const stream = new ReadableStream({
-          async start(controller) {
-            const encoder = new TextEncoder();
-            const streamStart = Date.now();
-            let lastCursor = reconnectCursor;
-
-            const send = (event: string, data: unknown, id?: number) => {
-              let msg = `event: ${event}\n`;
-              if (id !== undefined) msg += `id: ${id}\n`;
-              msg += `data: ${JSON.stringify(data)}\n\n`;
-              controller.enqueue(encoder.encode(msg));
-            };
-
-            try {
-              // Initial state: fetch request view for metadata
-              const view = await stub.getRequestView(requestIdCapture);
-              if (!view) {
-                send('stream-error', { message: 'Request not found' });
-                controller.close();
-                return;
-              }
-
-              // Send init event with request metadata
-              send('init', {
-                requestId: view.requestId,
-                url: view.url,
-                createdAt: view.createdAt,
-                derived: view.derived,
-                artifacts: view.artifacts,
-              });
-
-              // Fetch events from cursor (or all events)
-              const data = await stub.getEventsForStream(requestIdCapture, lastCursor, 500);
-              if (data) {
-                for (const event of data.events) {
-                  send('log', {
-                    ts: event.ts,
-                    source: event.source,
-                    type: event.type,
-                    level: event.level,
-                    message: event.message,
-                    attempt: event.attempt,
-                    data: event.data,
-                  }, event.id);
-                  lastCursor = event.id;
-                }
-              }
-
-              // If already terminal, close immediately
-              if (view.derived.terminal) {
-                send('done', {});
-                controller.close();
-                return;
-              }
-
-              // Poll loop: check for new events every 3 seconds
-              while (!abortFlag.stopped) {
-                await new Promise((resolve) => setTimeout(resolve, 3000));
-                if (abortFlag.stopped) break;
-
-                // Enforce max stream duration
-                if (Date.now() - streamStart > MAX_STREAM_MS) {
-                  send('timeout', {});
-                  controller.close();
-                  return;
-                }
-
-                const update = await stub.getEventsForStream(requestIdCapture, lastCursor, 100);
-                if (!update) break;
-
-                // Send new events
-                for (const event of update.events) {
-                  send('log', {
-                    ts: event.ts,
-                    source: event.source,
-                    type: event.type,
-                    level: event.level,
-                    message: event.message,
-                    attempt: event.attempt,
-                    data: event.data,
-                  }, event.id);
-                  lastCursor = event.id;
-                }
-
-                // Send state update if there were new events or state changed
-                if (update.events.length > 0) {
-                  send('state', {
-                    derived: update.derived,
-                    artifacts: update.artifacts,
-                  });
-                }
-
-                // Close on terminal
-                if (update.derived.terminal) {
-                  send('done', {});
-                  controller.close();
-                  return;
-                }
-              }
-            } catch (err) {
-              console.error(`[logger] SSE stream error for ${requestIdCapture}:`, err);
-            }
-
-            try { controller.close(); } catch { /* already closed */ }
-          },
-          cancel() {
-            abortFlag.stopped = true;
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-          },
-        });
+        return handleSseStream(env, requestId, reconnectCursor, resolveResult);
       }
 
       // GET /request/:id/events - Get paginated events (dual-read)
@@ -780,103 +1086,7 @@ export default {
 
       // GET /stats - Aggregate metrics from D1 index
       if (method === 'GET' && path === '/stats') {
-        const [
-          stageResult,
-          totalResult,
-          recentResult,
-          domainsResult,
-          failuresResult,
-          stuckResult,
-          orphanQueuedResult,
-          orphanQueuedOlder10mResult,
-          orphanQueuedOlder60mResult
-        ] = await Promise.all([
-          env.INDEX_DB.prepare(
-            'SELECT stage, COUNT(*) as count FROM requests_index GROUP BY stage'
-          ).all<{ stage: string | null; count: number }>(),
-          env.INDEX_DB.prepare(
-            'SELECT COUNT(*) as total FROM requests_index'
-          ).first<{ total: number }>(),
-          env.INDEX_DB.prepare(
-            `SELECT
-              SUM(CASE WHEN created_at > datetime('now', '-1 hour') THEN 1 ELSE 0 END) as last1h,
-              SUM(CASE WHEN created_at > datetime('now', '-24 hours') THEN 1 ELSE 0 END) as last24h
-            FROM requests_index`
-          ).first<{ last1h: number; last24h: number }>(),
-          env.INDEX_DB.prepare(
-            'SELECT domain, COUNT(*) as count FROM requests_index GROUP BY domain ORDER BY count DESC LIMIT 10'
-          ).all<{ domain: string; count: number }>(),
-          env.INDEX_DB.prepare(
-            `SELECT request_id, url, created_at FROM requests_index
-             WHERE stage = 'failed' ORDER BY created_at DESC LIMIT 5`
-          ).all<{ request_id: string; url: string; created_at: string }>(),
-          env.INDEX_DB.prepare(
-            `SELECT COUNT(*) as count FROM requests_index
-             WHERE terminal_state = 0 AND created_at < datetime('now', '-1 hour')`
-          ).first<{ count: number }>(),
-          env.INDEX_DB.prepare(
-            `SELECT COUNT(*) as count FROM requests_index
-             WHERE stage = 'queued'
-               AND (last_event_ts IS NULL OR trim(last_event_ts) = '')`
-          ).first<{ count: number }>(),
-          env.INDEX_DB.prepare(
-            `SELECT COUNT(*) as count FROM requests_index
-             WHERE stage = 'queued'
-               AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
-               AND created_at < datetime('now', '-10 minutes')`
-          ).first<{ count: number }>(),
-          env.INDEX_DB.prepare(
-            `SELECT COUNT(*) as count FROM requests_index
-             WHERE stage = 'queued'
-               AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
-               AND created_at < datetime('now', '-1 hour')`
-          ).first<{ count: number }>(),
-        ]);
-
-        const total = totalResult?.total ?? 0;
-        const byStage: Record<string, number> = {};
-        let doneCount = 0;
-        let failedCount = 0;
-        let activeCount = 0;
-
-        for (const row of stageResult.results) {
-          const stage = row.stage ?? 'unknown';
-          byStage[stage] = row.count;
-          if (stage === 'done') doneCount = row.count;
-          else if (stage === 'failed') failedCount = row.count;
-          else activeCount += row.count;
-        }
-
-        const terminal = doneCount + failedCount;
-        const successRate = terminal > 0 ? doneCount / terminal : 0;
-        const failureRate = terminal > 0 ? failedCount / terminal : 0;
-
-        return Response.json({
-          total,
-          byStage,
-          successRate: Math.round(successRate * 1000) / 1000,
-          failureRate: Math.round(failureRate * 1000) / 1000,
-          activeCount,
-          stuckCount: stuckResult?.count ?? 0,
-          orphanQueue: {
-            total: orphanQueuedResult?.count ?? 0,
-            olderThan10m: orphanQueuedOlder10mResult?.count ?? 0,
-            olderThan60m: orphanQueuedOlder60mResult?.count ?? 0,
-          },
-          recentActivity: {
-            last1h: recentResult?.last1h ?? 0,
-            last24h: recentResult?.last24h ?? 0,
-          },
-          topDomains: domainsResult.results.map((r: { domain: string; count: number }) => ({
-            domain: r.domain,
-            count: r.count,
-          })),
-          recentFailures: failuresResult.results.map((r: { request_id: string; url: string; created_at: string }) => ({
-            requestId: r.request_id,
-            url: r.url,
-            createdAt: r.created_at,
-          })),
-        });
+        return handleGetStats(env);
       }
 
       // POST /requests/batch - Batch fetch request summaries from D1 index
@@ -914,118 +1124,7 @@ export default {
         const body = await request
           .json()
           .catch(() => ({})) as { limit?: number; dryRun?: boolean };
-        const limit = Math.min(Math.max(body.limit ?? 200, 1), 1000);
-        const dryRun = body.dryRun === true;
-
-        const candidates = await env.INDEX_DB.prepare(
-          `SELECT * FROM requests_index
-           WHERE error_count > 0
-             AND (last_error_code IS NULL OR last_error_message IS NULL OR last_error_source IS NULL)
-           ORDER BY created_at DESC
-           LIMIT ?`
-        ).bind(limit).all<RequestsIndexRow>();
-
-        let updated = 0;
-        let derivedFromEvents = 0;
-        let skipped = 0;
-        const failures: Array<{ requestId: string; error: string }> = [];
-
-        for (const row of candidates.results) {
-          try {
-            // Dual-read: bucket derived from the row's own created_at, then
-            // the legacy per-request DO for pre-bucket rows.
-            let view = await getStubForKey(env, bucketKeyForTs(row.created_at)).getRequestView(
-              row.request_id,
-              undefined,
-              1000
-            );
-            if (!view) {
-              view = await getLegacyStub(env, row.request_id).getRequestView(
-                row.request_id,
-                undefined,
-                1000
-              );
-            }
-            if (!view) {
-              skipped++;
-              continue;
-            }
-
-            const existing = view.derived?.diagnostics;
-            const diagnostics =
-              existing?.errorCode && existing?.errorMessage && existing?.errorSource
-                ? existing
-                : recomputeDiagnosticsFromEvents(view.events);
-
-            if (!diagnostics.errorCode && !diagnostics.errorMessage && !diagnostics.errorSource) {
-              skipped++;
-              continue;
-            }
-
-            if (!(existing?.errorCode && existing?.errorMessage && existing?.errorSource)) {
-              derivedFromEvents++;
-            }
-
-            if (!dryRun) {
-              await env.INDEX_DB.prepare(
-                `UPDATE requests_index
-                 SET last_error_code = ?,
-                     last_error_message = ?,
-                     last_error_source = ?,
-                     retry_count = ?,
-                     render_ms = ?,
-                     derive_ms = ?,
-                     persist_ms = ?,
-                     last_trace_id = ?,
-                     render_provider = ?,
-                     render_fallback_used = ?,
-                     render_fallback_reason = ?,
-                     degraded = ?,
-                     degraded_steps = ?,
-                     updated_at = ?
-                 WHERE request_id = ?`
-              )
-                .bind(
-                  diagnostics.errorCode ?? null,
-                  diagnostics.errorMessage ?? null,
-                  diagnostics.errorSource ?? null,
-                  diagnostics.retryCount ?? 0,
-                  diagnostics.renderMs ?? null,
-                  diagnostics.deriveMs ?? null,
-                  diagnostics.persistMs ?? null,
-                  diagnostics.lastTraceId ?? null,
-                  diagnostics.renderProvider ?? null,
-                  diagnostics.renderFallbackUsed === undefined
-                    ? null
-                    : diagnostics.renderFallbackUsed ? 1 : 0,
-                  diagnostics.renderFallbackReason ?? null,
-                  diagnostics.degraded === undefined ? null : diagnostics.degraded ? 1 : 0,
-                  diagnostics.degradedSteps?.length
-                    ? JSON.stringify(diagnostics.degradedSteps)
-                    : null,
-                  new Date().toISOString(),
-                  row.request_id
-                )
-                .run();
-            }
-
-            updated++;
-          } catch (err) {
-            failures.push({
-              requestId: row.request_id,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-
-        return Response.json({
-          dryRun,
-          scanned: candidates.results.length,
-          updated,
-          derivedFromEvents,
-          skipped,
-          failures,
-        });
+        return handleBackfillDiagnostics(env, body);
       }
 
       // GET /requests - List requests from D1 index

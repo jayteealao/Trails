@@ -40,11 +40,15 @@ Now, three layers guarantee containers do not outlive their job:
 1. **`stop()` per job** — `runMonolithInSandbox` keys the sandbox off the
    request id and stops it in a `finally` block, on success and on error. A
    failed `stop()` is logged and never masks the job's own outcome.
-2. **30s `sleepAfter` backstop** — the `Sandbox` subclass in
-   `workers/monolith/src/index.ts` sets `sleepAfter = '30s'` (wrangler's
+2. **5m `sleepAfter` backstop** — the `Sandbox` subclass in
+   `workers/monolith/src/index.ts` sets `sleepAfter = '5m'` (wrangler's
    `containers` config exposes no such key, so the class field is the
-   configuration surface). This reaps containers whose `stop()` was missed,
-   e.g. a worker crash mid-job.
+   configuration surface). The value must exceed the longest job (P99 ~180s)
+   because the inactivity alarm can fire during an in-flight exec
+   (cloudflare/containers#162) — `'5m'` clears that tail with margin.
+   Cost note: at a 1% `stop()` miss rate, orphaned containers idle up to 5
+   minutes before reaping, contributing ~21 GB-s/month — negligible versus
+   the 400k GB-s/month free tier.
 3. **Cron orphan sweep** — the gateway's existing 10-minute cron also calls
    the workflow worker for active sandbox quota leases and asks the monolith
    worker (`POST /container/stop`) to stop the container behind any lease
@@ -62,7 +66,8 @@ tracked separately).
 LoggerDO was keyed `idFromName(requestId)` — one DO instance per request,
 ~129k cold starts per 30 days. It is now keyed by UTC hour bucket
 (`bucket:YYYYMMDDHH`): roughly 24 warm instances per day replace ~4.3k
-per-request cold starts. Measured write rates (~0.4/s peak) are about 2,500×
+per-day cold starts (129k requests / 30 days). Measured write rates (~0.4/s
+peak) are about 2,500×
 below the per-instance throughput limit, so a single unsharded bucket per
 hour suffices.
 
@@ -92,10 +97,26 @@ re-key keeps SQLite-in-DO semantics, is reversible by redeploying the old
 keying (legacy data is untouched), and the container fix — not the logger —
 is the dominant lever.
 
+## Post-deploy observations to track
+
+(a) **SSE stream keep-alive** — each active SSE poll (`GET /request/:id/stream`)
+holds a LoggerDO awake for up to 2 minutes. When many dashboard tabs are open,
+the logger namespace wall-time will exceed the 24-instance baseline. Watch the
+logger DO wall-time metric when dashboards are in use.
+
+(b) **D1 routing read** — every post-init logger write does one D1 point-read
+(`SELECT created_at FROM requests_index`) to resolve the bucket. At ~129k
+requests/month that is ~129k reads/month, well under the 150M/month free tier.
+Revisit if request volume grows ~10×.
+
+(c) **Gateway cron sub-request** — the 10-minute orphan cron makes one
+sandbox-leases sub-request to the workflow worker per tick, regardless of load.
+The request count is negligible (~4,320/month).
+
 ## Rollback
 
 - **Container lifecycle:** revert the `finally`/`stop()` block, the
-  `sleepAfter` field, and re-add warm-pool slot passing. Redeploy.
+  `sleepAfter = '5m'` field, and re-add warm-pool slot passing. Redeploy.
 - **Logger keying:** point writes back at `idFromName(requestId)` and drop
   the dual-read. Redeploy. Bucket-era requests then need the same dual-read
   in reverse, so this is a fast-failure escape hatch, not a free undo.

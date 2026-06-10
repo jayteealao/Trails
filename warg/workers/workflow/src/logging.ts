@@ -187,9 +187,34 @@ export function classifyError(stepName: string, errorMsg: string): ClassifiedErr
 }
 
 /**
+ * Module-private helper: POST a JSON body to the logger service binding.
+ * Never throws — logging must not block workflow execution.
+ * @param label  Short description used in failure log messages (e.g. "event [step.started] for req123" or "event batch for req123 (4 events)")
+ */
+async function loggerPost(env: Env, path: string, body: unknown, label: string): Promise<void> {
+  try {
+    const response = await env.LOGGER.fetch(`https://logger${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-API-Key': env.INTERNAL_API_KEY
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const text = (await response.text()).slice(0, 300);
+      console.error(`[workflow] Failed to log ${label}: ${text}`);
+    }
+  } catch (err) {
+    console.error(`[workflow] Error logging ${label}:`, err);
+  }
+}
+
+/**
  * Log an event to the logger service.
  */
-export async function logEvent(
+export function logEvent(
   env: Env,
   requestId: string,
   type: EventType,
@@ -198,24 +223,7 @@ export async function logEvent(
   level: LogLevel = 'info'
 ): Promise<void> {
   const event = createEvent('workflow', type, level, message, data);
-
-  try {
-    const response = await env.LOGGER.fetch('https://logger/event', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-API-Key': env.INTERNAL_API_KEY
-      },
-      body: JSON.stringify({ requestId, event })
-    });
-
-    if (!response.ok) {
-      console.error(`[workflow] Failed to log event: ${await response.text()}`);
-    }
-  } catch (err) {
-    // Log to console but don't throw - logging should not block workflow
-    console.error('[workflow] Error logging event:', err);
-  }
+  return loggerPost(env, '/event', { requestId, event }, `event [${type}] for ${requestId}`);
 }
 
 /**
@@ -230,24 +238,12 @@ export async function logEvents(
   events: LogEvent[]
 ): Promise<void> {
   if (events.length === 0) return;
-
-  try {
-    const response = await env.LOGGER.fetch('https://logger/events/batch', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-API-Key': env.INTERNAL_API_KEY
-      },
-      body: JSON.stringify({ requestId, events })
-    });
-
-    if (!response.ok) {
-      console.error(`[workflow] Failed to log event batch: ${await response.text()}`);
-    }
-  } catch (err) {
-    // Log to console but don't throw - logging should not block workflow
-    console.error('[workflow] Error logging event batch:', err);
-  }
+  await loggerPost(
+    env,
+    '/events/batch',
+    { requestId, events },
+    `event batch for ${requestId} (${events.length} events)`
+  );
 }
 
 /**
