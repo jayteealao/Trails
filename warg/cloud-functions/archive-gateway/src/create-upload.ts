@@ -8,8 +8,7 @@ import type {
   UploadEntry,
   ArticleDocument,
   ArtifactKind,
-  ArchiveEntry,
-  ArtifactUploadInfo
+  ArchiveEntry
 } from './types.js';
 import { GCS_PATH_CONFIG, KIND_TO_ARCHIVE_KEY } from './types.js';
 import { logEvent } from './logging.js';

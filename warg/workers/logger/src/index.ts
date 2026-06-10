@@ -239,7 +239,7 @@ function inferLegacyErrorCode(message: string, source?: string): RequestErrorCod
 
   if (
     lower.includes('execution context was destroyed') ||
-    lower.includes('code\":6000') ||
+    lower.includes('code":6000') ||
     lower.includes('context destroyed')
   ) {
     return 'RENDER_CONTEXT_DESTROYED';

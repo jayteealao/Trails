@@ -13,9 +13,9 @@ const lines = readFileSync(
 
 const header = lines[0].split(',');
 const COL = (name) => header.indexOf(name);
-const iResolved = COL('resolved_id');
-const iStatus = COL('status');
-const iDomain = COL('domain');
+const _iResolved = COL('resolved_id');
+const _iStatus = COL('status');
+const _iDomain = COL('domain');
 
 let total = 0, unanchored = 0;
 const shortRows = [];               // unblocked by fix (1-7 char safe id, not UUID)

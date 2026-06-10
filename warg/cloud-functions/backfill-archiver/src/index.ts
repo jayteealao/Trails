@@ -607,7 +607,7 @@ export const backfillArchiver = onSchedule(
       return;
     }
 
-    let tracker = loadedTracker;
+    const tracker = loadedTracker;
 
     try {
       pruneExpiredDomainBackoff(tracker, Date.now());

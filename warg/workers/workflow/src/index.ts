@@ -1358,6 +1358,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   }
 
   private toMonolithBaseUrl(rawUrl: string): string {
+    // eslint-disable-next-line no-control-regex -- stripping control chars from URLs is the point
     const sanitized = rawUrl.replace(/[\u0000-\u001F\u007F]/g, '').trim();
     try {
       const parsed = new URL(sanitized);

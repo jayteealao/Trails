@@ -1,5 +1,5 @@
 // @ts-check
-import { PIPELINE_STEPS, STAGE_COLORS } from './state.js';
+import { PIPELINE_STEPS } from './state.js';
 import { escapeHtml, formatDuration, formatTime } from './utils.js';
 
 export function statusBadgeHtml(stage) {

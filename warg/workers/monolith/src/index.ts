@@ -116,6 +116,7 @@ function validateBaseUrl(url: string): string {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new MonolithServiceError('base_url must be http or https', 'INVALID_INPUT_URL', 400, false);
   }
+  // eslint-disable-next-line no-control-regex -- rejecting control chars in URLs is the point
   if (/[\u0000-\u001F\u007F]/.test(url)) {
     throw new MonolithServiceError(
       'base_url contains invalid characters',

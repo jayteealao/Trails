@@ -22,7 +22,7 @@ export const SANDBOX_OUTPUT_PATH = '/workspace/out.html';
  * Quote an argument for POSIX shell execution.
  */
 export function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 /**

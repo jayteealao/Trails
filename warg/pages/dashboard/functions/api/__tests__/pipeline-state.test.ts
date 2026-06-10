@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-// @ts-ignore - dashboard runtime modules are plain JS and intentionally imported in tests.
+// @ts-expect-error - dashboard runtime modules are plain JS and intentionally imported in tests.
 import { derivePipelineState } from '../../../modules/components.js';
 
 type TestEvent = {

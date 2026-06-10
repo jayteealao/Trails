@@ -110,7 +110,7 @@ export function classifyError(stepName: string, errorMsg: string): ClassifiedErr
 
   if (
     msg.includes('execution context was destroyed') ||
-    msg.includes('code\":6000') ||
+    msg.includes('code":6000') ||
     msg.includes('context destroyed')
   ) {
     return {
