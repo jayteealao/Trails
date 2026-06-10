@@ -10,7 +10,7 @@ import type {
   RequestStage,
   TerminalState
 } from '@warg/shared';
-import { initSchema } from './schema.js';
+import { initSchema, migrateSchema } from './schema.js';
 
 interface LoggerDoEnv {
   INDEX_DB: D1Database;
@@ -28,6 +28,7 @@ interface RequestRow extends Record<string, SqlStorageValue> {
 
 interface EventRow extends Record<string, SqlStorageValue> {
   id: number;
+  request_id: string;
   ts: string;
   source: string;
   type: string;
@@ -38,6 +39,7 @@ interface EventRow extends Record<string, SqlStorageValue> {
 }
 
 interface ArtifactRow extends Record<string, SqlStorageValue> {
+  request_id: string;
   kind: string;
   r2_key: string;
   content_type: string;
@@ -271,6 +273,7 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
   private ensureSchema(): void {
     if (!this.initialized) {
       initSchema(this.sql);
+      migrateSchema(this.sql);
       this.initialized = true;
     }
   }
@@ -278,8 +281,15 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
   /**
    * Initialize a new request record.
    * Idempotent: if request already exists, returns existing data.
+   *
+   * `createdAt` is supplied by the service so it always falls inside this
+   * bucket's hour — reads derive the bucket key from the D1-indexed
+   * created_at, so the two must never straddle an hour boundary.
    */
-  async initRequest(payload: InitRequestPayload): Promise<{ created: boolean }> {
+  async initRequest(
+    payload: InitRequestPayload,
+    createdAt: string = new Date().toISOString()
+  ): Promise<{ created: boolean }> {
     this.ensureSchema();
 
     const existing = this.sql
@@ -290,7 +300,7 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
       return { created: false };
     }
 
-    const now = new Date().toISOString();
+    const now = createdAt;
     const initialDerived: DerivedSummary = {
       stage: 'queued',
       errorCount: 0,
@@ -335,13 +345,14 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
    * Append an event to the request trace.
    * Updates derived summary.
    */
-  async appendEvent(event: LogEvent): Promise<{ eventId: number }> {
+  async appendEvent(requestId: string, event: LogEvent): Promise<{ eventId: number }> {
     this.ensureSchema();
 
     // Insert event
     this.sql.exec(
-      `INSERT INTO events (ts, source, type, level, message, attempt, data_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO events (request_id, ts, source, type, level, message, attempt, data_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      requestId,
       event.ts,
       event.source,
       event.type,
@@ -357,11 +368,13 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
 
     const artifact = artifactFromEvent(event);
     if (artifact) {
-      this.upsertArtifact(artifact);
+      this.upsertArtifact(requestId, artifact);
     }
 
     // Update derived summary
-    const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();
+    const requestRows = this.sql
+      .exec<RequestRow>('SELECT * FROM requests WHERE request_id = ? LIMIT 1', requestId)
+      .toArray();
     const requestRow = requestRows[0];
     if (requestRow) {
       const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
@@ -446,12 +459,13 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
    * Upsert an artifact record.
    * Multiple artifacts of the same kind with different r2_key are allowed.
    */
-  upsertArtifact(artifact: ArtifactRecord): void {
+  upsertArtifact(requestId: string, artifact: ArtifactRecord): void {
     this.ensureSchema();
 
     this.sql.exec(
-      `INSERT OR REPLACE INTO artifacts (kind, r2_key, content_type, bytes, sha256)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO artifacts (request_id, kind, r2_key, content_type, bytes, sha256)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      requestId,
       artifact.kind,
       artifact.r2Key,
       artifact.contentType,
@@ -462,14 +476,21 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
 
   /**
    * Update request fields (manifest_r2_key, external_json).
+   * Returns `{ updated: false }` when this instance holds no row for the
+   * request, so the service can fall back to the legacy per-request DO.
    */
-  async updateRequestFields(patch: RequestFieldsPatch): Promise<void> {
+  async updateRequestFields(
+    requestId: string,
+    patch: RequestFieldsPatch
+  ): Promise<{ updated: boolean }> {
     this.ensureSchema();
 
-    const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();
+    const requestRows = this.sql
+      .exec<RequestRow>('SELECT * FROM requests WHERE request_id = ? LIMIT 1', requestId)
+      .toArray();
     const requestRow = requestRows[0];
     if (!requestRow) {
-      throw new Error('Request not found');
+      return { updated: false };
     }
 
     const updates: string[] = [];
@@ -505,15 +526,19 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
         }
       }
     }
+
+    return { updated: true };
   }
 
   /**
-   * Get the full canonical view of the request.
+   * Get the full canonical view of a request.
    */
-  getRequestView(cursor?: number, limit = 100): CanonicalRequestView | null {
+  getRequestView(requestId: string, cursor?: number, limit = 100): CanonicalRequestView | null {
     this.ensureSchema();
 
-    const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();
+    const requestRows = this.sql
+      .exec<RequestRow>('SELECT * FROM requests WHERE request_id = ? LIMIT 1', requestId)
+      .toArray();
     if (requestRows.length === 0) {
       return null;
     }
@@ -521,18 +546,20 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
 
     // Get events with pagination
     const eventQuery = cursor !== undefined
-      ? 'SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?'
-      : 'SELECT * FROM events ORDER BY id ASC LIMIT ?';
+      ? 'SELECT * FROM events WHERE request_id = ? AND id > ? ORDER BY id ASC LIMIT ?'
+      : 'SELECT * FROM events WHERE request_id = ? ORDER BY id ASC LIMIT ?';
 
-    const eventArgs = cursor !== undefined ? [cursor, limit + 1] : [limit + 1];
+    const eventArgs = cursor !== undefined ? [requestId, cursor, limit + 1] : [requestId, limit + 1];
     const eventRows = this.sql.exec<EventRow>(eventQuery, ...eventArgs).toArray();
 
     const hasMore = eventRows.length > limit;
     const events = eventRows.slice(0, limit);
     const nextCursor = hasMore && events.length > 0 ? events[events.length - 1]!.id : undefined;
 
-    // Get all artifacts
-    const artifactRows = this.sql.exec<ArtifactRow>('SELECT * FROM artifacts').toArray();
+    // Get the request's artifacts
+    const artifactRows = this.sql
+      .exec<ArtifactRow>('SELECT * FROM artifacts WHERE request_id = ?', requestId)
+      .toArray();
 
     const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
     const externalJson = requestRow.external_json
@@ -573,7 +600,7 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
    * Get events with their auto-increment IDs, plus derived state and artifacts.
    * Used by the SSE stream handler — IDs become SSE `id:` fields for reconnection.
    */
-  getEventsForStream(cursor?: number, limit = 100): {
+  getEventsForStream(requestId: string, cursor?: number, limit = 100): {
     events: Array<{
       id: number;
       ts: string;
@@ -589,17 +616,21 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
   } | null {
     this.ensureSchema();
 
-    const requestRows = this.sql.exec<RequestRow>('SELECT * FROM requests LIMIT 1').toArray();
+    const requestRows = this.sql
+      .exec<RequestRow>('SELECT * FROM requests WHERE request_id = ? LIMIT 1', requestId)
+      .toArray();
     if (requestRows.length === 0) return null;
     const requestRow = requestRows[0]!;
 
     const eventQuery = cursor !== undefined
-      ? 'SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?'
-      : 'SELECT * FROM events ORDER BY id ASC LIMIT ?';
-    const eventArgs = cursor !== undefined ? [cursor, limit] : [limit];
+      ? 'SELECT * FROM events WHERE request_id = ? AND id > ? ORDER BY id ASC LIMIT ?'
+      : 'SELECT * FROM events WHERE request_id = ? ORDER BY id ASC LIMIT ?';
+    const eventArgs = cursor !== undefined ? [requestId, cursor, limit] : [requestId, limit];
     const eventRows = this.sql.exec<EventRow>(eventQuery, ...eventArgs).toArray();
 
-    const artifactRows = this.sql.exec<ArtifactRow>('SELECT * FROM artifacts').toArray();
+    const artifactRows = this.sql
+      .exec<ArtifactRow>('SELECT * FROM artifacts WHERE request_id = ?', requestId)
+      .toArray();
     const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
 
     return {
@@ -626,15 +657,26 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
 
   /**
    * Get paginated events only.
+   * Returns null when this instance holds no row for the request, so the
+   * service can fall back to the legacy per-request DO.
    */
-  getEvents(cursor?: number, limit = 100): { events: LogEvent[]; nextCursor?: number } {
+  getEvents(
+    requestId: string,
+    cursor?: number,
+    limit = 100
+  ): { events: LogEvent[]; nextCursor?: number } | null {
     this.ensureSchema();
 
-    const eventQuery = cursor !== undefined
-      ? 'SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?'
-      : 'SELECT * FROM events ORDER BY id ASC LIMIT ?';
+    const requestRows = this.sql
+      .exec<RequestRow>('SELECT request_id FROM requests WHERE request_id = ? LIMIT 1', requestId)
+      .toArray();
+    if (requestRows.length === 0) return null;
 
-    const eventArgs = cursor !== undefined ? [cursor, limit + 1] : [limit + 1];
+    const eventQuery = cursor !== undefined
+      ? 'SELECT * FROM events WHERE request_id = ? AND id > ? ORDER BY id ASC LIMIT ?'
+      : 'SELECT * FROM events WHERE request_id = ? ORDER BY id ASC LIMIT ?';
+
+    const eventArgs = cursor !== undefined ? [requestId, cursor, limit + 1] : [requestId, limit + 1];
     const eventRows = this.sql.exec<EventRow>(eventQuery, ...eventArgs).toArray();
 
     const hasMore = eventRows.length > limit;

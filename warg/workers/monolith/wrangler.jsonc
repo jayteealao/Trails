@@ -21,6 +21,9 @@
       // monolith base64-inlines heavy pages. ("standard" is the deprecated alias.)
       "instance_type": "standard-1",
       "max_instances": 5
+      // Lifecycle: containers are stopped per job (stop() in a finally block in
+      // src/index.ts) with a 30s sleepAfter backstop set on the Sandbox subclass
+      // there — wrangler's containers config has no sleep_after key.
     }
   ],
   "durable_objects": {

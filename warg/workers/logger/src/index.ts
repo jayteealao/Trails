@@ -57,16 +57,25 @@ interface LoggerEventWithId {
 }
 
 interface LoggerStub {
-  initRequest(payload: InitRequestPayload): Promise<{ created: boolean }>;
-  appendEvent(event: LogEvent): Promise<{ eventId: number }>;
-  upsertArtifact(artifact: ArtifactRecord): Promise<void> | void;
-  updateRequestFields(patch: RequestFieldsPatch): Promise<void>;
-  getRequestView(cursor?: number, limit?: number): Promise<CanonicalRequestView | null> | CanonicalRequestView | null;
+  initRequest(payload: InitRequestPayload, createdAt?: string): Promise<{ created: boolean }>;
+  appendEvent(requestId: string, event: LogEvent): Promise<{ eventId: number }>;
+  upsertArtifact(requestId: string, artifact: ArtifactRecord): Promise<void> | void;
+  updateRequestFields(requestId: string, patch: RequestFieldsPatch): Promise<{ updated: boolean }>;
+  getRequestView(
+    requestId: string,
+    cursor?: number,
+    limit?: number
+  ): Promise<CanonicalRequestView | null> | CanonicalRequestView | null;
   getEventsForStream(
+    requestId: string,
     cursor?: number,
     limit?: number
   ): Promise<{ events: LoggerEventWithId[]; derived: DerivedSummary; artifacts: ArtifactRecord[] } | null> | { events: LoggerEventWithId[]; derived: DerivedSummary; artifacts: ArtifactRecord[] } | null;
-  getEvents(cursor?: number, limit?: number): Promise<{ events: LogEvent[]; nextCursor?: number }> | { events: LogEvent[]; nextCursor?: number };
+  getEvents(
+    requestId: string,
+    cursor?: number,
+    limit?: number
+  ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
 }
 
 const VALID_ERROR_CODES = new Set<RequestErrorCode>([
@@ -390,12 +399,107 @@ function verifyApiKey(request: Request, env: LoggerServiceEnv): boolean {
   return timingSafeEqual(apiKey, env.INTERNAL_API_KEY);
 }
 
+export const BUCKET_KEY_PREFIX = 'bucket:';
+
 /**
- * Get DO stub for a request ID.
+ * Hour-bucket DO key for a timestamp: `bucket:YYYYMMDDHH` (UTC).
+ * All requests initialized within the same UTC hour share one DO instance.
  */
-function getLoggerStub(env: LoggerServiceEnv, requestId: string): LoggerStub {
-  const id = env.LOGGER_DO.idFromName(requestId);
+export function bucketKeyForTs(isoTs: string): string {
+  const d = new Date(isoTs);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const da = String(d.getUTCDate()).padStart(2, '0');
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  return `${BUCKET_KEY_PREFIX}${y}${mo}${da}${h}`;
+}
+
+function getStubForKey(env: LoggerServiceEnv, key: string): LoggerStub {
+  const id = env.LOGGER_DO.idFromName(key);
   return env.LOGGER_DO.get(id) as unknown as LoggerStub;
+}
+
+/**
+ * Legacy per-request DO stub (pre-bucket keying scheme).
+ * Read/patch fallback only — new writes never target these instances.
+ */
+function getLegacyStub(env: LoggerServiceEnv, requestId: string): LoggerStub {
+  return getStubForKey(env, requestId);
+}
+
+/**
+ * Derive the bucket key a request was initialized under, via the D1 index
+ * (`requests_index.created_at`). Returns null when D1 has no row (the
+ * best-effort index insert failed or has not landed yet). Note pre-bucket
+ * requests ARE indexed, so this returns a key for them too — their bucket DO
+ * just holds no data, which is why readers fall back on a null view.
+ */
+async function getBucketKeyFromD1(
+  env: LoggerServiceEnv,
+  requestId: string
+): Promise<string | null> {
+  const row = await env.INDEX_DB.prepare(
+    'SELECT created_at FROM requests_index WHERE request_id = ?'
+  )
+    .bind(requestId)
+    .first<{ created_at: string }>();
+  return row?.created_at ? bucketKeyForTs(row.created_at) : null;
+}
+
+/**
+ * Stub for post-init writes (events, artifacts). Routes to the bucket of the
+ * request's creation hour so a request's rows never straddle two buckets.
+ * If D1 has no row (best-effort insert failed or raced), fall back to the
+ * current-hour bucket so the write is not lost — never to a legacy DO.
+ */
+async function getBucketStubForWrite(
+  env: LoggerServiceEnv,
+  requestId: string
+): Promise<LoggerStub> {
+  const key = await getBucketKeyFromD1(env, requestId);
+  return getStubForKey(env, key ?? bucketKeyForTs(new Date().toISOString()));
+}
+
+/**
+ * Dual-read: fetch the canonical view from the creation-hour bucket, falling
+ * back to the legacy per-request DO for pre-bucket requests (their D1-derived
+ * bucket DO holds no row for them, so the bucket read returns null).
+ */
+async function readRequestView(
+  env: LoggerServiceEnv,
+  requestId: string,
+  cursor?: number,
+  limit?: number
+): Promise<CanonicalRequestView | null> {
+  const key = await getBucketKeyFromD1(env, requestId);
+  if (key) {
+    const view = await getStubForKey(env, key).getRequestView(requestId, cursor, limit);
+    if (view) return view;
+  }
+  return getLegacyStub(env, requestId).getRequestView(requestId, cursor, limit);
+}
+
+/**
+ * Dual-read stub resolution for the SSE stream, which holds one stub across
+ * its poll loop. Probes the bucket DO first, then the legacy per-request DO.
+ * Returns null when neither knows the request.
+ */
+async function resolveReadStub(
+  env: LoggerServiceEnv,
+  requestId: string
+): Promise<LoggerStub | null> {
+  const key = await getBucketKeyFromD1(env, requestId);
+  if (key) {
+    const stub = getStubForKey(env, key);
+    if ((await stub.getEventsForStream(requestId, undefined, 1)) !== null) {
+      return stub;
+    }
+  }
+  const legacy = getLegacyStub(env, requestId);
+  if ((await legacy.getEventsForStream(requestId, undefined, 1)) !== null) {
+    return legacy;
+  }
+  return null;
 }
 
 /**
@@ -450,42 +554,57 @@ export default {
       // POST /request/init - Initialize a new request
       if (method === 'POST' && path === '/request/init') {
         const payload = (await request.json()) as InitRequestPayload;
-        const stub = getLoggerStub(env, payload.requestId);
-        const result = await stub.initRequest(payload);
+        // The same timestamp picks the bucket AND becomes created_at, so
+        // reads deriving the bucket from created_at can never miss it.
+        const nowIso = new Date().toISOString();
+        const stub = getStubForKey(env, bucketKeyForTs(nowIso));
+        const result = await stub.initRequest(payload, nowIso);
         return Response.json(result, { status: result.created ? 201 : 200 });
       }
 
       // POST /event - Append an event (requires requestId in body)
       if (method === 'POST' && path === '/event') {
         const body = (await request.json()) as { requestId: string; event: LogEvent };
-        const stub = getLoggerStub(env, body.requestId);
-        const result = await stub.appendEvent(body.event);
+        const stub = await getBucketStubForWrite(env, body.requestId);
+        const result = await stub.appendEvent(body.requestId, body.event);
         return Response.json(result);
       }
 
       // POST /artifact - Upsert an artifact (requires requestId in body)
       if (method === 'POST' && path === '/artifact') {
         const body = (await request.json()) as { requestId: string; artifact: ArtifactRecord };
-        const stub = getLoggerStub(env, body.requestId);
-        await stub.upsertArtifact(body.artifact);
+        const stub = await getBucketStubForWrite(env, body.requestId);
+        await stub.upsertArtifact(body.requestId, body.artifact);
         return Response.json({ ok: true });
       }
 
-      // PATCH /request/:id - Update request fields
+      // PATCH /request/:id - Update request fields. Targets the request's
+      // creation-hour bucket; requests still living in a legacy per-request
+      // DO (initialized before the bucket cutover) are patched there.
       if (method === 'PATCH' && path === '/request/:id' && requestId) {
         const patch = (await request.json()) as RequestFieldsPatch;
-        const stub = getLoggerStub(env, requestId);
-        await stub.updateRequestFields(patch);
+        const key = await getBucketKeyFromD1(env, requestId);
+        let updated = false;
+        if (key) {
+          updated = (await getStubForKey(env, key).updateRequestFields(requestId, patch)).updated;
+        }
+        if (!updated) {
+          updated = (await getLegacyStub(env, requestId).updateRequestFields(requestId, patch)).updated;
+        }
+        if (!updated) {
+          return Response.json({ error: 'Request not found' }, { status: 404 });
+        }
         return Response.json({ ok: true });
       }
 
-      // GET /request/:id - Get full request view
+      // GET /request/:id - Get full request view (dual-read)
       if (method === 'GET' && path === '/request/:id' && requestId) {
         const cursor = params.get('cursor');
         const limitParam = params.get('limit');
-        const stub = getLoggerStub(env, requestId);
         const limitVal = Math.min(Math.max(parseInt(limitParam ?? '', 10) || 100, 1), 1000);
-        const view = await stub.getRequestView(
+        const view = await readRequestView(
+          env,
+          requestId,
           cursor ? parseInt(cursor, 10) : undefined,
           limitVal
         );
@@ -495,13 +614,10 @@ export default {
         return Response.json(view);
       }
 
-      // GET /request/:id/stream - SSE event stream
+      // GET /request/:id/stream - SSE event stream (dual-read stub)
       if (method === 'GET' && path === '/request/:id/stream' && requestId) {
-        const stub = getLoggerStub(env, requestId);
-
-        // Check request exists
-        const initial = await stub.getEventsForStream(undefined, 1);
-        if (!initial) {
+        const stub = await resolveReadStub(env, requestId);
+        if (!stub) {
           return Response.json({ error: 'Request not found' }, { status: 404 });
         }
 
@@ -528,7 +644,7 @@ export default {
 
             try {
               // Initial state: fetch request view for metadata
-              const view = await stub.getRequestView();
+              const view = await stub.getRequestView(requestIdCapture);
               if (!view) {
                 send('stream-error', { message: 'Request not found' });
                 controller.close();
@@ -545,7 +661,7 @@ export default {
               });
 
               // Fetch events from cursor (or all events)
-              const data = await stub.getEventsForStream(lastCursor, 500);
+              const data = await stub.getEventsForStream(requestIdCapture, lastCursor, 500);
               if (data) {
                 for (const event of data.events) {
                   send('log', {
@@ -580,7 +696,7 @@ export default {
                   return;
                 }
 
-                const update = await stub.getEventsForStream(lastCursor, 100);
+                const update = await stub.getEventsForStream(requestIdCapture, lastCursor, 100);
                 if (!update) break;
 
                 // Send new events
@@ -632,17 +748,22 @@ export default {
         });
       }
 
-      // GET /request/:id/events - Get paginated events
+      // GET /request/:id/events - Get paginated events (dual-read)
       if (method === 'GET' && path === '/request/:id/events' && requestId) {
         const cursor = params.get('cursor');
         const limitParam = params.get('limit');
-        const stub = getLoggerStub(env, requestId);
         const limitVal = Math.min(Math.max(parseInt(limitParam ?? '', 10) || 100, 1), 1000);
-        const result = await stub.getEvents(
-          cursor ? parseInt(cursor, 10) : undefined,
-          limitVal
-        );
-        return Response.json(result);
+        const cursorVal = cursor ? parseInt(cursor, 10) : undefined;
+
+        const key = await getBucketKeyFromD1(env, requestId);
+        let result = key
+          ? await getStubForKey(env, key).getEvents(requestId, cursorVal, limitVal)
+          : null;
+        if (!result) {
+          result = await getLegacyStub(env, requestId).getEvents(requestId, cursorVal, limitVal);
+        }
+        // Unknown request keeps the historical wire shape: an empty page.
+        return Response.json(result ?? { events: [] });
       }
 
       // GET /stats - Aggregate metrics from D1 index
@@ -799,8 +920,20 @@ export default {
 
         for (const row of candidates.results) {
           try {
-            const stub = getLoggerStub(env, row.request_id);
-            const view = await stub.getRequestView(undefined, 1000);
+            // Dual-read: bucket derived from the row's own created_at, then
+            // the legacy per-request DO for pre-bucket rows.
+            let view = await getStubForKey(env, bucketKeyForTs(row.created_at)).getRequestView(
+              row.request_id,
+              undefined,
+              1000
+            );
+            if (!view) {
+              view = await getLegacyStub(env, row.request_id).getRequestView(
+                row.request_id,
+                undefined,
+                1000
+              );
+            }
             if (!view) {
               skipped++;
               continue;

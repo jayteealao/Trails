@@ -5,7 +5,8 @@
   "compatibility_date": "2025-01-01",
   "services": [
     { "binding": "LOGGER", "service": "logger" },
-    { "binding": "WORKFLOW", "service": "workflow" }
+    { "binding": "WORKFLOW", "service": "workflow" },
+    { "binding": "MONOLITH", "service": "monolith" }
   ],
   "triggers": {
     "crons": ["*/10 * * * *"]

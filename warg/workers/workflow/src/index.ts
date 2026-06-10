@@ -12,7 +12,7 @@ import type {
   WorkflowCheckpoint,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { getR2Key, getStepManifestKey } from '@warg/shared';
+import { getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import type {
   WorkflowParams,
@@ -774,8 +774,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     step: WorkflowStep,
     requestId: string,
     renderedHtmlKey: string,
-    monolithBaseUrl: string,
-    sandboxId: string | undefined
+    monolithBaseUrl: string
   ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
     // Workstream B2: monolith either produces in well under 2 min or it won't;
     // 3×5-min retries were the main driver of the derive-latency tail. Cap at
@@ -793,8 +792,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             return await callMonolith(this.env, {
               request_id: requestId,
               rendered_html_key: renderedHtmlKey,
-              base_url: monolithBaseUrl,
-              sandbox_id: sandboxId
+              base_url: monolithBaseUrl
             });
           }
         );
@@ -830,7 +828,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     renderedHtmlKey: string,
     monolithBaseUrl: string
   ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
-    const { leaseId, slot } = await step.do(
+    const { leaseId } = await step.do(
       'acquire-monolith-quota',
       {
         retries: { limit: 20, delay: '3 seconds', backoff: 'linear' },
@@ -844,24 +842,19 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         if (!result.granted) {
           throw new Error(`Sandbox quota unavailable, retry after ${result.retryAfterMs}ms`);
         }
-        return { leaseId: result.leaseId!, slot: result.slot };
+        return { leaseId: result.leaseId! };
       }
     );
 
-    // Pin this job to a stable warm-pool container so the monolith worker reuses
-    // a fixed set of sandboxes instead of cold-starting a unique one per request.
-    // For instances whose acquire step was checkpointed before warm-pool rollout
-    // (cached result has no slot), send no id and let monolith use a per-request
-    // sandbox — never a shared `monolith-pool-undefined`.
-    const sandboxId = typeof slot === 'number' ? `monolith-pool-${slot}` : undefined;
-
+    // No warm pool: the monolith worker keys the sandbox off the request id and
+    // stops the container after the job, trading per-job cold starts for not
+    // billing idle DO duration between jobs.
     try {
       return await this.callMonolithWithRetry(
         step,
         requestId,
         renderedHtmlKey,
-        monolithBaseUrl,
-        sandboxId
+        monolithBaseUrl
       );
     } finally {
       await step.do('release-monolith-quota', async () => {
@@ -1441,6 +1434,27 @@ export default {
         }
       } catch (err) {
         console.error('[workflow] Error starting workflow:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
+      }
+    }
+
+    // GET /browser-quota/sandbox-leases - active sandbox_exec leases, read-only.
+    // Consumed by the gateway's orphan-container sweep. Unlike /start and
+    // /status (service-binding-only callers), this is guarded by the internal
+    // API key since it exposes quota state.
+    if (request.method === 'GET' && url.pathname === '/browser-quota/sandbox-leases') {
+      const apiKey = request.headers.get('X-Internal-API-Key');
+      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      try {
+        const stub = env.BROWSER_QUOTA.get(env.BROWSER_QUOTA.idFromName('global'));
+        const leases = await stub.listSandboxLeases();
+        return Response.json({ leases });
+      } catch (err) {
+        console.error('[workflow] Error listing sandbox leases:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
         return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
       }

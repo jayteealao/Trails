@@ -165,6 +165,30 @@ export class BrowserQuotaDO extends DurableObject<Env> {
   }
 
   /**
+   * List currently-held sandbox_exec leases. Read-only — no cleanup, no
+   * persistence. Backs the gateway's orphan-container sweep, which stops the
+   * container behind any lease that outlived the TTL (its workflow likely
+   * crashed before release()).
+   */
+  async listSandboxLeases(): Promise<
+    Array<{ leaseId: string; requestId: string; acquiredAt: number }>
+  > {
+    await this.loadState();
+
+    const leases: Array<{ leaseId: string; requestId: string; acquiredAt: number }> = [];
+    for (const lease of this.activeLeases!.values()) {
+      if (lease.kind === 'sandbox_exec') {
+        leases.push({
+          leaseId: lease.leaseId,
+          requestId: lease.requestId,
+          acquiredAt: lease.acquiredAt
+        });
+      }
+    }
+    return leases;
+  }
+
+  /**
    * Release a quota lease.
    * RPC method - called directly from workflow.
    * Idempotent - safe to call multiple times with same leaseId.

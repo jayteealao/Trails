@@ -15,6 +15,10 @@ const LOGGER_RETRY_ATTEMPTS = 3;
 const ORPHAN_SWEEP_DEFAULT_LIMIT = 100;
 const ORPHAN_SWEEP_DEFAULT_MIN_AGE_MS = 10 * 60 * 1000;
 const ORPHAN_SWEEP_WORKFLOW_ATTEMPTS = 2;
+// Leases older than this had their job finish long ago (P99 monolith wall time
+// is ~3 min) — the workflow likely crashed before release(), so the container
+// behind the lease may still be running. Matches BrowserQuotaDO.LEASE_TTL_MS.
+const CONTAINER_SWEEP_MIN_LEASE_AGE_MS = 5 * 60 * 1000;
 
 interface LoggerRequestRow {
   requestId?: string;
@@ -372,6 +376,86 @@ async function sweepQueuedOrphans(
   return summary;
 }
 
+interface SandboxLeaseRow {
+  leaseId?: string;
+  requestId?: string;
+  acquiredAt?: number;
+}
+
+export interface ContainerSweepResult {
+  source: string;
+  leases: number;
+  stale: number;
+  stopped: number;
+  failures: Array<{ requestId: string; error: string }>;
+}
+
+/**
+ * Stop monolith containers whose quota lease outlived the TTL — the third
+ * lifecycle layer after the monolith worker's per-job stop() and the Sandbox
+ * class's 30s sleepAfter backstop. Lists active sandbox leases from the
+ * workflow worker and asks the monolith worker to stop each stale lease's
+ * container. Best-effort: per-container failures are reported, not thrown.
+ */
+export async function sweepOrphanContainers(
+  env: Env,
+  source: string
+): Promise<ContainerSweepResult> {
+  const summary: ContainerSweepResult = {
+    source,
+    leases: 0,
+    stale: 0,
+    stopped: 0,
+    failures: []
+  };
+
+  const response = await env.WORKFLOW.fetch('https://workflow/browser-quota/sandbox-leases', {
+    headers: { 'X-Internal-API-Key': env.INTERNAL_API_KEY }
+  });
+  if (!response.ok) {
+    const body = (await response.text()).slice(0, 300);
+    throw new Error(`sandbox-leases fetch failed (${response.status}): ${body}`);
+  }
+
+  const payload = (await response.json()) as { leases?: SandboxLeaseRow[] };
+  const leases = payload.leases ?? [];
+  summary.leases = leases.length;
+
+  const now = Date.now();
+  for (const lease of leases) {
+    if (!lease.requestId || typeof lease.acquiredAt !== 'number') continue;
+    if (now - lease.acquiredAt < CONTAINER_SWEEP_MIN_LEASE_AGE_MS) continue;
+    summary.stale += 1;
+
+    try {
+      const stopResponse = await env.MONOLITH.fetch('https://monolith/container/stop', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-API-Key': env.INTERNAL_API_KEY
+        },
+        body: JSON.stringify({ request_id: lease.requestId })
+      });
+      if (stopResponse.ok) {
+        summary.stopped += 1;
+      } else {
+        const body = (await stopResponse.text()).slice(0, 300);
+        summary.failures.push({
+          requestId: lease.requestId,
+          error: `stop failed (${stopResponse.status}): ${body}`
+        });
+      }
+    } catch (err) {
+      summary.failures.push({
+        requestId: lease.requestId,
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
+  return summary;
+}
+
 export default {
   async fetch(
     request: Request,
@@ -602,6 +686,18 @@ export default {
           }
         } catch (err) {
           console.error('[gateway] orphan sweep failed:', err);
+        }
+      })()
+    );
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const summary = await sweepOrphanContainers(env, `cron:${controller.cron ?? 'unknown'}`);
+          if (summary.stale > 0 || summary.failures.length > 0) {
+            console.log('[gateway] container sweep summary:', JSON.stringify(summary));
+          }
+        } catch (err) {
+          console.error('[gateway] container sweep failed:', err);
         }
       })()
     );
