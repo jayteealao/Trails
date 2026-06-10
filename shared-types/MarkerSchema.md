@@ -25,6 +25,7 @@ requires updating every producer and the rules/tests in the same commit.**
 | Field       | Type                  | Required | Notes |
 | ----------- | --------------------- | -------- | ----- |
 | `key`       | string                | required | The article key this marker covers (mirrors the doc id). |
+| `itemId`    | string                | required | The doc id of the user's own article at `users/{uid}/articles/{itemId}`. Both the itemId-keyed and the resolvedId-keyed marker for the same article carry the same `itemId`. Required by the tightened marker create/update rule (`getAfter` on `users/{uid}/articles/{itemId}`). |
 | `createdAt` | timestamp             | required | Server timestamp; markers are merge-written, so this carries last-write (not first-seen) semantics — acceptable for existence markers. |
 | `source`    | string                | required | Provenance: `sync` \| `self-heal` \| `backfill`. |
 
@@ -51,8 +52,9 @@ written for every key.
 
 1. Update the table above.
 2. Update `markerBody(...)` and the `ARTICLE_MARKERS_COLLECTION` constant in
-   `FirestoreBackupService.kt`.
+   `FirestoreBackupService.kt`. Note `markerBody` takes `(key, source, articleItemId)`.
 3. Update `deriveMarkerKeys`/`markerBody` and the `ARTICLE_MARKERS_COLLECTION`
-   constant in `warg/cloud-functions/backfill-scripts/src/keys.ts`.
+   constant in `warg/cloud-functions/backfill-scripts/src/keys.ts`. Note `markerBody`
+   takes `(key, itemId, source?)` in the TS producer.
 4. Update `firebase/firestore.rules` and `firebase/test/firestore-rules.test.ts`.
 5. Run `node --experimental-strip-types shared-types/check-drift.ts` locally.

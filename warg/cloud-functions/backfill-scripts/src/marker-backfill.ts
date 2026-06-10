@@ -78,7 +78,8 @@ export async function backfillMarkers(
     if (articles >= limit) break;
     articles += 1;
 
-    const keys = deriveMarkerKeys(doc.id, extractResolvedId(doc.data()));
+    const articleItemId = doc.id;
+    const keys = deriveMarkerKeys(articleItemId, extractResolvedId(doc.data()));
     for (const key of keys) {
       expectedKeys += 1;
       if (existing.has(key)) {
@@ -94,8 +95,10 @@ export async function backfillMarkers(
         // Merge keeps the write idempotent. onWriteError handles the retry
         // decision; the per-op `.catch` only absorbs the final rejection so a
         // give-up does not surface as an unhandled rejection.
+        // Both the itemId-keyed and resolvedId-keyed markers carry the same
+        // articleItemId for schema parity (Admin SDK bypasses rules).
         writer
-          .set(markers.doc(key), markerBody(key), { merge: true })
+          .set(markers.doc(key), markerBody(key, articleItemId), { merge: true })
           .catch(() => undefined);
       }
     }

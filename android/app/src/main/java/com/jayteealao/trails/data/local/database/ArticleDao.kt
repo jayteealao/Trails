@@ -134,6 +134,10 @@ interface ArticleDao {
     @Query("SELECT * FROM article WHERE itemId = :itemId")
     suspend fun getArticleById(itemId: String): Article?
 
+    /** Look up an article whose resolvedId matches [resolvedId] (used by self-heal). */
+    @Query("SELECT * FROM article WHERE resolvedId = :resolvedId LIMIT 1")
+    suspend fun getArticleByResolvedId(resolvedId: String): Article?
+
     @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
     @RewriteQueriesToDropUnusedColumns
     @Query(

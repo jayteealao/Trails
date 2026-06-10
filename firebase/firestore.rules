@@ -35,8 +35,20 @@ service cloud.firestore {
 
       // Article existence markers - one doc per saved article key, used to
       // gate the (later) tightened top-level `articles` read. Owner-scoped.
+      //
+      // CREATE / UPDATE: requires proof the user owns the referenced article.
+      // The `itemId` field must point to an existing users/{userId}/articles/{itemId}
+      // doc — either written in the same batch (backup flow) or already present
+      // in Firestore (self-heal flow). `getAfter` covers both cases and is cached
+      // by path, so a batch of N articles costs N unique getAfter calls.
+      // RULES BUDGET: callers must keep batches ≤ 20 articles (N unique getAfter
+      // paths) to stay within the 20-document-access limit per batched write.
       match /articleMarkers/{markerId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && request.resource.data.itemId is string
+          && getAfter(/databases/$(database)/documents/users/$(userId)/articles/$(request.resource.data.itemId)).data != null;
       }
 
       // Articles subcollection - user can only access their own articles

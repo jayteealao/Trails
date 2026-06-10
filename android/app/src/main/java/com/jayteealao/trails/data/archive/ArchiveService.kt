@@ -73,6 +73,24 @@ class ArchiveService @Inject constructor(
     /** Limit concurrent archive downloads to cap peak memory from parallel decompress. */
     private val downloadSemaphore = Semaphore(3)
 
+    /**
+     * Resolve the owning article's [Article.itemId] for a marker key that may be
+     * either an itemId or a resolvedId. The rules' getAfter check requires a doc
+     * at users/{uid}/articles/{itemId}, which only exists under the canonical
+     * itemId, not under a resolvedId alias.
+     *
+     * Strategy:
+     * 1. Try [articleDao.getArticleById] — fast path when [key] is already the itemId.
+     * 2. If null, try [articleDao.getArticleByResolvedId] — for resolvedId-keyed reads.
+     * 3. If still null (article not in local DB yet), fall back to [key] — the
+     *    marker write may still fail the rule, but it degrades to the existing
+     *    graceful empty state rather than crashing.
+     */
+    private suspend fun owningItemId(key: String): String =
+        articleDao.getArticleById(key)?.itemId
+            ?: articleDao.getArticleByResolvedId(key)?.itemId
+            ?: key
+
     // ── a) Firestore document listener ──────────────────────────────────
 
     fun observeRemoteArchives(itemId: String): Flow<Map<String, ArchiveStatus>> = callbackFlow {
@@ -94,9 +112,10 @@ class ArchiveService @Inject constructor(
                         hasSelfHealed = true
                         Timber.w(error, "observeRemoteArchives($itemId) — read denied, self-healing marker")
                         launch {
-                            val result = backupService.writeArticleMarker(itemId)
+                            val markerItemId = owningItemId(itemId)
+                            val result = backupService.writeArticleMarker(itemId, markerItemId)
                             result.onFailure { t ->
-                                Timber.w(t, "observeRemoteArchives($itemId) — self-heal marker write failed for $itemId")
+                                Timber.w(t, "observeRemoteArchives($itemId) — self-heal marker write failed for $itemId (markerItemId=$markerItemId)")
                             }
                             // Remove the stale registration and re-attach only if
                             // the producer scope is still alive; if the collector
@@ -279,9 +298,10 @@ class ArchiveService @Inject constructor(
                 ) {
                     hasSelfHealed = true
                     Timber.w(e, "getArticleDoc($itemId) — read denied, writing marker and retrying once")
-                    val result = backupService.writeArticleMarker(itemId)
+                    val markerItemId = owningItemId(itemId)
+                    val result = backupService.writeArticleMarker(itemId, markerItemId)
                     result.onFailure { t ->
-                        Timber.w(t, "getArticleDoc($itemId) — self-heal marker write failed for $itemId")
+                        Timber.w(t, "getArticleDoc($itemId) — self-heal marker write failed for $itemId (markerItemId=$markerItemId)")
                     }
                     continue
                 }

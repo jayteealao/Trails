@@ -87,7 +87,9 @@ class FirestoreBackupServiceTest {
         verify(exactly = 1) {
             batch.set(
                 markerDoc,
-                match<Map<String, Any>> { it["key"] == "item1" && it["source"] == "sync" },
+                match<Map<String, Any>> {
+                    it["key"] == "item1" && it["source"] == "sync" && it["itemId"] == "item1"
+                },
                 any(),
             )
         }
@@ -105,8 +107,21 @@ class FirestoreBackupServiceTest {
         val result = service.backupArticle(article("item1", "resolved1"))
 
         assertTrue(result.isSuccess)
-        verify(exactly = 1) { batch.set(itemMarker, match<Map<String, Any>> { it["key"] == "item1" }, any()) }
-        verify(exactly = 1) { batch.set(resolvedMarker, match<Map<String, Any>> { it["key"] == "resolved1" }, any()) }
+        // Both markers carry itemId = "item1" (the owning article's id).
+        verify(exactly = 1) {
+            batch.set(
+                itemMarker,
+                match<Map<String, Any>> { it["key"] == "item1" && it["itemId"] == "item1" },
+                any(),
+            )
+        }
+        verify(exactly = 1) {
+            batch.set(
+                resolvedMarker,
+                match<Map<String, Any>> { it["key"] == "resolved1" && it["itemId"] == "item1" },
+                any(),
+            )
+        }
         verify(exactly = 2) { batch.set(any(), match<Map<String, Any>> { it["source"] == "sync" }, any()) }
     }
 
@@ -118,7 +133,13 @@ class FirestoreBackupServiceTest {
 
         assertTrue(result.isSuccess)
         verify(exactly = 1) { markersCollection.document(any()) }
-        verify(exactly = 1) { batch.set(any(), match<Map<String, Any>> { it["source"] == "sync" }, any()) }
+        verify(exactly = 1) {
+            batch.set(
+                any(),
+                match<Map<String, Any>> { it["source"] == "sync" && it["itemId"] == "item1" },
+                any(),
+            )
+        }
     }
 
     @Test
@@ -129,12 +150,19 @@ class FirestoreBackupServiceTest {
 
         assertTrue(result.isSuccess)
         verify(exactly = 1) { markersCollection.document(any()) }
-        verify(exactly = 1) { batch.set(any(), match<Map<String, Any>> { it["source"] == "sync" }, any()) }
+        verify(exactly = 1) {
+            batch.set(
+                any(),
+                match<Map<String, Any>> { it["source"] == "sync" && it["itemId"] == "item1" },
+                any(),
+            )
+        }
     }
 
     /**
      * TST-04 — writeArticleMarker happy path: the marker doc is written under
-     * users/{uid}/articleMarkers/{key} (owner's uid path) with source = "self-heal".
+     * users/{uid}/articleMarkers/{key} (owner's uid path) with source = "self-heal"
+     * and itemId = key (default: key and itemId are the same for itemId-keyed markers).
      */
     @Test
     fun `writeArticleMarker writes marker under owner uid path with self-heal source`() = runTest {
@@ -145,10 +173,35 @@ class FirestoreBackupServiceTest {
         val result = service.writeArticleMarker("key1")
 
         assertTrue(result.isSuccess)
-        // Must set on the doc under users/u1/articleMarkers/key1.
+        // Must set on the doc under users/u1/articleMarkers/key1 with itemId = key1.
         verify(exactly = 1) {
             markerDoc.set(
-                match<Map<String, Any>> { it["key"] == "key1" && it["source"] == "self-heal" },
+                match<Map<String, Any>> {
+                    it["key"] == "key1" && it["source"] == "self-heal" && it["itemId"] == "key1"
+                },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * writeArticleMarker with explicit itemId: for a resolvedId-keyed self-heal
+     * the caller can pass the owning article's itemId separately.
+     */
+    @Test
+    fun `writeArticleMarker with explicit itemId carries correct itemId in marker body`() = runTest {
+        val markerDoc = mockk<DocumentReference>()
+        every { markersCollection.document("resolved-key") } returns markerDoc
+        every { markerDoc.set(any(), any()) } returns Tasks.forResult(null)
+
+        val result = service.writeArticleMarker("resolved-key", itemId = "article-1")
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) {
+            markerDoc.set(
+                match<Map<String, Any>> {
+                    it["key"] == "resolved-key" && it["itemId"] == "article-1" && it["source"] == "self-heal"
+                },
                 any(),
             )
         }
@@ -181,10 +234,18 @@ class FirestoreBackupServiceTest {
 
         assertTrue(result.isSuccess)
         verify(exactly = 1) {
-            batch.set(markerDoc1, match<Map<String, Any>> { it["key"] == "a1" && it["source"] == "sync" }, any())
+            batch.set(
+                markerDoc1,
+                match<Map<String, Any>> { it["key"] == "a1" && it["source"] == "sync" && it["itemId"] == "a1" },
+                any(),
+            )
         }
         verify(exactly = 1) {
-            batch.set(markerDoc2, match<Map<String, Any>> { it["key"] == "a2" && it["source"] == "sync" }, any())
+            batch.set(
+                markerDoc2,
+                match<Map<String, Any>> { it["key"] == "a2" && it["source"] == "sync" && it["itemId"] == "a2" },
+                any(),
+            )
         }
     }
 }

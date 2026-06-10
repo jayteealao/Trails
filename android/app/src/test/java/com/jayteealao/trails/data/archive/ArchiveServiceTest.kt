@@ -72,7 +72,10 @@ class ArchiveServiceTest {
         every { firestore.collection("articles") } returns articlesCollection
         every { articlesCollection.document("item1") } returns docRef
 
-        coEvery { backupService.writeArticleMarker(any()) } returns Result.success(Unit)
+        // Service now always calls writeArticleMarker(key, itemId) with both args explicit;
+        // stub the two-arg form so the relaxed default (null) on articleDao causes owningItemId
+        // to fall back to key, making key == itemId for standard itemId-keyed tests.
+        coEvery { backupService.writeArticleMarker(any(), any()) } returns Result.success(Unit)
 
         service = ArchiveService(
             firestore = firestore,
@@ -102,8 +105,10 @@ class ArchiveServiceTest {
         val result = service.fetchWargMetadata("item1")
 
         // Doc absent after the retry → graceful null, no exception escapes.
+        // articleDao is relaxed so owningItemId("item1") falls back to "item1";
+        // both key and itemId are "item1" for standard itemId-keyed articles.
         assertNull(result)
-        coVerify(exactly = 1) { backupService.writeArticleMarker("item1") }
+        coVerify(exactly = 1) { backupService.writeArticleMarker("item1", "item1") }
         verify(exactly = 2) { docRef.get() }
     }
 
@@ -114,7 +119,7 @@ class ArchiveServiceTest {
         val result = service.fetchWargMetadata("item1")
 
         assertNull(result)
-        coVerify(exactly = 1) { backupService.writeArticleMarker("item1") }
+        coVerify(exactly = 1) { backupService.writeArticleMarker("item1", "item1") }
         verify(exactly = 2) { docRef.get() }
     }
 
@@ -144,7 +149,8 @@ class ArchiveServiceTest {
         service.fetchWargMetadata("item2")
 
         // Self-heal must have been invoked exactly once, and only for item1.
-        coVerify(exactly = 1) { backupService.writeArticleMarker("item1") }
-        coVerify(exactly = 0) { backupService.writeArticleMarker("item2") }
+        // owningItemId falls back to the key for both items (relaxed articleDao → null).
+        coVerify(exactly = 1) { backupService.writeArticleMarker("item1", "item1") }
+        coVerify(exactly = 0) { backupService.writeArticleMarker("item2", any()) }
     }
 }

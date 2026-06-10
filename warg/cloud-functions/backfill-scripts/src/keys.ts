@@ -36,13 +36,20 @@ export function deriveMarkerKeys(
  * backfill idempotency, coverage audit, and the drift check. Merge-written, so
  * re-running never clobbers an existing marker's original `source`/`createdAt`
  * when the caller skips already-present keys.
+ *
+ * `itemId` is the doc id of the owning article at users/{uid}/articles/{itemId}.
+ * Both the itemId-keyed and the resolvedId-keyed marker for the same article
+ * carry the same `itemId` — required for schema uniformity. The Admin SDK
+ * bypasses Firestore security rules, so this field is for schema parity only.
  */
 export function markerBody(
   key: string,
+  itemId: string,
   source: string = MARKER_SOURCE,
 ): Record<string, unknown> {
   return {
     key,
+    itemId,
     createdAt: FieldValue.serverTimestamp(),
     source,
   };
