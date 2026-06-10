@@ -7,7 +7,7 @@ on every route). Authoritative store is SQLite inside Durable Objects; the D1
 ## Durable Object keying: hour buckets
 
 `LoggerDO` instances are keyed by UTC hour: `bucket:YYYYMMDDHH`
-(`bucketKeyForTs` in `src/index.ts`). Every request initialized in that hour
+(`bucketKeyForTs` in `src/bucket-key.ts`). Every request initialized in that hour
 lives in the same instance — roughly 24 warm instances per day instead of one
 cold-started instance per request. Rationale and cost numbers:
 [`docs/adr-do-cost.md`](../../docs/adr-do-cost.md).

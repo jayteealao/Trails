@@ -9,6 +9,7 @@ import type {
   RequestErrorCode
 } from '@warg/shared';
 import { timingSafeEqual } from '@warg/shared';
+import { bucketKeyForTs } from './bucket-key.js';
 import { LoggerDO } from './LoggerDO.js';
 
 export { LoggerDO };
@@ -397,21 +398,6 @@ function verifyApiKey(request: Request, env: LoggerServiceEnv): boolean {
   const apiKey = request.headers.get('X-Internal-API-Key');
   if (!apiKey) return false;
   return timingSafeEqual(apiKey, env.INTERNAL_API_KEY);
-}
-
-export const BUCKET_KEY_PREFIX = 'bucket:';
-
-/**
- * Hour-bucket DO key for a timestamp: `bucket:YYYYMMDDHH` (UTC).
- * All requests initialized within the same UTC hour share one DO instance.
- */
-export function bucketKeyForTs(isoTs: string): string {
-  const d = new Date(isoTs);
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const da = String(d.getUTCDate()).padStart(2, '0');
-  const h = String(d.getUTCHours()).padStart(2, '0');
-  return `${BUCKET_KEY_PREFIX}${y}${mo}${da}${h}`;
 }
 
 function getStubForKey(env: LoggerServiceEnv, key: string): LoggerStub {

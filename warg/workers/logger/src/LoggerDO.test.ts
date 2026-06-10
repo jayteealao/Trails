@@ -8,7 +8,7 @@ import type {
   DerivedSummary,
   RequestFieldsPatch
 } from '@warg/shared';
-import { bucketKeyForTs } from './index.js';
+import { bucketKeyForTs } from './bucket-key.js';
 
 interface LoggerEventWithId {
   id: number;

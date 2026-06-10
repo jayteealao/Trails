@@ -22,7 +22,7 @@
       "instance_type": "standard-1",
       "max_instances": 5
       // Lifecycle: containers are stopped per job (stop() in a finally block in
-      // src/index.ts) with a 30s sleepAfter backstop set on the Sandbox subclass
+      // src/index.ts) with a 5m sleepAfter backstop set on the Sandbox subclass
       // there — wrangler's containers config has no sleep_after key.
     }
   ],

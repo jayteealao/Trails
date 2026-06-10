@@ -18,8 +18,10 @@ Three layers guarantee shutdown:
    `try/finally` and stops the sandbox on success and on error. A failing
    `stop()` is logged (`[monolith] stop() failed (non-fatal)`) and never
    masks the job's outcome.
-2. **30s `sleepAfter` backstop** — the `Sandbox` subclass exported from
-   `src/index.ts` sets `sleepAfter = '30s'` (upstream default is 10 minutes).
+2. **5m `sleepAfter` backstop** — the `Sandbox` subclass exported from
+   `src/index.ts` sets `sleepAfter = '5m'` (upstream default is 10 minutes).
+   The value must exceed the longest job (P99 ~180s) because the inactivity
+   alarm fires even during an in-flight exec (cloudflare/containers#162).
    Wrangler's `containers` config has no `sleep_after` key; the class field
    is the configuration surface.
 3. **Cron orphan sweep** — the gateway's 10-minute cron stops containers

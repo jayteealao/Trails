@@ -13,15 +13,18 @@ import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-pre
 import { isRpc32MiBLimit } from './failure-classify.js';
 
 /**
- * Sandbox DO binding with a 30s `sleepAfter` backstop (the upstream default
+ * Sandbox DO binding with a 5m `sleepAfter` backstop (the upstream default
  * is 10 minutes). The primary lifecycle mechanism is the explicit `stop()`
  * after each job in runMonolithInSandbox; this backstop reaps containers
  * whose stop() was missed (worker crash mid-job, stop() RPC failure) so they
- * cannot idle-bill DO duration. Wrangler's `containers` config exposes no
- * sleep_after key, so the class field is the configuration surface.
+ * cannot idle-bill DO duration. The value must exceed the longest job
+ * (P99 ~180s) because the inactivity alarm fires even during an in-flight
+ * exec (cloudflare/containers#162) — '5m' clears that tail with margin.
+ * Wrangler's `containers` config exposes no sleep_after key, so the class
+ * field is the configuration surface.
  */
 export class Sandbox extends BaseSandbox {
-  override sleepAfter: string | number = '30s';
+  override sleepAfter: string | number = '5m';
 }
 
 class MonolithServiceError extends Error {
@@ -289,7 +292,7 @@ export async function runMonolithInSandbox(
     return { artifact, sandboxId };
   } finally {
     // Containers bill DO duration while alive: stop per job, on success AND
-    // throw. A failed stop() must not mask the job's own outcome — the 30s
+    // throw. A failed stop() must not mask the job's own outcome — the 5m
     // sleepAfter backstop and the cron orphan sweep cover missed stops.
     try {
       await sandbox.stop();
