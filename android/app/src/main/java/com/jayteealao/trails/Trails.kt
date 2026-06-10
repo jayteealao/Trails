@@ -34,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import okio.Path.Companion.toOkioPath
 import timber.log.Timber
 import javax.inject.Inject
+import javax.inject.Provider
 
 @HiltAndroidApp
 class Trails @Inject constructor() : Application(), Configuration.Provider, SingletonImageLoader.Factory {
@@ -41,6 +42,7 @@ class Trails @Inject constructor() : Application(), Configuration.Provider, Sing
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var firestoreSyncManager: FirestoreSyncManager
     @Inject lateinit var auth: FirebaseAuth
+    @Inject lateinit var firestoreLogTreeProvider: Provider<FirestoreLogTree>
 
 //    override val workManagerConfiguration: Configuration = Configuration.Builder()
 
@@ -50,7 +52,7 @@ class Trails @Inject constructor() : Application(), Configuration.Provider, Sing
 //        Sync.initialize(context = this)
         Timber.plant(Timber.DebugTree())
         if (BuildConfig.DEBUG) {
-            Timber.plant(FirestoreLogTree())
+            Timber.plant(firestoreLogTreeProvider.get())
         }
 
         // Schedule periodic sync AFTER Hilt dependency injection completes

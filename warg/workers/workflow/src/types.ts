@@ -110,8 +110,6 @@ export interface MonolithParams {
   request_id: string;
   rendered_html_key: string;
   base_url: string;
-  /** Warm-pool sandbox id (e.g. `monolith-pool-2`) for stable container reuse. */
-  sandbox_id?: string;
 }
 
 /**

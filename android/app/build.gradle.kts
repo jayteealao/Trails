@@ -135,6 +135,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests {
+            // Firebase enums (e.g. FirebaseFirestoreException.Code) statically
+            // touch android.util.SparseArray; without this their <clinit> throws
+            // "not mocked" under plain JVM unit tests.
+            isReturnDefaultValues = true
+        }
+    }
+
     kotlin {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
@@ -221,6 +230,7 @@ dependencies {
     implementation(libs.firebase.ai)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.config)
     implementation(libs.play.services.auth)
 
     // Navigation 3
@@ -331,6 +341,9 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("io.mockk:mockk:1.14.5")
+    // Provides Tasks + Task.await() on the unit-test classpath (version-aligned
+    // with kotlinx-coroutines-test) so Firestore Task mocks resolve correctly.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
     // Instrumented tests: jUnit rules and runners
 

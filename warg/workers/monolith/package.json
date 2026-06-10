@@ -16,6 +16,6 @@
     "aws4fetch": "^1.0.20"
   },
   "devDependencies": {
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.8"
   }
 }

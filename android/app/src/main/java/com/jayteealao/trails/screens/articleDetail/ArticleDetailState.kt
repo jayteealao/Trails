@@ -1,6 +1,5 @@
 package com.jayteealao.trails.screens.articleDetail
 
-import android.content.Intent
 import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.local.database.Article
@@ -28,5 +27,4 @@ sealed interface ArticleDetailEvent {
     data class ArticleMarkedAsRead(val itemId: String) : ArticleDetailEvent
     data object NavigateBack : ArticleDetailEvent
     data class ShowError(val error: Throwable) : ArticleDetailEvent
-    data class StorageConsentNeeded(val intent: Intent) : ArticleDetailEvent
 }

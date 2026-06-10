@@ -1,7 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import {
   evaluateAcquire,
-  lowestFreeSlot,
   type LeaseKind,
   type QuotaLimits,
   type TokenBucket
@@ -15,8 +14,6 @@ interface Lease {
   requestId: string;
   kind: LeaseKind;
   acquiredAt: number;
-  /** Warm-pool slot index, assigned only to `sandbox_exec` leases. */
-  slot?: number;
 }
 
 /**
@@ -26,8 +23,6 @@ export interface AcquireResult {
   granted: boolean;
   leaseId?: string;
   retryAfterMs?: number;
-  /** Warm-pool slot index for `sandbox_exec` grants (stable container reuse). */
-  slot?: number;
 }
 
 interface StoredState {
@@ -140,28 +135,41 @@ export class BrowserQuotaDO extends DurableObject<Env> {
     }
 
     const leaseId = crypto.randomUUID();
-    // sandbox_exec leases get a stable warm-pool slot so the monolith worker
-    // reuses a small fixed set of containers instead of cold-starting a unique
-    // sandbox per request (the cold-start churn that drives Sandbox exec-500s).
-    const slot = kind === 'sandbox_exec' ? this.assignSandboxSlot() : undefined;
-    this.activeLeases!.set(leaseId, { leaseId, requestId, kind, acquiredAt: now, slot });
+    this.activeLeases!.set(leaseId, { leaseId, requestId, kind, acquiredAt: now });
 
     await this.saveState();
     this.scheduleCleanup();
 
-    return slot === undefined ? { granted: true, leaseId } : { granted: true, leaseId, slot };
+    return { granted: true, leaseId };
   }
 
   /**
-   * Pick the lowest free warm-pool slot in [0, MAX_SANDBOX_CONCURRENT).
-   * The concurrency check already guaranteed a slot is free before this runs.
+   * List currently-held sandbox_exec leases. Read-only — no cleanup, no
+   * persistence. Backs the gateway's orphan-container sweep, which stops the
+   * container behind any lease that outlived the TTL (its workflow likely
+   * crashed before release()).
+   *
+   * The returned list is a point-in-time snapshot as of this RPC. Because the
+   * DO executes single-threaded the snapshot is internally consistent, but the
+   * gateway sweep must treat it as a best-effort hint: leases may be acquired
+   * or released between this call and any action the sweep takes.
    */
-  private assignSandboxSlot(): number {
-    const used: number[] = [];
+  async listSandboxLeases(): Promise<
+    Array<{ leaseId: string; requestId: string; acquiredAt: number }>
+  > {
+    await this.loadState();
+
+    const leases: Array<{ leaseId: string; requestId: string; acquiredAt: number }> = [];
     for (const lease of this.activeLeases!.values()) {
-      if (lease.kind === 'sandbox_exec' && lease.slot !== undefined) used.push(lease.slot);
+      if (lease.kind === 'sandbox_exec') {
+        leases.push({
+          leaseId: lease.leaseId,
+          requestId: lease.requestId,
+          acquiredAt: lease.acquiredAt
+        });
+      }
     }
-    return lowestFreeSlot(used);
+    return leases;
   }
 
   /**

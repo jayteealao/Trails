@@ -1,0 +1,251 @@
+package com.jayteealao.trails.services.firestore
+
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.WriteBatch
+import com.jayteealao.trails.data.local.database.Article
+import io.mockk.MockKAnnotations
+import io.mockk.clearAllMocks
+import io.mockk.every
+import io.mockk.impl.annotations.MockK
+import io.mockk.mockk
+import io.mockk.verify
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+/**
+ * Verifies that backing up an article also writes its existence marker(s)
+ * onto the same WriteBatch (so they commit atomically), keyed by itemId plus
+ * resolvedId when distinct.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class FirestoreBackupServiceTest {
+
+    @MockK private lateinit var firestore: FirebaseFirestore
+    @MockK private lateinit var auth: FirebaseAuth
+    @MockK(relaxed = true) private lateinit var batch: WriteBatch
+
+    private lateinit var markersCollection: CollectionReference
+    private lateinit var service: FirestoreBackupService
+
+    @Before
+    fun setUp() {
+        MockKAnnotations.init(this)
+
+        val user = mockk<FirebaseUser>()
+        every { user.uid } returns "u1"
+        every { auth.currentUser } returns user
+
+        val usersCollection = mockk<CollectionReference>()
+        val userDoc = mockk<DocumentReference>()
+        markersCollection = mockk()
+        val articlesCollection = mockk<CollectionReference>()
+        val articleDoc = mockk<DocumentReference>(relaxed = true)
+
+        every { firestore.collection("users") } returns usersCollection
+        every { usersCollection.document("u1") } returns userDoc
+        every { userDoc.collection("articleMarkers") } returns markersCollection
+        every { userDoc.collection("articles") } returns articlesCollection
+        every { articlesCollection.document(any()) } returns articleDoc
+
+        every { firestore.batch() } returns batch
+        every { batch.commit() } returns Tasks.forResult(null)
+
+        service = FirestoreBackupService(firestore, auth)
+    }
+
+    @After
+    fun tearDown() {
+        clearAllMocks()
+    }
+
+    private fun article(id: String, resolved: String?): Article {
+        val a = mockk<Article>(relaxed = true)
+        every { a.itemId } returns id
+        every { a.resolvedId } returns resolved
+        every { a.text } returns null
+        return a
+    }
+
+    @Test
+    fun `writes a single sync marker for itemId when resolvedId is null`() = runTest {
+        val markerDoc = mockk<DocumentReference>()
+        every { markersCollection.document("item1") } returns markerDoc
+
+        val result = service.backupArticle(article("item1", null))
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) {
+            batch.set(
+                markerDoc,
+                match<Map<String, Any>> {
+                    it["key"] == "item1" && it["source"] == "sync" && it["itemId"] == "item1"
+                },
+                any(),
+            )
+        }
+        // Only one marker doc requested → no spurious resolvedId marker.
+        verify(exactly = 1) { markersCollection.document(any()) }
+    }
+
+    @Test
+    fun `writes markers for both itemId and a distinct resolvedId`() = runTest {
+        val itemMarker = mockk<DocumentReference>()
+        val resolvedMarker = mockk<DocumentReference>()
+        every { markersCollection.document("item1") } returns itemMarker
+        every { markersCollection.document("resolved1") } returns resolvedMarker
+
+        val result = service.backupArticle(article("item1", "resolved1"))
+
+        assertTrue(result.isSuccess)
+        // Both markers carry itemId = "item1" (the owning article's id).
+        verify(exactly = 1) {
+            batch.set(
+                itemMarker,
+                match<Map<String, Any>> { it["key"] == "item1" && it["itemId"] == "item1" },
+                any(),
+            )
+        }
+        verify(exactly = 1) {
+            batch.set(
+                resolvedMarker,
+                match<Map<String, Any>> { it["key"] == "resolved1" && it["itemId"] == "item1" },
+                any(),
+            )
+        }
+        verify(exactly = 2) { batch.set(any(), match<Map<String, Any>> { it["source"] == "sync" }, any()) }
+    }
+
+    @Test
+    fun `does not duplicate the marker when resolvedId equals itemId`() = runTest {
+        every { markersCollection.document("item1") } returns mockk<DocumentReference>()
+
+        val result = service.backupArticle(article("item1", "item1"))
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) { markersCollection.document(any()) }
+        verify(exactly = 1) {
+            batch.set(
+                any(),
+                match<Map<String, Any>> { it["source"] == "sync" && it["itemId"] == "item1" },
+                any(),
+            )
+        }
+    }
+
+    @Test
+    fun `does not write a resolvedId marker when resolvedId is blank`() = runTest {
+        every { markersCollection.document("item1") } returns mockk<DocumentReference>()
+
+        val result = service.backupArticle(article("item1", "  "))
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) { markersCollection.document(any()) }
+        verify(exactly = 1) {
+            batch.set(
+                any(),
+                match<Map<String, Any>> { it["source"] == "sync" && it["itemId"] == "item1" },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * TST-04 — writeArticleMarker happy path: the marker doc is written under
+     * users/{uid}/articleMarkers/{key} (owner's uid path) with source = "self-heal"
+     * and itemId = key (default: key and itemId are the same for itemId-keyed markers).
+     */
+    @Test
+    fun `writeArticleMarker writes marker under owner uid path with self-heal source`() = runTest {
+        val markerDoc = mockk<DocumentReference>()
+        every { markersCollection.document("key1") } returns markerDoc
+        every { markerDoc.set(any(), any()) } returns Tasks.forResult(null)
+
+        val result = service.writeArticleMarker("key1")
+
+        assertTrue(result.isSuccess)
+        // Must set on the doc under users/u1/articleMarkers/key1 with itemId = key1.
+        verify(exactly = 1) {
+            markerDoc.set(
+                match<Map<String, Any>> {
+                    it["key"] == "key1" && it["source"] == "self-heal" && it["itemId"] == "key1"
+                },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * writeArticleMarker with explicit itemId: for a resolvedId-keyed self-heal
+     * the caller can pass the owning article's itemId separately.
+     */
+    @Test
+    fun `writeArticleMarker with explicit itemId carries correct itemId in marker body`() = runTest {
+        val markerDoc = mockk<DocumentReference>()
+        every { markersCollection.document("resolved-key") } returns markerDoc
+        every { markerDoc.set(any(), any()) } returns Tasks.forResult(null)
+
+        val result = service.writeArticleMarker("resolved-key", itemId = "article-1")
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) {
+            markerDoc.set(
+                match<Map<String, Any>> {
+                    it["key"] == "resolved-key" && it["itemId"] == "article-1" && it["source"] == "self-heal"
+                },
+                any(),
+            )
+        }
+    }
+
+    /**
+     * TST-04 — writeArticleMarker failure path: when Firestore throws, the
+     * function returns a failed Result instead of propagating the exception.
+     */
+    @Test
+    fun `writeArticleMarker returns failure result when Firestore set throws`() = runTest {
+        val markerDoc = mockk<DocumentReference>()
+        every { markersCollection.document("key1") } returns markerDoc
+        every { markerDoc.set(any(), any()) } returns Tasks.forException(RuntimeException("network error"))
+
+        val result = service.writeArticleMarker("key1")
+
+        assertFalse(result.isSuccess)
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun `backupArticles bulk path writes sync markers for every article`() = runTest {
+        val markerDoc1 = mockk<DocumentReference>()
+        val markerDoc2 = mockk<DocumentReference>()
+        every { markersCollection.document("a1") } returns markerDoc1
+        every { markersCollection.document("a2") } returns markerDoc2
+
+        val result = service.backupArticles(listOf(article("a1", null), article("a2", null)))
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) {
+            batch.set(
+                markerDoc1,
+                match<Map<String, Any>> { it["key"] == "a1" && it["source"] == "sync" && it["itemId"] == "a1" },
+                any(),
+            )
+        }
+        verify(exactly = 1) {
+            batch.set(
+                markerDoc2,
+                match<Map<String, Any>> { it["key"] == "a2" && it["source"] == "sync" && it["itemId"] == "a2" },
+                any(),
+            )
+        }
+    }
+}

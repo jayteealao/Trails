@@ -12,8 +12,9 @@ import type {
   WorkflowCheckpoint,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { getR2Key, getStepManifestKey } from '@warg/shared';
+import { getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
+import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
   WorkflowParams,
   ArchiveOptionsExtended,
@@ -30,12 +31,15 @@ import {
 } from './services.js';
 import {
   logEvent,
+  logEvents,
   logStepStarted,
   logStepCompletedWithDuration,
   logStepFailed,
   logArtifactWritten,
   logRequestDone,
   logRequestFailed,
+  artifactWrittenEvent,
+  stepCompletedEvent,
   updateManifestKey
 } from './logging.js';
 import { runMockPipeline } from './mock.js';
@@ -774,8 +778,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     step: WorkflowStep,
     requestId: string,
     renderedHtmlKey: string,
-    monolithBaseUrl: string,
-    sandboxId: string | undefined
+    monolithBaseUrl: string
   ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
     // Workstream B2: monolith either produces in well under 2 min or it won't;
     // 3×5-min retries were the main driver of the derive-latency tail. Cap at
@@ -793,8 +796,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             return await callMonolith(this.env, {
               request_id: requestId,
               rendered_html_key: renderedHtmlKey,
-              base_url: monolithBaseUrl,
-              sandbox_id: sandboxId
+              base_url: monolithBaseUrl
             });
           }
         );
@@ -830,38 +832,33 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     renderedHtmlKey: string,
     monolithBaseUrl: string
   ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
-    const { leaseId, slot } = await step.do(
-      'acquire-monolith-quota',
-      {
-        retries: { limit: 20, delay: '3 seconds', backoff: 'linear' },
-        timeout: '10 minutes'
-      },
+    const { leaseId } = await acquireQuotaWithSleep(
+      step,
+      'monolith',
       async () => {
         const stub = this.env.BROWSER_QUOTA.get(
           this.env.BROWSER_QUOTA.idFromName('global')
         );
         const result = await stub.acquire('sandbox_exec', requestId);
         if (!result.granted) {
-          throw new Error(`Sandbox quota unavailable, retry after ${result.retryAfterMs}ms`);
+          return { granted: false, retryAfterMs: result.retryAfterMs };
         }
-        return { leaseId: result.leaseId!, slot: result.slot };
-      }
+        return { granted: true, leaseId: result.leaseId! };
+      },
+      undefined,
+      undefined,
+      (m) => new NonRetryableError(m)
     );
 
-    // Pin this job to a stable warm-pool container so the monolith worker reuses
-    // a fixed set of sandboxes instead of cold-starting a unique one per request.
-    // For instances whose acquire step was checkpointed before warm-pool rollout
-    // (cached result has no slot), send no id and let monolith use a per-request
-    // sandbox — never a shared `monolith-pool-undefined`.
-    const sandboxId = typeof slot === 'number' ? `monolith-pool-${slot}` : undefined;
-
+    // No warm pool: the monolith worker keys the sandbox off the request id and
+    // stops the container after the job, trading per-job cold starts for not
+    // billing idle DO duration between jobs.
     try {
       return await this.callMonolithWithRetry(
         step,
         requestId,
         renderedHtmlKey,
-        monolithBaseUrl,
-        sandboxId
+        monolithBaseUrl
       );
     } finally {
       await step.do('release-monolith-quota', async () => {
@@ -947,23 +944,23 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     url: string,
     options: ArchiveOptionsExtended
   ): Promise<RenderStepResult> {
-    // Acquire quota (with retry)
-    const { leaseId } = await step.do(
-      'acquire-render-quota',
-      {
-        retries: { limit: 20, delay: '3 seconds', backoff: 'linear' },
-        timeout: '10 minutes'
-      },
+    // Acquire quota (sleep-reschedule between denied attempts)
+    const { leaseId } = await acquireQuotaWithSleep(
+      step,
+      'render',
       async () => {
         const stub = this.env.BROWSER_QUOTA.get(
           this.env.BROWSER_QUOTA.idFromName('global')
         );
         const result = await stub.acquire('bindings_launch', requestId);
         if (!result.granted) {
-          throw new Error(`Quota unavailable, retry after ${result.retryAfterMs}ms`);
+          return { granted: false, retryAfterMs: result.retryAfterMs };
         }
-        return { leaseId: result.leaseId! };
-      }
+        return { granted: true, leaseId: result.leaseId! };
+      },
+      undefined,
+      undefined,
+      (m) => new NonRetryableError(m)
     );
 
     try {
@@ -995,28 +992,29 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
 
       // Log artifacts + duration + enriched meta
       await step.do('log-render-artifacts', async () => {
-        for (const artifact of renderResult.artifacts) {
-          await logArtifactWritten(
-            this.env,
-            requestId,
+        const events = renderResult.artifacts.map((artifact) =>
+          artifactWrittenEvent(
             artifact.kind,
             artifact.r2Key,
             artifact.bytes,
             artifact.contentType,
             artifact.sha256
-          );
-        }
-        await logStepCompletedWithDuration(this.env, requestId, 'render', renderStartedAt, {
-          artifactCount: renderResult.artifacts.length,
-          ...(renderOutcome.fallbackUsed
-            ? {
-                fallbackUsed: true,
-                fallbackReason: renderOutcome.fallbackReason,
-                fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
-              }
-            : {}),
-          ...(renderResult.meta ? { meta: renderResult.meta } : {})
-        });
+          )
+        );
+        events.push(
+          stepCompletedEvent('render', renderStartedAt, {
+            artifactCount: renderResult.artifacts.length,
+            ...(renderOutcome.fallbackUsed
+              ? {
+                  fallbackUsed: true,
+                  fallbackReason: renderOutcome.fallbackReason,
+                  fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
+                }
+              : {}),
+            ...(renderResult.meta ? { meta: renderResult.meta } : {})
+          })
+        );
+        await logEvents(this.env, requestId, events);
       });
 
       // Find the rendered HTML key
@@ -1058,23 +1056,23 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     url: string,
     optionsR2Key: string
   ): Promise<ArtifactMeta> {
-    // Acquire quota (with retry)
-    const { leaseId } = await step.do(
-      'acquire-singlefile-quota',
-      {
-        retries: { limit: 20, delay: '3 seconds', backoff: 'linear' },
-        timeout: '10 minutes'
-      },
+    // Acquire quota (sleep-reschedule between denied attempts)
+    const { leaseId } = await acquireQuotaWithSleep(
+      step,
+      'singlefile',
       async () => {
         const stub = this.env.BROWSER_QUOTA.get(
           this.env.BROWSER_QUOTA.idFromName('global')
         );
         const result = await stub.acquire('bindings_launch', requestId);
         if (!result.granted) {
-          throw new Error(`Quota unavailable, retry after ${result.retryAfterMs}ms`);
+          return { granted: false, retryAfterMs: result.retryAfterMs };
         }
-        return { leaseId: result.leaseId! };
-      }
+        return { granted: true, leaseId: result.leaseId! };
+      },
+      undefined,
+      undefined,
+      (m) => new NonRetryableError(m)
     );
 
     try {
@@ -1365,6 +1363,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   }
 
   private toMonolithBaseUrl(rawUrl: string): string {
+    // eslint-disable-next-line no-control-regex -- stripping control chars from URLs is the point
     const sanitized = rawUrl.replace(/[\u0000-\u001F\u007F]/g, '').trim();
     try {
       const parsed = new URL(sanitized);
@@ -1441,6 +1440,27 @@ export default {
         }
       } catch (err) {
         console.error('[workflow] Error starting workflow:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
+      }
+    }
+
+    // GET /browser-quota/sandbox-leases - active sandbox_exec leases, read-only.
+    // Consumed by the gateway's orphan-container sweep. Unlike /start and
+    // /status (service-binding-only callers), this is guarded by the internal
+    // API key since it exposes quota state.
+    if (request.method === 'GET' && url.pathname === '/browser-quota/sandbox-leases') {
+      const apiKey = request.headers.get('X-Internal-API-Key');
+      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      try {
+        const stub = env.BROWSER_QUOTA.get(env.BROWSER_QUOTA.idFromName('global'));
+        const leases = await stub.listSandboxLeases();
+        return Response.json({ leases });
+      } catch (err) {
+        console.error('[workflow] Error listing sandbox leases:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
         return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
       }

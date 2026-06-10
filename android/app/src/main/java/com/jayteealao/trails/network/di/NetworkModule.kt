@@ -6,6 +6,8 @@ import com.chuckerteam.chucker.api.ChuckerInterceptor
 import com.chuckerteam.chucker.api.RetentionManager
 import com.google.gson.GsonBuilder
 import com.jayteealao.trails.data.SharedPreferencesManager
+import com.jayteealao.trails.di.DEFAULT_DASHBOARD_API_URL
+import com.jayteealao.trails.network.ArchiveUrlService
 import com.jayteealao.trails.network.pocket.PocketService
 import com.jayteealao.trails.services.postgrest.PostgrestService
 import com.jayteealao.trails.services.semanticSearch.modal.ModalService
@@ -80,7 +82,6 @@ object NetworkModule {
             .followSslRedirects(true)
             .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS))
             .connectionPool(ConnectionPool(20, 5, TimeUnit.MINUTES))
-            .hostnameVerifier(OkHttpClient().hostnameVerifier)
             .addNetworkInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder()
@@ -128,6 +129,22 @@ object NetworkModule {
             .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
             .build()
         return retrofit.create(ModalService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideArchiveUrlService(okHttpClient: OkHttpClient): ArchiveUrlService {
+        val gson = GsonBuilder().create()
+        val retrofit = Retrofit.Builder()
+            .client(okHttpClient)
+            // The signed-URL call uses @Url to supply the absolute endpoint per
+            // call (driven by Remote Config), so this base is only the nominal
+            // value Retrofit requires — it is never used to build the request.
+            // Derived from DEFAULT_DASHBOARD_API_URL to keep the host in one place.
+            .baseUrl(DEFAULT_DASHBOARD_API_URL.substringBeforeLast("/") + "/")
+            .addConverterFactory(GsonConverterFactory.create(gson))
+            .build()
+        return retrofit.create(ArchiveUrlService::class.java)
     }
 
     @Provides

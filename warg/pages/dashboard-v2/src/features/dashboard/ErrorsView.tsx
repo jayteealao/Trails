@@ -1,4 +1,3 @@
-import { useApi } from '@/hooks/useApi';
 import { useInterval } from '@/hooks/useInterval';
 import { useSettings } from '@/hooks/useSettings';
 import { fetchStats, fetchRequests, fetchRequestDetail } from '@/api/endpoints';

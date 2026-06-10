@@ -4,8 +4,7 @@ import type {
   RenderRequest,
   RenderSuccessResponse,
   RenderRateLimitedResponse,
-  RendererOptions,
-  BrowserQuotaKind
+  RendererOptions
 } from './types.js';
 
 const BR_BASE = 'https://api.cloudflare.com/client/v4/accounts';

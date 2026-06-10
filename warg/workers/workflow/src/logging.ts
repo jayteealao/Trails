@@ -1,4 +1,4 @@
-import type { EventType, LogLevel } from '@warg/shared';
+import type { EventType, LogEvent, LogLevel } from '@warg/shared';
 import { createEvent } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
@@ -110,7 +110,7 @@ export function classifyError(stepName: string, errorMsg: string): ClassifiedErr
 
   if (
     msg.includes('execution context was destroyed') ||
-    msg.includes('code\":6000') ||
+    msg.includes('code":6000') ||
     msg.includes('context destroyed')
   ) {
     return {
@@ -187,9 +187,35 @@ export function classifyError(stepName: string, errorMsg: string): ClassifiedErr
 }
 
 /**
+ * Module-private helper: POST a JSON body to the logger service binding.
+ * Never throws — logging must not block workflow execution.
+ * @param label  Short description used in failure log messages (e.g. "event [step.started] for req123" or "event batch for req123 (4 events)")
+ */
+async function loggerPost(env: Env, path: string, body: unknown, label: string): Promise<void> {
+  try {
+    const response = await env.LOGGER.fetch(`https://logger${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-API-Key': env.INTERNAL_API_KEY
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      const text = (await response.text()).slice(0, 300);
+      console.error(`[workflow] Failed to log ${label}: ${text}`);
+    }
+  } catch (err) {
+    console.error(`[workflow] Error logging ${label}:`, err);
+  }
+}
+
+/**
  * Log an event to the logger service.
  */
-export async function logEvent(
+export function logEvent(
   env: Env,
   requestId: string,
   type: EventType,
@@ -198,24 +224,27 @@ export async function logEvent(
   level: LogLevel = 'info'
 ): Promise<void> {
   const event = createEvent('workflow', type, level, message, data);
+  return loggerPost(env, '/event', { requestId, event }, `event [${type}] for ${requestId}`);
+}
 
-  try {
-    const response = await env.LOGGER.fetch('https://logger/event', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-API-Key': env.INTERNAL_API_KEY
-      },
-      body: JSON.stringify({ requestId, event })
-    });
-
-    if (!response.ok) {
-      console.error(`[workflow] Failed to log event: ${await response.text()}`);
-    }
-  } catch (err) {
-    // Log to console but don't throw - logging should not block workflow
-    console.error('[workflow] Error logging event:', err);
-  }
+/**
+ * Append a batch of events in one logger round-trip (atomic on the logger
+ * side). Use inside multi-event step callbacks; terminal events
+ * (request.done / request.failed) must stay on per-event logEvent calls so
+ * SSE consumers see them immediately.
+ */
+export async function logEvents(
+  env: Env,
+  requestId: string,
+  events: LogEvent[]
+): Promise<void> {
+  if (events.length === 0) return;
+  await loggerPost(
+    env,
+    '/events/batch',
+    { requestId, events },
+    `event batch for ${requestId} (${events.length} events)`
+  );
 }
 
 /**
@@ -267,6 +296,23 @@ export function logStepCompletedWithDuration(
 }
 
 /**
+ * Build a step.completed event with duration tracking for batched logging.
+ * Same payload as logStepCompletedWithDuration, returned instead of sent.
+ */
+export function stepCompletedEvent(
+  stepName: string,
+  startedAt: number,
+  data?: Record<string, unknown>
+): LogEvent {
+  const durationMs = Date.now() - startedAt;
+  return createEvent('workflow', 'step.completed', 'info', `Step completed: ${stepName}`, {
+    step: stepName,
+    ...data,
+    duration_ms: durationMs
+  });
+}
+
+/**
  * Log a step failed event.
  * Accepts string or Error. If Error, includes truncated stack trace.
  */
@@ -311,6 +357,26 @@ export function logArtifactWritten(
   sha256: string
 ): Promise<void> {
   return logEvent(env, requestId, 'artifact.written', `Artifact written: ${kind}`, {
+    kind,
+    r2Key,
+    bytes,
+    contentType,
+    sha256
+  });
+}
+
+/**
+ * Build an artifact.written event for batched logging.
+ * Same payload as logArtifactWritten, returned instead of sent.
+ */
+export function artifactWrittenEvent(
+  kind: string,
+  r2Key: string,
+  bytes: number,
+  contentType: string,
+  sha256: string
+): LogEvent {
+  return createEvent('workflow', 'artifact.written', 'info', `Artifact written: ${kind}`, {
     kind,
     r2Key,
     bytes,

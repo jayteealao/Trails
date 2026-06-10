@@ -2,7 +2,11 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /archives/{allPaths=**} {
-      allow read: if request.auth != null;
+      // Archive reads are owner-scoped via the per-user signed-URL Cloud Function
+      // endpoint (GET /app/signed-url). Direct Firebase Storage SDK reads are denied.
+      // Bucket: htbase-archives-standard (firebase/.firebaserc "archives" target).
+      // The Android app never uses the Firebase Storage SDK for archive reads.
+      allow read: if false;
       allow write: if false;
     }
   }

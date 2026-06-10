@@ -4,16 +4,24 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
-import com.google.android.gms.auth.GoogleAuthUtil
-import com.google.android.gms.auth.UserRecoverableAuthException
-import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.di.ARCHIVE_SIGNED_URL_BASE_KEY
+import com.jayteealao.trails.di.DEFAULT_DASHBOARD_API_URL
+import com.jayteealao.trails.network.ArchiveUrlService
+import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.Flow
@@ -21,13 +29,13 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicReference
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.net.URLEncoder
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 import javax.inject.Inject
@@ -42,7 +50,6 @@ data class WargMetadata(
     val wordCount: Int?,
 )
 
-private const val GCS_BUCKET = "htbase-archives-standard"
 private const val MAX_DOWNLOAD_BYTES = 50L * 1024 * 1024 // 50MB
 private const val THUMBNAIL_SIZE = 160
 private const val THUMBNAIL_QUALITY = 80
@@ -50,7 +57,11 @@ private const val THUMBNAIL_QUALITY = 80
 @Singleton
 class ArchiveService @Inject constructor(
     private val firestore: FirebaseFirestore,
+    private val auth: FirebaseAuth,
+    private val backupService: FirestoreBackupService,
     private val okHttpClient: OkHttpClient,
+    private val archiveUrlService: ArchiveUrlService,
+    private val remoteConfig: FirebaseRemoteConfig,
     private val localArchiveDao: LocalArchiveDao,
     private val articleDao: ArticleDao,
     private val application: Application,
@@ -62,36 +73,90 @@ class ArchiveService @Inject constructor(
     /** Limit concurrent archive downloads to cap peak memory from parallel decompress. */
     private val downloadSemaphore = Semaphore(3)
 
+    /**
+     * Resolve the owning article's [Article.itemId] for a marker key that may be
+     * either an itemId or a resolvedId. The rules' getAfter check requires a doc
+     * at users/{uid}/articles/{itemId}, which only exists under the canonical
+     * itemId, not under a resolvedId alias.
+     *
+     * Strategy:
+     * 1. Try [articleDao.getArticleById] — fast path when [key] is already the itemId.
+     * 2. If null, try [articleDao.getArticleByResolvedId] — for resolvedId-keyed reads.
+     * 3. If still null (article not in local DB yet), fall back to [key] — the
+     *    marker write may still fail the rule, but it degrades to the existing
+     *    graceful empty state rather than crashing.
+     */
+    private suspend fun owningItemId(key: String): String =
+        articleDao.getArticleById(key)?.itemId
+            ?: articleDao.getArticleByResolvedId(key)?.itemId
+            ?: key
+
     // ── a) Firestore document listener ──────────────────────────────────
 
     fun observeRemoteArchives(itemId: String): Flow<Map<String, ArchiveStatus>> = callbackFlow {
         Timber.d("observeRemoteArchives($itemId) — attaching Firestore listener")
         val docRef = firestore.collection("articles").document(itemId)
-        val listener = docRef.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                Timber.e(error, "observeRemoteArchives($itemId) — listener error")
-                return@addSnapshotListener
-            }
-            if (snapshot == null || !snapshot.exists()) {
-                Timber.d("observeRemoteArchives($itemId) — doc missing or null, emitting empty")
-                trySend(emptyMap())
-                return@addSnapshotListener
-            }
+        var hasSelfHealed = false
+        // Single source of truth for the current registration, visible across the
+        // Firestore callback thread and the coroutine launched for self-heal.
+        val registrationRef = AtomicReference<ListenerRegistration?>(null)
 
-            val archives = mutableMapOf<String, ArchiveStatus>()
-            @Suppress("UNCHECKED_CAST")
-            val archivesMap = snapshot.get("archives") as? Map<String, Map<String, Any>> ?: emptyMap()
-            for ((key, value) in archivesMap) {
-                val status = value["status"] as? String ?: continue
-                val gcsPath = value["gcs_path"] as? String
-                archives[key] = ArchiveStatus(status, gcsPath)
-            }
-            Timber.d("observeRemoteArchives($itemId) — emitting ${archives.size} archives: ${archives.map { "${it.key}=${it.value.status}" }}")
-            trySend(archives)
+        fun attach() {
+            registrationRef.set(docRef.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    // Self-heal once on a denied read for an article we own:
+                    // write the existence marker and re-attach the listener.
+                    if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED &&
+                        !hasSelfHealed && auth.currentUser != null
+                    ) {
+                        hasSelfHealed = true
+                        Timber.w(error, "observeRemoteArchives($itemId) — read denied, self-healing marker")
+                        launch {
+                            val markerItemId = owningItemId(itemId)
+                            val result = backupService.writeArticleMarker(itemId, markerItemId)
+                            result.onFailure { t ->
+                                Timber.w(t, "observeRemoteArchives($itemId) — self-heal marker write failed for $itemId (markerItemId=$markerItemId)")
+                            }
+                            // Remove the stale registration and re-attach only if
+                            // the producer scope is still alive; if the collector
+                            // cancelled during the marker write we must not create
+                            // a new listener that would never be removed.
+                            registrationRef.getAndSet(null)?.remove()
+                            if (isActive) {
+                                attach()
+                            }
+                        }
+                        return@addSnapshotListener
+                    }
+                    // Unrecoverable (or already healed): surface a graceful empty
+                    // state instead of leaving the flow hanging — never crash.
+                    Timber.e(error, "observeRemoteArchives($itemId) — listener error, emitting empty")
+                    trySend(emptyMap())
+                    return@addSnapshotListener
+                }
+                if (snapshot == null || !snapshot.exists()) {
+                    Timber.d("observeRemoteArchives($itemId) — doc missing or null, emitting empty")
+                    trySend(emptyMap())
+                    return@addSnapshotListener
+                }
+
+                val archives = mutableMapOf<String, ArchiveStatus>()
+                @Suppress("UNCHECKED_CAST")
+                val archivesMap = snapshot.get("archives") as? Map<String, Map<String, Any>> ?: emptyMap()
+                for ((key, value) in archivesMap) {
+                    val status = value["status"] as? String ?: continue
+                    val gcsPath = value["gcs_path"] as? String
+                    archives[key] = ArchiveStatus(status, gcsPath)
+                }
+                Timber.d("observeRemoteArchives($itemId) — emitting ${archives.size} archives: ${archives.map { "${it.key}=${it.value.status}" }}")
+                trySend(archives)
+            })
         }
+
+        attach()
         awaitClose {
             Timber.d("observeRemoteArchives($itemId) — listener removed")
-            listener.remove()
+            registrationRef.getAndSet(null)?.remove()
         }
     }
 
@@ -100,11 +165,10 @@ class ArchiveService @Inject constructor(
     suspend fun downloadAndStoreArchive(
         itemId: String,
         type: ArchiveType,
-        gcsPath: String,
     ): LocalArchive? = withContext(ioDispatcher) {
-        Timber.d("downloadAndStore($itemId, ${type.archiveKey}) — fetching from GCS: $gcsPath")
+        Timber.d("downloadAndStore($itemId, ${type.archiveKey}) — fetching via signed URL")
 
-        val rawBytes = downloadFromGcs(gcsPath)
+        val rawBytes = downloadArchive(itemId, type.archiveKey)
         if (rawBytes == null) {
             Timber.w("downloadAndStore($itemId, ${type.archiveKey}) — download returned null, skipping")
             return@withContext null
@@ -202,10 +266,7 @@ class ArchiveService @Inject constructor(
             async {
                 downloadSemaphore.withPermit {
                     try {
-                        downloadAndStoreArchive(itemId, type, status.gcsPath)
-                    } catch (e: UserRecoverableAuthException) {
-                        Timber.w("Storage consent needed for ${type.archiveKey} download")
-                        throw e // Propagate so caller can handle consent UI
+                        downloadAndStoreArchive(itemId, type)
                     } catch (e: Exception) {
                         Timber.e(e, "Failed to download ${type.archiveKey} for $itemId")
                     }
@@ -213,6 +274,41 @@ class ArchiveService @Inject constructor(
             }
         }.forEach { it.await() }
         Timber.d("syncArchives($itemId) — all downloads complete")
+    }
+
+    // ── Top-level article read with self-heal ───────────────────────────
+
+    /**
+     * Read the top-level articles/{itemId} doc, self-healing once on a
+     * PERMISSION_DENIED: write the owner's existence marker for [itemId] and
+     * retry the read a single time. Returns null on a missing doc or an
+     * unrecoverable failure — callers surface a graceful unavailable state and
+     * never crash. The `articles` read rule is not yet tightened, so this path
+     * is proven by unit test now and exercised end-to-end once it is tightened.
+     */
+    private suspend fun getArticleDocWithSelfHeal(itemId: String): DocumentSnapshot? {
+        val docRef = firestore.collection("articles").document(itemId)
+        var hasSelfHealed = false
+        while (true) {
+            try {
+                return docRef.get().await()
+            } catch (e: FirebaseFirestoreException) {
+                if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED &&
+                    !hasSelfHealed && auth.currentUser != null
+                ) {
+                    hasSelfHealed = true
+                    Timber.w(e, "getArticleDoc($itemId) — read denied, writing marker and retrying once")
+                    val markerItemId = owningItemId(itemId)
+                    val result = backupService.writeArticleMarker(itemId, markerItemId)
+                    result.onFailure { t ->
+                        Timber.w(t, "getArticleDoc($itemId) — self-heal marker write failed for $itemId (markerItemId=$markerItemId)")
+                    }
+                    continue
+                }
+                Timber.w(e, "getArticleDoc($itemId) — read failed (${e.code}), surfacing unavailable")
+                return null
+            }
+        }
     }
 
     // ── e) Screenshot → image fallback ──────────────────────────────────
@@ -223,7 +319,7 @@ class ArchiveService @Inject constructor(
         if (article != null && !article.image.isNullOrBlank()) return@withContext
 
         // Fetch remote archive status to get screenshot gcs_path
-        val doc = firestore.collection("articles").document(itemId).get().await()
+        val doc = getArticleDocWithSelfHeal(itemId) ?: return@withContext
         if (!doc.exists()) return@withContext
 
         @Suppress("UNCHECKED_CAST")
@@ -232,10 +328,12 @@ class ArchiveService @Inject constructor(
 
         val status = screenshotEntry["status"] as? String
         val gcsPath = screenshotEntry["gcs_path"] as? String
+        // gcs_path presence is the readiness signal; the object is fetched via
+        // the scoped signed-URL path, not the gs:// path directly.
         if (status != "success" || gcsPath == null) return@withContext
 
         // Download screenshot PNG transiently
-        val rawBytes = downloadFromGcs(gcsPath)
+        val rawBytes = downloadArchive(itemId, "screenshot")
         if (rawBytes == null) {
             Timber.d("applyScreenshotAsImage($itemId) — screenshot download returned null")
             return@withContext
@@ -273,7 +371,7 @@ class ArchiveService @Inject constructor(
     // ── f) Metadata fetch ───────────────────────────────────────────────
 
     suspend fun fetchWargMetadata(itemId: String): WargMetadata? = withContext(ioDispatcher) {
-        val doc = firestore.collection("articles").document(itemId).get().await()
+        val doc = getArticleDocWithSelfHeal(itemId) ?: return@withContext null
         if (!doc.exists()) return@withContext null
 
         @Suppress("UNCHECKED_CAST")
@@ -287,43 +385,70 @@ class ArchiveService @Inject constructor(
         )
     }
 
-    // ── GCS download via JSON API ──────────────────────────────────────
+    // ── Scoped archive download via per-user signed URL ─────────────────
 
-    private fun downloadFromGcs(gcsPath: String): ByteArray? {
-        val objectPath = gcsPath
-            .removePrefix("gs://$GCS_BUCKET/")
-            .removePrefix("gs://htbase-archives-standard/")
-        val encodedPath = URLEncoder.encode(objectPath, "UTF-8")
-        val url = "https://storage.googleapis.com/storage/v1/b/$GCS_BUCKET/o/$encodedPath?alt=media"
-
-        val googleAccount = GoogleSignIn.getLastSignedInAccount(application)?.account
-        if (googleAccount == null) {
-            Timber.w("downloadFromGcs — no Google account signed in")
+    /**
+     * Fetch an archive object via the scoped, owner-checked signed-URL path:
+     * exchange the signed-in user's Firebase ID token at `/app/signed-url` for a
+     * short-lived V4 signed GCS URL, then GET the object directly (the signed
+     * URL carries its own auth in the query string — no Authorization header).
+     *
+     * Returns null when the user is not signed in, the signing request fails, or
+     * the object fetch fails — callers degrade to a graceful unavailable state.
+     */
+    // internal (not private) so the signed-URL fetch path can be unit-tested
+    // directly without exercising the file-I/O / bitmap decode of the public
+    // callers (see ArchiveServiceFetchTest).
+    internal suspend fun downloadArchive(itemId: String, archiveKey: String): ByteArray? {
+        val user = auth.currentUser
+        if (user == null) {
+            Timber.w("downloadArchive($itemId, $archiveKey) — no signed-in user, skipping")
             return null
         }
-        // GoogleAuthUtil.getToken() may throw UserRecoverableAuthException — let it propagate
-        val accessToken = GoogleAuthUtil.getToken(
-            application,
-            googleAccount,
-            "oauth2:https://www.googleapis.com/auth/devstorage.read_only",
-        )
 
-        val request = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $accessToken")
-            .build()
+        val token = try {
+            user.getIdToken(false).await().token
+        } catch (e: Exception) {
+            Timber.w(e, "downloadArchive($itemId, $archiveKey) — getIdToken failed, skipping")
+            return null
+        }
+        if (token == null) {
+            Timber.w("downloadArchive($itemId, $archiveKey) — null ID token, skipping")
+            return null
+        }
 
+        val base = remoteConfig.getString(ARCHIVE_SIGNED_URL_BASE_KEY)
+            .ifBlank { DEFAULT_DASHBOARD_API_URL }
+        val endpoint = "$base/app/signed-url"
+
+        val signedUrl = try {
+            archiveUrlService.getSignedUrl(endpoint, "Bearer $token", itemId, archiveKey).url
+        } catch (e: Exception) {
+            Timber.w(e, "downloadArchive($itemId, $archiveKey) — signed-URL request failed")
+            return null
+        }
+
+        return withContext(ioDispatcher) { fetchObjectBytes(signedUrl) }
+    }
+
+    /**
+     * GET an object URL with a bounded read (no Authorization header — the
+     * signed URL is self-authorizing). Enforces [MAX_DOWNLOAD_BYTES] whether or
+     * not the server reports a Content-Length.
+     */
+    private fun fetchObjectBytes(url: String): ByteArray? {
+        val request = Request.Builder().url(url).build()
         return try {
             okHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Timber.w("GCS download failed: HTTP ${response.code} for $objectPath")
+                    Timber.w("Signed-URL object fetch failed: HTTP ${response.code}")
                     return@use null
                 }
 
                 // Pre-check: reject before downloading if Content-Length is known and too large
                 val contentLength = response.header("Content-Length")?.toLongOrNull()
                 if (contentLength != null && contentLength > MAX_DOWNLOAD_BYTES) {
-                    Timber.w("GCS object too large: $contentLength bytes (limit: $MAX_DOWNLOAD_BYTES) for $objectPath")
+                    Timber.w("Archive object too large: $contentLength bytes (limit: $MAX_DOWNLOAD_BYTES)")
                     return@use null
                 }
 
@@ -336,14 +461,14 @@ class ArchiveService @Inject constructor(
                     if (bytesRead == -1L) break
                     totalRead += bytesRead
                     if (totalRead > MAX_DOWNLOAD_BYTES) {
-                        Timber.w("GCS download exceeded $MAX_DOWNLOAD_BYTES bytes, aborting for $objectPath")
+                        Timber.w("Archive download exceeded $MAX_DOWNLOAD_BYTES bytes, aborting")
                         return@use null
                     }
                 }
                 buffer.readByteArray()
             }
         } catch (e: java.io.IOException) {
-            Timber.w(e, "downloadFromGcs — network error for $objectPath")
+            Timber.w(e, "fetchObjectBytes — network error")
             null
         }
     }

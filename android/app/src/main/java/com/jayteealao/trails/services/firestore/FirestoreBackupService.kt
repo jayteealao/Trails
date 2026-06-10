@@ -2,8 +2,10 @@ package com.jayteealao.trails.services.firestore
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.WriteBatch
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.network.ArticleAuthors
 import com.jayteealao.trails.network.ArticleImages
@@ -27,6 +29,7 @@ class FirestoreBackupService @Inject constructor(
     companion object {
         private const val USERS_COLLECTION = "users"
         private const val ARTICLES_COLLECTION = "articles"
+        private const val ARTICLE_MARKERS_COLLECTION = "articleMarkers"
         private const val TAGS_COLLECTION = "tags"
         private const val IMAGES_COLLECTION = "images"
         private const val VIDEOS_COLLECTION = "videos"
@@ -34,7 +37,13 @@ class FirestoreBackupService @Inject constructor(
         private const val DOMAIN_METADATA_COLLECTION = "domain_metadata"
         private const val ARTICLE_TEXT_COLLECTION = "text"
         private const val MAX_TEXT_SIZE = 900_000 // 900KB to leave buffer for other fields
-        private const val PAGINATION_LIMIT = 50 // Fetch 50 articles at a time
+        // Rules budget: each article in a batch costs one getAfter call on
+        // users/{uid}/articles/{itemId}. Firestore allows at most 20 document-
+        // access calls per batched write (same-path calls are cached, but each
+        // article has a unique path). Keep chunk sizes ≤ 20.
+        private const val WRITE_BATCH_LIMIT = 20 // ≤ 20 so each batch's marker getAfter() calls fit the Firestore rules document-access budget
+        // Read-side page size for restore operations — independent of the write-batch budget.
+        private const val RESTORE_PAGE_LIMIT = 50
     }
 
     /**
@@ -49,6 +58,92 @@ class FirestoreBackupService @Inject constructor(
         firestore.collection(USERS_COLLECTION)
             .document(userId)
             .collection(ARTICLES_COLLECTION)
+
+    /**
+     * Get the user's article-marker collection reference.
+     * One existence marker is written per saved article key under
+     * users/{userId}/articleMarkers/{key}; this gates the (later) tightened
+     * top-level `articles` read.
+     */
+    private fun getUserMarkersCollection(userId: String) =
+        firestore.collection(USERS_COLLECTION)
+            .document(userId)
+            .collection(ARTICLE_MARKERS_COLLECTION)
+
+    /**
+     * Marker doc keys for an article: its [Article.itemId] always, plus
+     * [Article.resolvedId] when present and distinct (the network mapper
+     * sometimes leaves it blank). Deduped so the read rule's single exists()
+     * check matches whichever key a reader passes.
+     */
+    private fun markerKeysFor(article: Article): List<String> {
+        val keys = mutableListOf(article.itemId)
+        val resolved = article.resolvedId
+        if (!resolved.isNullOrBlank() && resolved != article.itemId) {
+            keys.add(resolved)
+        }
+        return keys
+    }
+
+    /**
+     * Minimal marker body. `itemId` is the doc id of the user's own article at
+     * users/{userId}/articles/{itemId} — required by the tightened create/update
+     * rule to prove the caller owns the referenced article. Both the itemId-keyed
+     * and the resolvedId-keyed marker for the same article carry the same
+     * [articleItemId] so the rules path cache only needs one getAfter call per
+     * article.
+     */
+    private fun markerBody(key: String, source: String, articleItemId: String): Map<String, Any> =
+        mapOf(
+            "key" to key,
+            "itemId" to articleItemId,
+            "createdAt" to FieldValue.serverTimestamp(),
+            "source" to source,
+        )
+
+    /**
+     * Queue marker writes for [article] onto an existing [batch] so they
+     * commit atomically with the article doc. Keyed by [markerKeysFor].
+     * Both the itemId-keyed and resolvedId-keyed markers carry itemId =
+     * article.itemId so the rules' getAfter check resolves to the same
+     * article doc path (cached — only one access call per article).
+     */
+    private fun addMarkerWrites(batch: WriteBatch, userId: String, article: Article) {
+        val markers = getUserMarkersCollection(userId)
+        markerKeysFor(article).forEach { key ->
+            batch.set(markers.document(key), markerBody(key, "sync", article.itemId), SetOptions.merge())
+        }
+    }
+
+    /**
+     * Write a single article-existence marker for the current user. Reused by
+     * the archive read-path self-heal when a read is denied for an owned
+     * article key. Idempotent (merge); records source = "self-heal".
+     *
+     * [key] is the marker doc id (itemId or resolvedId). [itemId] is the doc
+     * id of the user's own article at users/{uid}/articles/{itemId}; it must
+     * match an existing article doc so the tightened create/update rule's
+     * getAfter check passes. When the self-heal is triggered for an itemId-keyed
+     * read (the common case) [key] and [itemId] are the same value; pass them
+     * separately when healing a resolvedId-keyed marker.
+     */
+    suspend fun writeArticleMarker(key: String, itemId: String = key): Result<Unit> {
+        return try {
+            val user = getCurrentUser()
+                ?: return Result.failure(Exception("User not authenticated"))
+
+            getUserMarkersCollection(user.uid)
+                .document(key)
+                .set(markerBody(key, "self-heal", itemId), SetOptions.merge())
+                .await()
+
+            Timber.d("Wrote self-heal marker for key $key (itemId=$itemId)")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to write self-heal marker for key $key")
+            Result.failure(e)
+        }
+    }
 
     /**
      * Backup a single article with all its related data
@@ -127,6 +222,9 @@ class FirestoreBackupService @Inject constructor(
                 batch.set(metadataRef, metadata, SetOptions.merge())
             }
 
+            // Write existence marker(s) atomically with the article doc
+            addMarkerWrites(batch, user.uid, article)
+
             // Commit batch
             batch.commit().await()
 
@@ -148,14 +246,21 @@ class FirestoreBackupService @Inject constructor(
 
             var successCount = 0
 
-            // Process in chunks of 500 (Firestore batch limit)
-            articles.chunked(500).forEach { chunk ->
+            // Process in chunks of WRITE_BATCH_LIMIT: the tightened marker create/update rule
+            // calls getAfter on users/{uid}/articles/{itemId} per article.
+            // Firestore batched writes allow at most 20 document-access calls;
+            // each article contributes one unique path, so chunks must be ≤ 20.
+            articles.chunked(WRITE_BATCH_LIMIT).forEach { chunk ->
                 val batch = firestore.batch()
 
                 chunk.forEach { article ->
                     val articleRef = getUserArticlesCollection(user.uid)
                         .document(article.itemId)
                     batch.set(articleRef, article, SetOptions.merge())
+
+                    // Write existence marker(s) atomically with the article doc so
+                    // the tightened `articles` read rule can verify ownership.
+                    addMarkerWrites(batch, user.uid, article)
                 }
 
                 batch.commit().await()
@@ -283,11 +388,11 @@ class FirestoreBackupService @Inject constructor(
                     getUserArticlesCollection(user.uid)
                         .orderBy("timeAdded")
                         .startAfter(lastDocument)
-                        .limit(PAGINATION_LIMIT.toLong())
+                        .limit(RESTORE_PAGE_LIMIT.toLong())
                 } else {
                     getUserArticlesCollection(user.uid)
                         .orderBy("timeAdded")
-                        .limit(PAGINATION_LIMIT.toLong())
+                        .limit(RESTORE_PAGE_LIMIT.toLong())
                 }
 
                 val snapshot = query.get().await()
@@ -306,7 +411,7 @@ class FirestoreBackupService @Inject constructor(
                     onProgress(fetchedCount, totalCount)
                     Timber.d("Restored $fetchedCount / $totalCount articles")
 
-                    if (articles.size < PAGINATION_LIMIT) {
+                    if (articles.size < RESTORE_PAGE_LIMIT) {
                         hasMore = false
                     }
                 }
@@ -495,8 +600,8 @@ class FirestoreBackupService @Inject constructor(
 
             Timber.d("Starting paginated backup of $totalCount articles")
 
-            // Process in chunks of 50 for better performance
-            articles.chunked(PAGINATION_LIMIT).forEachIndexed { chunkIndex, chunk ->
+            // Process in chunks of WRITE_BATCH_LIMIT to respect the Firestore rules document-access budget
+            articles.chunked(WRITE_BATCH_LIMIT).forEachIndexed { chunkIndex, chunk ->
                 val batch = firestore.batch()
 
                 chunk.forEach { article ->
@@ -515,6 +620,11 @@ class FirestoreBackupService @Inject constructor(
                     }
 
                     batch.set(articleRef, articleToSave, SetOptions.merge())
+
+                    // Write existence marker(s) alongside each article in the chunk.
+                    // Chunk size ≤ 20 (WRITE_BATCH_LIMIT) keeps the rules budget:
+                    // one getAfter per article = at most 20 document-access calls.
+                    addMarkerWrites(batch, user.uid, article)
                 }
 
                 batch.commit().await()

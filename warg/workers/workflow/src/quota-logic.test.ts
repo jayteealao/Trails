@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   evaluateAcquire,
-  lowestFreeSlot,
   refillBucket,
   type QuotaLimits,
   type QuotaSnapshot,
@@ -10,7 +9,7 @@ import {
 
 const LIMITS: QuotaLimits = {
   maxConcurrent: 100,
-  maxSandboxConcurrent: 6,
+  maxSandboxConcurrent: 4,
   launchRatePerSec: 1,
   launchBurst: 3
 };
@@ -54,24 +53,6 @@ describe('refillBucket', () => {
   it('does not refill on backward clock skew', () => {
     const bucket: TokenBucket = { tokens: 2, lastRefillMs: 2_000 };
     expect(refillBucket(bucket, 1_000, 1, 3)).toBe(bucket);
-  });
-});
-
-describe('lowestFreeSlot', () => {
-  it('returns 0 when nothing is in use', () => {
-    expect(lowestFreeSlot([])).toBe(0);
-  });
-
-  it('fills the lowest gap', () => {
-    expect(lowestFreeSlot([0, 2])).toBe(1);
-  });
-
-  it('appends past a contiguous run', () => {
-    expect(lowestFreeSlot([0, 1, 2])).toBe(3);
-  });
-
-  it('ignores duplicates and order', () => {
-    expect(lowestFreeSlot([2, 0, 2, 0])).toBe(1);
   });
 });
 
@@ -122,7 +103,7 @@ describe('evaluateAcquire — bindings_launch', () => {
 
 describe('evaluateAcquire — sandbox_exec', () => {
   it('grants below the sandbox cap and never consumes a launch token', () => {
-    const snap = snapshot({ sandboxActive: 5 });
+    const snap = snapshot({ sandboxActive: 3 });
     const decision = evaluateAcquire('sandbox_exec', snap, LIMITS, 1_000);
     expect(decision.granted).toBe(true);
     expect(decision.bucket.tokens).toBe(LIMITS.launchBurst);

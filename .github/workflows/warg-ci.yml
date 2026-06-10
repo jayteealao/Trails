@@ -59,7 +59,6 @@ jobs:
 
       - name: Lint
         run: pnpm exec eslint . --max-warnings=0
-        continue-on-error: true  # legacy code may have lint debt; promote to required once clean
 
       - name: Typecheck all workspace packages
         run: |
@@ -67,6 +66,15 @@ jobs:
           # `-r` runs across all workspace packages; `--if-present` skips packages
           # without a typecheck script instead of failing.
           pnpm -r --if-present run typecheck
+
+      - name: Unit tests — all workspace packages
+        # Runs vitest (node-env) suites across workers/*, packages/*, pages/*,
+        # plus workers/logger (Cloudflare Workers pool via workerd), plus
+        # cloud-functions node:test suites. Integration suites that need the
+        # Firestore emulator are scoped to *.integration.test.* and excluded
+        # by each package's own test script. firebase/test lives outside the
+        # pnpm workspace and is not included.
+        run: pnpm -r --if-present run test
 
   shared-types-drift:
     # Runs unconditionally when warg-ci is triggered. The workflow-level

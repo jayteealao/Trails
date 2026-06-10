@@ -7,14 +7,13 @@ function toText(data: ArrayBuffer): string {
 
 describe('decodeBase64ToArrayBuffer', () => {
   it('decodes standard base64 payload', () => {
-    const encoded = Buffer.from('hello world', 'utf8').toString('base64');
+    const encoded = btoa('hello world');
     const decoded = decodeBase64ToArrayBuffer(encoded);
     expect(toText(decoded)).toBe('hello world');
   });
 
   it('decodes url-safe base64 payload', () => {
-    const encoded = Buffer.from('hello_world', 'utf8')
-      .toString('base64')
+    const encoded = btoa('hello_world')
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/g, '');
@@ -26,7 +25,7 @@ describe('decodeBase64ToArrayBuffer', () => {
 
 describe('decodeBinaryPayload', () => {
   it('decodes data URL payloads', async () => {
-    const encoded = Buffer.from('test-data', 'utf8').toString('base64');
+    const encoded = btoa('test-data');
     const decoded = await decodeBinaryPayload(`data:image/png;base64,${encoded}`);
 
     expect(decoded.source).toBe('data_url');
@@ -35,7 +34,7 @@ describe('decodeBinaryPayload', () => {
   });
 
   it('decodes raw base64 payloads', async () => {
-    const encoded = Buffer.from('raw-base64', 'utf8').toString('base64');
+    const encoded = btoa('raw-base64');
     const decoded = await decodeBinaryPayload(encoded);
 
     expect(decoded.source).toBe('base64');

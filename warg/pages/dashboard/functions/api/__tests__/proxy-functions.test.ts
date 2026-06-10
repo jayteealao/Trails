@@ -187,7 +187,7 @@ describe('begin proxy', () => {
       PUBLIC_API_KEY: 'pub-key',
     } as any;
 
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init?: any) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, _init?: any) => {
       const url = String(input);
       if (url === 'https://dashboard-api.example.com/articles/abc12345/bootstrap') {
         return jsonResponse({

@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PROJECT = 'trails-e428e';
-const GCS_PROJECT = 'trails-414917';
+const _GCS_PROJECT = 'trails-414917';
 const BUCKET = 'htbase-archives-standard';
 const DB = `projects/${PROJECT}/databases/(default)`;
 const DOC_PREFIX = `${DB}/documents`;
