@@ -73,7 +73,8 @@ class FirestoreLogTree @Inject constructor(
     }
 
     private fun getOrCreateDoc(uid: String, articleId: String): DocumentReference {
-        return articleDocs.getOrPut(articleId) {
+        val cacheKey = "$uid/$articleId"
+        return articleDocs.getOrPut(cacheKey) {
             val docId = "${sessionId}_${articleId}"
             val ref = firestore.collection("debug_logs")
                 .document(uid)

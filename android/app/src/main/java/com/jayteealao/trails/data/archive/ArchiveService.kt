@@ -386,7 +386,12 @@ class ArchiveService @Inject constructor(
             return null
         }
 
-        val token = user.getIdToken(false).await().token
+        val token = try {
+            user.getIdToken(false).await().token
+        } catch (e: Exception) {
+            Timber.w(e, "downloadArchive($itemId, $archiveKey) — getIdToken failed, skipping")
+            return null
+        }
         if (token == null) {
             Timber.w("downloadArchive($itemId, $archiveKey) — null ID token, skipping")
             return null

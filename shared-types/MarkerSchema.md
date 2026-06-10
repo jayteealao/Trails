@@ -22,11 +22,11 @@ also mirrors the marker doc's `key` field.
 These are the literal Firestore document field names. **Renaming any of these
 requires updating every producer and the rules/tests in the same commit.**
 
-| Field       | Type                  | Producer(s) | Notes |
-| ----------- | --------------------- | ----------- | ----- |
-| `key`       | string                | required    | The article key this marker covers (mirrors the doc id). |
-| `createdAt` | timestamp             | required    | Server timestamp; markers are merge-written, so this carries last-write (not first-seen) semantics — acceptable for existence markers. |
-| `source`    | string                | required    | Provenance: `sync` \| `self-heal` \| `backfill`. |
+| Field       | Type                  | Required | Notes |
+| ----------- | --------------------- | -------- | ----- |
+| `key`       | string                | required | The article key this marker covers (mirrors the doc id). |
+| `createdAt` | timestamp             | required | Server timestamp; markers are merge-written, so this carries last-write (not first-seen) semantics — acceptable for existence markers. |
+| `source`    | string                | required | Provenance: `sync` \| `self-heal` \| `backfill`. |
 
 ## Producers
 

@@ -222,8 +222,9 @@ class FirestoreBackupService @Inject constructor(
 
             var successCount = 0
 
-            // Process in chunks of 500 (Firestore batch limit)
-            articles.chunked(500).forEach { chunk ->
+            // Process in chunks of 166: each article can produce up to 3 batch ops
+            // (article set + up to 2 marker sets), so 166 × 3 = 498 ≤ 500-op limit.
+            articles.chunked(166).forEach { chunk ->
                 val batch = firestore.batch()
 
                 chunk.forEach { article ->
