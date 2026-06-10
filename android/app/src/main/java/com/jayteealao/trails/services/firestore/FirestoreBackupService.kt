@@ -41,7 +41,9 @@ class FirestoreBackupService @Inject constructor(
         // users/{uid}/articles/{itemId}. Firestore allows at most 20 document-
         // access calls per batched write (same-path calls are cached, but each
         // article has a unique path). Keep chunk sizes ≤ 20.
-        private const val PAGINATION_LIMIT = 20 // ≤ 20 to respect rules budget
+        private const val WRITE_BATCH_LIMIT = 20 // ≤ 20 so each batch's marker getAfter() calls fit the Firestore rules document-access budget
+        // Read-side page size for restore operations — independent of the write-batch budget.
+        private const val RESTORE_PAGE_LIMIT = 50
     }
 
     /**
@@ -244,11 +246,11 @@ class FirestoreBackupService @Inject constructor(
 
             var successCount = 0
 
-            // Process in chunks of 20: the tightened marker create/update rule
+            // Process in chunks of WRITE_BATCH_LIMIT: the tightened marker create/update rule
             // calls getAfter on users/{uid}/articles/{itemId} per article.
             // Firestore batched writes allow at most 20 document-access calls;
             // each article contributes one unique path, so chunks must be ≤ 20.
-            articles.chunked(20).forEach { chunk ->
+            articles.chunked(WRITE_BATCH_LIMIT).forEach { chunk ->
                 val batch = firestore.batch()
 
                 chunk.forEach { article ->
@@ -386,11 +388,11 @@ class FirestoreBackupService @Inject constructor(
                     getUserArticlesCollection(user.uid)
                         .orderBy("timeAdded")
                         .startAfter(lastDocument)
-                        .limit(PAGINATION_LIMIT.toLong())
+                        .limit(RESTORE_PAGE_LIMIT.toLong())
                 } else {
                     getUserArticlesCollection(user.uid)
                         .orderBy("timeAdded")
-                        .limit(PAGINATION_LIMIT.toLong())
+                        .limit(RESTORE_PAGE_LIMIT.toLong())
                 }
 
                 val snapshot = query.get().await()
@@ -409,7 +411,7 @@ class FirestoreBackupService @Inject constructor(
                     onProgress(fetchedCount, totalCount)
                     Timber.d("Restored $fetchedCount / $totalCount articles")
 
-                    if (articles.size < PAGINATION_LIMIT) {
+                    if (articles.size < RESTORE_PAGE_LIMIT) {
                         hasMore = false
                     }
                 }
@@ -598,8 +600,8 @@ class FirestoreBackupService @Inject constructor(
 
             Timber.d("Starting paginated backup of $totalCount articles")
 
-            // Process in chunks of 50 for better performance
-            articles.chunked(PAGINATION_LIMIT).forEachIndexed { chunkIndex, chunk ->
+            // Process in chunks of WRITE_BATCH_LIMIT to respect the Firestore rules document-access budget
+            articles.chunked(WRITE_BATCH_LIMIT).forEachIndexed { chunkIndex, chunk ->
                 val batch = firestore.batch()
 
                 chunk.forEach { article ->
@@ -620,7 +622,7 @@ class FirestoreBackupService @Inject constructor(
                     batch.set(articleRef, articleToSave, SetOptions.merge())
 
                     // Write existence marker(s) alongside each article in the chunk.
-                    // Chunk size ≤ 20 (PAGINATION_LIMIT) keeps the rules budget:
+                    // Chunk size ≤ 20 (WRITE_BATCH_LIMIT) keeps the rules budget:
                     // one getAfter per article = at most 20 document-access calls.
                     addMarkerWrites(batch, user.uid, article)
                 }
