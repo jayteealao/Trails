@@ -675,8 +675,8 @@ async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
     ).first<{ total: number }>(),
     env.INDEX_DB.prepare(
       `SELECT
-        SUM(CASE WHEN created_at > datetime('now', '-1 hour') THEN 1 ELSE 0 END) as last1h,
-        SUM(CASE WHEN created_at > datetime('now', '-24 hours') THEN 1 ELSE 0 END) as last24h
+        SUM(CASE WHEN created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') THEN 1 ELSE 0 END) as last1h,
+        SUM(CASE WHEN created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-24 hours') THEN 1 ELSE 0 END) as last24h
       FROM requests_index`
     ).first<{ last1h: number; last24h: number }>(),
     env.INDEX_DB.prepare(
@@ -688,7 +688,7 @@ async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
     ).all<{ request_id: string; url: string; created_at: string }>(),
     env.INDEX_DB.prepare(
       `SELECT COUNT(*) as count FROM requests_index
-       WHERE terminal_state = 0 AND created_at < datetime('now', '-1 hour')`
+       WHERE terminal_state = 0 AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`
     ).first<{ count: number }>(),
     env.INDEX_DB.prepare(
       `SELECT COUNT(*) as count FROM requests_index
@@ -699,13 +699,13 @@ async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
       `SELECT COUNT(*) as count FROM requests_index
        WHERE stage = 'queued'
          AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
-         AND created_at < datetime('now', '-10 minutes')`
+         AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')`
     ).first<{ count: number }>(),
     env.INDEX_DB.prepare(
       `SELECT COUNT(*) as count FROM requests_index
        WHERE stage = 'queued'
          AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
-         AND created_at < datetime('now', '-1 hour')`
+         AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`
     ).first<{ count: number }>(),
   ]);
 

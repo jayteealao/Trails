@@ -196,7 +196,7 @@ function addColumnIfMissing(sql: SqlStorage, table: string, columnDef: string): 
     sql.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (!message.includes('duplicate column')) {
+    if (!message.toLowerCase().includes('duplicate column')) {
       throw err;
     }
   }

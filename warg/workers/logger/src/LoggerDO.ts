@@ -501,6 +501,7 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
         // Reset closure state here so a callback retry starts clean (M9a).
         eventIds = [];
         finalDerived = undefined;
+        derivedUpdated = false;
 
         const requestRow = this.sql
           .exec<Pick<RequestRow, 'request_id' | 'derived_json'>>(

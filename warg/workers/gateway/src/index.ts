@@ -424,8 +424,21 @@ export async function sweepOrphanContainers(
     throw new Error(`sandbox-leases fetch failed (${response.status}): ${body}`);
   }
 
-  const payload = (await response.json()) as { leases?: SandboxLeaseRow[] };
-  const leases = payload.leases ?? [];
+  const raw: unknown = await response.json();
+  if (
+    raw === null ||
+    typeof raw !== 'object' ||
+    !Array.isArray((raw as Record<string, unknown>)['leases'])
+  ) {
+    console.warn('[gateway] container sweep: unexpected sandbox-leases payload shape, skipping', JSON.stringify(raw)?.slice(0, 300));
+    return summary;
+  }
+  const leases = (raw as { leases: unknown[] }).leases.filter(
+    (entry): entry is SandboxLeaseRow =>
+      entry !== null &&
+      typeof entry === 'object' &&
+      ('requestId' in entry || 'acquiredAt' in entry)
+  );
   summary.leases = leases.length;
 
   const now = Date.now();

@@ -199,7 +199,8 @@ async function loggerPost(env: Env, path: string, body: unknown, label: string):
         'Content-Type': 'application/json',
         'X-Internal-API-Key': env.INTERNAL_API_KEY
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
