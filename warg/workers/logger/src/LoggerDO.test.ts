@@ -24,6 +24,7 @@ interface LoggerEventWithId {
 interface LoggerStub {
   initRequest(payload: InitRequestPayload, createdAt?: string): Promise<{ created: boolean }>;
   appendEvent(requestId: string, event: LogEvent): Promise<{ eventId: number }>;
+  appendEvents(requestId: string, events: LogEvent[]): Promise<{ eventIds: number[] }>;
   upsertArtifact(requestId: string, artifact: ArtifactRecord): Promise<void> | void;
   updateRequestFields(requestId: string, patch: RequestFieldsPatch): Promise<{ updated: boolean }>;
   getRequestView(
@@ -596,6 +597,182 @@ describe('LoggerDO', () => {
 
       const view = await stub.getRequestView(requestId);
       expect(view?.artifacts).toHaveLength(0);
+    });
+  });
+
+  describe('appendEvents', () => {
+    it('returns empty eventIds for an empty batch without touching state', async () => {
+      const requestId = `test-${Date.now()}-be`;
+      const stub = getStub('bucket:2026061010');
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      const result = await stub.appendEvents(requestId, []);
+      expect(result.eventIds).toEqual([]);
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.events).toHaveLength(0);
+      expect(view?.derived.stage).toBe('queued');
+    });
+
+    it('produces the same derived state as sequential appendEvent calls', async () => {
+      const seqId = `test-${Date.now()}-bs`;
+      const batchId = `test-${Date.now()}-bb`;
+      const stub = getStub('bucket:2026061011');
+
+      await stub.initRequest({ requestId: seqId, url: 'https://example.com' });
+      await stub.initRequest({ requestId: batchId, url: 'https://example.com' });
+
+      // Same event objects replayed both ways, so ts values match exactly
+      const events: LogEvent[] = [
+        infoEvent('step.started', 'Renderer step started', { step: 'render' }),
+        {
+          ts: new Date().toISOString(),
+          source: 'renderer',
+          type: 'step.failed',
+          level: 'error',
+          message: 'Rendering failed once',
+          data: { reason: 'timeout' }
+        },
+        infoEvent('persist.started', 'Persisting to GCS')
+      ];
+
+      for (const event of events) {
+        await stub.appendEvent(seqId, event);
+      }
+      const result = await stub.appendEvents(batchId, events);
+
+      expect(result.eventIds).toHaveLength(events.length);
+
+      const seqView = await stub.getRequestView(seqId);
+      const batchView = await stub.getRequestView(batchId);
+      expect(batchView?.derived).toEqual(seqView?.derived);
+      expect(batchView?.derived.stage).toBe('persisting');
+      expect(batchView?.derived.errorCount).toBe(1);
+      expect(batchView?.events).toHaveLength(events.length);
+    });
+
+    it('sets terminal state when the batch ends with request.done', async () => {
+      const requestId = `test-${Date.now()}-bt`;
+      const stub = getStub('bucket:2026061012');
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      await stub.appendEvents(requestId, [
+        infoEvent('step.started', 'Renderer step started', { step: 'render' }),
+        infoEvent('request.done', 'Request completed')
+      ]);
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+    });
+
+    it('keeps terminal state when a non-stage event follows request.done in the batch', async () => {
+      const requestId = `test-${Date.now()}-bk`;
+      const stub = getStub('bucket:2026061013');
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      // step.completed maps to no stage, so the sequential state machine
+      // leaves the terminal 'done' untouched — the batch replay must too
+      await stub.appendEvents(requestId, [
+        infoEvent('request.done', 'Request completed'),
+        infoEvent('step.completed', 'Late persist bookkeeping', { step: 'persist', duration_ms: 12 })
+      ]);
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+    });
+
+    it('materializes artifacts from artifact.written events in the batch', async () => {
+      const requestId = `test-${Date.now()}-ba`;
+      const stub = getStub('bucket:2026061014');
+
+      await stub.initRequest({ requestId, url: 'https://example.com' });
+
+      const result = await stub.appendEvents(requestId, [
+        infoEvent('artifact.written', 'Artifact written: rendered.html', {
+          kind: 'rendered.html',
+          r2Key: `archives/${requestId}/raw/rendered.html`,
+          contentType: 'text/html',
+          bytes: 1024,
+          sha256: 'abc123'
+        }),
+        infoEvent('artifact.written', 'Artifact written: screenshot.png', {
+          kind: 'screenshot.png',
+          r2Key: `archives/${requestId}/raw/screenshot.png`,
+          contentType: 'image/png',
+          bytes: 2048,
+          sha256: 'def456'
+        })
+      ]);
+
+      expect(result.eventIds).toHaveLength(2);
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.artifacts).toHaveLength(2);
+      const kinds = view?.artifacts.map((artifact) => artifact.kind).sort();
+      expect(kinds).toEqual(['rendered.html', 'screenshot.png']);
+    });
+
+    it('matches sequential appendEvent on a complex mixed sequence', async () => {
+      const seqId = `test-${Date.now()}-bcs`;
+      const batchId = `test-${Date.now()}-bcb`;
+      const stub = getStub('bucket:2026061015');
+
+      await stub.initRequest({ requestId: seqId, url: 'https://example.com' });
+      await stub.initRequest({ requestId: batchId, url: 'https://example.com' });
+
+      const events: LogEvent[] = [
+        infoEvent('workflow.started', 'Workflow started'),
+        infoEvent('step.started', 'Renderer step started', { step: 'render' }),
+        infoEvent('step.completed', 'Render done', {
+          step: 'render',
+          duration_ms: 1234,
+          fallbackUsed: false
+        }),
+        infoEvent('artifact.written', 'Artifact written: rendered.html', {
+          kind: 'rendered.html',
+          r2Key: 'archives/x/raw/rendered.html',
+          contentType: 'text/html',
+          bytes: 512,
+          sha256: 'aaa'
+        }),
+        {
+          ts: new Date().toISOString(),
+          source: 'monolith',
+          type: 'step.failed',
+          level: 'error',
+          message: 'Monolith failed',
+          attempt: 2,
+          data: { errorCode: 'MONOLITH_SERVICE_ERROR', error: 'boom', retryable: true }
+        },
+        infoEvent('persist.completed', 'Persist completed', { duration_ms: 321 }),
+        infoEvent('request.done', 'Request completed', {
+          degraded: true,
+          degradedSteps: ['monolith']
+        })
+      ];
+
+      for (const event of events) {
+        await stub.appendEvent(seqId, event);
+      }
+      await stub.appendEvents(batchId, events);
+
+      const seqView = await stub.getRequestView(seqId);
+      const batchView = await stub.getRequestView(batchId);
+
+      expect(batchView?.derived).toEqual(seqView?.derived);
+      // degraded monolith → the incomplete override fires in both replays
+      expect(batchView?.derived.stage).toBe('incomplete');
+      expect(batchView?.derived.terminal).toBe(true);
+      expect(batchView?.derived.diagnostics?.renderMs).toBe(1234);
+      expect(batchView?.derived.diagnostics?.persistMs).toBe(321);
+      expect(batchView?.derived.diagnostics?.retryCount).toBe(2);
+      expect(batchView?.events).toHaveLength(events.length);
+      expect(batchView?.artifacts).toHaveLength(1);
     });
   });
 

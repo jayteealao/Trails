@@ -14,6 +14,10 @@ import { LoggerDO } from './LoggerDO.js';
 
 export { LoggerDO };
 
+// Cap for POST /events/batch. Producers flush per workflow step (~10–15
+// events max), so this is a guardrail, not an operational limit.
+const MAX_BATCH_EVENTS = 100;
+
 interface RequestsIndexRow {
   request_id: string;
   url: string;
@@ -60,6 +64,7 @@ interface LoggerEventWithId {
 interface LoggerStub {
   initRequest(payload: InitRequestPayload, createdAt?: string): Promise<{ created: boolean }>;
   appendEvent(requestId: string, event: LogEvent): Promise<{ eventId: number }>;
+  appendEvents(requestId: string, events: LogEvent[]): Promise<{ eventIds: number[] }>;
   upsertArtifact(requestId: string, artifact: ArtifactRecord): Promise<void> | void;
   updateRequestFields(requestId: string, patch: RequestFieldsPatch): Promise<{ updated: boolean }>;
   getRequestView(
@@ -498,9 +503,9 @@ function parseRoute(
   const params = url.searchParams;
 
   // Literal routes take priority over parameterized ones
-  if (path === '/request/init' || path === '/event' || path === '/artifact' ||
-      path === '/stats' || path === '/requests' || path === '/requests/batch' ||
-      path === '/maintenance/backfill-diagnostics') {
+  if (path === '/request/init' || path === '/event' || path === '/events/batch' ||
+      path === '/artifact' || path === '/stats' || path === '/requests' ||
+      path === '/requests/batch' || path === '/maintenance/backfill-diagnostics') {
     return { path, params };
   }
 
@@ -553,6 +558,27 @@ export default {
         const body = (await request.json()) as { requestId: string; event: LogEvent };
         const stub = await getBucketStubForWrite(env, body.requestId);
         const result = await stub.appendEvent(body.requestId, body.event);
+        return Response.json(result);
+      }
+
+      // POST /events/batch - Append events atomically (requires requestId in body).
+      // One bucket lookup + one DO round-trip for the whole batch.
+      if (method === 'POST' && path === '/events/batch') {
+        const body = (await request.json()) as { requestId: string; events: LogEvent[] };
+        if (typeof body.requestId !== 'string' || !Array.isArray(body.events)) {
+          return Response.json(
+            { error: 'Body must be { requestId: string, events: LogEvent[] }' },
+            { status: 400 }
+          );
+        }
+        if (body.events.length > MAX_BATCH_EVENTS) {
+          return Response.json(
+            { error: `Batch exceeds ${MAX_BATCH_EVENTS} events` },
+            { status: 400 }
+          );
+        }
+        const stub = await getBucketStubForWrite(env, body.requestId);
+        const result = await stub.appendEvents(body.requestId, body.events);
         return Response.json(result);
       }
 

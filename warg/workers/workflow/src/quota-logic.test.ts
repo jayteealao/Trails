@@ -10,7 +10,7 @@ import {
 
 const LIMITS: QuotaLimits = {
   maxConcurrent: 100,
-  maxSandboxConcurrent: 6,
+  maxSandboxConcurrent: 4,
   launchRatePerSec: 1,
   launchBurst: 3
 };
@@ -122,7 +122,7 @@ describe('evaluateAcquire — bindings_launch', () => {
 
 describe('evaluateAcquire — sandbox_exec', () => {
   it('grants below the sandbox cap and never consumes a launch token', () => {
-    const snap = snapshot({ sandboxActive: 5 });
+    const snap = snapshot({ sandboxActive: 3 });
     const decision = evaluateAcquire('sandbox_exec', snap, LIMITS, 1_000);
     expect(decision.granted).toBe(true);
     expect(decision.bucket.tokens).toBe(LIMITS.launchBurst);

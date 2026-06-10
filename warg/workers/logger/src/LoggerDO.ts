@@ -456,6 +456,138 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
   }
 
   /**
+   * Append a batch of events to the request trace atomically.
+   * Replays the same per-event state machine as appendEvent in order, so the
+   * final derived summary is identical to N sequential appendEvent calls.
+   * All SQLite writes happen in one transaction (all-or-nothing); the D1
+   * index is updated once with the final derived state instead of per event.
+   */
+  async appendEvents(requestId: string, events: LogEvent[]): Promise<{ eventIds: number[] }> {
+    this.ensureSchema();
+
+    if (events.length === 0) {
+      return { eventIds: [] };
+    }
+
+    const eventIds: number[] = [];
+    let finalDerived: DerivedSummary | undefined;
+
+    this.ctx.storage.transactionSync(() => {
+      const requestRows = this.sql
+        .exec<RequestRow>('SELECT * FROM requests WHERE request_id = ? LIMIT 1', requestId)
+        .toArray();
+      const requestRow = requestRows[0];
+      // Same contract as appendEvent: events are stored even when this
+      // instance holds no request row; only the derived update is skipped.
+      const derived: DerivedSummary | undefined = requestRow
+        ? JSON.parse(requestRow.derived_json)
+        : undefined;
+
+      for (const event of events) {
+        this.sql.exec(
+          `INSERT INTO events (request_id, ts, source, type, level, message, attempt, data_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          requestId,
+          event.ts,
+          event.source,
+          event.type,
+          event.level,
+          event.message,
+          event.attempt ?? null,
+          event.data ? JSON.stringify(event.data) : null
+        );
+        const lastRow = this.sql.exec<{ id: number }>('SELECT last_insert_rowid() as id').one();
+        eventIds.push(lastRow?.id ?? 0);
+
+        const artifact = artifactFromEvent(event);
+        if (artifact) {
+          this.upsertArtifact(requestId, artifact);
+        }
+
+        if (!derived) continue;
+
+        const newStage = deriveStage(event.type, event.data);
+        if (newStage) {
+          derived.stage = newStage;
+          derived.terminal =
+            newStage === 'done' ||
+            newStage === 'failed' ||
+            newStage === 'incomplete';
+        }
+
+        if (event.level === 'error') {
+          derived.errorCount++;
+        }
+
+        derived.lastEventTs = event.ts;
+        derived.diagnostics = updateDiagnostics(derived.diagnostics, event);
+
+        if (
+          (event.type === 'request.done' || event.type === 'workflow.completed') &&
+          shouldMarkIncompleteFromDiagnostics(derived.diagnostics)
+        ) {
+          derived.stage = 'incomplete';
+          derived.terminal = true;
+        }
+      }
+
+      if (requestRow && derived) {
+        this.sql.exec(
+          'UPDATE requests SET derived_json = ? WHERE request_id = ?',
+          JSON.stringify(derived),
+          requestRow.request_id
+        );
+        finalDerived = derived;
+      }
+    });
+
+    // Update D1 index once with the final state (best-effort)
+    if (finalDerived) {
+      const lastEvent = events[events.length - 1]!;
+      try {
+        await this.env.INDEX_DB.prepare(
+          `UPDATE requests_index
+           SET updated_at = ?, last_event_ts = ?, stage = ?,
+               terminal_state = ?, error_count = ?,
+               last_error_code = ?, last_error_message = ?, last_error_source = ?,
+               retry_count = ?, render_ms = ?, derive_ms = ?, persist_ms = ?,
+               last_trace_id = ?, render_provider = ?, render_fallback_used = ?,
+               render_fallback_reason = ?, degraded = ?, degraded_steps = ?
+           WHERE request_id = ?`
+        )
+          .bind(
+            new Date().toISOString(),
+            lastEvent.ts,
+            finalDerived.stage,
+            finalDerived.terminal ? 1 : 0,
+            finalDerived.errorCount,
+            finalDerived.diagnostics?.errorCode ?? null,
+            finalDerived.diagnostics?.errorMessage ?? null,
+            finalDerived.diagnostics?.errorSource ?? null,
+            finalDerived.diagnostics?.retryCount ?? 0,
+            finalDerived.diagnostics?.renderMs ?? null,
+            finalDerived.diagnostics?.deriveMs ?? null,
+            finalDerived.diagnostics?.persistMs ?? null,
+            finalDerived.diagnostics?.lastTraceId ?? null,
+            finalDerived.diagnostics?.renderProvider ?? null,
+            finalDerived.diagnostics?.renderFallbackUsed === true ? 1 : 0,
+            finalDerived.diagnostics?.renderFallbackReason ?? null,
+            finalDerived.diagnostics?.degraded === true ? 1 : 0,
+            finalDerived.diagnostics?.degradedSteps?.length
+              ? JSON.stringify(finalDerived.diagnostics.degradedSteps)
+              : null,
+            requestId
+          )
+          .run();
+      } catch (err) {
+        console.error(`D1 index batch update failed for ${requestId}:`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    return { eventIds };
+  }
+
+  /**
    * Upsert an artifact record.
    * Multiple artifacts of the same kind with different r2_key are allowed.
    */

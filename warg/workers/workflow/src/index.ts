@@ -14,6 +14,7 @@ import type {
 } from '@warg/shared';
 import { getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
+import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
   WorkflowParams,
   ArchiveOptionsExtended,
@@ -30,12 +31,15 @@ import {
 } from './services.js';
 import {
   logEvent,
+  logEvents,
   logStepStarted,
   logStepCompletedWithDuration,
   logStepFailed,
   logArtifactWritten,
   logRequestDone,
   logRequestFailed,
+  artifactWrittenEvent,
+  stepCompletedEvent,
   updateManifestKey
 } from './logging.js';
 import { runMockPipeline } from './mock.js';
@@ -828,23 +832,16 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     renderedHtmlKey: string,
     monolithBaseUrl: string
   ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
-    const { leaseId } = await step.do(
-      'acquire-monolith-quota',
-      {
-        retries: { limit: 20, delay: '3 seconds', backoff: 'linear' },
-        timeout: '10 minutes'
-      },
-      async () => {
-        const stub = this.env.BROWSER_QUOTA.get(
-          this.env.BROWSER_QUOTA.idFromName('global')
-        );
-        const result = await stub.acquire('sandbox_exec', requestId);
-        if (!result.granted) {
-          throw new Error(`Sandbox quota unavailable, retry after ${result.retryAfterMs}ms`);
-        }
-        return { leaseId: result.leaseId! };
+    const { leaseId } = await acquireQuotaWithSleep(step, 'monolith', async () => {
+      const stub = this.env.BROWSER_QUOTA.get(
+        this.env.BROWSER_QUOTA.idFromName('global')
+      );
+      const result = await stub.acquire('sandbox_exec', requestId);
+      if (!result.granted) {
+        return { granted: false, retryAfterMs: result.retryAfterMs };
       }
-    );
+      return { granted: true, leaseId: result.leaseId! };
+    });
 
     // No warm pool: the monolith worker keys the sandbox off the request id and
     // stops the container after the job, trading per-job cold starts for not
@@ -940,24 +937,17 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     url: string,
     options: ArchiveOptionsExtended
   ): Promise<RenderStepResult> {
-    // Acquire quota (with retry)
-    const { leaseId } = await step.do(
-      'acquire-render-quota',
-      {
-        retries: { limit: 20, delay: '3 seconds', backoff: 'linear' },
-        timeout: '10 minutes'
-      },
-      async () => {
-        const stub = this.env.BROWSER_QUOTA.get(
-          this.env.BROWSER_QUOTA.idFromName('global')
-        );
-        const result = await stub.acquire('bindings_launch', requestId);
-        if (!result.granted) {
-          throw new Error(`Quota unavailable, retry after ${result.retryAfterMs}ms`);
-        }
-        return { leaseId: result.leaseId! };
+    // Acquire quota (sleep-reschedule between denied attempts)
+    const { leaseId } = await acquireQuotaWithSleep(step, 'render', async () => {
+      const stub = this.env.BROWSER_QUOTA.get(
+        this.env.BROWSER_QUOTA.idFromName('global')
+      );
+      const result = await stub.acquire('bindings_launch', requestId);
+      if (!result.granted) {
+        return { granted: false, retryAfterMs: result.retryAfterMs };
       }
-    );
+      return { granted: true, leaseId: result.leaseId! };
+    });
 
     try {
       // Log step start + capture timing
@@ -988,28 +978,29 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
 
       // Log artifacts + duration + enriched meta
       await step.do('log-render-artifacts', async () => {
-        for (const artifact of renderResult.artifacts) {
-          await logArtifactWritten(
-            this.env,
-            requestId,
+        const events = renderResult.artifacts.map((artifact) =>
+          artifactWrittenEvent(
             artifact.kind,
             artifact.r2Key,
             artifact.bytes,
             artifact.contentType,
             artifact.sha256
-          );
-        }
-        await logStepCompletedWithDuration(this.env, requestId, 'render', renderStartedAt, {
-          artifactCount: renderResult.artifacts.length,
-          ...(renderOutcome.fallbackUsed
-            ? {
-                fallbackUsed: true,
-                fallbackReason: renderOutcome.fallbackReason,
-                fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
-              }
-            : {}),
-          ...(renderResult.meta ? { meta: renderResult.meta } : {})
-        });
+          )
+        );
+        events.push(
+          stepCompletedEvent('render', renderStartedAt, {
+            artifactCount: renderResult.artifacts.length,
+            ...(renderOutcome.fallbackUsed
+              ? {
+                  fallbackUsed: true,
+                  fallbackReason: renderOutcome.fallbackReason,
+                  fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
+                }
+              : {}),
+            ...(renderResult.meta ? { meta: renderResult.meta } : {})
+          })
+        );
+        await logEvents(this.env, requestId, events);
       });
 
       // Find the rendered HTML key
@@ -1051,24 +1042,17 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     url: string,
     optionsR2Key: string
   ): Promise<ArtifactMeta> {
-    // Acquire quota (with retry)
-    const { leaseId } = await step.do(
-      'acquire-singlefile-quota',
-      {
-        retries: { limit: 20, delay: '3 seconds', backoff: 'linear' },
-        timeout: '10 minutes'
-      },
-      async () => {
-        const stub = this.env.BROWSER_QUOTA.get(
-          this.env.BROWSER_QUOTA.idFromName('global')
-        );
-        const result = await stub.acquire('bindings_launch', requestId);
-        if (!result.granted) {
-          throw new Error(`Quota unavailable, retry after ${result.retryAfterMs}ms`);
-        }
-        return { leaseId: result.leaseId! };
+    // Acquire quota (sleep-reschedule between denied attempts)
+    const { leaseId } = await acquireQuotaWithSleep(step, 'singlefile', async () => {
+      const stub = this.env.BROWSER_QUOTA.get(
+        this.env.BROWSER_QUOTA.idFromName('global')
+      );
+      const result = await stub.acquire('bindings_launch', requestId);
+      if (!result.granted) {
+        return { granted: false, retryAfterMs: result.retryAfterMs };
       }
-    );
+      return { granted: true, leaseId: result.leaseId! };
+    });
 
     try {
       // Log step start + capture timing
