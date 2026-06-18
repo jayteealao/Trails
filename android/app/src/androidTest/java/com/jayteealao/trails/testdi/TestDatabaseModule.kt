@@ -16,17 +16,48 @@
 
 package com.jayteealao.trails.testdi
 
-//import com.jayteealao.trails.data.di.FakePocketRepository
-//
-//@Module
-//@TestInstallIn(
-//    components = [SingletonComponent::class],
-//    replaces = [DataModule::class]
-//)
-//interface FakeDataModule {
+import android.content.Context
+import androidx.room.Room
+import com.jayteealao.trails.data.archive.LocalArchiveDao
+import com.jayteealao.trails.data.local.database.AppDatabase
+import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.data.local.di.DatabaseModule
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import dagger.hilt.testing.TestInstallIn
+import javax.inject.Singleton
 
-//    @Binds
-//    abstract fun bindRepository(
-//        fakeRepository: FakePocketRepository
-//    ): ArticleRepository
-//}
+/**
+ * Hilt test module that swaps the production [DatabaseModule] for an in-memory
+ * Room database in instrumented tests, so DB-backed tests run against a fresh,
+ * isolated database with no on-disk state, migrations, or backfill callback.
+ *
+ * The production [com.jayteealao.trails.data.di.DataModule] binding of
+ * `ArticleRepositoryImpl` → `ArticleRepository` is left untouched: the repository
+ * is exercised against this in-memory database. Provider signatures mirror
+ * [DatabaseModule] exactly so this is a drop-in replacement for the Hilt graph.
+ */
+@Module
+@TestInstallIn(
+    components = [SingletonComponent::class],
+    replaces = [DatabaseModule::class]
+)
+class TestDatabaseModule {
+
+    @Provides
+    @Singleton
+    fun provideInMemoryDatabase(@ApplicationContext context: Context): AppDatabase {
+        return Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+    }
+
+    @Provides
+    fun provideArticleDao(appDatabase: AppDatabase): ArticleDao = appDatabase.articleDao()
+
+    @Provides
+    fun provideLocalArchiveDao(appDatabase: AppDatabase): LocalArchiveDao =
+        appDatabase.localArchiveDao()
+}

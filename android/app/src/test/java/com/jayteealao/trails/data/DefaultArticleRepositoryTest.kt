@@ -16,36 +16,70 @@
 
 package com.jayteealao.trails.data
 
+import android.content.Context
+import androidx.paging.PagingSource
+import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.services.firestore.FirestoreSyncManager
+import com.jayteealao.trails.sync.SyncStatusMonitor
+import io.mockk.MockKAnnotations
+import io.mockk.clearAllMocks
+import io.mockk.every
+import io.mockk.impl.annotations.MockK
+import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.StandardTestDispatcher
+import org.junit.After
+import org.junit.Assert.assertSame
+import org.junit.Before
 import org.junit.Test
 
 /**
- * Unit tests for [DefaultArticleRepository].
+ * Unit tests for [ArticleRepositoryImpl] (the production binding behind the
+ * [ArticleRepository] interface).
+ *
+ * Revived as part of the regression-net slice (E1). The original test referenced
+ * a deleted `DefaultArticleRepository`/`FakePocketDao` pair; it now pins the one
+ * behaviour the net needs from the repository: `pockets()` is a thin delegation
+ * to `ArticleDao.getArticlesWithTags()`. Deeper repository behaviour is covered
+ * by the slices that change it.
  */
-@OptIn(ExperimentalCoroutinesApi::class) // TODO: Remove when stable
+@OptIn(ExperimentalCoroutinesApi::class)
 class DefaultArticleRepositoryTest {
 
-    @Test
-    fun pockets_newItemSaved_itemIsReturned() = runTest {
-//        val repository = DefaultArticleRepository(FakePocketDao())
+    @MockK private lateinit var context: Context
+    @MockK private lateinit var articleDao: ArticleDao
+    @MockK private lateinit var syncStatusMonitor: SyncStatusMonitor
+    @MockK private lateinit var firestoreSyncManager: FirestoreSyncManager
 
-//        repository.add("Repository")
+    private lateinit var repository: ArticleRepositoryImpl
 
-//        assertEquals(repository.pockets.first().size, 1)
+    @Before
+    fun setUp() {
+        MockKAnnotations.init(this)
+        repository = ArticleRepositoryImpl(
+            context = context,
+            articleDao = articleDao,
+            syncStatusMonitor = syncStatusMonitor,
+            firestoreSyncManager = firestoreSyncManager,
+            ioDispatcher = StandardTestDispatcher(),
+        )
     }
 
-}
+    @After
+    fun tearDown() {
+        clearAllMocks()
+    }
 
-//private class FakePocketDao : PocketDao {
-//
-//    private val data = mutableListOf<Pocket>()
-//
-//    override fun getArticles(): Flow<List<Pocket>> = flow {
-//        emit(data)
-//    }
-//
-//    override suspend fun insertPocket(item: Pocket) {
-//        data.add(0, item)
-//    }
-//}
+    @Test
+    fun `pockets delegates to articleDao getArticlesWithTags`() {
+        val pagingSource = mockk<PagingSource<Int, ArticleItem>>()
+        every { articleDao.getArticlesWithTags() } returns pagingSource
+
+        val result = repository.pockets()
+
+        assertSame(pagingSource, result)
+        verify(exactly = 1) { articleDao.getArticlesWithTags() }
+    }
+}

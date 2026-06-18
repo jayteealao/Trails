@@ -199,12 +199,12 @@ dependencies {
     // Hilt Dependency Injection
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
-    // Hilt and instrumented tests.
+    // Hilt's annotation processor runs via KSP (above) for every source set,
+    // including androidTest and test. Registering it again through kapt for the
+    // test source sets made KSP and kapt each emit the Hilt factories, causing
+    // "duplicate class" build failures as soon as a test @Module is present.
     androidTestImplementation(libs.hilt.android.testing)
-    kaptAndroidTest(libs.hilt.android.compiler)
-    // Hilt and Robolectric tests.
     testImplementation(libs.hilt.android.testing)
-    kaptTest(libs.hilt.android.compiler)
 
     //compose Icons
     implementation(libs.compose.icons.cssgg)
