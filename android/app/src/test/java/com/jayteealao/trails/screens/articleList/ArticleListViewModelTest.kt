@@ -18,6 +18,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,6 +53,7 @@ class ArticleListViewModelTest {
         Dispatchers.setMain(testDispatcher)
 
         every { articleRepository.synchronize() } returns Unit
+        every { articleRepository.syncToFirestore() } returns Unit
         every { articleRepository.isSyncing } returns flowOf(false)
         every { articleRepository.pockets() } answers { TestPagingSource() }
         every { articleRepository.favoritePockets() } answers { TestPagingSource() }
@@ -67,6 +69,7 @@ class ArticleListViewModelTest {
         coEvery { articleRepository.updateExcerpt(any(), any()) } returns Unit
         every { articleRepository.getLastUpdatedArticleTime() } returns 0L
         every { getArticleWithTextUseCase.invoke() } answers { TestPagingSource() }
+        coEvery { articleRepository.backupArticleNow(any()) } returns Result.success(Unit)
     }
 
     @After
@@ -137,6 +140,46 @@ class ArticleListViewModelTest {
         assertEquals("Shared title", viewModel.intentTitle.value)
 
         coVerify(exactly = 1) { articleDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `saveUrl calls backupArticleNow and syncToFirestore after unfurl`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+
+        val unfurler = mockk<Unfurler>()
+        coEvery { unfurler.unfurl(any<String>()) } throws RuntimeException("unfurl failure")
+        mockkStatic("me.saket.unfurl.UnfurlerKt")
+        every { Unfurler() } returns unfurler
+
+        val upsertSlot = slot<Article>()
+        coEvery { articleDao.upsertNewArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
+
+        coEvery { articleDao.getArticleById(any()) } returns Article(
+            itemId = "test", url = "https://example.com/article", givenUrl = "https://example.com/article"
+        )
+
+        coEvery {
+            articleDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any())
+        } returns Unit
+
+        val viewModel = ArticleListViewModel(
+            articleRepository = articleRepository,
+            getArticleWithTextUseCase = getArticleWithTextUseCase,
+            articleDao = articleDao,
+            ioDispatcher = dispatcher,
+        )
+
+        val sharedUri = mockk<Uri>()
+        every { sharedUri.toString() } returns "https://example.com/article"
+        viewModel.saveUrl(sharedUri, "Shared title")
+        advanceUntilIdle()
+
+        // After the unfurl step, the ViewModel must call backupArticleNow(articleId)
+        // then syncToFirestore() — in that order — as the inline backup + expedited backstop.
+        val capturedId = upsertSlot.captured.itemId
+        coVerify(exactly = 1) { articleRepository.backupArticleNow(capturedId) }
+        verify(exactly = 1) { articleRepository.syncToFirestore() }
     }
 
     // Tag suggestion tests have been moved to TagManagementViewModelTest

@@ -375,6 +375,24 @@ interface ArticleDao {
         """)
     suspend fun backfillZeroTimestamps(time: Long)
 
+    /** Stamp the epoch-millis when [itemId] was successfully backed up to Firestore. */
+    @Query("UPDATE article SET backed_up_at = :timestamp WHERE itemId = :itemId")
+    suspend fun updateBackedUpAt(itemId: String, timestamp: Long)
+
+    /**
+     * Return articles that have never been successfully backed up to Firestore
+     * ([backedUpAt] IS NULL), ordered oldest-first so the reconciliation sweep
+     * processes stranded articles in chronological order. Paginated via [limit] /
+     * [offset] to keep memory usage bounded.
+     */
+    @Query("""
+        SELECT * FROM article
+        WHERE backed_up_at IS NULL AND deleted_at IS NULL
+        ORDER BY timeAdded ASC
+        LIMIT :limit OFFSET :offset
+    """)
+    suspend fun getArticlesNeverBackedUp(limit: Int, offset: Int): List<Article>
+
 //    @Upsert
 //    suspend fun upsertArticleSummary(pocketSummary: PocketSummary)
 //

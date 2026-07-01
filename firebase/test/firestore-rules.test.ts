@@ -126,6 +126,39 @@ describe('articleMarkers (users/{uid}/articleMarkers/{key})', () => {
     );
   });
 
+  // ── (b2) deadlock-break: self-heal write when backup doc absent but top-level article present ──
+
+  it('(b2) self-heal write succeeds when users/{uid}/articles absent but articles/{itemId} exists (deadlock break)', async () => {
+    // Seed only the top-level articles/{itemId} doc (Warg backend-written) via bypass;
+    // the user's backup doc (users/{OWNER}/articles/article-dl) is intentionally absent.
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'articles/article-dl'), { title: 'deadlock test' });
+    });
+    const db = ownerDb();
+    // This is the deadlock case: fresh save, backup doc not yet in Firestore,
+    // self-heal tries to write the marker. With the rule relaxation this must succeed.
+    await assertSucceeds(
+      setDoc(doc(db, `users/${OWNER}/articleMarkers/article-dl`), {
+        key: 'article-dl',
+        itemId: 'article-dl',
+        source: 'self-heal',
+      }),
+    );
+  });
+
+  it('(b2) enumeration still blocked: neither users/{uid}/articles nor articles/{itemId} present → denied', async () => {
+    // Neither the backup doc nor the top-level article doc exists.
+    // An attacker cannot mint a marker for an arbitrary id.
+    const db = ownerDb();
+    await assertFails(
+      setDoc(doc(db, `users/${OWNER}/articleMarkers/article-phantom`), {
+        key: 'article-phantom',
+        itemId: 'article-phantom',
+        source: 'self-heal',
+      }),
+    );
+  });
+
   // ── (c) no corresponding article doc → denied (minting attack) ──────────
 
   it('(c) owner creating a marker with NO corresponding users/{uid}/articles doc is denied', async () => {

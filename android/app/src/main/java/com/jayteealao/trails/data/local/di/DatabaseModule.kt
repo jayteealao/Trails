@@ -26,6 +26,7 @@ import com.jayteealao.trails.data.local.database.MIGRATION_2_3
 import com.jayteealao.trails.data.local.database.MIGRATION_3_4
 import com.jayteealao.trails.data.local.database.MIGRATION_4_5
 import com.jayteealao.trails.data.local.database.MIGRATION_5_6
+import com.jayteealao.trails.data.local.database.MIGRATION_6_7
 import com.jayteealao.trails.data.local.database.UrlNormalizationCallback
 import dagger.Module
 import dagger.Provides
@@ -56,7 +57,7 @@ class DatabaseModule {
             AppDatabase::class.java,
             "Pocket"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .addCallback(UrlNormalizationCallback(appContext))
             .build()
     }

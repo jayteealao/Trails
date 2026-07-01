@@ -42,7 +42,7 @@ import com.jayteealao.trails.network.DomainMetadata
         DomainMetadata::class,
         LocalArchive::class,
     ],
-    version = 6,
+    version = 7,
     autoMigrations = [],
     exportSchema = true
 )
@@ -198,6 +198,15 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
 val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `article` ADD COLUMN `normalized_url` TEXT DEFAULT NULL")
+    }
+}
+
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Add backed_up_at column. Existing rows get NULL (never backed up);
+        // the reconciliation sweep will back them up on next sync.
+        // Non-destructive: no data is deleted or altered.
+        db.execSQL("ALTER TABLE `article` ADD COLUMN `backed_up_at` INTEGER DEFAULT NULL")
     }
 }
 

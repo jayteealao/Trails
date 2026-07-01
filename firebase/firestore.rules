@@ -40,18 +40,27 @@ service cloud.firestore {
       // gate the (later) tightened top-level `articles` read. Owner-scoped.
       //
       // CREATE / UPDATE: requires proof the user owns the referenced article.
-      // The `itemId` field must point to an existing users/{userId}/articles/{itemId}
-      // doc — either written in the same batch (backup flow) or already present
-      // in Firestore (self-heal flow). `getAfter` covers both cases and is cached
-      // by path, so a batch of N articles costs N unique getAfter calls.
-      // RULES BUDGET: callers must keep batches ≤ 20 articles (N unique getAfter
-      // paths) to stay within the 20-document-access limit per batched write.
+      // Primary path: `getAfter` checks that users/{userId}/articles/{itemId} is
+      // being written in the same batch (batch backup flow). Fallback: if the
+      // backup doc is not in this batch, the top-level articles/{itemId} doc must
+      // exist (Warg backend-write-only, so it proves Warg archived a genuine
+      // article). The fallback allows self-heal writes when the backup doc is not
+      // yet present, breaking the deadlock without reopening the enumeration hole
+      // (the top-level `articles` collection rejects all client writes).
+      //
+      // RULES BUDGET: getAfter costs 1 call (cached per path within the request);
+      // get() on the fallback costs 1 additional call only when getAfter fails.
+      // Total ≤ 2 per article in a batch. Callers must keep batches ≤ 20 articles
+      // to stay within the 20-document-access limit per batched write.
       match /articleMarkers/{markerId} {
         allow read: if isOwner(userId);
         allow delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
           && request.resource.data.itemId is string
-          && getAfter(/databases/$(database)/documents/users/$(userId)/articles/$(request.resource.data.itemId)).data != null;
+          && (
+            getAfter(/databases/$(database)/documents/users/$(userId)/articles/$(request.resource.data.itemId)).data != null
+            || get(/databases/$(database)/documents/articles/$(request.resource.data.itemId)) != null
+          );
       }
 
       // Articles subcollection - user can only access their own articles
