@@ -57,6 +57,8 @@ data class Article(
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "archived_at") val archivedAt: Long? = null,
     @ColumnInfo(name = "text_source", defaultValue = "") val textSource: String = "",
+    /** Epoch-millis when this article was successfully backed up to Firestore (null = never). */
+    @ColumnInfo(name = "backed_up_at", defaultValue = "NULL") val backedUpAt: Long? = null,
 )
 
 @Entity(tableName = "article_fts")

@@ -380,7 +380,13 @@ class ArticleListViewModel @Inject constructor(
                 // article markdown text, then re-enable ContentMetricsCalculator to
                 // compute reading time, listening time, and word count.
 
-                articleRepository.synchronize()
+                // Back up immediately so the article's existence marker lands in
+                // Firestore before the detail screen opens its archive listener.
+                // The periodic background sync (syncToFirestore) is enqueued as a
+                // safety backstop in case the inline backup fails (e.g. offline).
+                articleRepository.backupArticleNow(articleId)
+                    .onFailure { t -> Timber.w(t, "Inline backup failed for $articleId — periodic sync will retry") }
+                articleRepository.syncToFirestore()
             } catch (error: Throwable) {
                 Timber.e(error, "Failed to save shared article.")
                 _event.emit(ArticleListEvent.ShowError(error))

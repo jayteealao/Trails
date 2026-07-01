@@ -76,6 +76,9 @@ class ArchiveServiceTest {
         // stub the two-arg form so the relaxed default (null) on articleDao causes owningItemId
         // to fall back to key, making key == itemId for standard itemId-keyed tests.
         coEvery { backupService.writeArticleMarker(any(), any()) } returns Result.success(Unit)
+        // owningItemId() falls back to `key` when the DAO returns null for both lookups.
+        coEvery { articleDao.getArticleById(any()) } returns null
+        coEvery { articleDao.getArticleByResolvedId(any()) } returns null
 
         service = ArchiveService(
             firestore = firestore,

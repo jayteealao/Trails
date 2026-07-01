@@ -72,6 +72,9 @@ class FirestoreSyncManager @Inject constructor(
         private const val USERS_COLLECTION = "users"
         private const val ARTICLES_COLLECTION = "articles"
         private const val SYNC_WORK_NAME = "FirestoreBidirectionalSync"
+        // Keep ≤ 20 to stay within the Firestore rules document-access budget per
+        // batched write (one getAfter call per article, max 20 per batch).
+        private const val RECONCILE_CHUNK_SIZE = 20
     }
 
     /**
@@ -330,6 +333,12 @@ class FirestoreSyncManager @Inject constructor(
                 }
             }
 
+            // Class-B reconciliation sweep: back up any article that was saved locally
+            // but never reached Firestore (backed_up_at IS NULL). These are articles
+            // that were saved offline, had an inline backup failure, or pre-date the
+            // backed_up_at column. Chunk size ≤ 20 respects the Firestore rules budget.
+            reconcileNeverBackedUpArticles()
+
             // Update last sync timestamp
             firestoreBackupService.updateLastSyncTimestamp()
             val now = System.currentTimeMillis()
@@ -524,6 +533,50 @@ class FirestoreSyncManager @Inject constructor(
 
         // Then push local changes with pagination
         syncLocalChanges()
+    }
+
+    /**
+     * Back up articles that were saved locally but never successfully backed up to
+     * Firestore ([Article.backedUpAt] IS NULL). This handles:
+     * - Articles saved while offline (inline backup failed silently).
+     * - Articles saved before the [Article.backedUpAt] column was added (NULL by default).
+     * - The live Class-B case (e.g. `XrU724etfGYUZ9`) that stranded ~18h without archives.
+     *
+     * Processes in pages of [RECONCILE_CHUNK_SIZE] to respect the Firestore rules
+     * document-access budget (≤ 20 getAfter calls per batched write).
+     */
+    // internal for testability
+    internal suspend fun reconcileNeverBackedUpArticles() {
+        if (auth.currentUser == null) return
+        var offset = 0
+        var sweptCount = 0
+        while (true) {
+            val chunk = articleDao.getArticlesNeverBackedUp(RECONCILE_CHUNK_SIZE, offset)
+            if (chunk.isEmpty()) break
+            val result = firestoreBackupService.backupArticlesPaginated(chunk)
+            result.fold(
+                onSuccess = { count ->
+                    val now = System.currentTimeMillis()
+                    chunk.forEach { article ->
+                        try {
+                            articleDao.updateBackedUpAt(article.itemId, now)
+                        } catch (e: Exception) {
+                            Timber.w(e, "reconcile: failed to stamp backed_up_at for ${article.itemId}")
+                        }
+                    }
+                    sweptCount += count
+                    Timber.d("reconcile: swept $count articles at offset $offset (total so far: $sweptCount)")
+                },
+                onFailure = { e ->
+                    Timber.w(e, "reconcile: backup failed for chunk at offset $offset, stopping sweep")
+                    return
+                }
+            )
+            offset += chunk.size
+        }
+        if (sweptCount > 0) {
+            Timber.d("reconcile: finished, swept $sweptCount never-backed-up articles")
+        }
     }
 
     /**

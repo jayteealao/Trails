@@ -103,6 +103,8 @@ class FirestoreSyncManagerTest {
         coEvery { articleDao.getArticleTags("a1") } returns listOf("t1", "t2")
         coEvery { articleDao.getArticleTags("a2") } returns listOf("t3")
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
+        // Reconcile sweep runs after main sync; no never-backed-up articles.
+        coEvery { articleDao.getArticlesNeverBackedUp(any(), any()) } returns emptyList()
 
         // Firestore tag-backup write chain.
         val usersCollection = mockk<CollectionReference>()

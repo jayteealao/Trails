@@ -20,6 +20,7 @@ import android.content.Context
 import androidx.paging.PagingSource
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.sync.SyncStatusMonitor
 import io.mockk.MockKAnnotations
@@ -52,6 +53,7 @@ class DefaultArticleRepositoryTest {
     @MockK private lateinit var articleDao: ArticleDao
     @MockK private lateinit var syncStatusMonitor: SyncStatusMonitor
     @MockK private lateinit var firestoreSyncManager: FirestoreSyncManager
+    @MockK private lateinit var firestoreBackupService: FirestoreBackupService
 
     private lateinit var repository: ArticleRepositoryImpl
 
@@ -63,6 +65,7 @@ class DefaultArticleRepositoryTest {
             articleDao = articleDao,
             syncStatusMonitor = syncStatusMonitor,
             firestoreSyncManager = firestoreSyncManager,
+            firestoreBackupService = firestoreBackupService,
             ioDispatcher = StandardTestDispatcher(),
         )
     }

@@ -31,6 +31,7 @@ import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.network.ArticleData
 import com.jayteealao.trails.network.ArticleTags
+import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.workers.FirestoreRestoreWorker
@@ -97,6 +98,17 @@ interface ArticleRepository: Syncable {
     suspend fun updateArticleText(itemId: String, text: String, source: String)
 
     suspend fun backfillMetadata(itemId: String, metadata: WargMetadata)
+
+    /**
+     * Back up a single article to Firestore and write its existence marker now.
+     * Satisfies the read-gate for a freshly-saved article before anyone opens the
+     * detail screen. On success, stamps [backedUpAt] in Room so the reconciliation
+     * sweep can skip already-backed-up articles.
+     *
+     * Failures are surfaced as [Result.failure] — callers fall back to the periodic
+     * background sync without crashing.
+     */
+    suspend fun backupArticleNow(itemId: String): Result<Unit>
 }
 
 interface Syncable {
@@ -128,6 +140,7 @@ class ArticleRepositoryImpl @Inject constructor(
     private val articleDao: ArticleDao,
     private val syncStatusMonitor: SyncStatusMonitor,
     private val firestoreSyncManager: FirestoreSyncManager,
+    private val firestoreBackupService: FirestoreBackupService,
 //    private val modalClient: ModalClient,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ArticleRepository {
@@ -421,6 +434,25 @@ class ArticleRepositoryImpl @Inject constructor(
                 )
             )
         }
+    }
+
+    /**
+     * Backs up [itemId] to Firestore (article doc + existence marker) immediately,
+     * then stamps [backedUpAt] in Room on success so the reconciliation sweep can
+     * skip it.
+     *
+     * Fires synchronously on the caller's coroutine — the ViewModel calls this
+     * inline in `saveUrl` after the unfurl, before handing off to the periodic
+     * background sync. A failure here is not fatal: the periodic sync will retry.
+     */
+    override suspend fun backupArticleNow(itemId: String): Result<Unit> {
+        val article = articleDao.getArticleById(itemId)
+            ?: return Result.failure(NoSuchElementException("Article $itemId not found locally"))
+        val result = firestoreBackupService.backupArticle(article)
+        if (result.isSuccess) {
+            articleDao.updateBackedUpAt(itemId, System.currentTimeMillis())
+        }
+        return result
     }
 }
 

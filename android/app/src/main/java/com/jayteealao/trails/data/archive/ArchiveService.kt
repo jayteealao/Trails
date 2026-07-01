@@ -96,7 +96,13 @@ class ArchiveService @Inject constructor(
     fun observeRemoteArchives(itemId: String): Flow<Map<String, ArchiveStatus>> = callbackFlow {
         Timber.d("observeRemoteArchives($itemId) — attaching Firestore listener")
         val docRef = firestore.collection("articles").document(itemId)
-        var hasSelfHealed = false
+        // Bounded self-heal: allow up to MAX_SELF_HEAL_ATTEMPTS re-attaches to
+        // absorb brief propagation lag between the marker write and the Firestore
+        // rules cache refresh. After the rule relaxation, the second attempt almost
+        // always succeeds; the cap prevents an infinite loop in the unlikely event
+        // the marker write itself fails (e.g. offline).
+        var selfHealAttempts = 0
+        val MAX_SELF_HEAL_ATTEMPTS = 2
         // Single source of truth for the current registration, visible across the
         // Firestore callback thread and the coroutine launched for self-heal.
         val registrationRef = AtomicReference<ListenerRegistration?>(null)
@@ -104,13 +110,15 @@ class ArchiveService @Inject constructor(
         fun attach() {
             registrationRef.set(docRef.addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    // Self-heal once on a denied read for an article we own:
-                    // write the existence marker and re-attach the listener.
+                    // Self-heal on a denied read for an article we own, up to the
+                    // bounded limit: write the existence marker and re-attach.
+                    // After the marker create-rule relaxation, self-heal now succeeds
+                    // even when the backup doc is absent (the new fallback path).
                     if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED &&
-                        !hasSelfHealed && auth.currentUser != null
+                        selfHealAttempts < MAX_SELF_HEAL_ATTEMPTS && auth.currentUser != null
                     ) {
-                        hasSelfHealed = true
-                        Timber.w(error, "observeRemoteArchives($itemId) — read denied, self-healing marker")
+                        selfHealAttempts++
+                        Timber.w(error, "observeRemoteArchives($itemId) — read denied, self-healing marker (attempt $selfHealAttempts/$MAX_SELF_HEAL_ATTEMPTS)")
                         launch {
                             val markerItemId = owningItemId(itemId)
                             val result = backupService.writeArticleMarker(itemId, markerItemId)
@@ -128,8 +136,8 @@ class ArchiveService @Inject constructor(
                         }
                         return@addSnapshotListener
                     }
-                    // Unrecoverable (or already healed): surface a graceful empty
-                    // state instead of leaving the flow hanging — never crash.
+                    // Unrecoverable (attempts exhausted, wrong user, or non-permission error):
+                    // surface a graceful empty state instead of leaving the flow hanging — never crash.
                     Timber.e(error, "observeRemoteArchives($itemId) — listener error, emitting empty")
                     trySend(emptyMap())
                     return@addSnapshotListener
