@@ -7,8 +7,8 @@ status: active
 current-stage: verify
 stage-number: 6
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-05T21:48:10Z"
-selected-slice: "streaming-restore"
+updated-at: "2026-07-05T22:31:22Z"
+selected-slice: "app-scope"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
 base-branch: "main"
@@ -41,8 +41,17 @@ stack:
     - {name: firebase, hint: "Firestore project trails-e428e — sync/backup findings"}
   user-confirmed: true
   confirmed-at: "2026-06-14T20:01:16Z"
+runtime-evidence-deferrals:
+  - slice: streaming-restore
+    reason: "Rung 1 (unit-tests): 5 streaming-API tests + 3 A2b rehydration tests cover state-machine correctness. Rung 2 (Roborazzi): not applicable — no visual surface. Rung 3 (AVD boot): three AVDs installed but boot requires display; no X server/GPU display available in this headless agent session. Residual = live memory-profiler smoke confirming heap stays bounded (one page) across a real restore run."
+    deferred-at: "2026-07-05T21:58:27Z"
+    cleared-by: null
+  - slice: batched-tag-reads
+    reason: "Rung 1 (unit-tests): 6 batchRestoreArticleTags read-count tests assert sub-N+1 via MockK verify(exactly=N); 1 integration test confirms coVerify(exactly=0) restoreArticleTags never called. Rung 2 (Roborazzi): not applicable — no visual surface. Rung 3 (AVD boot): three AVDs installed but boot requires display; no X server/GPU display available in this headless agent session. Residual = live lazylogcat smoke during a bidirectional sync (≥15 articles) observing chunk-grouped Timber.d log lines, plus before/after Firebase console Firestore read-count screenshot."
+    deferred-at: "2026-07-05T22:23:40Z"
+    cleared-by: null
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app streaming-restore"
+next-invocation: "/wf verify simplify-android-app app-scope"
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -88,6 +97,10 @@ workflow-files:
   - 06-verify.md
   - 06-verify-test-net.md
   - 06-verify-fts-search-fix.md
+  - 06-verify-streaming-restore.md
+  - 05-implement-batched-tag-reads.md
+  - 06-verify-batched-tag-reads.md
+  - 05-implement-app-scope.md
 progress:
   intake: complete
   shape: complete
