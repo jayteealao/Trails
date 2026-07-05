@@ -19,7 +19,10 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -51,7 +54,14 @@ class FirestoreSyncManagerTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        manager = FirestoreSyncManager(context, firestore, auth, articleDao, firestoreBackupService)
+        manager = FirestoreSyncManager(
+            context = context,
+            firestore = firestore,
+            auth = auth,
+            articleDao = articleDao,
+            firestoreBackupService = firestoreBackupService,
+            scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher()),
+        )
     }
 
     @After

@@ -27,7 +27,9 @@ import io.mockk.clearAllMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -73,7 +75,7 @@ class FtsSearchTest {
             syncStatusMonitor = syncStatusMonitor,
             firestoreSyncManager = firestoreSyncManager,
             firestoreBackupService = firestoreBackupService,
-            ioDispatcher = StandardTestDispatcher(),
+            coroutineScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher()),
         )
     }
 
