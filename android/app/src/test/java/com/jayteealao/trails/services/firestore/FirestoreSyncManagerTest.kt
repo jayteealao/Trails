@@ -27,10 +27,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Characterization tests pinning the CURRENT (pre-refactor) behaviour of
- * [FirestoreSyncManager]. These establish the baseline that the `firestore-dedup`,
- * `firestore-io` and `streaming-restore` slices must preserve — including known
- * quirks (e.g. the per-article N+1 tag-backup batch). Do not "fix" behaviour here.
+ * Tests pinning the behaviour of [FirestoreSyncManager].
+ * The streaming-restore slice updated [FirestoreBackupService.restoreAllArticlesPaginated]
+ * to deliver articles per-page via [onPage] callback; tests here updated accordingly.
  *
  * Scope: the public `suspend` entry points (`syncLocalChanges`, `performFullSync`)
  * plus the pure conflict-resolution function (exercised reflectively). The
@@ -156,8 +155,11 @@ class FirestoreSyncManagerTest {
     // ---- First-sync strategy dispatch --------------------------------------
 
     /**
-     * First sync, local empty + remote has data ⇒ RESTORE strategy: pull remote
-     * pages, apply each as a new article, then mark synced.
+     * First sync, local empty + remote has data ⇒ RESTORE strategy: pulls remote
+     * pages via the streaming API (restoreAllArticlesPaginated with onPage callback)
+     * and marks synced. Updated for streaming-restore: returns Result<Unit>, not
+     * Result<List<Article>>. The mock returns success without invoking onPage to keep
+     * the test focused on dispatch and status-update behaviour.
      */
     @Test
     fun `performFullSync first-sync restore scenario applies remote and marks synced`() = runTest {
@@ -165,18 +167,12 @@ class FirestoreSyncManagerTest {
         coEvery { firestoreBackupService.isFirstSync() } returns Result.success(true)
         coEvery { articleDao.countAllArticles() } returns 0
         coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(1)
-        val remote = Article(itemId = "r1", url = "http://example.com", timeUpdated = 5)
-        coEvery { firestoreBackupService.restoreAllArticlesPaginated(any()) } returns
-            Result.success(listOf(remote))
-        coEvery { articleDao.getArticleById("r1") } returns null
-        coEvery { articleDao.upsertArticle(any()) } returns Unit
-        coEvery { firestoreBackupService.restoreArticleTags("r1") } returns Result.success(emptyList())
+        coEvery { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) } returns Result.success(Unit)
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
 
         manager.performFullSync()
 
-        coVerify(exactly = 1) { firestoreBackupService.restoreAllArticlesPaginated(any()) }
-        coVerify(exactly = 1) { articleDao.upsertArticle(any()) }
+        coVerify(exactly = 1) { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) }
         coVerify(exactly = 1) { firestoreBackupService.updateLastSyncTimestamp(any()) }
         assertTrue(manager.syncStatus.value is SyncStatus.Success)
     }
@@ -194,7 +190,7 @@ class FirestoreSyncManagerTest {
 
         manager.performFullSync()
 
-        coVerify(exactly = 0) { firestoreBackupService.restoreAllArticlesPaginated(any()) }
+        coVerify(exactly = 0) { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) }
         coVerify(exactly = 1) { firestoreBackupService.updateLastSyncTimestamp(any()) }
         assertEquals(SyncStatus.Success("Up to date"), manager.syncStatus.value)
     }

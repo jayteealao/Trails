@@ -25,6 +25,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -34,12 +35,11 @@ import org.junit.Test
  * onto the same WriteBatch (so they commit atomically), keyed by itemId plus
  * resolvedId when distinct.
  *
- * The `characterization` tests at the bottom pin the CURRENT (pre-refactor)
- * behaviour of the batch/large-text/restore surfaces that the `firestore-io`,
- * `firestore-dedup` and `streaming-restore` slices will refactor. They assert
- * today's observable shape — including quirks (e.g. paginated restore folding
- * every page into one in-memory list) — so those refactors can be proven
- * behaviour-preserving. Do not "fix" behaviour here.
+ * The `characterization` tests at the bottom pin the behaviour of the
+ * batch/large-text/restore surfaces. The streaming-restore slice updated
+ * [FirestoreBackupService.restoreAllArticlesPaginated] to deliver articles
+ * per-page via [onPage] callback rather than accumulating a full list. Tests
+ * below verify the new streaming shape and the A2b rehydration path.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class FirestoreBackupServiceTest {
@@ -268,7 +268,7 @@ class FirestoreBackupServiceTest {
     }
 
     // ---------------------------------------------------------------------------
-    // Characterization tests — pin current behaviour for the upcoming refactors.
+    // Characterization tests — pin behaviour for the backup and restore surfaces.
     // ---------------------------------------------------------------------------
 
     /**
@@ -381,54 +381,261 @@ class FirestoreBackupServiceTest {
         verify(exactly = 1) { userDoc.get() }
     }
 
-    /**
-     * QUIRK (pre-refactor): `restoreAllArticlesPaginated` pages through Firestore but
-     * folds every page into a single in-memory list before returning. Two pages of
-     * 50 + 10 ⇒ all 60 articles held at once. `streaming-restore` will replace this
-     * accumulation with per-page writes; this test pins the current OOM-prone shape.
-     */
-    @Test
-    fun `restoreAllArticlesPaginated accumulates all pages into one list`() = runTest {
-        // Total-count aggregation for progress reporting.
+    // ---------------------------------------------------------------------------
+    // A2 streaming-API tests (streaming-restore slice)
+    // ---------------------------------------------------------------------------
+
+    /** Shared helper: set up the count aggregate for restore tests. */
+    private fun stubCountQuery(total: Long) {
         val aggQuery = mockk<AggregateQuery>()
         val aggSnapshot = mockk<AggregateQuerySnapshot>()
         every { articlesCollection.count() } returns aggQuery
         every { aggQuery.get(AggregateSource.SERVER) } returns Tasks.forResult(aggSnapshot)
-        every { aggSnapshot.count } returns 60L
+        every { aggSnapshot.count } returns total
+    }
 
+    /** Shared helper: build N mock doc snapshots for a given page id prefix. */
+    private fun makePageDocs(prefix: String, count: Int): List<DocumentSnapshot> =
+        (1..count).map { i ->
+            mockk<DocumentSnapshot>().also {
+                every { it.toObject(Article::class.java) } returns Article(itemId = "${prefix}_$i")
+                // No subcollection text needed: text is null → rehydrateLargeText will query,
+                // but the article doc reference itself is mocked via articleDoc (relaxed).
+                // To keep these tests free of subcollection noise we mock text as non-null.
+                every { it.toObject(Article::class.java) } returns Article(itemId = "${prefix}_$i", text = "inline")
+            }
+        }
+
+    /**
+     * A2 — Multi-page: onPage is called once per page (not once with the full list).
+     * Two pages of 50 + 10 ⇒ onPage called exactly twice.
+     */
+    @Test
+    fun `restoreAllArticlesPaginated calls onPage per page not once with full list`() = runTest {
+        stubCountQuery(60L)
         val orderedQuery = mockk<Query>()
         every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
 
-        // Page 1: 50 docs (== page limit ⇒ keep paging).
+        val page1Docs = makePageDocs("p1", 50)
         val page1Query = mockk<Query>()
         val page1 = mockk<QuerySnapshot>()
-        val page1Docs = (1..50).map { i ->
-            mockk<DocumentSnapshot>().also {
-                every { it.toObject(Article::class.java) } returns Article(itemId = "p1_$i")
-            }
-        }
         every { orderedQuery.limit(50L) } returns page1Query
         every { page1.documents } returns page1Docs
         every { page1Query.get() } returns Tasks.forResult(page1)
 
-        // Page 2: 10 docs (< page limit ⇒ stop), reached via startAfter(lastDocOfPage1).
         val lastDocPage1 = page1Docs.last()
-        val page2Query = mockk<Query>()
-        val page2Limited = mockk<Query>()
+        val page2AfterQuery = mockk<Query>()
+        val page2LimitedQuery = mockk<Query>()
         val page2 = mockk<QuerySnapshot>()
-        val page2Docs = (1..10).map { i ->
-            mockk<DocumentSnapshot>().also {
-                every { it.toObject(Article::class.java) } returns Article(itemId = "p2_$i")
-            }
-        }
-        every { orderedQuery.startAfter(lastDocPage1) } returns page2Query
-        every { page2Query.limit(50L) } returns page2Limited
+        val page2Docs = makePageDocs("p2", 10)
+        every { orderedQuery.startAfter(lastDocPage1) } returns page2AfterQuery
+        every { page2AfterQuery.limit(50L) } returns page2LimitedQuery
         every { page2.documents } returns page2Docs
-        every { page2Limited.get() } returns Tasks.forResult(page2)
+        every { page2LimitedQuery.get() } returns Tasks.forResult(page2)
 
-        val result = service.restoreAllArticlesPaginated()
+        val pagesReceived = mutableListOf<List<Article>>()
+        val result = service.restoreAllArticlesPaginated(
+            onPage = { page -> pagesReceived.add(page) }
+        )
 
         assertTrue(result.isSuccess)
-        assertEquals(60, result.getOrNull()?.size)
+        assertEquals(2, pagesReceived.size)
+        assertEquals(50, pagesReceived[0].size)
+        assertEquals(10, pagesReceived[1].size)
+    }
+
+    /**
+     * A2 — Zero articles: count returns 0, first page is empty → onPage never called;
+     * return is Result.success(Unit).
+     */
+    @Test
+    fun `restoreAllArticlesPaginated zero articles never calls onPage`() = runTest {
+        stubCountQuery(0L)
+        val orderedQuery = mockk<Query>()
+        every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
+
+        val emptySnapshot = mockk<QuerySnapshot>()
+        val emptyQuery = mockk<Query>()
+        every { orderedQuery.limit(50L) } returns emptyQuery
+        every { emptySnapshot.documents } returns emptyList()
+        every { emptyQuery.get() } returns Tasks.forResult(emptySnapshot)
+
+        var onPageCallCount = 0
+        val result = service.restoreAllArticlesPaginated(
+            onPage = { onPageCallCount++ }
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(0, onPageCallCount)
+    }
+
+    /**
+     * A2 — Single page: one page of 30 articles (< 50 page limit) → onPage called
+     * exactly once with 30 articles; return is Result.success(Unit).
+     */
+    @Test
+    fun `restoreAllArticlesPaginated single page calls onPage once`() = runTest {
+        stubCountQuery(30L)
+        val orderedQuery = mockk<Query>()
+        every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
+
+        val page1Docs = makePageDocs("s", 30)
+        val page1Query = mockk<Query>()
+        val page1 = mockk<QuerySnapshot>()
+        every { orderedQuery.limit(50L) } returns page1Query
+        every { page1.documents } returns page1Docs
+        every { page1Query.get() } returns Tasks.forResult(page1)
+
+        var callCount = 0
+        var receivedSize = 0
+        val result = service.restoreAllArticlesPaginated(
+            onPage = { page -> callCount++; receivedSize = page.size }
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(1, callCount)
+        assertEquals(30, receivedSize)
+    }
+
+    /**
+     * A2 — onPage failure stops paging and returns Result.failure; onPage is not
+     * called a second time.
+     */
+    @Test
+    fun `restoreAllArticlesPaginated onPage failure stops paging and returns failure`() = runTest {
+        stubCountQuery(100L)
+        val orderedQuery = mockk<Query>()
+        every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
+
+        // Page 1: full 50 docs.
+        val page1Docs = makePageDocs("f", 50)
+        val page1Query = mockk<Query>()
+        val page1 = mockk<QuerySnapshot>()
+        every { orderedQuery.limit(50L) } returns page1Query
+        every { page1.documents } returns page1Docs
+        every { page1Query.get() } returns Tasks.forResult(page1)
+
+        var callCount = 0
+        val result = service.restoreAllArticlesPaginated(
+            onPage = {
+                callCount++
+                throw RuntimeException("Room write failed")
+            }
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(1, callCount)
+    }
+
+    // ---------------------------------------------------------------------------
+    // A2b rehydration tests (streaming-restore slice)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * A2b — Happy path: article with text == null gets its large text from the
+     * text/content subcollection and the hydrated text is delivered via onPage.
+     */
+    @Test
+    fun `restoreAllArticlesPaginated rehydrates large text from subcollection`() = runTest {
+        stubCountQuery(1L)
+        val orderedQuery = mockk<Query>()
+        every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
+
+        // One-article page with text == null (stored in subcollection).
+        val docWithNullText = mockk<DocumentSnapshot>().also {
+            every { it.toObject(Article::class.java) } returns Article(itemId = "large1", text = null)
+        }
+        val page1 = mockk<QuerySnapshot>()
+        val page1Query = mockk<Query>()
+        every { orderedQuery.limit(50L) } returns page1Query
+        every { page1.documents } returns listOf(docWithNullText)
+        every { page1Query.get() } returns Tasks.forResult(page1)
+
+        // Mock the subcollection for the article doc.
+        val textCollection = mockk<CollectionReference>()
+        val textDocRef = mockk<DocumentReference>()
+        val textDocSnapshot = mockk<DocumentSnapshot>()
+        every { articleDoc.collection("text") } returns textCollection
+        every { textCollection.document("content") } returns textDocRef
+        every { textDocRef.get() } returns Tasks.forResult(textDocSnapshot)
+        every { textDocSnapshot.exists() } returns true
+        every { textDocSnapshot.getString("text") } returns "large content"
+
+        val receivedArticles = mutableListOf<Article>()
+        val result = service.restoreAllArticlesPaginated(
+            onPage = { page -> receivedArticles.addAll(page) }
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(1, receivedArticles.size)
+        assertEquals("large content", receivedArticles[0].text)
+    }
+
+    /**
+     * A2b — Inline text path: article with non-null text is returned unchanged;
+     * no subcollection read is issued.
+     */
+    @Test
+    fun `restoreAllArticlesPaginated inline text not fetched from subcollection`() = runTest {
+        stubCountQuery(1L)
+        val orderedQuery = mockk<Query>()
+        every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
+
+        val docWithText = mockk<DocumentSnapshot>().also {
+            every { it.toObject(Article::class.java) } returns Article(itemId = "inline1", text = "short")
+        }
+        val page1 = mockk<QuerySnapshot>()
+        val page1Query = mockk<Query>()
+        every { orderedQuery.limit(50L) } returns page1Query
+        every { page1.documents } returns listOf(docWithText)
+        every { page1Query.get() } returns Tasks.forResult(page1)
+
+        val receivedArticles = mutableListOf<Article>()
+        val result = service.restoreAllArticlesPaginated(
+            onPage = { page -> receivedArticles.addAll(page) }
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(1, receivedArticles.size)
+        assertEquals("short", receivedArticles[0].text)
+        // No subcollection read was made.
+        verify(exactly = 0) { articleDoc.collection("text") }
+    }
+
+    /**
+     * A2b — Subcollection missing: article with text == null and no text/content doc
+     * → article delivered to onPage with text == null; no exception propagated.
+     */
+    @Test
+    fun `restoreAllArticlesPaginated missing subcollection text is null`() = runTest {
+        stubCountQuery(1L)
+        val orderedQuery = mockk<Query>()
+        every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
+
+        val docWithNullText = mockk<DocumentSnapshot>().also {
+            every { it.toObject(Article::class.java) } returns Article(itemId = "missing1", text = null)
+        }
+        val page1 = mockk<QuerySnapshot>()
+        val page1Query = mockk<Query>()
+        every { orderedQuery.limit(50L) } returns page1Query
+        every { page1.documents } returns listOf(docWithNullText)
+        every { page1Query.get() } returns Tasks.forResult(page1)
+
+        val textCollection = mockk<CollectionReference>()
+        val textDocRef = mockk<DocumentReference>()
+        val textDocSnapshot = mockk<DocumentSnapshot>()
+        every { articleDoc.collection("text") } returns textCollection
+        every { textCollection.document("content") } returns textDocRef
+        every { textDocRef.get() } returns Tasks.forResult(textDocSnapshot)
+        every { textDocSnapshot.exists() } returns false
+
+        val receivedArticles = mutableListOf<Article>()
+        val result = service.restoreAllArticlesPaginated(
+            onPage = { page -> receivedArticles.addAll(page) }
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(1, receivedArticles.size)
+        assertNull(receivedArticles[0].text)
     }
 }

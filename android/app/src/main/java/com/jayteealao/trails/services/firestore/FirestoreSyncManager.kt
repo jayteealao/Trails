@@ -433,32 +433,22 @@ class FirestoreSyncManager @Inject constructor(
                         Timber.d("First sync: Restore scenario (new device with remote data)")
                         _syncStatus.value = SyncStatus.Syncing
 
-                        val remoteResult = firestoreBackupService.restoreAllArticlesPaginated(
+                        firestoreBackupService.restoreAllArticlesPaginated(
                             onProgress = { current, total ->
                                 _syncStatus.value = SyncStatus.Syncing
                                 Timber.d("Restoring $current / $total articles")
-                            }
-                        )
-
-                        remoteResult.fold(
-                            onSuccess = { remoteArticles ->
-                                Timber.d("Applying ${remoteArticles.size} remote articles")
-                                // Run on IO dispatcher to ensure database operations don't block main thread
-                                withContext(Dispatchers.IO) {
-                                    remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
-                                        chunk.forEach { remoteArticle ->
-                                            handleRemoteArticleChange(remoteArticle)
-                                        }
-                                        Timber.d("Processed chunk ${chunkIndex + 1}")
-                                    }
-                                }
-                                _syncStatus.value = SyncStatus.Success("Restored $remoteCount articles")
                             },
-                            onFailure = { error ->
-                                Timber.e(error, "Failed to restore remote articles")
-                                throw error
+                            onPage = { pageArticles ->
+                                withContext(Dispatchers.IO) {
+                                    pageArticles.forEach { handleRemoteArticleChange(it) }
+                                }
                             }
-                        )
+                        ).onFailure { error ->
+                            Timber.e(error, "Failed to restore remote articles")
+                            throw error
+                        }
+
+                        _syncStatus.value = SyncStatus.Success("Restored $remoteCount articles")
 
                         // Mark as synced
                         firestoreBackupService.updateLastSyncTimestamp()
@@ -497,39 +487,21 @@ class FirestoreSyncManager @Inject constructor(
      * Perform bidirectional sync (pull remote, push local)
      */
     private suspend fun performBidirectionalSync() {
-        // First, pull remote changes with pagination
-        val remoteResult = firestoreBackupService.restoreAllArticlesPaginated(
+        // First, pull remote changes with pagination — each page written to Room on arrival.
+        firestoreBackupService.restoreAllArticlesPaginated(
             onProgress = { current, total ->
                 _syncStatus.value = SyncStatus.Syncing
                 Timber.d("Restoring $current / $total articles")
-            }
-        )
-
-        remoteResult.fold(
-            onSuccess = { remoteArticles ->
-                if (remoteArticles.isNotEmpty()) {
-                    Timber.d("Applying ${remoteArticles.size} remote articles")
-                    _syncStatus.value = SyncStatus.Syncing
-
-                    // Process articles in chunks to avoid memory issues
-                    // Run on IO dispatcher to ensure database operations don't block main thread
-                    withContext(Dispatchers.IO) {
-                        remoteArticles.chunked(50).forEachIndexed { chunkIndex, chunk ->
-                            chunk.forEach { remoteArticle ->
-                                handleRemoteArticleChange(remoteArticle)
-                            }
-                            Timber.d("Processed chunk ${chunkIndex + 1} of ${(remoteArticles.size + 49) / 50}")
-                        }
-                    }
-                } else {
-                    Timber.d("No remote articles to restore")
-                }
             },
-            onFailure = { error ->
-                Timber.e(error, "Failed to restore remote articles")
-                throw error
+            onPage = { pageArticles ->
+                withContext(Dispatchers.IO) {
+                    pageArticles.forEach { handleRemoteArticleChange(it) }
+                }
             }
-        )
+        ).onFailure { error ->
+            Timber.e(error, "Failed to restore remote articles")
+            throw error
+        }
 
         // Then push local changes with pagination
         syncLocalChanges()

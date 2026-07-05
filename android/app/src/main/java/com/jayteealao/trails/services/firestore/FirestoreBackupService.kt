@@ -2,6 +2,7 @@ package com.jayteealao.trails.services.firestore
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -12,6 +13,7 @@ import com.jayteealao.trails.network.ArticleImages
 import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.network.ArticleVideos
 import com.jayteealao.trails.network.DomainMetadata
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import javax.inject.Inject
@@ -289,26 +291,11 @@ class FirestoreBackupService @Inject constructor(
             val articleDoc = articleRef.get().await()
 
             if (articleDoc.exists()) {
-                var article = articleDoc.toObject(Article::class.java)
-
-                // Check if text was stored separately
-                if (article != null && article.text == null) {
-                    try {
-                        val textDoc = articleRef.collection(ARTICLE_TEXT_COLLECTION)
-                            .document("content")
-                            .get()
-                            .await()
-
-                        if (textDoc.exists()) {
-                            val text = textDoc.getString("text")
-                            article = article.copy(text = text)
-                            Timber.d("Restored separate text for article $articleId")
-                        }
-                    } catch (e: Exception) {
-                        Timber.w(e, "Failed to restore separate text for article $articleId")
-                    }
+                val rawArticle = articleDoc.toObject(Article::class.java)
+                val article = rawArticle?.let { rehydrateLargeText(it, articleRef) }
+                if (article?.text != rawArticle?.text) {
+                    Timber.d("Restored separate text for article $articleId")
                 }
-
                 Timber.d("Successfully restored article $articleId")
                 Result.success(article)
             } else {
@@ -321,60 +308,68 @@ class FirestoreBackupService @Inject constructor(
     }
 
     /**
-     * Restore all articles for the current user (non-paginated)
+     * Fetch large article text from the `text/content` subcollection when the article
+     * doc was stored without inline text (text == null, meaning the text exceeded
+     * [MAX_TEXT_SIZE] at backup time). Articles with non-null text are returned
+     * unchanged without an extra Firestore read.
      *
-     * ⚠️ WARNING: CAUSES OutOfMemoryError with large collections
-     *
-     * This method loads ALL articles into memory at once, which crashes the app
-     * when users have hundreds or thousands of articles with text content.
-     *
-     * Use restoreAllArticlesPaginated() instead for memory-safe restore.
-     *
-     * @deprecated Causes OOM with large datasets. Use restoreAllArticlesPaginated() instead.
+     * Brings the bulk restore path to parity with [restoreArticle], which already
+     * performs this rehydration for single-article fetches.
      */
-    @Deprecated(
-        message = "Loads all articles into memory at once, causing OOM. Use restoreAllArticlesPaginated() instead.",
-        replaceWith = ReplaceWith("restoreAllArticlesPaginated(onProgress)"),
-        level = DeprecationLevel.WARNING
-    )
-    suspend fun restoreAllArticles(): Result<List<Article>> {
+    private suspend fun rehydrateLargeText(article: Article, articleRef: DocumentReference): Article {
+        if (article.text != null) return article
         return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
-
-            val snapshot = getUserArticlesCollection(user.uid)
+            val textDoc = articleRef.collection(ARTICLE_TEXT_COLLECTION)
+                .document("content")
                 .get()
                 .await()
-
-            val articles = snapshot.documents.mapNotNull { doc ->
-                doc.toObject(Article::class.java)
+            if (textDoc.exists()) {
+                val text = textDoc.getString("text")
+                article.copy(text = text)
+            } else {
+                article
             }
-
-            Timber.d("Successfully restored ${articles.size} articles for user ${user.uid}")
-            Result.success(articles)
         } catch (e: Exception) {
-            Timber.e(e, "Failed to restore articles")
-            Result.failure(e)
+            Timber.w(e, "Failed to rehydrate large text for article ${article.itemId}")
+            article
         }
     }
 
     /**
-     * Restore all articles with pagination and progress callback
-     * @param onProgress Callback with (current, total) counts
+     * Restore all articles with pagination and a per-page callback.
+     *
+     * Each page of [RESTORE_PAGE_LIMIT] articles is delivered to [onPage] as it
+     * arrives; no page is retained after [onPage] returns. Memory is bounded by
+     * one page at a time regardless of library size.
+     *
+     * Articles whose text was stored in the `text/content` subcollection (text == null
+     * in the main doc) are rehydrated before [onPage] is called, bringing bulk restore
+     * to parity with [restoreArticle].
+     *
+     * **Partial-restore on failure:** if [onPage] throws or a Firestore read fails,
+     * the function stops paging and returns [Result.failure]. Room may already contain
+     * articles from delivered pages; a subsequent sync will fill gaps via idempotent
+     * upsert.
+     *
+     * @param onProgress Called after each page with (current, total) counts.
+     * @param onPage Called with each page of rehydrated articles. Must be fast enough
+     *   not to starve the paging loop; it blocks the loop while running (natural
+     *   backpressure — Firestore reads only advance after Room writes complete).
+     * @return [Result.success] on completion; [Result.failure] on any error.
      */
     suspend fun restoreAllArticlesPaginated(
-        onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }
-    ): Result<List<Article>> {
+        onProgress: (current: Int, total: Int) -> Unit = { _, _ -> },
+        onPage: suspend (List<Article>) -> Unit = {}
+    ): Result<Unit> {
         return try {
             val user = getCurrentUser()
                 ?: return Result.failure(Exception("User not authenticated"))
 
-            val allArticles = mutableListOf<Article>()
             var lastDocument: com.google.firebase.firestore.DocumentSnapshot? = null
             var hasMore = true
             var fetchedCount = 0
 
-            // First, get total count for progress reporting
+            // Fetch total count for progress reporting.
             val countSnapshot = getUserArticlesCollection(user.uid)
                 .count()
                 .get(com.google.firebase.firestore.AggregateSource.SERVER)
@@ -404,12 +399,18 @@ class FirestoreBackupService @Inject constructor(
                         doc.toObject(Article::class.java)
                     }
 
-                    allArticles.addAll(articles)
-                    fetchedCount += articles.size
+                    // Rehydrate large text from subcollection (parity with restoreArticle).
+                    val hydratedArticles = articles.map { article ->
+                        val articleRef = getUserArticlesCollection(user.uid).document(article.itemId)
+                        rehydrateLargeText(article, articleRef)
+                    }
+
+                    fetchedCount += hydratedArticles.size
                     lastDocument = snapshot.documents.lastOrNull()
 
                     onProgress(fetchedCount, totalCount)
-                    Timber.d("Restored $fetchedCount / $totalCount articles")
+                    Timber.d("onPage called with ${hydratedArticles.size} articles (total so far: $fetchedCount / $totalCount)")
+                    onPage(hydratedArticles)
 
                     if (articles.size < RESTORE_PAGE_LIMIT) {
                         hasMore = false
@@ -417,8 +418,11 @@ class FirestoreBackupService @Inject constructor(
                 }
             }
 
-            Timber.d("Successfully restored ${allArticles.size} articles for user ${user.uid}")
-            Result.success(allArticles)
+            Timber.d("Paginated restore complete: $fetchedCount articles for user ${user.uid}")
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            // Re-throw to preserve cooperative structured cancellation.
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "Failed to restore articles with pagination")
             Result.failure(e)
