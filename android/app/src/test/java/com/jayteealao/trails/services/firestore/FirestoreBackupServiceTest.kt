@@ -20,6 +20,7 @@ import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
+import io.mockk.coVerify
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -380,6 +381,100 @@ class FirestoreBackupServiceTest {
         assertTrue(result.isSuccess)
         assertEquals(12_345L, result.getOrNull())
         verify(exactly = 1) { userDoc.get() }
+    }
+
+    // ---------------------------------------------------------------------------
+    // B2 efficiency-1 tests (firestore-io slice): getUserMetaSnapshot single read
+    // ---------------------------------------------------------------------------
+
+    /**
+     * B2 efficiency-1 — Happy path: [getUserMetaSnapshot] reads users/{uid} exactly
+     * once and extracts both [isFirstSync] and [lastSyncTimestamp] from the same doc.
+     */
+    @Test
+    fun `getUserMetaSnapshot reads users doc exactly once for isFirstSync and lastSyncTimestamp`() = runTest {
+        val userSnapshot = mockk<DocumentSnapshot>()
+        every { userDoc.get() } returns Tasks.forResult(userSnapshot)
+        every { userSnapshot.exists() } returns true
+        every { userSnapshot.contains("lastSyncTimestamp") } returns true
+        every { userSnapshot.getLong("lastSyncTimestamp") } returns 1000L
+
+        val result = service.getUserMetaSnapshot()
+
+        assertTrue(result.isSuccess)
+        assertEquals(false, result.getOrThrow().isFirstSync)
+        assertEquals(1000L, result.getOrThrow().lastSyncTimestamp)
+        // Single Firestore GET — not two separate reads.
+        verify(exactly = 1) { userDoc.get() }
+    }
+
+    /**
+     * B2 efficiency-1 — First sync: [getUserMetaSnapshot] returns [isFirstSync] = true
+     * when the document has no `lastSyncTimestamp` field.
+     */
+    @Test
+    fun `getUserMetaSnapshot isFirstSync true when no timestamp`() = runTest {
+        val userSnapshot = mockk<DocumentSnapshot>()
+        every { userDoc.get() } returns Tasks.forResult(userSnapshot)
+        every { userSnapshot.exists() } returns true
+        every { userSnapshot.contains("lastSyncTimestamp") } returns false
+        every { userSnapshot.getLong("lastSyncTimestamp") } returns null
+
+        val result = service.getUserMetaSnapshot()
+
+        assertTrue(result.isSuccess)
+        assertEquals(true, result.getOrThrow().isFirstSync)
+        assertEquals(null, result.getOrThrow().lastSyncTimestamp)
+        verify(exactly = 1) { userDoc.get() }
+    }
+
+    // ---------------------------------------------------------------------------
+    // B2 efficiency-2 tests (firestore-io slice): tags folded into chunk batch
+    // ---------------------------------------------------------------------------
+
+    /**
+     * B2 efficiency-2 — [backupArticlesPaginated] writes tag docs into the same
+     * batch instance as the article doc when [tagsByArticleId] is supplied.
+     * A single article with one tag ⇒ [batch.set] called for both the article doc
+     * and the tag doc within the same batch; [batch.commit] called once.
+     */
+    @Test
+    fun `backupArticlesPaginated writes tags inside chunk batch not a separate commit`() = runTest {
+        every { markersCollection.document(any()) } returns mockk(relaxed = true)
+        val tagsCollection = mockk<CollectionReference>()
+        val tagDoc = mockk<DocumentReference>()
+        every { articleDoc.collection("tags") } returns tagsCollection
+        every { tagsCollection.document("a1_kotlin") } returns tagDoc
+
+        val article = Article(itemId = "a1")
+        val tag = ArticleTags(itemId = "a1", tag = "kotlin", sortId = null, type = null)
+
+        val result = service.backupArticlesPaginated(
+            articles = listOf(article),
+            tagsByArticleId = mapOf("a1" to listOf(tag))
+        )
+
+        assertTrue(result.isSuccess)
+        // Tag written onto the same batch instance as the article.
+        verify(exactly = 1) { batch.set(tagDoc, tag, any()) }
+        // Only one batch commit (article + tag together).
+        verify(exactly = 1) { batch.commit() }
+    }
+
+    /**
+     * B2 efficiency-2 — default [emptyMap] preserves previous behaviour: no tag doc
+     * writes, no extra batch operations.
+     */
+    @Test
+    fun `backupArticlesPaginated with empty tagsByArticleId writes no tag docs`() = runTest {
+        every { markersCollection.document(any()) } returns mockk(relaxed = true)
+        val article = Article(itemId = "a1")
+
+        val result = service.backupArticlesPaginated(listOf(article))
+
+        assertTrue(result.isSuccess)
+        // No tags subcollection accessed.
+        verify(exactly = 0) { articleDoc.collection("tags") }
     }
 
     // ---------------------------------------------------------------------------

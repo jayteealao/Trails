@@ -87,39 +87,104 @@ class FirestoreSyncManagerTest {
         assertEquals(SyncStatus.Error("Not authenticated", null), manager.syncStatus.value)
     }
 
-    // ---- Tag-backup delegation (firestore-dedup) ---------------------------
+    // ---- Tag-backup in chunk batch (firestore-io B2) -----------------------
 
     /**
-     * After firestore-dedup: tag-backup in syncLocalChanges delegates to
-     * [FirestoreBackupService.backupArticle] — one call per article — instead
-     * of writing a raw Firestore batch per article. Two articles ⇒
-     * `backupArticle` called exactly twice (once per article in the chunk).
-     *
-     * firestore-io (B2) will further consolidate per-article commits into
-     * per-chunk commits.
+     * B2: tag-backup is now folded into the chunk batch via [backupArticlesPaginated]'s
+     * [tagsByArticleId] parameter. Two articles in one chunk ⇒ [backupArticlesPaginated]
+     * called once with a map containing both articles' tags, and [backupArticle] is
+     * never called from the main sync path.
      */
     @Test
-    fun `syncLocalChanges backs up tags via backupArticle once per article`() = runTest {
+    fun `syncLocalChanges folds tags into chunk batch via backupArticlesPaginated`() = runTest {
         every { auth.currentUser } returns signedInUser("u1")
 
-        coEvery { firestoreBackupService.isFirstSync() } returns Result.success(false)
-        coEvery { firestoreBackupService.getLastSyncTimestamp() } returns Result.success(0L)
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 0L))
         coEvery { articleDao.countAllArticles() } returns 2
         coEvery { articleDao.getAllArticlesPaginated(50, 0) } returns
             listOf(Article(itemId = "a1"), Article(itemId = "a2"))
-        coEvery { firestoreBackupService.backupArticlesPaginated(any(), any()) } returns Result.success(2)
         coEvery { articleDao.getArticleTags("a1") } returns listOf("t1", "t2")
         coEvery { articleDao.getArticleTags("a2") } returns listOf("t3")
-        coEvery { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
+        // Capture the call to verify tagsByArticleId is populated.
+        coEvery { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) } returns Result.success(2)
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
         // Reconcile sweep runs after main sync; no never-backed-up articles.
         coEvery { articleDao.getArticlesNeverBackedUp(any(), any()) } returns emptyList()
 
         manager.syncLocalChanges()
 
-        // backupArticle is called once per article in the tag-backup pass.
-        coVerify(exactly = 2) { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) }
+        // B2: backupArticlesPaginated is called once with the pre-fetched tags map;
+        // backupArticle is NOT called (tags are in the chunk batch, not a separate commit).
+        coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) }
+        coVerify(exactly = 0) { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) }
         assertTrue(manager.syncStatus.value is SyncStatus.Success)
+    }
+
+    /**
+     * B2 efficiency-1: [syncLocalChanges] makes exactly one user-meta GET
+     * (via [getUserMetaSnapshot]) instead of the prior two separate
+     * [isFirstSync] + [getLastSyncTimestamp] reads.
+     */
+    @Test
+    fun `syncLocalChanges makes one meta read not two`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 1000L))
+        coEvery { articleDao.countArticlesModifiedSince(1000L) } returns 0
+        coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
+        coEvery { articleDao.getArticlesNeverBackedUp(any(), any()) } returns emptyList()
+
+        manager.syncLocalChanges()
+
+        coVerify(exactly = 1) { firestoreBackupService.getUserMetaSnapshot() }
+        // The old two-read pattern must not be invoked.
+        coVerify(exactly = 0) { firestoreBackupService.isFirstSync() }
+        coVerify(exactly = 0) { firestoreBackupService.getLastSyncTimestamp() }
+    }
+
+    /**
+     * B2 efficiency-3: [handleRemoteArticleChange] conflict-update path calls
+     * [deleteAllTagsForArticle] exactly once and never calls [deleteArticleTag].
+     *
+     * Exercised via [applyRemoteArticles] which is the only caller of
+     * [handleRemoteArticleChange]. We stub [restoreAllArticlesPaginated] to invoke
+     * the [onPage] callback synchronously so the Room calls are observable.
+     */
+    @Test
+    fun `handleRemoteArticleChange uses deleteAllTagsForArticle not per-tag deletes`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+
+        val remoteArticle = Article(itemId = "r1", timeUpdated = 200)
+        // Local article is older → remote wins → conflict-update path is taken.
+        val localArticle = Article(itemId = "r1", timeUpdated = 100)
+        coEvery { articleDao.getArticleById("r1") } returns localArticle
+        coEvery { articleDao.upsertArticle(any()) } returns Unit
+        coEvery { articleDao.deleteAllTagsForArticle("r1") } returns Unit
+        coEvery { articleDao.insertArticleTags(any()) } returns Unit
+
+        // batchRestoreArticleTags returns pre-fetched tags for the article.
+        coEvery { firestoreBackupService.batchRestoreArticleTags(listOf("r1")) } returns
+            mapOf("r1" to listOf(ArticleTags(itemId = "r1", tag = "kotlin", sortId = null, type = null)))
+
+        // Use performFullSync → restore scenario to invoke applyRemoteArticles.
+        coEvery { firestoreBackupService.isFirstSync() } returns Result.success(true)
+        coEvery { articleDao.countAllArticles() } returns 0
+        coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(1)
+        coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
+
+        // Have restoreAllArticlesPaginated deliver remoteArticle via onPage callback.
+        coEvery { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) } coAnswers {
+            val onPage = secondArg<suspend (List<Article>) -> Unit>()
+            onPage(listOf(remoteArticle))
+            Result.success(Unit)
+        }
+
+        manager.performFullSync()
+
+        coVerify(exactly = 1) { articleDao.deleteAllTagsForArticle("r1") }
+        coVerify(exactly = 0) { articleDao.deleteArticleTag(any(), any()) }
     }
 
     // ---- Conflict resolution (pure function, via reflection) ---------------

@@ -41,7 +41,9 @@ class FirestoreBackupService @Inject constructor(
         private const val AUTHORS_COLLECTION = "authors"
         private const val DOMAIN_METADATA_COLLECTION = "domain_metadata"
         private const val ARTICLE_TEXT_COLLECTION = "text"
-        private const val MAX_TEXT_SIZE = 900_000 // 900KB to leave buffer for other fields
+        // MAX_TEXT_SIZE is compared against toByteArray().size (byte count), not text.length (char count).
+        // Firestore's 1 MiB doc limit is bytes; leaving 100KB buffer above 900KB for other fields.
+        private const val MAX_TEXT_SIZE = 900_000
         // Rules budget: each article in a batch costs one getAfter call on
         // users/{uid}/articles/{itemId}. Firestore allows at most 20 document-
         // access calls per batched write (same-path calls are cached, but each
@@ -66,11 +68,17 @@ class FirestoreBackupService @Inject constructor(
      * `text/content` subcollection and the article doc is saved with `text = null`.
      * Small text stays inline. This is the single source for the large-text branch;
      * [backupArticle] and [backupArticlesPaginated] both delegate to it.
+     *
+     * When [tags] is non-empty, each tag doc is also written into the same [batch]
+     * so tag writes commit atomically with the article — no separate batch commit
+     * per article (efficiency-2). The default [emptyList] preserves the existing
+     * call sites in [backupArticle] that handle tags separately.
      */
     private fun addArticleToBatch(
         batch: WriteBatch,
         articleRef: DocumentReference,
-        article: Article
+        article: Article,
+        tags: List<ArticleTags> = emptyList()
     ) {
         val textSize = article.text?.toByteArray()?.size ?: 0
         val articleToSave = if (textSize > MAX_TEXT_SIZE && article.text != null) {
@@ -81,6 +89,12 @@ class FirestoreBackupService @Inject constructor(
             article
         }
         batch.set(articleRef, articleToSave, SetOptions.merge())
+        // Write tags into the same batch (efficiency-2: no separate per-article commit).
+        tags.forEach { tag ->
+            val tagRef = articleRef.collection(TAGS_COLLECTION)
+                .document("${tag.itemId}_${tag.tag}")
+            batch.set(tagRef, tag, SetOptions.merge())
+        }
     }
 
     /**
@@ -625,6 +639,37 @@ class FirestoreBackupService @Inject constructor(
     }
 
     /**
+     * Snapshot of user-level sync metadata: a single read of users/{uid} that
+     * covers both the first-sync flag and the last-sync timestamp. Use this
+     * instead of separate [isFirstSync] + [getLastSyncTimestamp] calls to halve
+     * the number of Firestore GETs on every [FirestoreSyncManager.syncLocalChanges]
+     * invocation (efficiency-1).
+     */
+    data class UserMetaSnapshot(val isFirstSync: Boolean, val lastSyncTimestamp: Long?)
+
+    /**
+     * Read users/{uid} once and return both the [isFirstSync] flag and the
+     * [lastSyncTimestamp] — a single Firestore GET instead of two.
+     *
+     * [isFirstSync] is `true` when the document has no `lastSyncTimestamp` field.
+     * [lastSyncTimestamp] is `null` when the field is absent.
+     */
+    suspend fun getUserMetaSnapshot(): Result<UserMetaSnapshot> = withAuthenticatedUser { user ->
+        try {
+            val doc = firestore.collection(USERS_COLLECTION)
+                .document(user.uid)
+                .get()
+                .await()
+            val hasTimestamp = doc.exists() && doc.contains("lastSyncTimestamp")
+            val timestamp = doc.getLong("lastSyncTimestamp")
+            Result.success(UserMetaSnapshot(isFirstSync = !hasTimestamp, lastSyncTimestamp = timestamp))
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to get user meta snapshot")
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Check if remote articles exist in Firestore
      * Returns the count of remote articles
      */
@@ -647,12 +692,26 @@ class FirestoreBackupService @Inject constructor(
     }
 
     /**
-     * Backup articles with pagination and progress callback
+     * Backup articles with pagination and progress callback.
+     *
+     * Tags for each article can be supplied via [tagsByArticleId]. When present,
+     * each article's tags are written into the same [WriteBatch] as the article doc
+     * and markers — no separate per-article commit is needed (efficiency-2). Callers
+     * that do not need tag backup (e.g. the reconcile sweep) use the default
+     * [emptyMap].
+     *
+     * Tag writes do NOT add `getAfter()` calls to the Firestore rules document-access
+     * budget (tag subcollection writes have no rules check). The chunk size ≤ 20 limit
+     * ([WRITE_BATCH_LIMIT]) is governed solely by the article marker rule, which remains
+     * one `getAfter()` per article.
+     *
      * @param articles List of articles to backup
+     * @param tagsByArticleId Pre-fetched tags keyed by [Article.itemId]; default [emptyMap]
      * @param onProgress Callback with (current, total) counts
      */
     suspend fun backupArticlesPaginated(
         articles: List<Article>,
+        tagsByArticleId: Map<String, List<ArticleTags>> = emptyMap(),
         onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }
     ): Result<Int> {
         return withAuthenticatedUser { user ->
@@ -670,8 +729,10 @@ class FirestoreBackupService @Inject constructor(
                         val articleRef = getUserArticlesCollection(user.uid)
                             .document(article.itemId)
 
-                        // Write article doc (and large-text subcollection when needed).
-                        addArticleToBatch(batch, articleRef, article)
+                        // Write article doc (large-text branch) + tags (efficiency-2) into
+                        // the same batch. Tag writes have no rules getAfter() cost.
+                        val tags = tagsByArticleId[article.itemId] ?: emptyList()
+                        addArticleToBatch(batch, articleRef, article, tags)
 
                         // Write existence marker(s) alongside each article in the chunk.
                         // Chunk size ≤ 20 (WRITE_BATCH_LIMIT) keeps the rules budget:

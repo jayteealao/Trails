@@ -111,11 +111,10 @@ class FirestoreSyncManager @Inject constructor(
                         normalizedUrl = normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: "")
                     ))
 
-                    // Replace tags with pre-fetched remote tags
-                    val existingTags = articleDao.getArticleTags(remoteArticle.itemId)
-                    existingTags.forEach { tag ->
-                        articleDao.deleteArticleTag(remoteArticle.itemId, tag)
-                    }
+                    // Replace tags: bulk delete (efficiency-3: N DAO calls → 1 DAO call)
+                    // then insert remote tags. See ArticleDao.deleteAllTagsForArticle KDoc
+                    // for the brief delete-insert window caveat.
+                    articleDao.deleteAllTagsForArticle(remoteArticle.itemId)
                     if (prefetchedTags.isNotEmpty()) {
                         articleDao.insertArticleTags(prefetchedTags)
                     }
@@ -238,9 +237,10 @@ class FirestoreSyncManager @Inject constructor(
             _syncStatus.value = SyncStatus.Syncing
             _lastError.value = null
 
-            // Check if this is first sync
-            val isFirstSync = firestoreBackupService.isFirstSync().getOrNull() ?: false
-            val lastSync = firestoreBackupService.getLastSyncTimestamp().getOrNull() ?: 0L
+            // Single user-meta read covers both isFirstSync and lastSyncTimestamp (efficiency-1).
+            val meta = firestoreBackupService.getUserMetaSnapshot().getOrNull()
+            val isFirstSync = meta?.isFirstSync ?: false
+            val lastSync = meta?.lastSyncTimestamp ?: 0L
 
             // Get count of articles to sync (without loading them all into memory)
             val totalCount = when {
@@ -291,9 +291,23 @@ class FirestoreSyncManager @Inject constructor(
 
                     if (chunk.isEmpty()) break
 
-                    // Backup this chunk
+                    // Pre-fetch tags for this chunk so they fold into the chunk batch
+                    // (efficiency-2: no separate per-article commit; tags written in same batch).
+                    val chunkTagsMap = chunk.associate { article ->
+                        article.itemId to articleDao.getArticleTags(article.itemId).map { tag ->
+                            ArticleTags(
+                                itemId = article.itemId,
+                                tag = tag,
+                                sortId = null,
+                                type = null
+                            )
+                        }
+                    }
+
+                    // Backup this chunk with pre-fetched tags folded into each batch commit.
                     val backupResult = firestoreBackupService.backupArticlesPaginated(
                         articles = chunk,
+                        tagsByArticleId = chunkTagsMap,
                         onProgress = { current, _ ->
                             val totalProgress = offset + current
                             _syncStatus.value = SyncStatus.Syncing
@@ -304,36 +318,7 @@ class FirestoreSyncManager @Inject constructor(
                     backupResult.fold(
                         onSuccess = { count ->
                             successCount += count
-
-                            // Backup tags for this chunk by delegating to backupArticle (single
-                            // source for tag writes). backupArticle re-writes the article doc
-                            // (idempotent via SetOptions.merge()) and all related subcollections
-                            // atomically. firestore-dedup delegated to backupArticle;
-                            // firestore-io (B2) will address the residual per-article commit count.
-                            chunk.forEach { article ->
-                                try {
-                                    val tags = articleDao.getArticleTags(article.itemId).map { tag ->
-                                        ArticleTags(
-                                            itemId = article.itemId,
-                                            tag = tag,
-                                            sortId = null,
-                                            type = null
-                                        )
-                                    }
-                                    firestoreBackupService.backupArticle(
-                                        article = article,
-                                        tags = tags,
-                                        images = emptyList(),
-                                        videos = emptyList(),
-                                        authors = emptyList(),
-                                        domainMetadata = null
-                                    ).onFailure { e ->
-                                        Timber.w(e as? Exception, "Failed to backup article ${article.itemId} with tags")
-                                    }
-                                } catch (e: Exception) {
-                                    Timber.w(e, "Failed to backup tags for article ${article.itemId}")
-                                }
-                            }
+                            // B2: tags now folded into the chunk batch; no separate per-article commit.
                         },
                         onFailure = { error ->
                             Timber.e(error, "Failed to backup chunk at offset $offset")

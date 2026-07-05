@@ -7,8 +7,8 @@ status: active
 current-stage: verify
 stage-number: 6
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-05T22:58:12Z"
-selected-slice: "firestore-dedup"
+updated-at: "2026-07-05T23:21:04Z"
+selected-slice: "firestore-io"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
 base-branch: "main"
@@ -51,7 +51,7 @@ runtime-evidence-deferrals:
     deferred-at: "2026-07-05T22:23:40Z"
     cleared-by: null
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app firestore-dedup"
+next-invocation: "/wf verify simplify-android-app firestore-io"
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -103,6 +103,8 @@ workflow-files:
   - 05-implement-app-scope.md
   - 06-verify-app-scope.md
   - 05-implement-firestore-dedup.md
+  - 06-verify-firestore-dedup.md
+  - 05-implement-firestore-io.md
 progress:
   intake: complete
   shape: complete
