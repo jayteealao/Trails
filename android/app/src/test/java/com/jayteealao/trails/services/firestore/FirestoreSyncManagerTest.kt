@@ -1,13 +1,9 @@
 package com.jayteealao.trails.services.firestore
 
 import android.content.Context
-import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.firestore.CollectionReference
-import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.WriteBatch
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArticleTags
@@ -18,7 +14,6 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -92,16 +87,19 @@ class FirestoreSyncManagerTest {
         assertEquals(SyncStatus.Error("Not authenticated", null), manager.syncStatus.value)
     }
 
-    // ---- N+1 tag-backup quirk ----------------------------------------------
+    // ---- Tag-backup delegation (firestore-dedup) ---------------------------
 
     /**
-     * QUIRK (pre-refactor): after backing up a chunk, tags are written with a
-     * SEPARATE WriteBatch PER ARTICLE — an N+1 commit pattern. Two tagged articles
-     * ⇒ `firestore.batch()` is invoked twice. `firestore-dedup` will collapse this
-     * to one batch per chunk; this test pins the current per-article behaviour.
+     * After firestore-dedup: tag-backup in syncLocalChanges delegates to
+     * [FirestoreBackupService.backupArticle] — one call per article — instead
+     * of writing a raw Firestore batch per article. Two articles ⇒
+     * `backupArticle` called exactly twice (once per article in the chunk).
+     *
+     * firestore-io (B2) will further consolidate per-article commits into
+     * per-chunk commits.
      */
     @Test
-    fun `syncLocalChanges backs up tags with one batch per article`() = runTest {
+    fun `syncLocalChanges backs up tags via backupArticle once per article`() = runTest {
         every { auth.currentUser } returns signedInUser("u1")
 
         coEvery { firestoreBackupService.isFirstSync() } returns Result.success(false)
@@ -112,26 +110,15 @@ class FirestoreSyncManagerTest {
         coEvery { firestoreBackupService.backupArticlesPaginated(any(), any()) } returns Result.success(2)
         coEvery { articleDao.getArticleTags("a1") } returns listOf("t1", "t2")
         coEvery { articleDao.getArticleTags("a2") } returns listOf("t3")
+        coEvery { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) } returns Result.success(Unit)
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
         // Reconcile sweep runs after main sync; no never-backed-up articles.
         coEvery { articleDao.getArticlesNeverBackedUp(any(), any()) } returns emptyList()
 
-        // Firestore tag-backup write chain.
-        val usersCollection = mockk<CollectionReference>()
-        val userDoc = mockk<DocumentReference>()
-        val articlesCollection = mockk<CollectionReference>()
-        val articleRef = mockk<DocumentReference>(relaxed = true)
-        every { firestore.collection("users") } returns usersCollection
-        every { usersCollection.document("u1") } returns userDoc
-        every { userDoc.collection("articles") } returns articlesCollection
-        every { articlesCollection.document(any()) } returns articleRef
-        val batch = mockk<WriteBatch>(relaxed = true)
-        every { firestore.batch() } returns batch
-        every { batch.commit() } returns Tasks.forResult(null)
-
         manager.syncLocalChanges()
 
-        verify(exactly = 2) { firestore.batch() }
+        // backupArticle is called once per article in the tag-backup pass.
+        coVerify(exactly = 2) { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) }
         assertTrue(manager.syncStatus.value is SyncStatus.Success)
     }
 
