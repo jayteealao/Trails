@@ -78,11 +78,20 @@ class FirestoreSyncManager @Inject constructor(
     }
 
     /**
-     * Handle remote article change with conflict resolution
-     * Uses timestamp-based last-write-wins strategy
-     * Also restores related data (tags, images, etc.)
+     * Handle remote article change with conflict resolution.
+     * Uses timestamp-based last-write-wins strategy.
+     *
+     * Tags are supplied by the caller as [prefetchedTags]; no Firestore read is
+     * issued here for tags. Use [applyRemoteArticles] to batch-prefetch tags before
+     * calling this function.
+     *
+     * @param remoteArticle The article received from Firestore.
+     * @param prefetchedTags Tags for this article, pre-fetched by [applyRemoteArticles].
      */
-    private suspend fun handleRemoteArticleChange(remoteArticle: Article) {
+    private suspend fun handleRemoteArticleChange(
+        remoteArticle: Article,
+        prefetchedTags: List<ArticleTags>
+    ) {
         try {
             val localArticle = articleDao.getArticleById(remoteArticle.itemId)
 
@@ -92,13 +101,10 @@ class FirestoreSyncManager @Inject constructor(
                     normalizedUrl = normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: "")
                 ))
 
-                // Restore tags
-                val remoteTags = firestoreBackupService.restoreArticleTags(remoteArticle.itemId)
-                remoteTags.getOrNull()?.let { tags ->
-                    if (tags.isNotEmpty()) {
-                        articleDao.insertArticleTags(tags)
-                        Timber.d("Restored ${tags.size} tags for article ${remoteArticle.itemId}")
-                    }
+                // Apply pre-fetched tags
+                if (prefetchedTags.isNotEmpty()) {
+                    articleDao.insertArticleTags(prefetchedTags)
+                    Timber.d("Restored ${prefetchedTags.size} tags for article ${remoteArticle.itemId}")
                 }
 
                 Timber.d("Inserted new article ${remoteArticle.itemId} from remote")
@@ -109,20 +115,15 @@ class FirestoreSyncManager @Inject constructor(
                         normalizedUrl = normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: "")
                     ))
 
-                    // Restore tags (replace existing)
-                    val remoteTags = firestoreBackupService.restoreArticleTags(remoteArticle.itemId)
-                    remoteTags.getOrNull()?.let { tags ->
-                        // Delete existing tags first
-                        val existingTags = articleDao.getArticleTags(remoteArticle.itemId)
-                        existingTags.forEach { tag ->
-                            articleDao.deleteArticleTag(remoteArticle.itemId, tag)
-                        }
-                        // Insert remote tags
-                        if (tags.isNotEmpty()) {
-                            articleDao.insertArticleTags(tags)
-                        }
-                        Timber.d("Updated ${tags.size} tags for article ${remoteArticle.itemId}")
+                    // Replace tags with pre-fetched remote tags
+                    val existingTags = articleDao.getArticleTags(remoteArticle.itemId)
+                    existingTags.forEach { tag ->
+                        articleDao.deleteArticleTag(remoteArticle.itemId, tag)
                     }
+                    if (prefetchedTags.isNotEmpty()) {
+                        articleDao.insertArticleTags(prefetchedTags)
+                    }
+                    Timber.d("Updated ${prefetchedTags.size} tags for article ${remoteArticle.itemId}")
 
                     Timber.d("Updated article ${remoteArticle.itemId} from remote (remote newer)")
                 } else {
@@ -133,6 +134,27 @@ class FirestoreSyncManager @Inject constructor(
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to handle remote article ${remoteArticle.itemId}")
+        }
+    }
+
+    /**
+     * Batch-fetch tags for all articles in [articles] then apply each article
+     * to Room via [handleRemoteArticleChange].
+     *
+     * Tags for the whole list are fetched in one [FirestoreBackupService.batchRestoreArticleTags]
+     * call (ceil(N/RESTORE_TAG_CHUNK_SIZE) parallel round-trips) rather than one
+     * sequential subcollection read per article. Room writes follow tag retrieval.
+     *
+     * @param articles The page of remote articles to apply.
+     */
+    private suspend fun applyRemoteArticles(articles: List<Article>) {
+        val tagsByArticleId = firestoreBackupService.batchRestoreArticleTags(
+            articles.map { it.itemId }
+        )
+        withContext(Dispatchers.IO) {
+            articles.forEach { article ->
+                handleRemoteArticleChange(article, tagsByArticleId[article.itemId] ?: emptyList())
+            }
         }
     }
 
@@ -439,9 +461,7 @@ class FirestoreSyncManager @Inject constructor(
                                 Timber.d("Restoring $current / $total articles")
                             },
                             onPage = { pageArticles ->
-                                withContext(Dispatchers.IO) {
-                                    pageArticles.forEach { handleRemoteArticleChange(it) }
-                                }
+                                applyRemoteArticles(pageArticles)
                             }
                         ).onFailure { error ->
                             Timber.e(error, "Failed to restore remote articles")
@@ -494,9 +514,7 @@ class FirestoreSyncManager @Inject constructor(
                 Timber.d("Restoring $current / $total articles")
             },
             onPage = { pageArticles ->
-                withContext(Dispatchers.IO) {
-                    pageArticles.forEach { handleRemoteArticleChange(it) }
-                }
+                applyRemoteArticles(pageArticles)
             }
         ).onFailure { error ->
             Timber.e(error, "Failed to restore remote articles")

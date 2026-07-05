@@ -14,6 +14,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.WriteBatch
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.network.ArticleTags
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
 import io.mockk.every
@@ -637,5 +638,137 @@ class FirestoreBackupServiceTest {
         assertTrue(result.isSuccess)
         assertEquals(1, receivedArticles.size)
         assertNull(receivedArticles[0].text)
+    }
+
+    // ---------------------------------------------------------------------------
+    // A3 batchRestoreArticleTags read-count tests (batched-tag-reads slice)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Helper: build a mock QuerySnapshot for a tags collection containing [tags].
+     */
+    private fun makeTagsSnapshot(tags: List<ArticleTags>): QuerySnapshot {
+        val snap = mockk<QuerySnapshot>()
+        val docs = tags.map { tag ->
+            mockk<DocumentSnapshot>().also {
+                every { it.toObject(ArticleTags::class.java) } returns tag
+            }
+        }
+        every { snap.documents } returns docs
+        return snap
+    }
+
+    /**
+     * Helper: wire the mocked Firestore chain for tags subcollection reads.
+     * Returns a map of articleId → CollectionReference for read-count verification.
+     */
+    private fun stubTagsCollection(
+        articleIds: List<String>,
+        tagsByArticleId: Map<String, List<ArticleTags>> = emptyMap()
+    ): Map<String, CollectionReference> {
+        val tagsCollectionByArticleId = mutableMapOf<String, CollectionReference>()
+        articleIds.forEach { id ->
+            val articleDocRef = mockk<DocumentReference>()
+            every { articlesCollection.document(id) } returns articleDocRef
+            val tagsCollection = mockk<CollectionReference>()
+            every { articleDocRef.collection("tags") } returns tagsCollection
+            val tagsSnapshot = makeTagsSnapshot(tagsByArticleId[id] ?: emptyList())
+            every { tagsCollection.get() } returns Tasks.forResult(tagsSnapshot)
+            tagsCollectionByArticleId[id] = tagsCollection
+        }
+        return tagsCollectionByArticleId
+    }
+
+    /**
+     * A3 — Empty list: batchRestoreArticleTags([]) → 0 Firestore reads, returns empty map.
+     */
+    @Test
+    fun `batchRestoreArticleTags empty list returns empty map with zero reads`() = runTest {
+        val result = service.batchRestoreArticleTags(emptyList())
+
+        assertTrue(result.isEmpty())
+        // No article document lookup should have occurred.
+        verify(exactly = 0) { articlesCollection.document(any()) }
+    }
+
+    /**
+     * A3 — Single article: batchRestoreArticleTags(["a1"]) → 1 tags read,
+     * returns {"a1": [tag]}.
+     */
+    @Test
+    fun `batchRestoreArticleTags single article issues one read and returns its tags`() = runTest {
+        val tag = ArticleTags(itemId = "a1", tag = "kotlin", sortId = null, type = null)
+        val tagsCollections = stubTagsCollection(listOf("a1"), mapOf("a1" to listOf(tag)))
+
+        val result = service.batchRestoreArticleTags(listOf("a1"))
+
+        assertEquals(1, result.size)
+        assertEquals(listOf(tag), result["a1"])
+        verify(exactly = 1) { tagsCollections["a1"]!!.get() }
+    }
+
+    /**
+     * A3 — 10 IDs (one full chunk): batchRestoreArticleTags(10 ids) → all 10 reads
+     * dispatched in a single parallel round (one chunk of RESTORE_TAG_CHUNK_SIZE=10).
+     */
+    @Test
+    fun `batchRestoreArticleTags 10 ids issues 10 reads in one chunk`() = runTest {
+        val ids = (1..10).map { "a$it" }
+        val tagsCollections = stubTagsCollection(ids)
+
+        val result = service.batchRestoreArticleTags(ids)
+
+        assertEquals(10, result.size)
+        ids.forEach { id -> assertTrue(result.containsKey(id)) }
+        tagsCollections.values.forEach { col ->
+            verify(exactly = 1) { col.get() }
+        }
+    }
+
+    /**
+     * A3 — 11 IDs (two chunks: 10+1): batchRestoreArticleTags(11 ids) → 11 reads
+     * split into two parallel rounds. All 11 results are present in the returned map.
+     */
+    @Test
+    fun `batchRestoreArticleTags 11 ids splits into two chunks and returns all results`() = runTest {
+        val ids = (1..11).map { "b$it" }
+        val tagsCollections = stubTagsCollection(ids)
+
+        val result = service.batchRestoreArticleTags(ids)
+
+        assertEquals(11, result.size)
+        ids.forEach { id -> assertTrue(result.containsKey(id)) }
+        tagsCollections.values.forEach { col ->
+            verify(exactly = 1) { col.get() }
+        }
+    }
+
+    /**
+     * A3 — Article with no tags: batchRestoreArticleTags still returns an entry for
+     * that article keyed with an empty list; no exception is thrown.
+     */
+    @Test
+    fun `batchRestoreArticleTags article with no tags returns empty list entry`() = runTest {
+        stubTagsCollection(listOf("noTagArticle"), mapOf("noTagArticle" to emptyList()))
+
+        val result = service.batchRestoreArticleTags(listOf("noTagArticle"))
+
+        assertEquals(1, result.size)
+        assertTrue(result.containsKey("noTagArticle"))
+        assertEquals(emptyList<ArticleTags>(), result["noTagArticle"])
+    }
+
+    /**
+     * A3 — Unauthenticated: batchRestoreArticleTags when no user is signed in
+     * returns an empty map and issues no Firestore reads.
+     */
+    @Test
+    fun `batchRestoreArticleTags returns empty map when unauthenticated`() = runTest {
+        every { auth.currentUser } returns null
+
+        val result = service.batchRestoreArticleTags(listOf("a1", "a2"))
+
+        assertTrue(result.isEmpty())
+        verify(exactly = 0) { articlesCollection.document(any()) }
     }
 }

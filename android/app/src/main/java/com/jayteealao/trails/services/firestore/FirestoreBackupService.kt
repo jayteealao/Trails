@@ -14,6 +14,9 @@ import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.network.ArticleVideos
 import com.jayteealao.trails.network.DomainMetadata
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import javax.inject.Inject
@@ -46,6 +49,10 @@ class FirestoreBackupService @Inject constructor(
         private const val WRITE_BATCH_LIMIT = 20 // ≤ 20 so each batch's marker getAfter() calls fit the Firestore rules document-access budget
         // Read-side page size for restore operations — independent of the write-batch budget.
         private const val RESTORE_PAGE_LIMIT = 50
+        // Number of article IDs dispatched concurrently per round in batchRestoreArticleTags.
+        // 10 parallel subcollection reads per round gives ceil(N/10) wall-clock round-trips
+        // instead of N sequential reads; well below any documented Firestore SDK limit.
+        private const val RESTORE_TAG_CHUNK_SIZE = 10
     }
 
     /**
@@ -451,6 +458,50 @@ class FirestoreBackupService @Inject constructor(
         } catch (e: Exception) {
             Timber.e(e, "Failed to restore tags for article $articleId")
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Restore tags for multiple articles in parallel batches.
+     *
+     * Instead of N sequential subcollection reads (one per article), this method
+     * dispatches up to [RESTORE_TAG_CHUNK_SIZE] reads concurrently per round, reducing
+     * wall-clock time to ceil(N / RESTORE_TAG_CHUNK_SIZE) round-trips.
+     *
+     * Articles with no tags are returned as entries mapping to an empty list — no
+     * exception is thrown for missing subcollections.
+     *
+     * @param articleIds IDs of the articles whose tags should be fetched.
+     * @return Map from articleId to its list of [ArticleTags] (empty list when none).
+     *   Returns an empty map when [articleIds] is empty or the user is unauthenticated.
+     */
+    suspend fun batchRestoreArticleTags(
+        articleIds: List<String>
+    ): Map<String, List<ArticleTags>> {
+        if (articleIds.isEmpty()) return emptyMap()
+        val user = getCurrentUser() ?: return emptyMap()
+        return coroutineScope {
+            articleIds
+                .chunked(RESTORE_TAG_CHUNK_SIZE)
+                .flatMap { chunk ->
+                    chunk.map { articleId ->
+                        async {
+                            val snap = try {
+                                getUserArticlesCollection(user.uid)
+                                    .document(articleId)
+                                    .collection(TAGS_COLLECTION)
+                                    .get()
+                                    .await()
+                            } catch (e: Exception) {
+                                Timber.w(e, "batchRestoreArticleTags: failed to fetch tags for $articleId")
+                                null
+                            }
+                            articleId to (snap?.documents?.mapNotNull { it.toObject(ArticleTags::class.java) } ?: emptyList())
+                        }
+                    }
+                }
+                .awaitAll()
+                .toMap()
         }
     }
 
