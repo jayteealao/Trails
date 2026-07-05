@@ -6,6 +6,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.jayteealao.trails.common.di.ApplicationScope
 import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
@@ -14,8 +15,6 @@ import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,9 +51,9 @@ class FirestoreSyncManager @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val auth: FirebaseAuth,
     private val articleDao: ArticleDao,
-    private val firestoreBackupService: FirestoreBackupService
+    private val firestoreBackupService: FirestoreBackupService,
+    @ApplicationScope private val scope: CoroutineScope
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
@@ -574,6 +573,6 @@ class FirestoreSyncManager @Inject constructor(
      */
     fun cleanup() {
         cancelPeriodicSync()
-        scope.cancel()
+        // scope is an @ApplicationScope @Singleton — do NOT cancel it here; it is app-lifetime managed
     }
 }

@@ -5,12 +5,12 @@ slug: simplify-android-app
 status: in-progress
 stage-number: 5
 created-at: "2026-06-18T22:04:03Z"
-updated-at: "2026-07-05T21:48:10Z"
-slices-implemented: 3
+updated-at: "2026-07-05T22:31:22Z"
+slices-implemented: 5
 slices-total: 14
-metric-total-files-changed: 11
-metric-total-lines-added: 985
-metric-total-lines-removed: 198
+metric-total-files-changed: 19
+metric-total-lines-added: 1291
+metric-total-lines-removed: 238
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -25,8 +25,14 @@ slices:
   - slice: streaming-restore
     file: 05-implement-streaming-restore.md
     status: complete
+  - slice: batched-tag-reads
+    file: 05-implement-batched-tag-reads.md
+    status: complete
+  - slice: app-scope
+    file: 05-implement-app-scope.md
+    status: complete
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app streaming-restore"
+next-invocation: "/wf verify simplify-android-app batched-tag-reads"
 ---
 
 # Implement Index
@@ -39,6 +45,8 @@ foundational regression-net gate — every dependent slice waits on it being gre
 | test-net | complete | [05-implement-test-net.md](05-implement-test-net.md) |
 | fts-search-fix | complete | [05-implement-fts-search-fix.md](05-implement-fts-search-fix.md) |
 | streaming-restore | complete | [05-implement-streaming-restore.md](05-implement-streaming-restore.md) |
+| batched-tag-reads | complete | [05-implement-batched-tag-reads.md](05-implement-batched-tag-reads.md) |
+| app-scope | complete | [05-implement-app-scope.md](05-implement-app-scope.md) |
 
 ## Cross-Slice Integration Notes
 - **`test-net` is a prerequisite, not a peer.** Its characterization tests pin the
@@ -61,6 +69,6 @@ foundational regression-net gate — every dependent slice waits on it being gre
   any slice here.
 
 ## Recommended Next Stage
-- **Option A (default):** `/wf verify simplify-android-app streaming-restore` — AC gate for the streaming-restore slice.
-- **Option B:** `/wf verify simplify-android-app fts-search-fix` — if the fts-search-fix verify is still open.
-- **Option C:** `/wf implement simplify-android-app batched-tag-reads` — next dependent slice.
+- **Option A (default):** `/wf verify simplify-android-app app-scope` — run AppScopeIsolationTest to gate A4 AC.
+- **Option B:** `/wf implement simplify-android-app firestore-dedup` — next dependent slice (consumes @ApplicationScope from this slice).
+- **Option C:** `/wf verify simplify-android-app batched-tag-reads` — if batched-tag-reads verify is still open.

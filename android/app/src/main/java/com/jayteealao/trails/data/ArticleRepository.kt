@@ -23,8 +23,7 @@ import androidx.paging.PagingSource
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import com.jayteealao.trails.common.normalizeUrl
-import com.jayteealao.trails.common.di.dispatchers.Dispatcher
-import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
+import com.jayteealao.trails.common.di.ApplicationScope
 import com.jayteealao.trails.data.archive.WargMetadata
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
@@ -37,7 +36,6 @@ import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.workers.FirestoreRestoreWorker
 import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -131,9 +129,8 @@ interface Syncable {
  * @param syncStatusMonitor SyncStatusMonitor
  *    monitor for sync status
  *    @see SyncStatusMonitor
- * @param ioDispatcher CoroutineDispatcher
- *    dispatcher for io operations
- *    @see CoroutineDispatcher
+ * @param coroutineScope CoroutineScope
+ *    application-lifetime supervised scope for background work
  */
 class ArticleRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -142,10 +139,8 @@ class ArticleRepositoryImpl @Inject constructor(
     private val firestoreSyncManager: FirestoreSyncManager,
     private val firestoreBackupService: FirestoreBackupService,
 //    private val modalClient: ModalClient,
-    @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
+    @ApplicationScope private val coroutineScope: CoroutineScope
 ) : ArticleRepository {
-
-    private val coroutineScope = CoroutineScope(ioDispatcher)
 
 //    override fun pockets(): PagingSource<Int, ArticleItem> = pocketDao.getArticles()
     override fun pockets(): PagingSource<Int, ArticleItem> = articleDao.getArticlesWithTags()
