@@ -285,6 +285,19 @@ interface ArticleDao {
     )
     suspend fun deleteArticleTag(itemId: String, tag: String)
 
+    /**
+     * Delete all tags for [itemId] in a single SQL statement (efficiency-3).
+     * Replaces the per-tag loop in conflict resolution: N DAO calls → 1 DAO call.
+     *
+     * NOTE: The delete-then-insert pattern (this method followed by [insertArticleTags])
+     * is not wrapped in a Room [@Transaction]. There is a brief window where an article
+     * has no tags between delete and insert; this matches the prior per-tag-delete + insert
+     * behaviour. The sync path is background-only and not user-visible, so the window is
+     * acceptable.
+     */
+    @Query("DELETE FROM article_tags WHERE itemId = :itemId")
+    suspend fun deleteAllTagsForArticle(itemId: String)
+
     @Query("""
         SELECT tag FROM article_tags WHERE itemId = :itemId
     """)
