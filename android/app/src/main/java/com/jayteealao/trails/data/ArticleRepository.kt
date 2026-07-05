@@ -313,7 +313,7 @@ class ArticleRepositoryImpl @Inject constructor(
         }
         val sanitizedQuery = sanitizeSearchQuery("*$query*")
         Timber.d("sanitized query $sanitizedQuery")
-        return articleDao.searchArticlesWithMatchInfo(query).let { results ->
+        return articleDao.searchArticlesWithMatchInfo(sanitizedQuery).let { results ->
             results
                 .sortedByDescending {
                     calculateScore(it.matchInfo)
