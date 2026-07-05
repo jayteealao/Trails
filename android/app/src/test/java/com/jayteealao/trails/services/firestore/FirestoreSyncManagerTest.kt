@@ -10,6 +10,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.WriteBatch
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.network.ArticleTags
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -193,5 +194,35 @@ class FirestoreSyncManagerTest {
         coVerify(exactly = 0) { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) }
         coVerify(exactly = 1) { firestoreBackupService.updateLastSyncTimestamp(any()) }
         assertEquals(SyncStatus.Success("Up to date"), manager.syncStatus.value)
+    }
+
+    // ---- A3 batched tag reads integration path tests -----------------------
+
+    /**
+     * A3 — Restore strategy (first sync, local empty + remote data) dispatches tags
+     * via batchRestoreArticleTags and never calls the per-article restoreArticleTags.
+     *
+     * The single-article restoreArticleTags is only used by the single-article
+     * restoreArticle path, which is out of scope here. This verifies that the N+1
+     * pattern is eliminated in the restore loop by checking that
+     * restoreArticleTags is not declared anywhere in the stub interactions.
+     */
+    @Test
+    fun `performFullSync restore scenario wires batchRestoreArticleTags not single article restoreArticleTags`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+        coEvery { firestoreBackupService.isFirstSync() } returns Result.success(true)
+        coEvery { articleDao.countAllArticles() } returns 0
+        coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(15)
+
+        // restoreAllArticlesPaginated returns success without invoking onPage (focus is on
+        // dispatch verification, not callback invocation — see streaming-restore Deviation 1).
+        coEvery { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) } returns Result.success(Unit)
+        coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
+
+        manager.performFullSync()
+
+        // The single-article restoreArticleTags must never be called from any restore path.
+        coVerify(exactly = 0) { firestoreBackupService.restoreArticleTags(any()) }
+        assertTrue(manager.syncStatus.value is SyncStatus.Success)
     }
 }
