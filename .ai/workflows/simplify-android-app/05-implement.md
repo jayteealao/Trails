@@ -5,12 +5,12 @@ slug: simplify-android-app
 status: in-progress
 stage-number: 5
 created-at: "2026-06-18T22:04:03Z"
-updated-at: "2026-07-05T23:21:04Z"
-slices-implemented: 7
+updated-at: "2026-07-05T23:42:26Z"
+slices-implemented: 8
 slices-total: 14
-metric-total-files-changed: 27
-metric-total-lines-added: 1789
-metric-total-lines-removed: 642
+metric-total-files-changed: 30
+metric-total-lines-added: 1893
+metric-total-lines-removed: 655
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -37,8 +37,11 @@ slices:
   - slice: firestore-io
     file: 05-implement-firestore-io.md
     status: complete
+  - slice: article-repository
+    file: 05-implement-article-repository.md
+    status: complete
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app firestore-io"
+next-invocation: "/wf verify simplify-android-app article-repository"
 ---
 
 # Implement Index
@@ -55,6 +58,7 @@ foundational regression-net gate — every dependent slice waits on it being gre
 | app-scope | complete | [05-implement-app-scope.md](05-implement-app-scope.md) |
 | firestore-dedup | complete | [05-implement-firestore-dedup.md](05-implement-firestore-dedup.md) |
 | firestore-io | complete | [05-implement-firestore-io.md](05-implement-firestore-io.md) |
+| article-repository | complete | [05-implement-article-repository.md](05-implement-article-repository.md) |
 
 ## Cross-Slice Integration Notes
 - **`test-net` is a prerequisite, not a peer.** Its characterization tests pin the

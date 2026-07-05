@@ -22,6 +22,9 @@ import android.content.Context
 import androidx.paging.PagingSource
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.common.di.ApplicationScope
 import com.jayteealao.trails.data.archive.WargMetadata
@@ -139,7 +142,9 @@ class ArticleRepositoryImpl @Inject constructor(
     private val firestoreSyncManager: FirestoreSyncManager,
     private val firestoreBackupService: FirestoreBackupService,
 //    private val modalClient: ModalClient,
-    @ApplicationScope private val coroutineScope: CoroutineScope
+    @ApplicationScope private val coroutineScope: CoroutineScope,
+    private val firestore: FirebaseFirestore,
+    private val firebaseAuth: FirebaseAuth,
 ) : ArticleRepository {
 
 //    override fun pockets(): PagingSource<Int, ArticleItem> = pocketDao.getArticles()
@@ -173,17 +178,20 @@ class ArticleRepositoryImpl @Inject constructor(
      *     data to be saved
      */
     override suspend fun add(articleData: List<ArticleData>) {
-        articleData.forEach { datum ->
-            // Clear deleted_at and archived_at when re-adding articles
-            // This undeletes/unarchives previously deleted articles
-            val articleToAdd = datum.article.copy(
+        // Pass 1: transform all articles, then bulk-upsert in a single @Upsert call (auto-transactional)
+        // Clear deleted_at and archived_at when re-adding articles (undeletes/unarchives)
+        val articlesToAdd = articleData.map { datum ->
+            datum.article.copy(
                 normalizedUrl = normalizeUrl(datum.article.url ?: datum.article.givenUrl ?: ""),
                 deletedAt = null,
                 archivedAt = null,
                 timeUpdated = System.currentTimeMillis() // Update timestamp for sync
             )
+        }
+        articleDao.upsertArticles(articlesToAdd)
 
-            articleDao.upsertArticle(articleToAdd)
+        // Pass 2: per-datum associated data (already List-based, no N+1 concern)
+        articleData.forEach { datum ->
             articleDao.insertArticleImages(datum.images)
             datum.videos.let { articleDao.insertArticleVideos(it) }
             articleDao.insertArticleTags(datum.tags)
@@ -247,16 +255,15 @@ class ArticleRepositoryImpl @Inject constructor(
         // Soft-delete in Firestore (preserves doc so undo can reverse it)
         coroutineScope.launch {
             try {
-                val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                val user = firebaseAuth.currentUser
                 if (user != null) {
-                    com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                        .collection("users")
+                    firestore.collection("users")
                         .document(user.uid)
                         .collection("articles")
                         .document(itemId)
                         .set(
                             mapOf("deleted_at" to deletedAt),
-                            com.google.firebase.firestore.SetOptions.merge()
+                            SetOptions.merge()
                         )
                         .await()
                     Timber.d("Soft-deleted article $itemId in Firestore")
