@@ -18,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
@@ -68,8 +67,6 @@ class FirestoreSyncManager @Inject constructor(
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
     companion object {
-        private const val USERS_COLLECTION = "users"
-        private const val ARTICLES_COLLECTION = "articles"
         private const val SYNC_WORK_NAME = "FirestoreBidirectionalSync"
         // Keep ≤ 20 to stay within the Firestore rules document-access budget per
         // batched write (one getAfter call per article, max 20 per batch).
@@ -308,32 +305,30 @@ class FirestoreSyncManager @Inject constructor(
                         onSuccess = { count ->
                             successCount += count
 
-                            // Backup tags for this chunk
+                            // Backup tags for this chunk by delegating to backupArticle (single
+                            // source for tag writes). backupArticle re-writes the article doc
+                            // (idempotent via SetOptions.merge()) and all related subcollections
+                            // atomically. firestore-dedup delegated to backupArticle;
+                            // firestore-io (B2) will address the residual per-article commit count.
                             chunk.forEach { article ->
                                 try {
                                     val tags = articleDao.getArticleTags(article.itemId).map { tag ->
-                                        com.jayteealao.trails.network.ArticleTags(
+                                        ArticleTags(
                                             itemId = article.itemId,
                                             tag = tag,
                                             sortId = null,
                                             type = null
                                         )
                                     }
-
-                                    if (tags.isNotEmpty()) {
-                                        val currentUser = auth.currentUser ?: return@forEach
-                                        val articleRef = firestore.collection("users")
-                                            .document(currentUser.uid)
-                                            .collection("articles")
-                                            .document(article.itemId)
-
-                                        val batch = firestore.batch()
-                                        tags.forEach { tag ->
-                                            val tagRef = articleRef.collection("tags")
-                                                .document("${tag.itemId}_${tag.tag}")
-                                            batch.set(tagRef, tag, com.google.firebase.firestore.SetOptions.merge())
-                                        }
-                                        batch.commit().await()
+                                    firestoreBackupService.backupArticle(
+                                        article = article,
+                                        tags = tags,
+                                        images = emptyList(),
+                                        videos = emptyList(),
+                                        authors = emptyList(),
+                                        domainMetadata = null
+                                    ).onFailure { e ->
+                                        Timber.w(e as? Exception, "Failed to backup article ${article.itemId} with tags")
                                     }
                                 } catch (e: Exception) {
                                     Timber.w(e, "Failed to backup tags for article ${article.itemId}")

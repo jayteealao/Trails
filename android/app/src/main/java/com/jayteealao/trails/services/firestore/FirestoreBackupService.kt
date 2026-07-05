@@ -61,6 +61,29 @@ class FirestoreBackupService @Inject constructor(
     private fun getCurrentUser(): FirebaseUser? = auth.currentUser
 
     /**
+     * Write the article doc (and its large-text subcollection when needed) onto
+     * [batch]. Large text (> [MAX_TEXT_SIZE] bytes) is stored in the
+     * `text/content` subcollection and the article doc is saved with `text = null`.
+     * Small text stays inline. This is the single source for the large-text branch;
+     * [backupArticle] and [backupArticlesPaginated] both delegate to it.
+     */
+    private fun addArticleToBatch(
+        batch: WriteBatch,
+        articleRef: DocumentReference,
+        article: Article
+    ) {
+        val textSize = article.text?.toByteArray()?.size ?: 0
+        val articleToSave = if (textSize > MAX_TEXT_SIZE && article.text != null) {
+            val textRef = articleRef.collection(ARTICLE_TEXT_COLLECTION).document("content")
+            batch.set(textRef, mapOf("text" to article.text), SetOptions.merge())
+            article.copy(text = null)
+        } else {
+            article
+        }
+        batch.set(articleRef, articleToSave, SetOptions.merge())
+    }
+
+    /**
      * Get the user's articles collection reference
      */
     private fun getUserArticlesCollection(userId: String) =
@@ -125,6 +148,22 @@ class FirestoreBackupService @Inject constructor(
     }
 
     /**
+     * Auth guard for methods returning [Result]. Calls [block] with the current
+     * [FirebaseUser] when signed in; returns [Result.failure] immediately when not.
+     *
+     * Do NOT use this in [FirestoreSyncManager] — its auth guards return early
+     * with `_syncStatus.value = SyncStatus.Error(...)`, which is intentionally
+     * distinct from this [Result.failure] pattern.
+     */
+    private suspend fun <T> withAuthenticatedUser(
+        block: suspend (user: FirebaseUser) -> Result<T>
+    ): Result<T> {
+        val user = getCurrentUser()
+            ?: return Result.failure(Exception("User not authenticated"))
+        return block(user)
+    }
+
+    /**
      * Write a single article-existence marker for the current user. Reused by
      * the archive read-path self-heal when a read is denied for an owned
      * article key. Idempotent (merge); records source = "self-heal".
@@ -137,20 +176,19 @@ class FirestoreBackupService @Inject constructor(
      * separately when healing a resolvedId-keyed marker.
      */
     suspend fun writeArticleMarker(key: String, itemId: String = key): Result<Unit> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                getUserMarkersCollection(user.uid)
+                    .document(key)
+                    .set(markerBody(key, "self-heal", itemId), SetOptions.merge())
+                    .await()
 
-            getUserMarkersCollection(user.uid)
-                .document(key)
-                .set(markerBody(key, "self-heal", itemId), SetOptions.merge())
-                .await()
-
-            Timber.d("Wrote self-heal marker for key $key (itemId=$itemId)")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to write self-heal marker for key $key")
-            Result.failure(e)
+                Timber.d("Wrote self-heal marker for key $key (itemId=$itemId)")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to write self-heal marker for key $key")
+                Result.failure(e)
+            }
         }
     }
 
@@ -165,83 +203,64 @@ class FirestoreBackupService @Inject constructor(
         authors: List<ArticleAuthors> = emptyList(),
         domainMetadata: DomainMetadata? = null
     ): Result<Unit> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                val articleRef = getUserArticlesCollection(user.uid)
+                    .document(article.itemId)
 
-            val articleRef = getUserArticlesCollection(user.uid)
-                .document(article.itemId)
+                // Use batch write for atomic operation
+                val batch = firestore.batch()
 
-            // Use batch write for atomic operation
-            val batch = firestore.batch()
+                // Write article doc (and large-text subcollection when needed).
+                addArticleToBatch(batch, articleRef, article)
 
-            // Handle large article text (>900KB)
-            val articleToSave: Article
-            val textSize = article.text?.toByteArray()?.size ?: 0
+                // Save tags
+                tags.forEach { tag ->
+                    val tagRef = articleRef.collection(TAGS_COLLECTION)
+                        .document("${tag.itemId}_${tag.tag}")
+                    batch.set(tagRef, tag, SetOptions.merge())
+                }
 
-            if (textSize > MAX_TEXT_SIZE && article.text != null) {
-                Timber.d("Article ${article.itemId} text is large ($textSize bytes), storing separately")
+                // Save images
+                images.forEach { image ->
+                    val imageRef = articleRef.collection(IMAGES_COLLECTION)
+                        .document(image.imageId)
+                    batch.set(imageRef, image, SetOptions.merge())
+                }
 
-                // Save text in separate subcollection
-                val textRef = articleRef.collection(ARTICLE_TEXT_COLLECTION)
-                    .document("content")
-                batch.set(textRef, mapOf("text" to article.text), SetOptions.merge())
+                // Save videos
+                videos.forEach { video ->
+                    val videoRef = articleRef.collection(VIDEOS_COLLECTION)
+                        .document(video.videoId)
+                    batch.set(videoRef, video, SetOptions.merge())
+                }
 
-                // Save article without text
-                articleToSave = article.copy(text = null)
-            } else {
-                articleToSave = article
+                // Save authors
+                authors.forEach { author ->
+                    val authorRef = articleRef.collection(AUTHORS_COLLECTION)
+                        .document(author.authorId)
+                    batch.set(authorRef, author, SetOptions.merge())
+                }
+
+                // Save domain metadata if present
+                domainMetadata?.let { metadata ->
+                    val metadataRef = articleRef.collection(DOMAIN_METADATA_COLLECTION)
+                        .document("metadata")
+                    batch.set(metadataRef, metadata, SetOptions.merge())
+                }
+
+                // Write existence marker(s) atomically with the article doc
+                addMarkerWrites(batch, user.uid, article)
+
+                // Commit batch
+                batch.commit().await()
+
+                Timber.d("Successfully backed up article ${article.itemId} for user ${user.uid}")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to backup article ${article.itemId}")
+                Result.failure(e)
             }
-
-            // Save article (with or without text)
-            batch.set(articleRef, articleToSave, SetOptions.merge())
-
-            // Save tags
-            tags.forEach { tag ->
-                val tagRef = articleRef.collection(TAGS_COLLECTION)
-                    .document("${tag.itemId}_${tag.tag}")
-                batch.set(tagRef, tag, SetOptions.merge())
-            }
-
-            // Save images
-            images.forEach { image ->
-                val imageRef = articleRef.collection(IMAGES_COLLECTION)
-                    .document(image.imageId)
-                batch.set(imageRef, image, SetOptions.merge())
-            }
-
-            // Save videos
-            videos.forEach { video ->
-                val videoRef = articleRef.collection(VIDEOS_COLLECTION)
-                    .document(video.videoId)
-                batch.set(videoRef, video, SetOptions.merge())
-            }
-
-            // Save authors
-            authors.forEach { author ->
-                val authorRef = articleRef.collection(AUTHORS_COLLECTION)
-                    .document(author.authorId)
-                batch.set(authorRef, author, SetOptions.merge())
-            }
-
-            // Save domain metadata if present
-            domainMetadata?.let { metadata ->
-                val metadataRef = articleRef.collection(DOMAIN_METADATA_COLLECTION)
-                    .document("metadata")
-                batch.set(metadataRef, metadata, SetOptions.merge())
-            }
-
-            // Write existence marker(s) atomically with the article doc
-            addMarkerWrites(batch, user.uid, article)
-
-            // Commit batch
-            batch.commit().await()
-
-            Timber.d("Successfully backed up article ${article.itemId} for user ${user.uid}")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to backup article ${article.itemId}")
-            Result.failure(e)
         }
     }
 
@@ -249,38 +268,37 @@ class FirestoreBackupService @Inject constructor(
      * Backup multiple articles in batch
      */
     suspend fun backupArticles(articles: List<Article>): Result<Int> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                var successCount = 0
 
-            var successCount = 0
+                // Process in chunks of WRITE_BATCH_LIMIT: the tightened marker create/update rule
+                // calls getAfter on users/{uid}/articles/{itemId} per article.
+                // Firestore batched writes allow at most 20 document-access calls;
+                // each article contributes one unique path, so chunks must be ≤ 20.
+                articles.chunked(WRITE_BATCH_LIMIT).forEach { chunk ->
+                    val batch = firestore.batch()
 
-            // Process in chunks of WRITE_BATCH_LIMIT: the tightened marker create/update rule
-            // calls getAfter on users/{uid}/articles/{itemId} per article.
-            // Firestore batched writes allow at most 20 document-access calls;
-            // each article contributes one unique path, so chunks must be ≤ 20.
-            articles.chunked(WRITE_BATCH_LIMIT).forEach { chunk ->
-                val batch = firestore.batch()
+                    chunk.forEach { article ->
+                        val articleRef = getUserArticlesCollection(user.uid)
+                            .document(article.itemId)
+                        batch.set(articleRef, article, SetOptions.merge())
 
-                chunk.forEach { article ->
-                    val articleRef = getUserArticlesCollection(user.uid)
-                        .document(article.itemId)
-                    batch.set(articleRef, article, SetOptions.merge())
+                        // Write existence marker(s) atomically with the article doc so
+                        // the tightened `articles` read rule can verify ownership.
+                        addMarkerWrites(batch, user.uid, article)
+                    }
 
-                    // Write existence marker(s) atomically with the article doc so
-                    // the tightened `articles` read rule can verify ownership.
-                    addMarkerWrites(batch, user.uid, article)
+                    batch.commit().await()
+                    successCount += chunk.size
                 }
 
-                batch.commit().await()
-                successCount += chunk.size
+                Timber.d("Successfully backed up $successCount articles for user ${user.uid}")
+                Result.success(successCount)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to backup articles")
+                Result.failure(e)
             }
-
-            Timber.d("Successfully backed up $successCount articles for user ${user.uid}")
-            Result.success(successCount)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to backup articles")
-            Result.failure(e)
         }
     }
 
@@ -288,29 +306,28 @@ class FirestoreBackupService @Inject constructor(
      * Restore a single article from Firestore
      */
     suspend fun restoreArticle(articleId: String): Result<Article?> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                val articleRef = getUserArticlesCollection(user.uid)
+                    .document(articleId)
 
-            val articleRef = getUserArticlesCollection(user.uid)
-                .document(articleId)
+                val articleDoc = articleRef.get().await()
 
-            val articleDoc = articleRef.get().await()
-
-            if (articleDoc.exists()) {
-                val rawArticle = articleDoc.toObject(Article::class.java)
-                val article = rawArticle?.let { rehydrateLargeText(it, articleRef) }
-                if (article?.text != rawArticle?.text) {
-                    Timber.d("Restored separate text for article $articleId")
+                if (articleDoc.exists()) {
+                    val rawArticle = articleDoc.toObject(Article::class.java)
+                    val article = rawArticle?.let { rehydrateLargeText(it, articleRef) }
+                    if (article?.text != rawArticle?.text) {
+                        Timber.d("Restored separate text for article $articleId")
+                    }
+                    Timber.d("Successfully restored article $articleId")
+                    Result.success(article)
+                } else {
+                    Result.success(null)
                 }
-                Timber.d("Successfully restored article $articleId")
-                Result.success(article)
-            } else {
-                Result.success(null)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to restore article $articleId")
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to restore article $articleId")
-            Result.failure(e)
         }
     }
 
@@ -368,71 +385,70 @@ class FirestoreBackupService @Inject constructor(
         onProgress: (current: Int, total: Int) -> Unit = { _, _ -> },
         onPage: suspend (List<Article>) -> Unit = {}
     ): Result<Unit> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                var lastDocument: com.google.firebase.firestore.DocumentSnapshot? = null
+                var hasMore = true
+                var fetchedCount = 0
 
-            var lastDocument: com.google.firebase.firestore.DocumentSnapshot? = null
-            var hasMore = true
-            var fetchedCount = 0
+                // Fetch total count for progress reporting.
+                val countSnapshot = getUserArticlesCollection(user.uid)
+                    .count()
+                    .get(com.google.firebase.firestore.AggregateSource.SERVER)
+                    .await()
+                val totalCount = countSnapshot.count.toInt()
 
-            // Fetch total count for progress reporting.
-            val countSnapshot = getUserArticlesCollection(user.uid)
-                .count()
-                .get(com.google.firebase.firestore.AggregateSource.SERVER)
-                .await()
-            val totalCount = countSnapshot.count.toInt()
+                Timber.d("Starting paginated restore of $totalCount articles")
 
-            Timber.d("Starting paginated restore of $totalCount articles")
-
-            while (hasMore) {
-                val query = if (lastDocument != null) {
-                    getUserArticlesCollection(user.uid)
-                        .orderBy("timeAdded")
-                        .startAfter(lastDocument)
-                        .limit(RESTORE_PAGE_LIMIT.toLong())
-                } else {
-                    getUserArticlesCollection(user.uid)
-                        .orderBy("timeAdded")
-                        .limit(RESTORE_PAGE_LIMIT.toLong())
-                }
-
-                val snapshot = query.get().await()
-
-                if (snapshot.documents.isEmpty()) {
-                    hasMore = false
-                } else {
-                    val articles = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(Article::class.java)
+                while (hasMore) {
+                    val query = if (lastDocument != null) {
+                        getUserArticlesCollection(user.uid)
+                            .orderBy("timeAdded")
+                            .startAfter(lastDocument)
+                            .limit(RESTORE_PAGE_LIMIT.toLong())
+                    } else {
+                        getUserArticlesCollection(user.uid)
+                            .orderBy("timeAdded")
+                            .limit(RESTORE_PAGE_LIMIT.toLong())
                     }
 
-                    // Rehydrate large text from subcollection (parity with restoreArticle).
-                    val hydratedArticles = articles.map { article ->
-                        val articleRef = getUserArticlesCollection(user.uid).document(article.itemId)
-                        rehydrateLargeText(article, articleRef)
-                    }
+                    val snapshot = query.get().await()
 
-                    fetchedCount += hydratedArticles.size
-                    lastDocument = snapshot.documents.lastOrNull()
-
-                    onProgress(fetchedCount, totalCount)
-                    Timber.d("onPage called with ${hydratedArticles.size} articles (total so far: $fetchedCount / $totalCount)")
-                    onPage(hydratedArticles)
-
-                    if (articles.size < RESTORE_PAGE_LIMIT) {
+                    if (snapshot.documents.isEmpty()) {
                         hasMore = false
+                    } else {
+                        val articles = snapshot.documents.mapNotNull { doc ->
+                            doc.toObject(Article::class.java)
+                        }
+
+                        // Rehydrate large text from subcollection (parity with restoreArticle).
+                        val hydratedArticles = articles.map { article ->
+                            val articleRef = getUserArticlesCollection(user.uid).document(article.itemId)
+                            rehydrateLargeText(article, articleRef)
+                        }
+
+                        fetchedCount += hydratedArticles.size
+                        lastDocument = snapshot.documents.lastOrNull()
+
+                        onProgress(fetchedCount, totalCount)
+                        Timber.d("onPage called with ${hydratedArticles.size} articles (total so far: $fetchedCount / $totalCount)")
+                        onPage(hydratedArticles)
+
+                        if (articles.size < RESTORE_PAGE_LIMIT) {
+                            hasMore = false
+                        }
                     }
                 }
-            }
 
-            Timber.d("Paginated restore complete: $fetchedCount articles for user ${user.uid}")
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            // Re-throw to preserve cooperative structured cancellation.
-            throw e
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to restore articles with pagination")
-            Result.failure(e)
+                Timber.d("Paginated restore complete: $fetchedCount articles for user ${user.uid}")
+                Result.success(Unit)
+            } catch (e: CancellationException) {
+                // Re-throw to preserve cooperative structured cancellation.
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to restore articles with pagination")
+                Result.failure(e)
+            }
         }
     }
 
@@ -440,24 +456,23 @@ class FirestoreBackupService @Inject constructor(
      * Restore tags for a specific article
      */
     suspend fun restoreArticleTags(articleId: String): Result<List<ArticleTags>> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                val snapshot = getUserArticlesCollection(user.uid)
+                    .document(articleId)
+                    .collection(TAGS_COLLECTION)
+                    .get()
+                    .await()
 
-            val snapshot = getUserArticlesCollection(user.uid)
-                .document(articleId)
-                .collection(TAGS_COLLECTION)
-                .get()
-                .await()
+                val tags = snapshot.documents.mapNotNull { doc ->
+                    doc.toObject(ArticleTags::class.java)
+                }
 
-            val tags = snapshot.documents.mapNotNull { doc ->
-                doc.toObject(ArticleTags::class.java)
+                Result.success(tags)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to restore tags for article $articleId")
+                Result.failure(e)
             }
-
-            Result.success(tags)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to restore tags for article $articleId")
-            Result.failure(e)
         }
     }
 
@@ -509,24 +524,23 @@ class FirestoreBackupService @Inject constructor(
      * Restore images for a specific article
      */
     suspend fun restoreArticleImages(articleId: String): Result<List<ArticleImages>> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                val snapshot = getUserArticlesCollection(user.uid)
+                    .document(articleId)
+                    .collection(IMAGES_COLLECTION)
+                    .get()
+                    .await()
 
-            val snapshot = getUserArticlesCollection(user.uid)
-                .document(articleId)
-                .collection(IMAGES_COLLECTION)
-                .get()
-                .await()
+                val images = snapshot.documents.mapNotNull { doc ->
+                    doc.toObject(ArticleImages::class.java)
+                }
 
-            val images = snapshot.documents.mapNotNull { doc ->
-                doc.toObject(ArticleImages::class.java)
+                Result.success(images)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to restore images for article $articleId")
+                Result.failure(e)
             }
-
-            Result.success(images)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to restore images for article $articleId")
-            Result.failure(e)
         }
     }
 
@@ -534,20 +548,19 @@ class FirestoreBackupService @Inject constructor(
      * Delete an article from Firestore
      */
     suspend fun deleteArticle(articleId: String): Result<Unit> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                getUserArticlesCollection(user.uid)
+                    .document(articleId)
+                    .delete()
+                    .await()
 
-            getUserArticlesCollection(user.uid)
-                .document(articleId)
-                .delete()
-                .await()
-
-            Timber.d("Successfully deleted article $articleId from Firestore")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to delete article $articleId")
-            Result.failure(e)
+                Timber.d("Successfully deleted article $articleId from Firestore")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to delete article $articleId")
+                Result.failure(e)
+            }
         }
     }
 
@@ -555,20 +568,19 @@ class FirestoreBackupService @Inject constructor(
      * Get the last sync timestamp for the user
      */
     suspend fun getLastSyncTimestamp(): Result<Long?> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                val doc = firestore.collection(USERS_COLLECTION)
+                    .document(user.uid)
+                    .get()
+                    .await()
 
-            val doc = firestore.collection(USERS_COLLECTION)
-                .document(user.uid)
-                .get()
-                .await()
-
-            val timestamp = doc.getLong("lastSyncTimestamp")
-            Result.success(timestamp)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to get last sync timestamp")
-            Result.failure(e)
+                val timestamp = doc.getLong("lastSyncTimestamp")
+                Result.success(timestamp)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to get last sync timestamp")
+                Result.failure(e)
+            }
         }
     }
 
@@ -576,19 +588,18 @@ class FirestoreBackupService @Inject constructor(
      * Update the last sync timestamp
      */
     suspend fun updateLastSyncTimestamp(timestamp: Long = System.currentTimeMillis()): Result<Unit> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                firestore.collection(USERS_COLLECTION)
+                    .document(user.uid)
+                    .set(mapOf("lastSyncTimestamp" to timestamp), SetOptions.merge())
+                    .await()
 
-            firestore.collection(USERS_COLLECTION)
-                .document(user.uid)
-                .set(mapOf("lastSyncTimestamp" to timestamp), SetOptions.merge())
-                .await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to update last sync timestamp")
-            Result.failure(e)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to update last sync timestamp")
+                Result.failure(e)
+            }
         }
     }
 
@@ -597,20 +608,19 @@ class FirestoreBackupService @Inject constructor(
      * Returns true if no lastSyncTimestamp exists
      */
     suspend fun isFirstSync(): Result<Boolean> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                val doc = firestore.collection(USERS_COLLECTION)
+                    .document(user.uid)
+                    .get()
+                    .await()
 
-            val doc = firestore.collection(USERS_COLLECTION)
-                .document(user.uid)
-                .get()
-                .await()
-
-            val hasTimestamp = doc.exists() && doc.contains("lastSyncTimestamp")
-            Result.success(!hasTimestamp)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to check first sync status")
-            Result.failure(e)
+                val hasTimestamp = doc.exists() && doc.contains("lastSyncTimestamp")
+                Result.success(!hasTimestamp)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to check first sync status")
+                Result.failure(e)
+            }
         }
     }
 
@@ -619,21 +629,20 @@ class FirestoreBackupService @Inject constructor(
      * Returns the count of remote articles
      */
     suspend fun getRemoteArticleCount(): Result<Int> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                val countSnapshot = getUserArticlesCollection(user.uid)
+                    .count()
+                    .get(com.google.firebase.firestore.AggregateSource.SERVER)
+                    .await()
 
-            val countSnapshot = getUserArticlesCollection(user.uid)
-                .count()
-                .get(com.google.firebase.firestore.AggregateSource.SERVER)
-                .await()
-
-            val count = countSnapshot.count.toInt()
-            Timber.d("Remote article count: $count")
-            Result.success(count)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to get remote article count")
-            Result.failure(e)
+                val count = countSnapshot.count.toInt()
+                Timber.d("Remote article count: $count")
+                Result.success(count)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to get remote article count")
+                Result.failure(e)
+            }
         }
     }
 
@@ -646,54 +655,43 @@ class FirestoreBackupService @Inject constructor(
         articles: List<Article>,
         onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }
     ): Result<Int> {
-        return try {
-            val user = getCurrentUser()
-                ?: return Result.failure(Exception("User not authenticated"))
+        return withAuthenticatedUser { user ->
+            try {
+                var successCount = 0
+                val totalCount = articles.size
 
-            var successCount = 0
-            val totalCount = articles.size
+                Timber.d("Starting paginated backup of $totalCount articles")
 
-            Timber.d("Starting paginated backup of $totalCount articles")
+                // Process in chunks of WRITE_BATCH_LIMIT to respect the Firestore rules document-access budget
+                articles.chunked(WRITE_BATCH_LIMIT).forEachIndexed { chunkIndex, chunk ->
+                    val batch = firestore.batch()
 
-            // Process in chunks of WRITE_BATCH_LIMIT to respect the Firestore rules document-access budget
-            articles.chunked(WRITE_BATCH_LIMIT).forEachIndexed { chunkIndex, chunk ->
-                val batch = firestore.batch()
+                    chunk.forEach { article ->
+                        val articleRef = getUserArticlesCollection(user.uid)
+                            .document(article.itemId)
 
-                chunk.forEach { article ->
-                    val articleRef = getUserArticlesCollection(user.uid)
-                        .document(article.itemId)
+                        // Write article doc (and large-text subcollection when needed).
+                        addArticleToBatch(batch, articleRef, article)
 
-                    // Handle large text
-                    val textSize = article.text?.toByteArray()?.size ?: 0
-                    val articleToSave = if (textSize > MAX_TEXT_SIZE && article.text != null) {
-                        val textRef = articleRef.collection(ARTICLE_TEXT_COLLECTION)
-                            .document("content")
-                        batch.set(textRef, mapOf("text" to article.text), SetOptions.merge())
-                        article.copy(text = null)
-                    } else {
-                        article
+                        // Write existence marker(s) alongside each article in the chunk.
+                        // Chunk size ≤ 20 (WRITE_BATCH_LIMIT) keeps the rules budget:
+                        // one getAfter per article = at most 20 document-access calls.
+                        addMarkerWrites(batch, user.uid, article)
                     }
 
-                    batch.set(articleRef, articleToSave, SetOptions.merge())
+                    batch.commit().await()
+                    successCount += chunk.size
 
-                    // Write existence marker(s) alongside each article in the chunk.
-                    // Chunk size ≤ 20 (WRITE_BATCH_LIMIT) keeps the rules budget:
-                    // one getAfter per article = at most 20 document-access calls.
-                    addMarkerWrites(batch, user.uid, article)
+                    onProgress(successCount, totalCount)
+                    Timber.d("Backed up $successCount / $totalCount articles (chunk ${chunkIndex + 1})")
                 }
 
-                batch.commit().await()
-                successCount += chunk.size
-
-                onProgress(successCount, totalCount)
-                Timber.d("Backed up $successCount / $totalCount articles (chunk ${chunkIndex + 1})")
+                Timber.d("Successfully backed up $successCount articles for user ${user.uid}")
+                Result.success(successCount)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to backup articles with pagination")
+                Result.failure(e)
             }
-
-            Timber.d("Successfully backed up $successCount articles for user ${user.uid}")
-            Result.success(successCount)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to backup articles with pagination")
-            Result.failure(e)
         }
     }
 }
