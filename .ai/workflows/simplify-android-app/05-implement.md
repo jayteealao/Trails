@@ -2,15 +2,15 @@
 schema: sdlc/v1
 type: implement-index
 slug: simplify-android-app
-status: in-progress
+status: complete
 stage-number: 5
 created-at: "2026-06-18T22:04:03Z"
-updated-at: "2026-07-06T01:02:08Z"
-slices-implemented: 13
+updated-at: "2026-07-06T01:20:23Z"
+slices-implemented: 14
 slices-total: 14
-metric-total-files-changed: 48
-metric-total-lines-added: 2228
-metric-total-lines-removed: 1054
+metric-total-files-changed: 53
+metric-total-lines-added: 2280
+metric-total-lines-removed: 1062
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -52,8 +52,11 @@ slices:
   - slice: sync-worker
     file: 05-implement-sync-worker.md
     status: complete
+  - slice: cross-cutting-url
+    file: 05-implement-cross-cutting-url.md
+    status: complete
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app sync-worker"
+next-invocation: "/wf verify simplify-android-app cross-cutting-url"
 ---
 
 # Implement Index
@@ -75,6 +78,7 @@ foundational regression-net gate — every dependent slice waits on it being gre
 | list-viewmodel | complete | [05-implement-list-viewmodel.md](05-implement-list-viewmodel.md) |
 | list-rendering | complete | [05-implement-list-rendering.md](05-implement-list-rendering.md) |
 | sync-worker | complete | [05-implement-sync-worker.md](05-implement-sync-worker.md) |
+| cross-cutting-url | complete | [05-implement-cross-cutting-url.md](05-implement-cross-cutting-url.md) |
 
 ## Cross-Slice Integration Notes
 - **`test-net` is a prerequisite, not a peer.** Its characterization tests pin the
@@ -97,5 +101,5 @@ foundational regression-net gate — every dependent slice waits on it being gre
   any slice here.
 
 ## Recommended Next Stage
-- **Option A (default):** `/wf verify simplify-android-app list-rendering` — recomposition and thumbnail changes are runtime-observable; verify should attempt Compose UI tests and recomposition overlay.
-- **Option B:** `/wf review simplify-android-app list-rendering` — skip verify if no AVD access; changes are purely structural (deletions, type narrowings, remember-wrapping).
+- **Option A (default):** `/wf verify simplify-android-app cross-cutting-url` — 4 new unit tests cover the extension delegation contract; verify runs `testDebugUnitTest --tests "com.jayteealao.trails.common.*"` (all 20 pass) and full-suite green (147/0 failures).
+- **Option B:** `/wf review simplify-android-app cross-cutting-url` — purely structural reuse change; tests already verified inline; skip to review if no additional verification needed.

@@ -7,8 +7,8 @@ import androidx.work.WorkManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.jayteealao.trails.common.di.ApplicationScope
-import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.computeNormalizedUrl
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
@@ -94,7 +94,7 @@ class FirestoreSyncManager @Inject constructor(
             if (localArticle == null) {
                 // New article - insert with related data
                 articleDao.upsertArticle(remoteArticle.copy(
-                    normalizedUrl = normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: "")
+                    normalizedUrl = remoteArticle.computeNormalizedUrl()
                 ))
 
                 // Apply pre-fetched tags
@@ -108,7 +108,7 @@ class FirestoreSyncManager @Inject constructor(
                 // Conflict resolution: compare timestamps
                 if (shouldAcceptRemoteChange(localArticle, remoteArticle)) {
                     articleDao.upsertArticle(remoteArticle.copy(
-                        normalizedUrl = normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: "")
+                        normalizedUrl = remoteArticle.computeNormalizedUrl()
                     ))
 
                     // Replace tags: bulk delete (efficiency-3: N DAO calls → 1 DAO call)

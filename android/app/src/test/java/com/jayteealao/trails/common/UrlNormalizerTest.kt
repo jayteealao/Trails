@@ -1,5 +1,7 @@
 package com.jayteealao.trails.common
 
+import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.computeNormalizedUrl
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -138,5 +140,36 @@ class UrlNormalizerTest {
             "https://example.com/path/to/article?id=123&page=2",
             normalizeUrl("HTTPS://EXAMPLE.COM/path/to/article/?id=123&utm_source=email&page=2#comments")
         )
+    }
+
+    // Article.computeNormalizedUrl() extension tests — assert byte-for-byte parity with
+    // the inline expression normalizeUrl(article.url ?: article.givenUrl ?: "")
+
+    @Test
+    fun `computeNormalizedUrl uses url when non-null`() {
+        val article = Article(itemId = "a1", url = "https://example.com/post?utm_source=x", givenUrl = "https://other.com/")
+        assertEquals(normalizeUrl(article.url ?: article.givenUrl ?: ""), article.computeNormalizedUrl())
+        assertEquals("https://example.com/post", article.computeNormalizedUrl())
+    }
+
+    @Test
+    fun `computeNormalizedUrl falls back to givenUrl when url is null`() {
+        val article = Article(itemId = "a2", url = null, givenUrl = "https://example.com/fallback")
+        assertEquals(normalizeUrl(article.url ?: article.givenUrl ?: ""), article.computeNormalizedUrl())
+        assertEquals("https://example.com/fallback", article.computeNormalizedUrl())
+    }
+
+    @Test
+    fun `computeNormalizedUrl prefers url over givenUrl when both non-null`() {
+        val article = Article(itemId = "a3", url = "https://primary.com/a", givenUrl = "https://secondary.com/b")
+        assertEquals(normalizeUrl(article.url ?: article.givenUrl ?: ""), article.computeNormalizedUrl())
+        assertEquals("https://primary.com/a", article.computeNormalizedUrl())
+    }
+
+    @Test
+    fun `computeNormalizedUrl returns empty string when both url and givenUrl are null`() {
+        val article = Article(itemId = "a4", url = null, givenUrl = null)
+        assertEquals(normalizeUrl(article.url ?: article.givenUrl ?: ""), article.computeNormalizedUrl())
+        assertEquals("", article.computeNormalizedUrl())
     }
 }

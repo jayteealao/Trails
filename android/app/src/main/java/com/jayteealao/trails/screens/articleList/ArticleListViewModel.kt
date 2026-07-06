@@ -31,6 +31,7 @@ import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.computeNormalizedUrl
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
@@ -249,7 +250,7 @@ class ArticleListViewModel @Inject constructor(
     fun insertArticle(article: Article) {
         viewModelScope.launch(ioDispatcher) {
             articleRepository.upsertArticle(article.copy(
-                normalizedUrl = normalizeUrl(article.url ?: article.givenUrl ?: "")
+                normalizedUrl = article.computeNormalizedUrl()
             ))
         }
     }

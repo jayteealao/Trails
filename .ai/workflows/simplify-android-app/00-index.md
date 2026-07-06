@@ -7,8 +7,8 @@ status: active
 current-stage: verify
 stage-number: 6
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-06T01:02:08Z"
-selected-slice: "sync-worker"
+updated-at: "2026-07-06T01:20:23Z"
+selected-slice: "cross-cutting-url"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
 base-branch: "main"
@@ -54,8 +54,12 @@ runtime-evidence-deferrals:
     reason: "Rung 1 (unit-tests): 140/140 unit tests pass with 0 failures; compile verified (compileDebugKotlin BUILD SUCCESSFUL). Rung 2 (Roborazzi): project has no Roborazzi golden configuration in place. Rung 3 (AVD boot): three AVDs installed (Medium_Phone_API_36.0, Pixel_9_Pro, Pixel_9_Pro_Fold) but no device running (adb devices empty); booting requires GPU/HAXM acceleration and a display server — unavailable in this headless agent session. Residual = live scroll smoke (≥20 articles) via Layout Inspector recomposition overlay confirming no gradientAngle/gradientTransition nodes and thumbnail hardware-decode, plus before/after screenshot pair confirming appearance unchanged."
     deferred-at: "2026-07-06T00:47:44Z"
     cleared-by: null
+  - slice: sync-worker
+    reason: "Rung 1 (unit-tests): 3/3 SyncWorkerTest tests pass — doWork() returns Result.success() with empty article list, pagination drives two-page cycle correctly via coVerify(exactly=1) on both (50,0) and (50,50), dead-method deletion confirmed by reflection. Full 143/143 unit test suite passes with 0 failures. Rung 2 (Roborazzi): not applicable — SyncWorker has no UI surface. Rung 3 (AVD boot / live device): three AVDs installed (Medium_Phone_API_36.0, Pixel_9_Pro, Pixel_9_Pro_Fold) but no display server or GPU acceleration available in this headless agent session; adb devices returns empty. Residual = live sync run on a device with articles in resolved=1/2 state, observing WorkManager reports Result.success() and non-metrics articles are processed page-by-page via Timber logs."
+    deferred-at: "2026-07-06T01:12:18Z"
+    cleared-by: null
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app sync-worker"
+next-invocation: "/wf verify simplify-android-app cross-cutting-url"
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -119,12 +123,14 @@ workflow-files:
   - 05-implement-list-rendering.md
   - 06-verify-list-rendering.md
   - 05-implement-sync-worker.md
+  - 06-verify-sync-worker.md
+  - 05-implement-cross-cutting-url.md
 progress:
   intake: complete
   shape: complete
   slice: complete
   plan: complete
-  implement: in-progress
+  implement: complete
   verify: in-progress
   review: not-started
   handoff: not-started
