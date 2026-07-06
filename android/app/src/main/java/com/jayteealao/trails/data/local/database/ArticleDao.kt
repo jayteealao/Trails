@@ -307,6 +307,21 @@ interface ArticleDao {
     suspend fun getArticleTags(itemId: String): List<String>
 
     /**
+     * Bulk-fetch tags for a list of article IDs in a single SQL statement.
+     *
+     * Replaces the per-article [getArticleTags] loop in [syncLocalChanges]:
+     * N serial DAO reads → 1 IN-query per chunk (efficiency fix, review CR-1).
+     *
+     * Usage:
+     * ```kotlin
+     * val allTags = articleDao.getTagsForArticles(chunk.map { it.itemId })
+     * val chunkTagsMap = allTags.groupBy { it.itemId }
+     * ```
+     */
+    @Query("SELECT * FROM article_tags WHERE itemId IN (:itemIds)")
+    suspend fun getTagsForArticles(itemIds: List<String>): List<ArticleTags>
+
+    /**
      * Delete all articles (hard delete for logout/data clearing)
      * WARNING: This permanently removes all data
      */

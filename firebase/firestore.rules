@@ -48,6 +48,19 @@ service cloud.firestore {
       // yet present, breaking the deadlock without reopening the enumeration hole
       // (the top-level `articles` collection rejects all client writes).
       //
+      // SECURITY NOTE (review SE-1): The `get(articles/{itemId})` fallback's safety
+      // depends on the top-level `articles` collection NOT being enumerable by
+      // clients. The `articles/{itemId}` rule above enforces:
+      //   - allow get: only if the caller already holds an articleMarkers entry
+      //     for that itemId (circular proof — not exploitable for bootstrapping)
+      //   - allow list: false (enumeration disabled)
+      //   - allow write: false (backend service account only)
+      // Consequence: an authenticated user who does NOT already own an
+      // articleMarkers entry for a given itemId cannot read or enumerate the
+      // top-level article to use it as fallback proof. The fallback is safe given
+      // this rule constraint. Any future relaxation of the top-level `articles`
+      // read rules MUST re-evaluate this fallback's threat model.
+      //
       // RULES BUDGET: getAfter costs 1 call (cached per path within the request);
       // get() on the fallback costs 1 additional call only when getAfter fails.
       // Total ≤ 2 per article in a batch. Callers must keep batches ≤ 20 articles
