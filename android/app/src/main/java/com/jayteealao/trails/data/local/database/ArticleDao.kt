@@ -195,6 +195,9 @@ interface ArticleDao {
     @Query("SELECT * FROM article WHERE resolved = 2 OR resolved = 1")
     suspend fun getNonMetricsArticles(): List<Article>
 
+    @Query("SELECT * FROM article WHERE resolved = 2 OR resolved = 1 ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
+    suspend fun getNonMetricsArticles(limit: Int, offset: Int): List<Article>
+
     @Query("SELECT * FROM article WHERE text = '0' OR text = '1'")
     suspend fun getTextEqualsZeroOrOne(): List<Article>
 

@@ -12,7 +12,7 @@ metric-lines-added: 43
 metric-lines-removed: 10
 metric-deviations-from-plan: 0
 metric-review-fixes-applied: 0
-commit-sha: ""
+commit-sha: "21a1c8c"
 tags: [behaviour-change, di, reliability]
 refs:
   index: 00-index.md
