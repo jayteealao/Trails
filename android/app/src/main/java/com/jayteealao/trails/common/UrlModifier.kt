@@ -1,9 +1,12 @@
 package com.jayteealao.trails.common
 
 import timber.log.Timber
+import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 @Suppress("PrivatePropertyName")
-class UrlModifier {
+class UrlModifier @Inject constructor() {
     // Regex patterns
     private val URLCHECKPATTERN = Regex(
         pattern = "(https?://)?(www\\.)?(towardsdatascience\\.com|medium\\.com|proandroiddev\\.com)"

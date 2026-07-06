@@ -13,6 +13,7 @@ import com.jayteealao.trails.data.archive.ArchiveType
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.archive.LocalArchiveDao
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CoroutineDispatcher
@@ -20,6 +21,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
@@ -30,12 +32,29 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
+// Internal data classes for grouping flow state
+private data class ArticleGroup(
+    val article: Article?,
+    val selectedTabIndex: Int,
+    val useFreedium: Boolean,
+    val isLoading: Boolean,
+)
+
+private data class ArchiveGroup(
+    val remoteArchives: Map<String, ArchiveStatus>,
+    val localArchives: List<LocalArchive>,
+    val archiveSyncing: Boolean,
+    val textSource: String,
+    val selectedArchiveContent: String?,
+)
+
 @HiltViewModel
 class ArticleDetailViewModel @Inject constructor(
     private val articleRepository: ArticleRepository,
     private val sharedPreferencesManager: SharedPreferencesManager,
     private val archiveService: ArchiveService,
     private val localArchiveDao: LocalArchiveDao,
+    private val urlModifier: UrlModifier,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel(), Store<ArticleDetailState, ArticleDetailEvent> {
 
@@ -57,45 +76,47 @@ class ArticleDetailViewModel @Inject constructor(
     private var currentArticleId: String? = null
 
     private val useFreediumFlow = sharedPreferencesManager.preferenceChangesFlow()
-        .filter { it == "USE_FREEDIUM" }
+        .filter { it == SettingsPreferenceKeys.USE_FREEDIUM }
         .map {
             Timber.d("Preference changed: $it")
             sharedPreferencesManager.getBoolean(it!!)
         }.stateIn(
             scope = viewModelScope,
-            started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
-            initialValue = sharedPreferencesManager.getBoolean("USE_FREEDIUM")
+            started = SharingStarted.Eagerly,
+            initialValue = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_FREEDIUM)
         )
 
+    // Intermediate flow groups for typed combine()
+    private val articleGroupFlow = combine(
+        _article, _selectedTabIndex, useFreediumFlow, _isLoading
+    ) { article, tab, useFreedium, loading ->
+        ArticleGroup(article, tab, useFreedium, loading)
+    }
+
+    private val archiveGroupFlow = combine(
+        _remoteArchives, _localArchives, _archiveSyncing, _textSource, _selectedArchiveContent
+    ) { remote, local, syncing, textSrc, selectedContent ->
+        ArchiveGroup(remote, local, syncing, textSrc, selectedContent)
+    }
+
     // Tartlet Store implementation - Consolidated state
-    private val _state = combine(
-        _article,
-        _selectedTabIndex,
-        useFreediumFlow,
-        _isLoading,
-        _remoteArchives,
-        _localArchives,
-        _archiveSyncing,
-        _textSource,
-        _selectedArchiveContent,
-    ) { values ->
-        @Suppress("UNCHECKED_CAST")
+    private val _state = combine(articleGroupFlow, archiveGroupFlow) { ag, arc ->
         ArticleDetailState(
-            article = values[0] as Article?,
-            selectedTabIndex = values[1] as Int,
-            useFreedium = values[2] as Boolean,
-            isLoading = values[3] as Boolean,
-            remoteArchives = values[4] as Map<String, ArchiveStatus>,
-            localArchives = values[5] as List<LocalArchive>,
-            archiveSyncing = values[6] as Boolean,
-            textSource = values[7] as String,
-            selectedArchiveContent = values[8] as String?,
+            article = ag.article,
+            selectedTabIndex = ag.selectedTabIndex,
+            useFreedium = ag.useFreedium,
+            isLoading = ag.isLoading,
+            remoteArchives = arc.remoteArchives,
+            localArchives = arc.localArchives,
+            archiveSyncing = arc.archiveSyncing,
+            textSource = arc.textSource,
+            selectedArchiveContent = arc.selectedArchiveContent,
         )
     }.stateIn(
         scope = viewModelScope,
-        started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.WhileSubscribed(5000),
         initialValue = ArticleDetailState(
-            useFreedium = sharedPreferencesManager.getBoolean("USE_FREEDIUM")
+            useFreedium = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_FREEDIUM)
         )
     )
 
@@ -128,12 +149,11 @@ class ArticleDetailViewModel @Inject constructor(
             _isLoading.value = true
             Timber.d("getArticle($itemId) — fetching from Room")
             try {
-                val modifier = UrlModifier()
                 var articleFetched = articleRepository.getArticleById(itemId)
                 Timber.d("getArticle($itemId) — found=${articleFetched != null}, hasText=${articleFetched?.text?.take(30)}, textSource=${articleFetched?.textSource}")
                 if (useFreediumFlow.value && articleFetched != null) {
                     articleFetched = articleFetched.copy(
-                        url = modifier.modifyUrl(articleFetched.url ?: articleFetched.givenUrl!!)
+                        url = urlModifier.modifyUrl(articleFetched.url ?: articleFetched.givenUrl!!)
                     )
                 }
                 _article.value = articleFetched
@@ -223,8 +243,8 @@ class ArticleDetailViewModel @Inject constructor(
 
     private suspend fun autoPopulateText(itemId: String, archives: List<LocalArchive>) {
         // Prefer readability over markdown
-        val textArchive = archives.firstOrNull { it.archiveKey == "readability" }
-            ?: archives.firstOrNull { it.archiveKey == "markdown" }
+        val textArchive = archives.firstOrNull { it.archiveKey == ArchiveType.READABILITY.archiveKey }
+            ?: archives.firstOrNull { it.archiveKey == ArchiveType.MARKDOWN.archiveKey }
         if (textArchive == null) {
             Timber.d("autoPopulateText($itemId) — no text archive available in [${archives.map { it.archiveKey }}]")
             return
@@ -246,8 +266,7 @@ class ArticleDetailViewModel @Inject constructor(
         val updated = articleRepository.getArticleById(itemId)
         if (updated != null) {
             _article.value = if (useFreediumFlow.value) {
-                val modifier = UrlModifier()
-                updated.copy(url = modifier.modifyUrl(updated.url ?: updated.givenUrl!!))
+                updated.copy(url = urlModifier.modifyUrl(updated.url ?: updated.givenUrl!!))
             } else {
                 updated
             }
@@ -271,8 +290,7 @@ class ArticleDetailViewModel @Inject constructor(
                 val updated = articleRepository.getArticleById(itemId)
                 if (updated != null) {
                     _article.value = if (useFreediumFlow.value) {
-                        val modifier = UrlModifier()
-                        updated.copy(url = modifier.modifyUrl(updated.url ?: updated.givenUrl!!))
+                        updated.copy(url = urlModifier.modifyUrl(updated.url ?: updated.givenUrl!!))
                     } else {
                         updated
                     }
