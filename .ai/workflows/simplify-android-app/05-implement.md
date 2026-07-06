@@ -5,12 +5,12 @@ slug: simplify-android-app
 status: in-progress
 stage-number: 5
 created-at: "2026-06-18T22:04:03Z"
-updated-at: "2026-07-06T00:01:06Z"
-slices-implemented: 9
+updated-at: "2026-07-06T00:17:58Z"
+slices-implemented: 10
 slices-total: 14
-metric-total-files-changed: 33
-metric-total-lines-added: 1955
-metric-total-lines-removed: 695
+metric-total-files-changed: 37
+metric-total-lines-added: 1998
+metric-total-lines-removed: 745
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -43,8 +43,11 @@ slices:
   - slice: detail-viewmodel
     file: 05-implement-detail-viewmodel.md
     status: complete
+  - slice: list-viewmodel
+    file: 05-implement-list-viewmodel.md
+    status: complete
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app detail-viewmodel"
+next-invocation: "/wf verify simplify-android-app list-viewmodel"
 ---
 
 # Implement Index
@@ -63,6 +66,7 @@ foundational regression-net gate — every dependent slice waits on it being gre
 | firestore-io | complete | [05-implement-firestore-io.md](05-implement-firestore-io.md) |
 | article-repository | complete | [05-implement-article-repository.md](05-implement-article-repository.md) |
 | detail-viewmodel | complete | [05-implement-detail-viewmodel.md](05-implement-detail-viewmodel.md) |
+| list-viewmodel | complete | [05-implement-list-viewmodel.md](05-implement-list-viewmodel.md) |
 
 ## Cross-Slice Integration Notes
 - **`test-net` is a prerequisite, not a peer.** Its characterization tests pin the
@@ -85,5 +89,5 @@ foundational regression-net gate — every dependent slice waits on it being gre
   any slice here.
 
 ## Recommended Next Stage
-- **Option A (default):** `/wf verify simplify-android-app firestore-dedup` — run characterization suite to gate B1 AC.
-- **Option B:** `/wf review simplify-android-app firestore-dedup` — skip verify (suite already confirmed green locally; purely structural slice).
+- **Option A (default):** `/wf verify simplify-android-app list-viewmodel` — 3 unit tests already green; verify formalizes the record.
+- **Option B:** `/wf review simplify-android-app list-viewmodel` — skip verify; compile + test run already confirmed green.

@@ -31,11 +31,9 @@ import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.Article
-import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.data.models.PocketSummary
-import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CoroutineDispatcher
@@ -62,8 +60,6 @@ import javax.inject.Inject
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
     private val articleRepository: ArticleRepository,
-    private val getArticleWithTextUseCase: GetArticleWithTextUseCase,
-    private val articleDao: ArticleDao,
     // TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
     // private val contentMetricsCalculator: ContentMetricsCalculator,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
@@ -129,19 +125,11 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
-    fun sync() {
-        viewModelScope.launch(ioDispatcher) {
-//            articleDao.clearModalTable()
-//            synchronizePocketUseCase()
-        }
-    }
-
-    private var _articles = MutableStateFlow(emptyList<Article>())
     val articles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(
             pageSize = 20,
         ),
-        pagingSourceFactory = { getArticleWithTextUseCase() }
+        pagingSourceFactory = { articleRepository.pockets() }
     ).flow
         .cachedIn(viewModelScope)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
@@ -260,7 +248,7 @@ class ArticleListViewModel @Inject constructor(
 
     fun insertArticle(article: Article) {
         viewModelScope.launch(ioDispatcher) {
-            articleDao.upsertArticle(article.copy(
+            articleRepository.upsertArticle(article.copy(
                 normalizedUrl = normalizeUrl(article.url ?: article.givenUrl ?: "")
             ))
         }
@@ -316,7 +304,7 @@ class ArticleListViewModel @Inject constructor(
 
                 val timeNow = System.currentTimeMillis()
                 val normalizedUrl = normalizeUrl(url)
-                val articleId = articleDao.upsertNewArticle(
+                val articleId = articleRepository.saveNewArticle(
                     Article(
                         itemId = id,
                         resolvedId = null,
@@ -360,13 +348,13 @@ class ArticleListViewModel @Inject constructor(
                 }
 
                 // Guard against undo race: skip update if article was deleted during unfurl
-                val currentArticle = articleDao.getArticleById(articleId)
+                val currentArticle = articleRepository.getArticleById(articleId)
                 if (currentArticle?.deletedAt != null) {
                     Timber.d("Article %s was deleted during save, skipping metadata update", articleId)
                     return@launch
                 }
 
-                articleDao.updateUnfurledDetails(
+                articleRepository.updateUnfurledDetails(
                     itemId = articleId,
                     title = resolvedTitle,
                     url = resolvedUrl,
@@ -400,7 +388,7 @@ class ArticleListViewModel @Inject constructor(
         viewModelScope.launch(ioDispatcher) {
             try {
                 // Get the current article
-                val article = articleDao.getArticleById(itemId)
+                val article = articleRepository.getArticleById(itemId)
                 if (article == null) {
                     _event.emit(ArticleListEvent.ShowError(Exception("Article not found")))
                     return@launch
@@ -432,7 +420,7 @@ class ArticleListViewModel @Inject constructor(
                 }
 
                 // Update article with new metadata
-                articleDao.updateUnfurledDetails(
+                articleRepository.updateUnfurledDetails(
                     itemId = itemId,
                     title = resolvedTitle,
                     url = resolvedUrl,
