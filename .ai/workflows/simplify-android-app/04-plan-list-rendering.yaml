@@ -1,0 +1,64 @@
+artifact: plan
+slice: list-rendering
+parent: 04-plan-list-rendering.md
+rev: 1
+modules: [article-list-ui, thumbnail-util]
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt
+    status: modified
+    role: primary
+    delta: { add: 12, rem: 32 }
+    planned_change:
+      intent: "Remove dead rememberInfiniteTransition + angle + onPaletteExtracted callback + dominantColor/vibrantColor state + DisposableEffect; wrap HtmlCompat.fromHtml in remember(article.snippet){ }; wrap tagStates mutableStateMapOf in remember(article.tagsString){ }; keep isFavorite/isRead LaunchedEffect pattern; remove palette params from ArticleItemCardStyle signature and both ArticleContent call-sites"
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleContent.kt
+    status: modified
+    role: primary
+    delta: { add: 0, rem: 8 }
+    planned_change:
+      intent: "Remove dominantColor, vibrantColor, onPaletteExtracted params from function signature and pass-through to ArticleThumbnail; update call-site in ArticleItemCardStyle accordingly"
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleThumbnail.kt
+    status: modified
+    role: primary
+    delta: { add: 0, rem: 28 }
+    planned_change:
+      intent: "Drop dominantColor, vibrantColor, onPaletteExtracted params; remove gradient overlay Box; remove allowHardware(false); remove Coil listener that called extractPaletteFromBitmap; remove ShadowsPlusType vibrantColor tint (replace with Color.Transparent constant); remove Dispatchers.IO coroutineContext override (unnecessary after palette removal)"
+  - path: android/app/src/main/java/com/jayteealao/trails/common/util.kt
+    status: modified
+    role: secondary
+    delta: { add: 0, rem: 28 }
+    planned_change:
+      intent: "Delete extractPaletteFromBitmap function and its Palette/Canvas/BitmapDrawable imports; generateId and generateDeterministicNanoId are untouched"
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/AdaptiveArticleGrid.kt
+    status: modified
+    role: secondary
+    delta: { add: 22, rem: 44 }
+    planned_change:
+      intent: "Extract shared action-callback block (onSetFavorite, onSetReadStatus, onArchiveArticle, onDeleteArticle, onRegenerateDetails, onCopyLink, onShareArticle) into a local val actions in each private fun (ArticleGrid / ArticleList) to eliminate the 7-lambda duplication between the two layouts"
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListScreen.kt
+    status: modified
+    role: secondary
+    delta: { add: 0, rem: 4 }
+    planned_change:
+      intent: "Remove the empty viewStore.handle<ArticleListEvent.NavigateToArticle> { } registration (quality-13); confirmed dead — parent navigation is handled upstream"
+  - path: android/app/src/androidTest/java/com/jayteealao/trails/screens/articleList/ArticleListItemTest.kt
+    status: new
+    role: test
+    delta: { add: 120, rem: 0 }
+    planned_change:
+      intent: "Compose UI tests asserting: (1) ArticleListItem renders isFavorite=true shows filled star, isFavorite=false shows outlined star; (2) isRead=true dims title alpha; (3) tags list is reflected in TagSection; (4) Grid and List paths both render the same title/domain text for a given article (parity); (5) parsedSnippet is displayed when snippet is non-null/non-blank; (6) appearance does not change after removing the animation (no infinite transition node present)"
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt, to: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleContent.kt, kind: calls }
+  - { from: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleContent.kt, to: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleThumbnail.kt, kind: calls }
+  - { from: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleThumbnail.kt, to: android/app/src/main/java/com/jayteealao/trails/common/util.kt, kind: import-deleted }
+  - { from: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/AdaptiveArticleGrid.kt, to: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt, kind: calls }
+  - { from: android/app/src/androidTest/java/com/jayteealao/trails/screens/articleList/ArticleListItemTest.kt, to: android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt, kind: tests }
+risks:
+  - level: low
+    title: "Removing vibrantColor from shadowsPlus must not change shadow rendering"
+    body: "ArticleThumbnail uses vibrantColor.copy(alpha=0.6f) as the ShadowsPlusType.SoftLayer color. Replacing with a fixed neutral (e.g. Color.Black.copy(alpha=0.08f) or MaterialTheme.colorScheme.outline) preserves the shadow shape; verify in manual scroll that thumbnail shadow looks correct."
+  - level: low
+    title: "remember key for tagStates must invalidate on article.tagsString change"
+    body: "The current code keys tagStates on article.itemId only; this plan moves the key to article.tagsString. Verify that toggling a tag from a different screen correctly refreshes the map when the same item reappears in the list."
+  - level: low
+    title: "Removing unused imports after palette deletion must not leave dangling references"
+    body: "ArticleListItem.kt imports LinearEasing, RepeatMode, animateFloat, infiniteRepeatable, rememberInfiniteTransition, tween, DisposableEffect — all become unused. Remove the import block in the same commit to keep the file compileable. Similarly for ArticleThumbnail.kt (allowHardware, Dispatchers, extractPaletteFromBitmap, Brush, coil3.asDrawable)."

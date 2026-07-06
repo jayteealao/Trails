@@ -1,0 +1,245 @@
+artifact: review
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:04:08Z"
+verdict: caveats
+summary: "Ship with caveats. 4 HIGH/MED fixed (CR-1 bulk DAO, CR-2 performFullSync one-read, SE-1 rules doc, RE-1 CancellationException). Remaining open: RE-2 LOW (reconcile early-exit), CR-3 LOW (tagStates subtle), SE-2 LOW (silent empty). All blockers: 0."
+counts:
+  blocker: 0
+  high: 0
+  med: 0
+  low: 3
+  nit: 6
+dimensions:
+  - key: correctness
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 1
+    nit: 0
+  - key: security
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 1
+    nit: 0
+  - key: code-simplification
+    status: clean
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 0
+  - key: testing
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 1
+    nit: 1
+  - key: maintainability
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 2
+  - key: reliability
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 1
+    nit: 0
+  - key: backend-concurrency
+    status: clean
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 0
+  - key: refactor-safety
+    status: clean
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 0
+  - key: architecture
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 1
+  - key: performance
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 1
+  - key: data-integrity
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 1
+  - key: privacy
+    status: clean
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 0
+  - key: docs
+    status: clean
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 0
+findings:
+  - id: CR-1
+    severity: high
+    dimension: correctness
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "296-305"
+    confidence: high
+    status: fixed
+    surfaced-at: "2026-07-06T01:44:38Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "Tag prefetch N+1 in syncLocalChanges: N serial getArticleTags() calls per chunk. Fixed: getTagsForArticles(itemIds) bulk DAO method."
+  - id: CR-2
+    severity: med
+    dimension: correctness
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "414"
+    confidence: high
+    status: fixed
+    surfaced-at: "2026-07-06T01:44:38Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "performFullSync used stale isFirstSync() (two-read path). Fixed: replaced with getUserMetaSnapshot()."
+  - id: CR-3
+    severity: low
+    dimension: correctness
+    file: "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt"
+    line: "77-82"
+    confidence: med
+    status: deferred
+    surfaced-at: "2026-07-06T01:44:38Z"
+    msg: "tagStates map second-pass precedence subtle but correct. Deferred."
+  - id: SE-1
+    severity: med
+    dimension: security
+    file: "firebase/firestore.rules"
+    line: "58-66"
+    confidence: high
+    status: fixed
+    surfaced-at: "2026-07-06T01:44:38Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "Firestore marker fallback widens proof surface. Fixed: SECURITY NOTE comment added documenting threat model and constraint."
+  - id: SE-2
+    severity: low
+    dimension: security
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
+    line: "511"
+    confidence: med
+    status: deferred
+    surfaced-at: "2026-07-06T01:44:38Z"
+    msg: "batchRestoreArticleTags silent empty on unauthenticated. Deferred."
+  - id: TE-1
+    severity: low
+    dimension: testing
+    file: "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt"
+    line: null
+    confidence: high
+    status: open
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "Bulk DAO tag fetch test gap (forward-looking; getTagsForArticles path now added). Open for next verify pass."
+  - id: TE-2
+    severity: nit
+    dimension: testing
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "291-302"
+    confidence: med
+    status: deferred
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "deleteAllTagsForArticle atomicity window untested. Deferred."
+  - id: RE-1
+    severity: med
+    dimension: reliability
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "476-479"
+    confidence: med
+    status: fixed
+    surfaced-at: "2026-07-06T02:00:00Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "CancellationException not re-thrown in performFullSync outer catch. Fixed: added re-throw guard."
+  - id: RE-2
+    severity: low
+    dimension: reliability
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "538-542"
+    confidence: med
+    status: deferred
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "reconcileNeverBackedUpArticles stops on first chunk failure. Deferred."
+  - id: MA-1
+    severity: nit
+    dimension: maintainability
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "291-302"
+    confidence: med
+    status: deferred
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "deleteAllTagsForArticle KDoc could be more prescriptive. Deferred."
+  - id: MA-2
+    severity: nit
+    dimension: maintainability
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
+    line: "511"
+    confidence: med
+    status: deferred
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "batchRestoreArticleTags silent-empty contract undocumented in KDoc. Deferred."
+  - id: AR-1
+    severity: nit
+    dimension: architecture
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "1-59"
+    confidence: low
+    status: deferred
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "SyncManager holds direct firestore/auth refs alongside BackupService facade. Minor layering leak. Deferred."
+  - id: PE-1
+    severity: high
+    dimension: performance
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "296-305"
+    confidence: high
+    status: fixed
+    surfaced-at: "2026-07-06T02:00:00Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "N+1 DAO reads in syncLocalChanges (cross-ref CR-1). Fixed."
+  - id: PE-2
+    severity: nit
+    dimension: performance
+    file: "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt"
+    line: "83-90"
+    confidence: low
+    status: deferred
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "parsedSnippet HtmlCompat.fromHtml initial allocation — memoized. Deferred."
+  - id: DI-1
+    severity: nit
+    dimension: data-integrity
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "459"
+    confidence: low
+    status: deferred
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "Pre-existing TODO: timeAdded = existingArticle.timeAdded in upsertNewArticle. Not introduced by this branch. Deferred."

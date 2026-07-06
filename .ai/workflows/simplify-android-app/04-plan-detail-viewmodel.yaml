@@ -1,0 +1,87 @@
+artifact: plan
+slice: detail-viewmodel
+parent: 04-plan-detail-viewmodel.md
+rev: 1
+modules:
+  - viewmodel
+  - di
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailViewModel.kt
+    status: modified
+    role: primary
+    delta: { add: 30, rem: 40 }
+    planned_change:
+      intent: >
+        (quality-4) Replace the 9-element array combine() + @Suppress("UNCHECKED_CAST") block with two nested
+        combine() groups (article-group: _article+_selectedTabIndex+useFreediumFlow+_isLoading and
+        archive-group: _remoteArchives+_localArchives+_archiveSyncing+_textSource+_selectedArchiveContent),
+        then combine the two groups into ArticleDetailState — preserving the existing stateIn() call
+        (WhileSubscribed(5000), viewModelScope). (quality-6) Replace all three "USE_FREEDIUM" string
+        literals with SettingsPreferenceKeys.USE_FREEDIUM. (reuse-5) Remove the three UrlModifier()
+        constructor calls; inject UrlModifier as a constructor parameter (Hilt injects the @Singleton
+        instance). (reuse-11) Replace hardcoded "readability"/"markdown" strings in autoPopulateText()
+        with ArchiveType.READABILITY.archiveKey and ArchiveType.MARKDOWN.archiveKey.
+  - path: android/app/src/main/java/com/jayteealao/trails/common/UrlModifier.kt
+    status: modified
+    role: supporting
+    delta: { add: 1, rem: 0 }
+    planned_change:
+      intent: >
+        Annotate UrlModifier with @Singleton so Hilt provides a single instance. The class holds
+        only val Regex fields (no per-instance mutable state) — verified safe.
+  - path: android/app/src/main/java/com/jayteealao/trails/common/di/CommonModule.kt
+    status: new
+    role: di-binding
+    delta: { add: 20, rem: 0 }
+    planned_change:
+      intent: >
+        New @Module @InstallIn(SingletonComponent::class) object CommonModule providing UrlModifier
+        as a @Singleton @Provides binding (if @Singleton on the class alone is insufficient for Hilt
+        to pick it up without a module; otherwise omit and rely on constructor injection alone).
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/settings/SettingsPreferenceKeys.kt
+    status: modified
+    role: supporting
+    delta: { add: 0, rem: 0 }
+    planned_change:
+      intent: >
+        No code change — already has USE_FREEDIUM = "USE_FREEDIUM". Verify the import is added to
+        ArticleDetailViewModel.kt; this file is referenced only as a read dependency.
+  - path: android/app/src/test/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailViewModelTest.kt
+    status: new
+    role: test
+    delta: { add: 120, rem: 0 }
+    planned_change:
+      intent: >
+        New JVM unit test file. Stubs: MockK mocks for ArticleRepository, SharedPreferencesManager,
+        ArchiveService, LocalArchiveDao, plus StandardTestDispatcher + Dispatchers.setMain/resetMain.
+        Tests: (1) state assembly — given 9 known inputs, the emitted ArticleDetailState fields match
+        exactly (no cast exceptions, correct field mapping); (2) useFreedium preference key — the
+        filter predicate in useFreediumFlow fires for "USE_FREEDIUM" and ignores other keys;
+        (3) UrlModifier injection — a single injected instance is used across getArticle() and
+        autoPopulateText() calls (verify via MockK verify, not constructor count); (4) ArchiveType
+        constants — autoPopulateText() prefers READABILITY over MARKDOWN string keys correctly.
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailViewModel.kt, to: android/app/src/main/java/com/jayteealao/trails/common/UrlModifier.kt, kind: inject }
+  - { from: android/app/src/main/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailViewModel.kt, to: android/app/src/main/java/com/jayteealao/trails/screens/settings/SettingsPreferenceKeys.kt, kind: import }
+  - { from: android/app/src/test/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailViewModelTest.kt, to: android/app/src/main/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailViewModel.kt, kind: tests }
+risks:
+  - level: low
+    title: "Nested combine() group boundary must preserve emission semantics"
+    body: >
+      The intermediate data classes for the two combine groups introduce one extra allocation per
+      emission cycle but do not change which values trigger re-emission (all 9 flows still
+      participate). Verify: if any flow emits, the outer combine() re-runs and a new ArticleDetailState
+      is produced — identical to the current flat combine() behaviour. Pin with the state-assembly test.
+  - level: low
+    title: "SettingsPreferenceKeys import crosses screen package boundary"
+    body: >
+      SettingsPreferenceKeys lives in screens/settings/. Importing it into screens/articleDetail/
+      creates an intra-screens cross-package dependency. Acceptable per existing codebase conventions
+      (SettingsViewModel already uses it from the same package); no structural refactor needed.
+  - level: low
+    title: "UrlModifier @Singleton requires Hilt to see the annotation before first use"
+    body: >
+      If UrlModifier is only annotated @Singleton without a @Provides binding in a Hilt module,
+      Hilt will still inject it correctly because it has an @Inject constructor. Verify by running
+      the Hilt component graph check (Gradle compileDebugKotlin). If the check fails, add the
+      CommonModule binding as planned.

@@ -1,0 +1,56 @@
+artifact: plan
+slice: firestore-io
+parent: 04-plan-firestore-io.md
+rev: 1
+modules: [firestore-backup, firestore-sync, room-dao]
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt
+    status: modified
+    role: core — add getUserMetaDoc() cache helper, include tags in chunk batch via addArticleToBatch extension
+    delta: { add: 30, rem: 10 }
+    planned_change:
+      intent: "Add private suspend fun getUserMetaDoc(userId): DocumentSnapshot that reads users/{uid} once and returns it; replace the two sequential getLastSyncTimestamp/isFirstSync Firestore reads in callers with a single cached read. Extend addArticleToBatch (extracted in B1) to accept an optional List<ArticleTags> so backupArticlesPaginated can write tags into the same chunk batch instead of firing a separate backupArticle commit per article."
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    status: modified
+    role: caller — consume getUserMetaDoc cache, remove per-article tag-commit loop
+    delta: { add: 15, rem: 30 }
+    planned_change:
+      intent: "In syncLocalChanges(): replace isFirstSync()+getLastSyncTimestamp() (two Firestore GETs on the same doc) with a single call to a new firestoreBackupService.getUserMetaSnapshot() that reads users/{uid} once and returns both values. Remove the per-article tag-backup loop that B1 delegates to backupArticle(); instead pass tags directly into the chunk batch via the extended addArticleToBatch — eliminating N separate batch.commit() calls per chunk."
+  - path: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt
+    status: modified
+    role: DAO — add bulk tag-delete method
+    delta: { add: 7, rem: 0 }
+    planned_change:
+      intent: "Add @Query(\"DELETE FROM article_tags WHERE itemId = :itemId\") suspend fun deleteAllTagsForArticle(itemId: String). Replace the per-tag loop in FirestoreSyncManager.handleRemoteArticleChange() that calls deleteArticleTag(itemId, tag) for each existing tag with a single deleteAllTagsForArticle(articleId) call. Room executes the DELETE…WHERE as a single SQL statement; auto-transactional for the single-op case."
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt
+    status: modified
+    role: test — update characterization tests + add focused efficiency tests
+    delta: { add: 40, rem: 5 }
+    planned_change:
+      intent: "Update backupArticlesPaginated characterization test to assert tags are written inside the chunk batch (batch.set called for tag docs within the same batch commit). Add test: getUserMetaSnapshot reads users/{uid} doc exactly once even when both isFirstSync and lastSyncTimestamp are extracted from the result."
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt
+    status: modified
+    role: test — update tag-backup assertion after B2 changes commit pattern
+    delta: { add: 15, rem: 8 }
+    planned_change:
+      intent: "Update the tag-backup characterization test (added by test-net, updated by B1) to assert firestore.batch() is called once per chunk (not once per article). Add test: deleteAllTagsForArticle called once per article in the conflict-resolution update path (not N times for N tags)."
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt, kind: calls }
+  - { from: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt, to: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt, kind: calls }
+  - { from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt, kind: tests }
+  - { from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt, kind: tests }
+
+risks:
+  - level: med
+    title: "Chunk-batch tag inclusion may exceed Firestore rules document-access budget"
+    body: "WRITE_BATCH_LIMIT=20 was sized for one getAfter() per article (20 docs per batch = 20 access calls). Adding tag writes to the same batch does not add getAfter() calls (tags are subcollection docs, no rules access check). The budget concern is not breached. Confirm by reviewing the marker rules: only articleMarkers create/update requires a getAfter on the article doc — tag subcollection writes have no such rule."
+  - level: med
+    title: "Tag-in-chunk-batch changes the B1 characterization test assertion"
+    body: "B1 updated the test to assert 'backupArticle() called N times'. B2 removes the backupArticle delegation in syncLocalChanges and folds tags into the chunk batch — the assertion must again be updated. Coordinate: do not implement B2 until the B1 characterization test is stable and the new assertion is documented in this plan."
+  - level: low
+    title: "getUserMetaDoc single-read: callers must not mutate or cache stale snapshots"
+    body: "The helper reads the users/{uid} doc once per sync invocation and returns the DocumentSnapshot. If syncLocalChanges and performFullSync both call it independently, each gets one read. There is no cross-call cache — this is intentional (each sync call is independent). The win is within a single syncLocalChanges() call: two sequential .get() calls on the same doc collapse to one."
+  - level: low
+    title: "deleteAllTagsForArticle atomicity"
+    body: "The single DELETE…WHERE itemId=? is auto-transactional in Room for a single-op suspend function. The subsequent insertArticleTags(tags) is a separate op — there is a window between delete and insert where tags are empty. This is the same window as the current per-tag loop. No semantic change; acceptable for a sync path that is not user-facing."

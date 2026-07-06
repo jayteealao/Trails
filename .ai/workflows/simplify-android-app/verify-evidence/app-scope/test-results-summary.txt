@@ -1,0 +1,35 @@
+Test run: 2026-07-05T22:41:34Z — 2026-07-05T22:41:39Z
+Command: ./gradlew :app:testDebugUnitTest
+Result: BUILD SUCCESSFUL
+
+Suite                                               tests  failures  errors  skipped
+-------------------------------------------------------------------------------------------
+UrlNormalizerTest                                   17     0         0       0
+AppScopeIsolationTest                               2      0         0       0
+DefaultArticleRepositoryTest                        1      0         0       0
+FtsSearchTest                                       7      0         0       0
+ArchiveServiceFetchTest                             3      0         0       0
+ArchiveServiceObserveTest                           5      0         0       0
+ArchiveServiceTest                                  3      0         0       0
+ArticleListScreenKtTest                             19     0         0       0
+ArticleListViewModelTest                            2      0         0       0
+FirestoreBackupServiceTest                          27     0         0       0
+FirestoreSyncManagerReconcileTest                   5      0         0       0
+FirestoreSyncManagerTest                            8      0         0       0
+GeminiClientTest                                    15     0         0       0
+PostgrestClientTest                                 8      0         0       0
+-------------------------------------------------------------------------------------------
+TOTAL                                               122    0         0       0
+
+All 122 tests passed.
+
+Fix-round applied (verify-owned):
+- AppScopeIsolationTest.kt: added ExperimentalCoroutinesApi opt-in, Job import,
+  CoroutineExceptionHandler to swallow child exceptions, switched to shared
+  runTest scheduler (testScheduler) so advanceUntilIdle() drives the scope.
+- DefaultArticleRepositoryTest.kt: replaced ioDispatcher=StandardTestDispatcher()
+  with coroutineScope=CoroutineScope(SupervisorJob()+StandardTestDispatcher()).
+- FtsSearchTest.kt: same constructor fix as DefaultArticleRepositoryTest.
+- FirestoreSyncManagerReconcileTest.kt: added scope param to constructor call.
+- FirestoreSyncManagerTest.kt: added scope param to constructor call.
+Commit: fda9cdc

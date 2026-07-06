@@ -1,0 +1,96 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="streaming-restore" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-streaming-restore.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt", "delta": { "add": 60, "rem": 45 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", "delta": { "add": 20, "rem": 30 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt", "delta": { "add": 130, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>FirestoreBackupService.kt — replace list accumulation with suspend onPage callback + A2b rehydration</summary>
+      <div class="pl-card">
+        <p>Extract <code>rehydrateLargeText(article, articleRef)</code> from the existing <code>restoreArticle()</code> large-text path. Redesign <code>restoreAllArticlesPaginated</code>: replace <code>allArticles.addAll(articles)</code> with a per-page <code>rehydrateLargeText</code> call followed by <code>onPage(hydratedArticles)</code>. Return type changes from <code>Result&lt;List&lt;Article&gt;&gt;</code> to <code>Result&lt;Unit&gt;</code>. Remove deprecated <code>restoreAllArticles()</code> entirely. Re-throw <code>CancellationException</code> in the catch block for cooperative cancellation.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "val allArticles = mutableListOf<Article>()" },
+          { "kind": "rem", "text": "allArticles.addAll(articles)" },
+          { "kind": "rem", "text": "Result.success(allArticles)" },
+          { "kind": "add", "text": "onPage: suspend (List<Article>) -> Unit = {}" },
+          { "kind": "add", "text": "val hydratedArticles = articles.map { rehydrateLargeText(it, getUserArticlesCollection(user.uid).document(it.itemId)) }" },
+          { "kind": "add", "text": "onPage(hydratedArticles)" },
+          { "kind": "add", "text": "Result.success(Unit)" },
+          { "kind": "ctx", "text": "// suspend fun restoreAllArticles() — DELETED (hard cutover, zero callers)" }
+        ] } -->
+      </div>
+    </details>
+
+    <details class="pl-card-d">
+      <summary>FirestoreSyncManager.kt — update both call sites to supply onPage lambda</summary>
+      <div class="pl-card">
+        <p>Two call sites (first-sync restore branch ~L427; <code>performBidirectionalSync</code> ~L492). Each replaces the <code>fold { remoteArticles -&gt; chunked(50) { handleRemoteArticleChange } }</code> block with an inline <code>onPage = { pageArticles -&gt; withContext(IO) { pageArticles.forEach { handleRemoteArticleChange(it) } } }</code> lambda. The outer <code>chunked(50)</code> evaporates since pages are already 50 articles. The <code>fold {}</code> collapses to <code>.onFailure { throw it }</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "remoteResult.fold(" },
+          { "kind": "rem", "text": "  onSuccess = { remoteArticles ->" },
+          { "kind": "rem", "text": "    withContext(Dispatchers.IO) { remoteArticles.chunked(50).forEach { chunk -> chunk.forEach { handleRemoteArticleChange(it) } } }" },
+          { "kind": "rem", "text": "  }," },
+          { "kind": "rem", "text": "  onFailure = { throw it }" },
+          { "kind": "rem", "text": ")" },
+          { "kind": "add", "text": "firestoreBackupService.restoreAllArticlesPaginated(" },
+          { "kind": "add", "text": "  onProgress = { current, total -> Timber.d(\"Restoring $current / $total articles\") }," },
+          { "kind": "add", "text": "  onPage = { pageArticles -> withContext(Dispatchers.IO) { pageArticles.forEach { handleRemoteArticleChange(it) } } }" },
+          { "kind": "add", "text": ").onFailure { throw it }" }
+        ] } -->
+      </div>
+    </details>
+
+    <details class="pl-card-d">
+      <summary>FirestoreBackupServiceTest.kt — A2 streaming tests + A2b large-text rehydration tests</summary>
+      <div class="pl-card">
+        <p>Eight new unit tests covering the full edge-case matrix (A2: multi-page, zero articles, single page, onPage failure, cancellation; A2b: null-text rehydration, inline-text no-read, missing subcollection). All use MockK + <code>runTest</code> + <code>StandardTestDispatcher</code>. The test-net characterization test pinning the OOM accumulation baseline is updated or replaced in Step 6 (conditional on test-net having landed).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "fun `restoreAllArticlesPaginated calls onPage per page not once with full list`() = runTest {" },
+          { "kind": "add", "text": "  var callCount = 0; val result = service.restoreAllArticlesPaginated(onPage = { callCount++ })" },
+          { "kind": "add", "text": "  assertTrue(result.isSuccess); assertEquals(2, callCount) // 2 pages of 50, then empty" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "fun `restoreAllArticlesPaginated rehydrates large text from subcollection`() = runTest {" },
+          { "kind": "add", "text": "  // article.text==null in main doc → text/content GET → article.text == \"large content\" in onPage arg" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "fun `restoreAllArticlesPaginated inline text article skips subcollection fetch`() = runTest {" },
+          { "kind": "add", "text": "  // article.text==\"short\" → verify(exactly=0) { articleRef.collection(\"text\") }" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "A2b adds per-article subcollection reads in the bulk restore path", "body": "Every article with <code>text==null</code> incurs an extra Firestore GET inside the paging loop. This is the correct behaviour (parity with single-article <code>restoreArticle()</code>) but adds read cost for large-text-heavy libraries. Accept for correctness; document in <code>architecture-docs</code> slice." } -->
+  <!-- @include callout { "kind": "warn", "title": "Partial-restore state on onPage failure", "body": "If the <code>onPage</code> callback throws mid-stream, Room is left with articles from already-delivered pages. A subsequent sync fills the gaps via idempotent upsert. Add KDoc warning and <code>Timber.w</code> on failure path." } -->
+  <!-- @include callout { "kind": "info", "title": "Characterization test update is conditional on test-net landing first", "body": "The test-net slice adds a baseline test pinning the list-accumulation OOM quirk. If test-net has already landed when this slice is implemented, Step 6 must update that test. The new streaming-API tests supersede it regardless." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-14T22:46:55Z)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":3,"modules":3,"risks":4}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

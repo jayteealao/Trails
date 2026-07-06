@@ -1,0 +1,65 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="fts-search-fix" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-fts-search-fix.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt", "delta": { "add": 1, "rem": 1 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "android/app/src/test/java/com/jayteealao/trails/data/FtsSearchTest.kt", "delta": { "add": 120, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>ArticleRepository.kt — route the sanitized query into the DAO MATCH call</summary>
+      <div class="pl-card">
+        <p>The one-line correction: <code>searchWithScore</code> computes <code>sanitizedQuery</code> but hands the <em>raw</em> <code>query</code> to the DAO, so FTS sanitization/wildcards are silently discarded. Pass <code>sanitizedQuery</code> instead. Nothing else in the file changes — <code>sanitizeSearchQuery()</code>, <code>calculateScore()</code>, <code>delete()</code>, <code>add()</code>, and the constructor are untouched (those belong to app-scope / article-repository).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "ctx", "text": "val sanitizedQuery = sanitizeSearchQuery(\"*$query*\")" },
+          { "kind": "rem", "text": "articleDao.searchArticlesWithMatchInfo(query)" },
+          { "kind": "add", "text": "articleDao.searchArticlesWithMatchInfo(sanitizedQuery)" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>FtsSearchTest.kt — pin the intended sanitized + wildcard/prefix semantics</summary>
+      <div class="pl-card">
+        <p>New JVM unit test (MockK-stubbed <code>ArticleDao</code> + real <code>ArticleRepositoryImpl</code> on a <code>StandardTestDispatcher</code>; no Hilt/Room needed). Pins post-fix behaviour for every shape edge case via <code>coVerify { searchArticlesWithMatchInfo(expectedSanitized) }</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "plain word        -> *\"*word*\"* reaches the DAO" },
+          { "kind": "add", "text": "unbalanced quote  -> internal quotes escaped, expression stays valid" },
+          { "kind": "add", "text": "lone * / AND/OR/NEAR -> escaped as literal text, no MATCH-operator leak" },
+          { "kind": "add", "text": "empty -> returns emptyList() without calling the DAO" },
+          { "kind": "ctx", "text": "whitespace-only / non-ASCII -> non-crashing sanitized expression" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "warn", "title": "Result-set change is intentional — not a regression", "body": "Routing the sanitized+wildcard query to the DAO changes which rows return for queries with FTS-special chars (quotes, <code>*</code>, AND/OR/NEAR). Reviewers must read any pre/post row diff as the <em>intended</em> correction. The new tests pin post-fix behaviour; pre-fix behaviour is deliberately not pinned." } -->
+  <!-- @include callout { "kind": "info", "title": "Watch the double-wrap on wildcards", "body": "<code>searchWithScore</code> calls <code>sanitizeSearchQuery(\"*$query*\")</code>, which itself wraps in <code>*\"...\"*</code>. The edge-case tests confirm the composed expression is a valid FTS4 MATCH pattern and not overly broad/empty for typical queries." } -->
+  <!-- @include callout { "kind": "info", "title": "No caller changes", "body": "<code>searchLocal()</code> delegates to <code>searchWithScore()</code>; the list/search ViewModels call <code>searchLocal()</code>. The hard cutover is entirely internal to <code>searchWithScore</code> — no caller signature changes." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (parallel research, 2026-06-14)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":2,"modules":2,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

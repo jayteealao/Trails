@@ -1,0 +1,106 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="article-repository" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-article-repository.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt", "delta": { "add": 12, "rem": 10 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/data/DefaultArticleRepositoryTest.kt", "delta": { "add": 80, "rem": 5 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/di/DataModule.kt", "delta": { "add": 0, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>ArticleRepository.kt — inject Firebase + patch delete() + batch add()</summary>
+      <div class="pl-card">
+        <p>Extend the post-app-scope constructor with <code>firestore: FirebaseFirestore</code> and <code>firebaseAuth: FirebaseAuth</code> (both already <code>@Singleton</code> in the Hilt graph). In <code>delete()</code> replace the two raw <code>getInstance()</code> calls with the injected handles. In <code>add()</code> hoist the per-datum article transform into a <code>map {}</code>, call <code>articleDao.upsertArticles(articlesToAdd)</code> once, then iterate the original list for associated-data inserts.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "ctx", "text": "class ArticleRepositoryImpl @Inject constructor(" },
+          { "kind": "ctx", "text": "    @ApplicationContext private val context: Context," },
+          { "kind": "ctx", "text": "    private val articleDao: ArticleDao," },
+          { "kind": "ctx", "text": "    private val syncStatusMonitor: SyncStatusMonitor," },
+          { "kind": "ctx", "text": "    private val firestoreSyncManager: FirestoreSyncManager," },
+          { "kind": "ctx", "text": "    @ApplicationScope private val coroutineScope: CoroutineScope," },
+          { "kind": "add", "text": "    private val firestore: FirebaseFirestore," },
+          { "kind": "add", "text": "    private val firebaseAuth: FirebaseAuth," },
+          { "kind": "ctx", "text": ") : ArticleRepository {" },
+          { "kind": "ctx", "text": "" },
+          { "kind": "ctx", "text": "    // delete() — before:" },
+          { "kind": "rem", "text": "    val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser" },
+          { "kind": "rem", "text": "    com.google.firebase.firestore.FirebaseFirestore.getInstance()" },
+          { "kind": "add", "text": "    val user = firebaseAuth.currentUser" },
+          { "kind": "add", "text": "    firestore" },
+          { "kind": "ctx", "text": "" },
+          { "kind": "ctx", "text": "    // add() — before: single forEach calling upsertArticle per datum" },
+          { "kind": "rem", "text": "    articleData.forEach { datum ->" },
+          { "kind": "rem", "text": "        val articleToAdd = datum.article.copy(...)" },
+          { "kind": "rem", "text": "        articleDao.upsertArticle(articleToAdd)" },
+          { "kind": "rem", "text": "        // ... associated inserts ..." },
+          { "kind": "rem", "text": "    }" },
+          { "kind": "add", "text": "    val articlesToAdd = articleData.map { datum -> datum.article.copy(...) }" },
+          { "kind": "add", "text": "    articleDao.upsertArticles(articlesToAdd)" },
+          { "kind": "add", "text": "    articleData.forEach { datum ->" },
+          { "kind": "add", "text": "        // associated inserts unchanged" },
+          { "kind": "add", "text": "    }" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>DefaultArticleRepositoryTest.kt — two new assertions: delete() injection + add() bulk upsert</summary>
+      <div class="pl-card">
+        <p>Wire <code>ArticleRepositoryImpl</code> with <code>@MockK</code> fakes for all constructor params including the two new Firebase handles. Assert that <code>delete()</code> accesses <code>firebaseAuth.currentUser</code> and <code>firestore.collection(...)</code> on the injected mocks (raw <code>getInstance()</code> would throw without a <code>mockkStatic</code> registration). Assert that <code>add()</code> calls <code>upsertArticles</code> exactly once and <code>upsertArticle</code> exactly zero times.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "@MockK private lateinit var articleDao: ArticleDao" },
+          { "kind": "add", "text": "@MockK private lateinit var firestore: FirebaseFirestore" },
+          { "kind": "add", "text": "@MockK private lateinit var firebaseAuth: FirebaseAuth" },
+          { "kind": "add", "text": "" },
+          { "kind": "add", "text": "@Test fun `delete uses injected Firebase handles`() = runTest(testDispatcher) { ... }" },
+          { "kind": "add", "text": "    verify { firebaseAuth.currentUser }" },
+          { "kind": "add", "text": "    verify { firestore.collection(\"users\") }" },
+          { "kind": "add", "text": "" },
+          { "kind": "add", "text": "@Test fun `add performs single bulk article upsert`() = runTest(testDispatcher) { ... }" },
+          { "kind": "add", "text": "    coVerify(exactly = 1) { articleDao.upsertArticles(any()) }" },
+          { "kind": "add", "text": "    coVerify(exactly = 0) { articleDao.upsertArticle(any()) }" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>DataModule.kt — verify only, no source edit</summary>
+      <div class="pl-card">
+        <p><code>DataModule</code> binds <code>ArticleRepositoryImpl</code> via <code>@Binds</code>. Hilt resolves constructor params automatically from the existing <code>FirestoreModule</code> and <code>FirebaseModule</code> providers once the new params are declared on the constructor. No manual <code>@Provides</code> change required.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "ctx", "text": "@Binds fun bindsArticleRepository(articleRepository: ArticleRepositoryImpl): ArticleRepository" },
+          { "kind": "ctx", "text": "// No change — Hilt auto-resolves FirebaseFirestore + FirebaseAuth via existing providers" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "CROSS-SLICE: Constructor shared with app-scope — sequence B3 strictly after A4", "body": "ArticleRepositoryImpl constructor is modified by app-scope (A4) to inject @ApplicationScope CoroutineScope and remove ioDispatcher. B3 extends the post-A4 constructor. Landing B3 before A4 causes a three-way merge conflict. Hard dependency: app-scope must be merged before article-repository implementation begins." } -->
+  <!-- @include callout { "kind": "warn", "title": "Bulk upsert preserves @Upsert primary-key semantics — do not route through upsertNewArticle", "body": "The current add() calls plain upsertArticle (@Upsert, primary-key conflict). The URL-dedup path (upsertNewArticle) is NOT called here. Replacing N upsertArticle calls with one upsertArticles(List) call preserves semantics exactly. Routing through upsertNewArticle would silently change conflict behaviour." } -->
+  <!-- @include callout { "kind": "info", "title": "searchWithScore is owned by fts-search-fix — B3 must not touch it", "body": "ArticleRepository.kt also contains searchWithScore (the FTS bug). This slice edits only the constructor, delete(), and add(). Sequence fts-search-fix (A1) before B3 to minimise merge churn." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-14T22:46:55Z)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":3,"modules":3,"risks":4}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

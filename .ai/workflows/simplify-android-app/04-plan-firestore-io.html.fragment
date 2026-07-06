@@ -1,0 +1,91 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="firestore-io" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-firestore-io.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt", "delta": { "add": 30, "rem": 10 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", "delta": { "add": 15, "rem": 30 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt", "delta": { "add": 7, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt", "delta": { "add": 40, "rem": 5 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt", "delta": { "add": 15, "rem": 8 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>FirestoreBackupService.kt — getUserMetaSnapshot() + addArticleToBatch tag extension</summary>
+      <div class="pl-card">
+        <p>Add <code>getUserMetaSnapshot(): Result&lt;UserMetaSnapshot&gt;</code> that reads <code>users/{uid}</code> once and extracts both <code>isFirstSync</code> and <code>lastSyncTimestamp</code> from the single <code>DocumentSnapshot</code>. Extend <code>addArticleToBatch</code> with a <code>tags: List&lt;ArticleTags&gt; = emptyList()</code> parameter so chunk-batch callers can fold tag writes into the same commit. Add a clarifying comment on <code>MAX_TEXT_SIZE</code> confirming the comparison uses <code>toByteArray().size</code> (efficiency-13 already fixed in code).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "data class UserMetaSnapshot(val isFirstSync: Boolean, val lastSyncTimestamp: Long?)" },
+          { "kind": "add", "text": "suspend fun getUserMetaSnapshot(): Result<UserMetaSnapshot> = withAuthenticatedUser { user ->" },
+          { "kind": "add", "text": "  val doc = firestore.collection(USERS_COLLECTION).document(user.uid).get().await()" },
+          { "kind": "add", "text": "  Result.success(UserMetaSnapshot(!doc.contains(\"lastSyncTimestamp\"), doc.getLong(\"lastSyncTimestamp\")))" },
+          { "kind": "ctx", "text": "}" },
+          { "kind": "rem", "text": "private fun addArticleToBatch(batch: WriteBatch, articleRef: DocumentReference, article: Article)" },
+          { "kind": "add", "text": "private fun addArticleToBatch(batch: WriteBatch, articleRef: DocumentReference, article: Article, tags: List<ArticleTags> = emptyList())" },
+          { "kind": "add", "text": "  tags.forEach { tag -> batch.set(articleRef.collection(TAGS_COLLECTION).document(\"${tag.itemId}_${tag.tag}\"), tag, SetOptions.merge()) }" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>FirestoreSyncManager.kt — single meta read + chunk-batch tag inclusion</summary>
+      <div class="pl-card">
+        <p>Replace the two sequential <code>isFirstSync()</code> + <code>getLastSyncTimestamp()</code> calls in <code>syncLocalChanges()</code> with one <code>getUserMetaSnapshot()</code> call. Pre-fetch tags per chunk and pass them as <code>tagsByArticleId</code> to <code>backupArticlesPaginated</code>, eliminating the per-article <code>backupArticle</code> tag-delegation loop that B1 introduced. Net effect: N separate tag commits per chunk collapse to zero (tags are in the chunk commit).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "val isFirstSync = firestoreBackupService.isFirstSync().getOrNull() ?: false" },
+          { "kind": "rem", "text": "val lastSync = firestoreBackupService.getLastSyncTimestamp().getOrNull() ?: 0L" },
+          { "kind": "add", "text": "val meta = firestoreBackupService.getUserMetaSnapshot().getOrNull()" },
+          { "kind": "add", "text": "val isFirstSync = meta?.isFirstSync ?: false" },
+          { "kind": "add", "text": "val lastSync = meta?.lastSyncTimestamp ?: 0L" },
+          { "kind": "ctx", "text": "// pre-fetch tags for chunk, pass to backupArticlesPaginated" },
+          { "kind": "add", "text": "val chunkTagsMap = chunk.associate { a -> a.itemId to articleDao.getArticleTags(a.itemId).map { ArticleTags(a.itemId, it, null, null) } }" },
+          { "kind": "add", "text": "firestoreBackupService.backupArticlesPaginated(articles = chunk, tagsByArticleId = chunkTagsMap, onProgress = { ... })" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleDao.kt — deleteAllTagsForArticle bulk delete</summary>
+      <div class="pl-card">
+        <p>Add a single-statement <code>DELETE FROM article_tags WHERE itemId = ?</code> method. Replace the <code>forEach { deleteArticleTag(id, tag) }</code> loop in <code>handleRemoteArticleChange</code> with one call. Room executes this as a single auto-transactional SQL statement — N DAO calls become 1.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "@Query(\"DELETE FROM article_tags WHERE itemId = :itemId\")" },
+          { "kind": "add", "text": "suspend fun deleteAllTagsForArticle(itemId: String)" },
+          { "kind": "ctx", "text": "// in handleRemoteArticleChange:" },
+          { "kind": "rem", "text": "val existingTags = articleDao.getArticleTags(remoteArticle.itemId)" },
+          { "kind": "rem", "text": "existingTags.forEach { tag -> articleDao.deleteArticleTag(remoteArticle.itemId, tag) }" },
+          { "kind": "add", "text": "articleDao.deleteAllTagsForArticle(remoteArticle.itemId)" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "Tag-in-chunk-batch updates the B1 characterization assertion (again)", "body": "B1 changed the test assertion from 'firestore.batch() N times' to 'backupArticle() N times'. B2 removes the backupArticle delegation and folds tags into the chunk batch — assertion must update to 'firestore.batch() once per chunk'. Coordinate timing with B1 implementation to avoid a red test-net between the two slices." } -->
+  <!-- @include callout { "kind": "warn", "title": "Chunk tag writes do not breach the Firestore rules access budget", "body": "WRITE_BATCH_LIMIT=20 is sized for the marker create/update rule's getAfter() on users/{uid}/articles/{itemId} — one per article, 20 per batch. Tag subcollection writes (tags/{tagId}) have no getAfter() rule check. Adding tag writes to the chunk batch does not increase the document-access count." } -->
+  <!-- @include callout { "kind": "info", "title": "efficiency-13 byte-heuristic already correct — no code change", "body": "Both backupArticle() and backupArticlesPaginated() already compare against toByteArray().size, not text.length. B1's addArticleToBatch also uses toByteArray().size. Step 7 adds only a clarifying comment on MAX_TEXT_SIZE; no logic change is made." } -->
+  <!-- @include callout { "kind": "info", "title": "deleteAllTagsForArticle window between delete and insert", "body": "The single DELETE…WHERE followed by insertArticleTags() has a brief window where the article has no tags. This matches the current per-tag-delete pattern (same window, shorter in practice). Background sync path only; not user-visible." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-15); efficiency-13 confirmed already fixed in code (no action beyond clarifying comment); four efficiency items reduced to three active changes</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":5,"modules":3,"risks":4}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

@@ -1,0 +1,101 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="sync-worker" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology/lane figure.
+       All content below is a deterministic projection of 04-plan-sync-worker.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/sync/workers/SyncWorker.kt", "delta": { "add": 8, "rem": 60 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt", "delta": { "add": 4, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "android/app/src/test/java/com/jayteealao/trails/sync/workers/SyncWorkerTest.kt", "delta": { "add": 90, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>SyncWorker.kt — delay-poll → syncJob.join() with timeout (efficiency-9)</summary>
+      <div class="pl-card">
+        <p>Replace the <code>delay(1000) + while (syncJob.isActive) { delay(5000) }</code> poll (lines 171–177) with <code>withTimeout(30_000L) { syncJob.join() }</code>. On <code>TimeoutCancellationException</code> cancel the job and return <code>Result.failure()</code>. The <code>hadErrors</code> check moves to after the join (evaluated once, correctly).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "delay(1000)" },
+          { "kind": "rem", "text": "while (syncJob.isActive) {" },
+          { "kind": "rem", "text": "    if (hadErrors) { return@withContext Result.failure() }" },
+          { "kind": "rem", "text": "    delay(5000)" },
+          { "kind": "rem", "text": "}" },
+          { "kind": "add", "text": "try { withTimeout(30_000L) { syncJob.join() } }" },
+          { "kind": "add", "text": "} catch (e: TimeoutCancellationException) {" },
+          { "kind": "add", "text": "    Timber.e(\"SyncWorker: syncJob timed out after 30s — cancelling\")" },
+          { "kind": "add", "text": "    syncJob.cancel(); return@withContext Result.failure()" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "if (hadErrors) return@withContext Result.failure()" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>SyncWorker.kt + ArticleDao.kt — paginated non-metrics load (efficiency-11)</summary>
+      <div class="pl-card">
+        <p>Add <code>getNonMetricsArticles(limit: Int, offset: Int)</code> paginated DAO overload (LIMIT/OFFSET, ORDER BY timeAdded DESC). In <code>repopulateJob</code> replace the single full-table load with a <code>while (isActive)</code> page loop of size 50, consistent with the unresolved-articles chunk size already in the same job.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "val nonMetricsArticles = articleDao.getNonMetricsArticles()" },
+          { "kind": "rem", "text": "if (nonMetricsArticles.isNotEmpty()) { ... }" },
+          { "kind": "add", "text": "val pageSize = 50; var offset = 0" },
+          { "kind": "add", "text": "while (currentCoroutineContext().isActive) {" },
+          { "kind": "add", "text": "    val page = articleDao.getNonMetricsArticles(pageSize, offset)" },
+          { "kind": "add", "text": "    if (page.isEmpty()) break" },
+          { "kind": "add", "text": "    val jobs = page.map { article -> launch(IO) { /* unfurl */ } }" },
+          { "kind": "add", "text": "    jobs.joinAll(); offset += pageSize" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>SyncWorker.kt — delete syncArchivesInBackground + populateTextFromArchive (reuse-9/quality-7)</summary>
+      <div class="pl-card">
+        <p><code>syncArchivesInBackground()</code> (lines 189–243) is commented out at its only call site (line 156). It contains the file's only raw <code>FirebaseFirestore.getInstance()</code> (line 203). Its private helper <code>populateTextFromArchive()</code> (lines 245–257) has no other caller. Decision: <strong>delete both</strong>. Future archive-sync work should delegate to the already-injected <code>ArchiveService</code>, not duplicate Firestore reads in the worker. Remove the commented call-site block and the associated dead imports (<code>FirebaseFirestore</code>, <code>ArchiveStatus</code>).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "// syncArchivesInBackground()  // TODO: Re-enable after verifying..." },
+          { "kind": "rem", "text": "private suspend fun syncArchivesInBackground() { ... FirebaseFirestore.getInstance() ... }" },
+          { "kind": "rem", "text": "private suspend fun populateTextFromArchive(itemId: String) { ... }" },
+          { "kind": "ctx", "text": "// ArchiveService is already @Inject-ed at line 71 — no replacement needed" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>SyncWorkerTest.kt — new worker unit tests (work-testing + MockK)</summary>
+      <div class="pl-card">
+        <p>Three tests using <code>TestListenableWorkerBuilder</code> + MockK field injection + <code>runTest</code>/<code>advanceUntilIdle</code>: (1) join completes without 5s sleep; (2) paginated load processes both pages; (3) exception in launch sets <code>hadErrors</code> and returns <code>Result.failure()</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "@Test fun doWork_join_completes_without_real_delay()" },
+          { "kind": "add", "text": "@Test fun doWork_paginates_nonMetricsArticles_two_pages()" },
+          { "kind": "add", "text": "@Test fun doWork_returns_failure_when_syncJob_throws()" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "join() must preserve timeout/cancellation the delay-poll implicitly provided", "body": "A bare <code>syncJob.join()</code> suspends indefinitely if the launched coroutine stalls. Wrap in <code>withTimeout(30_000L)</code>; catch <code>TimeoutCancellationException</code> to cancel the job and return <code>Result.failure()</code> so WorkManager can reschedule." } -->
+  <!-- @include callout { "kind": "warn", "title": "Paginated load needs stable ORDER BY to avoid row skips", "body": "Use <code>ORDER BY timeAdded DESC</code> in the paginated DAO query. The unfurl update does not modify <code>resolved</code>, so processed rows won't disappear mid-run, but the stable order is still the correct guard against skips." } -->
+  <!-- @include callout { "kind": "info", "title": "syncArchivesInBackground deletion is safe — confirmed dead", "body": "Grep confirms the only call site (SyncWorker.kt:156) is already commented out. The raw <code>getInstance()</code> at line 203 lives entirely within the deleted block. ArchiveService (already @Inject-ed) owns this responsibility." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-14T22:46:55Z)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":3,"modules":3,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

@@ -1,0 +1,50 @@
+<section class="fragment-review-dimension" data-artifact="review-dimension" data-dimension="performance" data-rev="1">
+<style>
+.frd-pe .frd-finding { border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+.frd-pe .frd-finding-header { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; background: #fafafa; font-family: system-ui, sans-serif; }
+.frd-pe .frd-sev-high { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; background: #fde8e8; color: #c0392b; }
+.frd-pe .frd-sev-nit  { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; background: #f0f0f0; color: #666; }
+.frd-pe .frd-finding-id { font-weight: 700; font-size: 13px; }
+.frd-pe .frd-finding-msg { font-size: 13px; color: #555; flex: 1; }
+.frd-pe .frd-finding-body { padding: 10px 12px; border-top: 1px solid #e0e0e0; background: #fff; font-size: 13px; display: none; font-family: system-ui, sans-serif; }
+.frd-pe .frd-finding-body.open { display: block; }
+.frd-pe .frd-fix { margin-top: 8px; padding: 8px; background: #e8f4ff; border-radius: 4px; border-left: 3px solid #2980b9; }
+</style>
+<div class="frd-pe">
+
+<div class="frd-finding" data-sev="high">
+  <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
+    <span class="frd-sev-high">HIGH</span>
+    <span class="frd-finding-id">PE-1</span>
+    <span class="frd-finding-msg">N+1 serial DAO reads in syncLocalChanges (cross-ref CR-1)</span>
+  </div>
+  <div class="frd-finding-body">
+    <p>N serial <code>getArticleTags()</code> calls per chunk. 200-article chunk = 200 DB round-trips. Same as CR-1.</p>
+    <div class="frd-fix"><strong>Fix:</strong> Add <code>getTagsForArticles(itemIds)</code> bulk DAO method. See CR-1.</div>
+  </div>
+</div>
+
+<div class="frd-finding" data-sev="nit">
+  <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
+    <span class="frd-sev-nit">NIT</span>
+    <span class="frd-finding-id">PE-2</span>
+    <span class="frd-finding-msg">parsedSnippet HtmlCompat.fromHtml on first render (memoized)</span>
+  </div>
+  <div class="frd-finding-body">
+    <p>Initial <code>HtmlCompat.fromHtml()</code> runs synchronously on first composition. Memoized by <code>remember(article.snippet)</code> — no repeat allocation. NIT for very long bodies only.</p>
+  </div>
+</div>
+
+</div>
+<script>
+(function() {
+  var sec = document.currentScript.closest('.fragment-review-dimension') || document.querySelector('[data-dimension="performance"]');
+  sec.querySelectorAll('.frd-finding-header').forEach(function(h) {
+    h.addEventListener('click', function() { var b = h.nextElementSibling; var o = b.classList.toggle('open'); h.setAttribute('aria-expanded', o); });
+  });
+  document.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
+    detail: { name: 'review-dimension', artifact: 'review-dimension', dimension: 'performance', rev: 1, counts: { blocker: 0, high: 1, med: 0, low: 0, nit: 1 } }
+  }));
+})();
+</script>
+</section>

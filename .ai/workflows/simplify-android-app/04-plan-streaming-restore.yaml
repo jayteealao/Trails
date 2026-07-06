@@ -1,0 +1,143 @@
+artifact: plan
+slice: streaming-restore
+parent: 04-plan-streaming-restore.md
+rev: 1
+created-at: "2026-06-14T22:46:55Z"
+updated-at: "2026-06-14T22:46:55Z"
+
+modules:
+  - id: streamed-restore
+    label: "FirestoreBackupService — constant-memory streamed restore"
+    files:
+      - android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt
+  - id: sync-manager-callers
+    label: "FirestoreSyncManager — update both restoreAllArticlesPaginated call sites + remove deprecated method"
+    files:
+      - android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+  - id: streaming-tests
+    label: "Streaming-restore and A2b tests"
+    files:
+      - android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt
+
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt
+    status: modified
+    role: core-change
+    delta: { add: 60, rem: 45 }
+    planned_change:
+      intent: >
+        Replace restoreAllArticlesPaginated(onProgress) — which accumulates every page into
+        allArticles: MutableList<Article> (the OOM bug) — with a new suspend function
+        restoreAllArticlesPaginated(onProgress, onPage: suspend (List<Article>) -> Unit) that
+        calls onPage(articles) per fetched page and never appends to a retained list. Inline
+        the A2b large-text rehydration path (mirror of restoreArticle's null-text subcollection
+        fetch) inside the per-page loop so each article whose text==null triggers a
+        articles/{id}/text/content fetch before onPage is called. Remove the deprecated
+        restoreAllArticles() fun entirely (no replacement shim — hard cutover). Keep the
+        function signature suspend (not Flow) to preserve clean cancellation via structured
+        concurrency: the caller's coroutineScope is the cancellation boundary, and the onPage
+        callback gives the caller backpressure-by-convention (Room upsert blocks the loop
+        until the DB write completes before fetching the next page). The onProgress
+        callback signature (current: Int, total: Int) is unchanged.
+
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    status: modified
+    role: caller-update
+    delta: { add: 20, rem: 30 }
+    planned_change:
+      intent: >
+        Update BOTH call sites of restoreAllArticlesPaginated (line ~427 in the
+        first-sync restore branch; line ~492 in performBidirectionalSync) to supply an
+        onPage lambda that calls handleRemoteArticleChange per article immediately, replacing
+        the current fold { remoteArticles -> chunked(50) { ... } } accumulation pattern.
+        Each article is upserted and has its tags fetched/merged in the onPage callback as it
+        arrives; the outer chunked(50) loop is deleted. The onProgress callback is unchanged.
+        No other callers of restoreAllArticles() exist (grep confirmed), so this completes
+        the hard cutover. Remove all references to the removed deprecated restoreAllArticles().
+
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt
+    status: modified
+    role: test
+    delta: { add: 130, rem: 0 }
+    planned_change:
+      intent: >
+        Add streaming-API tests (A2) and large-text rehydration test (A2b) to the existing
+        test file. A2 tests: (1) each page's articles are passed to onPage as they arrive
+        (assert onPage called N times for N pages, not once with the full list);
+        (2) no list accumulation — verify onPage is called per page with page-size items,
+        not once with total count; (3) zero articles — onPage never called, returns success;
+        (4) single page (articles < RESTORE_PAGE_LIMIT) — onPage called exactly once;
+        (5) onPage throws — propagates as Result.failure, stops paging (partial-restore state);
+        (6) coroutine cancellation — cancelled scope before second page fetch results in no
+        further onPage calls (cooperative cancellation via isActive / ensureActive).
+        A2b tests: (7) article whose text==null in main doc triggers a fetch of
+        articles/{id}/text/content subcollection and the rehydrated text is present in the
+        Article passed to onPage; (8) article whose text is non-null is passed through
+        without a subcollection fetch (no extra Firestore read). All tests use MockK +
+        runTest + StandardTestDispatcher.
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt,
+      to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt,
+      kind: calls }
+  - { from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt,
+      to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt,
+      kind: tests }
+
+risks:
+  - level: high
+    title: "A2b adds N subcollection reads per large-text article in bulk restore path"
+    body: >
+      The single-article restoreArticle() already does this for correctness; the bulk path
+      must too (A2b). However, every article with text==null will incur an extra Firestore
+      GET inside the paging loop. For a library of 1000 articles where many had large text,
+      this is 1000 extra reads. The fix is the correct behaviour (parity with restoreArticle),
+      but the read cost is non-trivial. Note: batched tag reads (A3/batched-tag-reads slice)
+      will later mitigate the analogous N+1 for tags; the A2b subcollection fetch is separate
+      and not in that scope. Mitigation: proceed (correctness over read cost); the alternative
+      is silently restoring articles with missing text, which is worse. Document the cost in
+      the architecture doc (architecture-docs slice).
+    mitigation: "Accept cost; document in architecture-docs. A3 addresses tags separately."
+
+  - level: med
+    title: "onPage failure leaves Room in partial-restore state"
+    body: >
+      If onPage throws mid-stream (e.g. Room constraint violation, disk full),
+      restoreAllArticlesPaginated returns Result.failure and paging stops. Articles from
+      already-delivered pages are already in Room; the session is in a partial-restore state
+      with no rollback. The caller (FirestoreSyncManager) does not currently wrap the restore
+      in a transaction. Re-running a sync will fill in missing articles (idempotent upsert),
+      but there is a window where the UI shows incomplete data.
+    mitigation: >
+      Accept the partial-restore state (consistent with existing behaviour and safe for
+      idempotent upsert); add a Timber.w log on failure and document the partial-restore
+      contract in the function KDoc. Full transactional restore is a future improvement
+      (not in this slice's scope).
+
+  - level: med
+    title: "suspend onPage callback vs Flow<List<Article>> — API shape decision"
+    body: >
+      Flow<List<Article>> would expose lazy pagination as a first-class stream but requires
+      the two FirestoreSyncManager call sites to collect the flow inside a coroutine scope
+      and handle backpressure via buffer()/conflate(). The existing call sites use fold {}
+      which collapses to a single list — converting them to flow.collect {} adds boilerplate
+      and makes the large remoteArticles.chunked(50) processing loop unnecessary (the flow
+      emits page-sized chunks already). A suspend onPage callback is structurally equivalent
+      (same cooperative cancellation, same backpressure-by-blocking), requires zero API surface
+      change at the call site beyond swapping the fold {} for direct processing, and keeps
+      the function return type as Result<Unit> (success/failure signalling unchanged).
+      RECOMMENDATION: suspend onPage callback. See Proposed Change Strategy.
+    mitigation: "Use suspend onPage callback; document the tradeoff."
+
+  - level: low
+    title: "Characterization test in test-net pins the OOM baseline — update required"
+    body: >
+      The test-net plan (04-plan-test-net.yaml) adds a characterization test asserting
+      that restoreAllArticlesPaginated accumulates all pages into a single list (the current
+      OOM quirk). This streaming-restore slice changes that behaviour, so the characterization
+      test must be updated (or replaced by the new streaming-API tests) as part of this slice.
+      If test-net is not yet implemented when this slice lands, there is no conflict; if it
+      is implemented, the test update is required.
+    mitigation: >
+      Include the characterization test update in this slice's test step. The test comment
+      already notes 'streaming-restore slice will fix; update test then'.

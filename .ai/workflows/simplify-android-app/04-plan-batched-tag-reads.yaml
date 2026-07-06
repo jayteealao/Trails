@@ -1,0 +1,44 @@
+artifact: plan
+slice: batched-tag-reads
+parent: 04-plan-batched-tag-reads.md
+rev: 1
+modules: [firestore-backup, firestore-sync, test]
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt
+    status: modified
+    role: source
+    delta: { add: 35, rem: 8 }
+    planned_change:
+      intent: "Add batchRestoreArticleTags(articleIds: List<String>): Map<String, List<ArticleTags>> — chunks IDs into groups of RESTORE_TAG_CHUNK_SIZE (capped at 10 for concurrency hygiene), dispatches each chunk as parallel coroutines via coroutineScope + async, collects results into a articleId→tags map. Replaces single-article restoreArticleTags as the preferred call for multi-article restore."
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    status: modified
+    role: source
+    delta: { add: 40, rem: 20 }
+    planned_change:
+      intent: "Refactor handleRemoteArticleChange to accept pre-fetched Map<String, List<ArticleTags>> so it no longer fires a per-article Firestore read. Extract applyRemoteArticles(articles, tagsByArticleId) that calls batchRestoreArticleTags once per page-chunk, then calls handleRemoteArticleChange(article, tags) for each article in the chunk. Update both restore call sites (performBidirectionalSync and performFullSync Scenario 2) to use the new batched path."
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt
+    status: modified
+    role: test
+    delta: { add: 60, rem: 0 }
+    planned_change:
+      intent: "Add read-count reduction tests: mock Firestore to count collection().get() calls; assert batchRestoreArticleTags(N ids) issues ceil(N/CHUNK_SIZE) Firestore reads not N; edge cases: empty list, single article, exactly-chunk-size, N>chunk-size (two chunks), article with no tags."
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt
+    status: modified
+    role: test
+    delta: { add: 50, rem: 10 }
+    planned_change:
+      intent: "Update existing handleRemoteArticleChange characterization tests to pass pre-fetched tags map. Add integration-path test: N-article restore triggers exactly ceil(N/CHUNK_SIZE) tag batch reads not N individual reads. Verify empty-tags-map article handled (no tag insert, no crash)."
+edges:
+  - { from: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", to: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt", kind: calls }
+  - { from: "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt", to: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt", kind: tests }
+  - { from: "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt", to: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", kind: tests }
+risks:
+  - level: med
+    title: "handleRemoteArticleChange signature change requires all callers updated"
+    body: "handleRemoteArticleChange is private but called from two sites (performBidirectionalSync and performFullSync Scenario 2). Both must be updated atomically in this slice — the test-net characterization tests pin the existing behaviour so any missed call site will fail the test suite before merge."
+  - level: low
+    title: "Chunk-size tuning: too large increases concurrency pressure; too small reduces batching benefit"
+    body: "RESTORE_TAG_CHUNK_SIZE=10 is conservative: 10 parallel Firestore subcollection reads well within Android thread pool limits, and ceil(N/10) rounds ≤ N reads even for articles with 0 tags (empty Results counted as a read). Tune in implement if profiling shows a better value; cap at 30 to align with whereIn cap for future refactoring parity."
+  - level: low
+    title: "Articles with no tags still incur a Firestore read per chunk"
+    body: "batchRestoreArticleTags issues one subcollection get() per article ID regardless of whether the article has tags — the only win is parallelism within each chunk. For pure no-tag libraries this halves wall-clock time (parallel) but does not reduce read count. Acceptable per A3 AC (sub-N+1 wall-clock reads via parallel dispatch; pure count reduction would require a different data model)."

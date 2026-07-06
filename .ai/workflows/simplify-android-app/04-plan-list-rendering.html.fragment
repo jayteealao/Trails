@@ -1,0 +1,133 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="list-rendering" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-list-rendering.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt", "delta": { "add": 12, "rem": 32 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleContent.kt", "delta": { "add": 0, "rem": 8 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleThumbnail.kt", "delta": { "add": 0, "rem": 28 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/common/util.kt", "delta": { "add": 0, "rem": 28 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/AdaptiveArticleGrid.kt", "delta": { "add": 22, "rem": 44 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListScreen.kt", "delta": { "add": 0, "rem": 4 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "android/app/src/androidTest/java/com/jayteealao/trails/screens/articleList/ArticleListItemTest.kt", "delta": { "add": 120, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>ArticleListItem.kt — remove dead animation, palette state, and wrap snippet parse</summary>
+      <div class="pl-card">
+        <p>Delete the <code>rememberInfiniteTransition</code> / <code>angle</code> block (lines 111–120) and its six animation imports. Drop <code>dominantColor</code>/<code>vibrantColor</code> state vars, <code>onPaletteExtracted</code> lambda, and <code>DisposableEffect</code> palette reset. Wrap the bare <code>HtmlCompat.fromHtml</code> call in <code>remember(article.snippet){ }</code>. Replace the <code>remember(article.itemId)</code> + two LaunchedEffect tag pattern with a single <code>remember(article.tagsString, tags){ }</code> that builds the map directly.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "val infiniteTransition = rememberInfiniteTransition(label = \"gradientTransition\")" },
+          { "kind": "rem", "text": "val angle by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 360f, ...)" },
+          { "kind": "rem", "text": "val onPaletteExtracted: (Color, Color) -> Unit = { dominant, vibrant -> ... }" },
+          { "kind": "rem", "text": "DisposableEffect(article.itemId) { onDispose { dominantColor = Color.Transparent; ... } }" },
+          { "kind": "rem", "text": "val parsedSnippet: AnnotatedString? = if (!article.snippet.isNullOrBlank()) { HtmlCompat.fromHtml(...) } else null" },
+          { "kind": "add", "text": "val parsedSnippet: AnnotatedString? = remember(article.snippet) {" },
+          { "kind": "add", "text": "    if (!article.snippet.isNullOrBlank()) HtmlCompat.fromHtml(article.snippet, HtmlCompat.FROM_HTML_MODE_LEGACY).toSpannable().toAnnotatedString(colorScheme.onSurface) else null" },
+          { "kind": "add", "text": "}" },
+          { "kind": "rem", "text": "val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }" },
+          { "kind": "rem", "text": "LaunchedEffect(article.tagsString) { /* sync tags */ }" },
+          { "kind": "rem", "text": "LaunchedEffect(article.itemId, tags) { /* add missing tags */ }" },
+          { "kind": "add", "text": "val tagStates: Map<String, Boolean> = remember(article.tagsString, tags) {" },
+          { "kind": "add", "text": "    buildMap { tags.forEach { put(it, false) }; article.tags.forEach { put(it, true) } }" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleThumbnail.kt — drop palette, gradient overlay, and allowHardware(false)</summary>
+      <div class="pl-card">
+        <p>Remove <code>dominantColor</code>, <code>vibrantColor</code>, <code>onPaletteExtracted</code> params. Delete the conditional gradient overlay <code>Box</code> (lines 54–68). Remove <code>allowHardware(false)</code> from the <code>ImageRequest</code> so display images decode as hardware-backed bitmaps. Remove the <code>.listener(onSuccess)</code> palette-extraction call. Replace the <code>vibrantColor.copy(alpha=0.6f)</code> shadow tint with <code>Color.Black.copy(alpha=0.08f)</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "dominantColor: Color, vibrantColor: Color, onPaletteExtracted: (Color, Color) -> Unit," },
+          { "kind": "rem", "text": "color = vibrantColor.copy(alpha = 0.6f)," },
+          { "kind": "add", "text": "color = Color.Black.copy(alpha = 0.08f)," },
+          { "kind": "rem", "text": "if (dominantColor != Color.Transparent && vibrantColor != Color.Transparent) { Box(gradient ...) }" },
+          { "kind": "rem", "text": ".allowHardware(false)" },
+          { "kind": "rem", "text": ".listener(onSuccess = { _, result -> extractPaletteFromBitmap(...) })" },
+          { "kind": "rem", "text": ".coroutineContext(Dispatchers.IO)" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>common/util.kt — delete extractPaletteFromBitmap</summary>
+      <div class="pl-card">
+        <p>Remove the <code>extractPaletteFromBitmap</code> function and its associated imports (<code>Canvas</code>, <code>BitmapDrawable</code>, <code>Drawable</code>, <code>createBitmap</code>, <code>Palette</code>). Verified: no other file in the project imports or calls this function. <code>generateId</code> and <code>generateDeterministicNanoId</code> are untouched.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "import android.graphics.Canvas" },
+          { "kind": "rem", "text": "import android.graphics.drawable.BitmapDrawable" },
+          { "kind": "rem", "text": "import android.graphics.drawable.Drawable" },
+          { "kind": "rem", "text": "import androidx.palette.graphics.Palette" },
+          { "kind": "rem", "text": "fun extractPaletteFromBitmap(drawable: Drawable, onColorsExtracted: (Color, Color) -> Unit) { ... }" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>AdaptiveArticleGrid.kt — extract shared action callbacks</summary>
+      <div class="pl-card">
+        <p>The 7-lambda action block (<code>onSetFavorite</code>, <code>onSetReadStatus</code>, <code>onArchiveArticle</code>, <code>onDeleteArticle</code>, <code>onRegenerateDetails</code>, <code>onCopyLink</code>, <code>onShareArticle</code>) is copy-pasted between <code>ArticleGrid</code> and <code>ArticleList</code>. Extract to a shared helper (file-scoped function or data class) so both layouts call one definition. <code>ArticleListItem</code> signature is unchanged.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "private fun articleItemCallbacks(viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>) = ArticleItemCallbacks(" },
+          { "kind": "add", "text": "    onSetFavorite = { id, fav -> viewStore.action { setFavorite(id, fav) } }," },
+          { "kind": "add", "text": "    onSetReadStatus = { id, read -> viewStore.action { setReadStatus(id, read) } }," },
+          { "kind": "add", "text": "    // ... 5 more lambdas" },
+          { "kind": "add", "text": ")" },
+          { "kind": "ctx", "text": "// Both ArticleGrid and ArticleList destructure the same val into ArticleListItem params" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleListScreen.kt — remove empty NavigateToArticle handler</summary>
+      <div class="pl-card">
+        <p>Delete the 3-line <code>viewStore.handle&lt;ArticleListEvent.NavigateToArticle&gt;</code> registration (lines 100–102). The event is never emitted by the ViewModel; the empty lambda silently consumes it if it were ever fired. No replacement.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "viewStore.handle<ArticleListEvent.NavigateToArticle> { event ->" },
+          { "kind": "rem", "text": "    // Navigation handled by parent if needed" },
+          { "kind": "rem", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleListItemTest.kt (new) — Compose UI tests for state and parity</summary>
+      <div class="pl-card">
+        <p>7 Compose UI test cases using <code>createAndroidComposeRule&lt;ComponentActivity&gt;</code> (no Hilt required): favorite star icon, read-state, tag reflection, Grid/List title parity, snippet display, and absence of the dead infinite-transition label. Run with <code>./gradlew :app:connectedDebugAndroidTest</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "@Test fun isFavorite_true_showsFilledStar() { ... onNodeWithContentDescription(\"Remove from favorites\").assertExists() }" },
+          { "kind": "add", "text": "@Test fun tags_reflected_in_tag_section() { ... onNodeWithText(\"kotlin\").assertExists() }" },
+          { "kind": "add", "text": "@Test fun no_infinite_transition_node() { ... onAllNodes(hasTestTag(\"gradientAngle\")).assertCountEquals(0) }" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "Shadow tint change must not degrade thumbnail appearance", "body": "Replacing <code>vibrantColor.copy(alpha=0.6f)</code> with <code>Color.Black.copy(alpha=0.08f)</code> changes the shadow from a dynamic palette-derived tint to a neutral low-opacity shadow. Before palette extraction completed (most of the time), the shadow was already <code>Color.Transparent</code> — so the neutral is actually more consistent. Confirm via manual scroll." } -->
+  <!-- @include callout { "kind": "warn", "title": "tagStates remember key: verify article.tagsString ordering", "body": "<code>article.tagsString</code> is a comma-joined string. If tag ordering is not guaranteed stable, the implementer should key on <code>article.tags.sorted().joinToString()</code> instead to avoid stale map renders." } -->
+  <!-- @include callout { "kind": "info", "title": "efficiency-13 is OUT of scope for this slice", "body": "The <code>toByteArray().size</code> heuristic fix lives in <code>FirestoreBackupService.kt</code>, not the UI layer. It belongs to the <code>streaming-restore</code> or <code>firestore-io</code> slice. Do not touch it here." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (palette consumer trace + code exploration, 2026-06-14)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .files-touched { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: .85rem; }
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":7,"modules":2,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

@@ -1,0 +1,38 @@
+artifact: review-dimension
+dimension: reliability
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: caveats
+verdict_label: "Ship with Caveats"
+summary: "reconcileNeverBackedUpArticles is a safety net for offline-save stranding — good reliability improvement. SyncWorker replaces delay-poll with syncJob.join() + withTimeout(30s) — deterministic. CancellationException re-throw in restoreAllArticlesPaginated is correct. One MED: performFullSync error path catches all Exception but does not re-throw; if the outer try-catch swallows a CancellationException the coroutine may not cancel cleanly. One LOW: reconcile sweep stops silently on first failed chunk rather than skipping and continuing."
+counts:
+  blocker: 0
+  high: 0
+  med: 1
+  low: 1
+  nit: 0
+findings:
+  - id: RE-1
+    severity: med
+    dimension: reliability
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "476-479"
+    confidence: med
+    status: fixed
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "performFullSync() outer catch(e: Exception) does not check for or re-throw CancellationException. In a SupervisorJob scope this is less critical, but structured concurrency best practice is to always re-throw CancellationException before handling generic exceptions."
+    fix: "Added `if (e is CancellationException) throw e` as first statement in the outer catch block. Added import kotlinx.coroutines.CancellationException."
+  - id: RE-2
+    severity: low
+    dimension: reliability
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "538-542"
+    confidence: med
+    status: open
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    msg: "reconcileNeverBackedUpArticles() returns on first chunk failure (early exit). If a transient network error occurs mid-sweep, subsequent never-backed-up articles are not processed until the next sync cycle. Consider logging the total skipped count and continuing rather than returning."

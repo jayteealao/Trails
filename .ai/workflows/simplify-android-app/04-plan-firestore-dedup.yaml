@@ -1,0 +1,53 @@
+artifact: plan
+slice: firestore-dedup
+parent: 04-plan-firestore-dedup.md
+rev: 1
+modules: [FirestoreBackupService, FirestoreSyncManager]
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt
+    role: modified
+    loc: 644
+    delta: { add: 35, rem: 15 }
+    imports: []
+    planned_change:
+      intent: "Widen companion object visibility to internal; add withAuthenticatedUser<T>() inline helper; extract addArticleToBatch() reusable helper; add TAGS_COLLECTION constant already present but keep all existing constants unchanged"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    role: modified
+    loc: 537
+    delta: { add: 25, rem: 90 }
+    imports: [FirestoreBackupService]
+    planned_change:
+      intent: "Replace two inline auth-guard blocks with withAuthenticatedUser{}; collapse per-article tag-backup inline batch (lines 288-316) to delegate backupArticle(); extract applyRemoteArticles() helper from the two duplicated fold+chunked(50) sites; remove standalone USERS_COLLECTION and ARTICLES_COLLECTION constants that duplicate FirestoreBackupService.companion"
+
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt
+    role: modified
+    loc: 251
+    delta: { add: 15, rem: 0 }
+    imports: []
+    planned_change:
+      intent: "After each extraction step: re-run the characterization suite to confirm green; no new behaviour tests (parity is proven by keeping existing tests green)"
+
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt
+    role: modified
+    loc: 0
+    delta: { add: 5, rem: 5 }
+    imports: []
+    planned_change:
+      intent: "Update any characterization test that called restoreAllArticlesPaginated with the old Result<List<Article>> shape to supply onPage={} default (already defaulted in streaming-restore signature — compilation confirms); verify tag-backup N+1 characterization test now points to backupArticle delegate"
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt, kind: import }
+  - { from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt, kind: import }
+  - { from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt, kind: import }
+
+risks:
+  - level: high
+    title: "Over-eager dedup: tag-backup inline batch vs backupArticle differ in scope"
+    body: "The inline tag-backup in syncLocalChanges() (lines 288-316) writes ONLY tags (no images/authors/domainMetadata) and uses a raw firestore.batch() against hard-coded collection strings. backupArticle() writes all related data + markers in one batch. Delegating is correct (adds marker writes atomically) but changes the per-article Firestore write count. Verify the test-net characterization test for the N+1 tag-batch quirk still passes (it asserts batch count = N articles; after delegation it asserts backupArticle called N times — update the assertion comment per plan step)."
+  - level: med
+    title: "Constant visibility: USERS_COLLECTION duplicated in FirestoreSyncManager companion"
+    body: "FirestoreSyncManager.companion defines USERS_COLLECTION and ARTICLES_COLLECTION (lines 72-74). These duplicate FirestoreBackupService.companion. FirestoreSyncManager still references them directly in the tag-backup inline block and pushLocalArticle(). After extracting addArticleToBatch / delegating to backupArticle, those direct references go away — then the SyncManager constants can be deleted. Sequence: remove inline usage FIRST, then delete the constants."
+  - level: low
+    title: "withAuthenticatedUser{} placement: private vs internal"
+    body: "The helper is needed in both files. If it is private to FirestoreBackupService, FirestoreSyncManager cannot reuse it. Place it as a private extension on each file separately (two declarations of the same pattern) OR lift to a package-private inline fun in a new FirestoreAuthHelpers.kt. Given the slice is behaviour-preserving, prefer two private declarations (no new file) and accept the single duplication — the helper body is 3 lines and the value is at the call sites, not the helper itself."

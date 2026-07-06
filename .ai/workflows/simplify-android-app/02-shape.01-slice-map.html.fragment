@@ -1,0 +1,69 @@
+<div style="font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;max-width:920px;margin:0 auto;padding:18px 20px;color:#1f2933;background:#fbfcfe;border:1px solid #e3e8ef;border-radius:14px;line-height:1.45;">
+  <div style="font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:#7b8794;font-weight:700;">simplify-android-app · shape</div>
+  <h3 style="margin:4px 0 2px;font-size:20px;color:#111827;">Slice map — by code area, risky&nbsp;3 first</h3>
+  <div style="font-size:13px;color:#52606d;margin-bottom:16px;">37 findings → area clusters. The three behaviour-changing items land before the behaviour-preserving cleanups; the test net is stood up first.</div>
+
+  <!-- FLOW STRIP -->
+  <div style="display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+    <div style="flex:1 1 150px;background:#0f766e;color:#ecfdf5;border-radius:10px;padding:10px 12px;">
+      <div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;opacity:.8;font-weight:700;">Step 0 · net</div>
+      <div style="font-weight:700;font-size:14px;margin-top:2px;">E1 · Test infra</div>
+      <div style="font-size:11px;opacity:.92;margin-top:3px;">Revive TestDatabaseModule + DefaultArticleRepositoryTest. B1 characterization tests pin the Firestore layer.</div>
+    </div>
+    <div style="align-self:center;color:#9aa5b1;font-size:20px;">→</div>
+    <div style="flex:1 1 150px;background:#b91c1c;color:#fef2f2;border-radius:10px;padding:10px 12px;">
+      <div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;opacity:.85;font-weight:700;">Step 1 · risky&nbsp;3</div>
+      <div style="font-weight:700;font-size:14px;margin-top:2px;">A1–A4</div>
+      <div style="font-size:11px;opacity:.95;margin-top:3px;">FTS bug · OOM restore · N+1 tags · shared app-scope. Each its own AC + tests.</div>
+    </div>
+    <div style="align-self:center;color:#9aa5b1;font-size:20px;">→</div>
+    <div style="flex:1 1 150px;background:#1e40af;color:#eff6ff;border-radius:10px;padding:10px 12px;">
+      <div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;opacity:.85;font-weight:700;">Step 2 · cleanups</div>
+      <div style="font-weight:700;font-size:14px;margin-top:2px;">B1–B9</div>
+      <div style="font-size:11px;opacity:.95;margin-top:3px;">Behaviour-preserving dedup &amp; perf, by area, against the net.</div>
+    </div>
+  </div>
+
+  <!-- RISKY THREE -->
+  <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#b91c1c;font-weight:700;margin:4px 0 6px;">Behaviour-changing — land first</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-bottom:16px;">
+    <div style="border:1px solid #fecaca;background:#fff5f5;border-radius:9px;padding:9px 11px;">
+      <b style="color:#991b1b;">A1 · quality-8</b> <span style="font-size:11px;color:#9b1c1c;">FTS bug</span>
+      <div style="font-size:12px;color:#52606d;margin-top:3px;">ArticleRepository — sanitizedQuery discarded. <i>Pin corrected semantics with tests.</i></div>
+    </div>
+    <div style="border:1px solid #fecaca;background:#fff5f5;border-radius:9px;padding:9px 11px;">
+      <b style="color:#991b1b;">A2 · efficiency-5</b> <span style="font-size:11px;color:#9b1c1c;">OOM restore</span>
+      <div style="font-size:12px;color:#52606d;margin-top:3px;">Stream pages (Flow vs callback → <b>plan</b>). +A2b: rehydrate &gt;900KB text.</div>
+    </div>
+    <div style="border:1px solid #fecaca;background:#fff5f5;border-radius:9px;padding:9px 11px;">
+      <b style="color:#991b1b;">A3 · efficiency-4</b> <span style="font-size:11px;color:#9b1c1c;">N+1 tags</span>
+      <div style="font-size:12px;color:#52606d;margin-top:3px;">Batched fetch. collectionGroup ⇒ index+rules <b>deploy-gate</b> → decided in plan.</div>
+    </div>
+    <div style="border:1px solid #fecaca;background:#fff5f5;border-radius:9px;padding:9px 11px;">
+      <b style="color:#991b1b;">A4 · quality-1</b> <span style="font-size:11px;color:#9b1c1c;">app scope</span>
+      <div style="font-size:12px;color:#52606d;margin-top:3px;">Shared @ApplicationScope SupervisorJob scope; consolidate SyncManager's.</div>
+    </div>
+  </div>
+
+  <!-- AREA CLUSTERS -->
+  <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#1e40af;font-weight:700;margin:4px 0 6px;">Behaviour-preserving — by code area</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:8px;">
+    <div style="border:1px solid #dbe4f0;background:#f7faff;border-radius:9px;padding:9px 11px;"><b style="color:#1e3a8a;">B1 · Firestore dedup</b><div style="font-size:12px;color:#52606d;margin-top:3px;">reuse-1,2,3,4,7 (+quality-3). Constants · auth-guard · addArticleToBatch · applyRemoteArticles · tag-backup.</div></div>
+    <div style="border:1px solid #dbe4f0;background:#f7faff;border-radius:9px;padding:9px 11px;"><b style="color:#1e3a8a;">B2 · Firestore I/O</b><div style="font-size:12px;color:#52606d;margin-top:3px;">efficiency-1,2,3. Single user-meta read · per-chunk batch · bulk tag-delete.</div></div>
+    <div style="border:1px solid #dbe4f0;background:#f7faff;border-radius:9px;padding:9px 11px;"><b style="color:#1e3a8a;">B3 · ArticleRepository</b><div style="font-size:12px;color:#52606d;margin-top:3px;">quality-2 inject Firebase · efficiency-10 bulk add() · (A4 scope).</div></div>
+    <div style="border:1px solid #dbe4f0;background:#f7faff;border-radius:9px;padding:9px 11px;"><b style="color:#1e3a8a;">B4 · DetailViewModel</b><div style="font-size:12px;color:#52606d;margin-top:3px;">quality-4 nested combine · quality-6 key · reuse-5 @Singleton · reuse-11 enum.</div></div>
+    <div style="border:1px solid #dbe4f0;background:#f7faff;border-radius:9px;padding:9px 11px;"><b style="color:#1e3a8a;">B5 · ListViewModel</b><div style="font-size:12px;color:#52606d;margin-top:3px;">quality-5,12 dead code · <b>quality-11 broadened</b> (all DAO→repo) · reuse-6 drop use case.</div></div>
+    <div style="border:1px solid #dbe4f0;background:#f7faff;border-radius:9px;padding:9px 11px;"><b style="color:#1e3a8a;">B6 · List UI</b><div style="font-size:12px;color:#52606d;margin-top:3px;">eff-6,7,8 · quality-9 · reuse-8 callbacks · quality-13 remove handler. <i>Compose tests + scroll.</i></div></div>
+    <div style="border:1px solid #dbe4f0;background:#f7faff;border-radius:9px;padding:9px 11px;"><b style="color:#1e3a8a;">B7 · SyncWorker</b><div style="font-size:12px;color:#52606d;margin-top:3px;">eff-9 join() · eff-11 paginate · reuse-9/quality-7 dead method + getInstance().</div></div>
+    <div style="border:1px solid #f3d9a8;background:#fffaf0;border-radius:9px;padding:9px 11px;"><b style="color:#92600a;">B8 · Thumbnail</b><div style="font-size:12px;color:#52606d;margin-top:3px;">eff-12 — <b>trace palette consumers first</b>; if only the dead gradient → drop it. eff-13 length heuristic.</div></div>
+    <div style="border:1px solid #dbe4f0;background:#f7faff;border-radius:9px;padding:9px 11px;"><b style="color:#1e3a8a;">B9 · cross-cutting</b><div style="font-size:12px;color:#52606d;margin-top:3px;">reuse-10 Article.computeNormalizedUrl() · replace 6 sites.</div></div>
+  </div>
+
+  <!-- COUPLINGS -->
+  <div style="margin-top:16px;display:flex;gap:14px;flex-wrap:wrap;font-size:12px;">
+    <div style="flex:1 1 240px;background:#fffaf0;border:1px solid #f3d9a8;border-radius:9px;padding:9px 11px;"><b style="color:#92600a;">⚠ Coupling</b> — <span style="color:#52606d;">B6 removing the dead gradient may delete B8's only palette consumer → the whole allowHardware fix evaporates. Trace before touching.</span></div>
+    <div style="flex:1 1 240px;background:#fff5f5;border:1px solid #fecaca;border-radius:9px;padding:9px 11px;"><b style="color:#991b1b;">⛔ Deploy gate</b> — <span style="color:#52606d;">A3 collectionGroup needs a composite index + rules on shared <code>trails-e428e</code>. Gating decided in A3's plan; or stay client-only with chunked whereIn (≤30).</span></div>
+  </div>
+
+  <div style="margin-top:14px;font-size:11px;color:#7b8794;">Slicing axis = by code area · order = risky-3-first · deferrals allowed with reason · hard cutover · full Diátaxis docs. Final slice list is <code>/wf slice</code>'s job.</div>
+</div>

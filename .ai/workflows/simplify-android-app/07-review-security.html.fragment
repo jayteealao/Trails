@@ -1,0 +1,102 @@
+<section class="fragment-review-dimension" data-artifact="review-dimension" data-dimension="security" data-rev="1">
+<style>
+.frd-sec { font-family: system-ui, sans-serif; color: #1a1a2e; }
+.frd-sec .frd-filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.frd-sec .frd-chip { padding: 4px 10px; border-radius: 12px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; font-size: 13px; transition: background 0.15s; }
+.frd-sec .frd-chip.active { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+.frd-sec .frd-chip[data-sev="med"] { border-color: #e67e22; color: #e67e22; }
+.frd-sec .frd-chip[data-sev="med"].active { background: #e67e22; color: #fff; }
+.frd-sec .frd-chip[data-sev="low"] { border-color: #27ae60; color: #27ae60; }
+.frd-sec .frd-chip[data-sev="low"].active { background: #27ae60; color: #fff; }
+.frd-sec .frd-finding { border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+.frd-sec .frd-finding-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; background: #fafafa; }
+.frd-sec .frd-finding-header:hover { background: #f0f0f0; }
+.frd-sec .frd-sev-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+.frd-sec .frd-sev-med  { background: #fef3e2; color: #e67e22; }
+.frd-sec .frd-sev-low  { background: #e8f8f0; color: #27ae60; }
+.frd-sec .frd-finding-id { font-weight: 700; font-size: 13px; }
+.frd-sec .frd-finding-msg { font-size: 13px; color: #555; flex: 1; }
+.frd-sec .frd-finding-status { font-size: 11px; color: #888; }
+.frd-sec .frd-finding-body { padding: 12px 14px; border-top: 1px solid #e0e0e0; background: #fff; font-size: 13px; display: none; }
+.frd-sec .frd-finding-body.open { display: block; }
+.frd-sec .frd-finding-body code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+.frd-sec .frd-loc { font-size: 11px; color: #888; margin-top: 4px; }
+.frd-sec .frd-fix { margin-top: 8px; padding: 8px; background: #e8f4ff; border-radius: 4px; border-left: 3px solid #2980b9; }
+.frd-sec .frd-hidden { display: none !important; }
+</style>
+
+<div class="frd-sec">
+<div class="frd-filter-bar" role="toolbar" aria-label="Filter by severity">
+  <button class="frd-chip active" data-filter="all">All (2)</button>
+  <button class="frd-chip" data-sev="med"  data-filter="med">MED (1)</button>
+  <button class="frd-chip" data-sev="low"  data-filter="low">LOW (1)</button>
+</div>
+
+<div class="frd-findings-list">
+
+  <div class="frd-finding" data-sev="med">
+    <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
+      <span class="frd-sev-badge frd-sev-med">MED</span>
+      <span class="frd-finding-id">SE-1</span>
+      <span class="frd-finding-msg">Firestore marker fallback widens proof surface</span>
+      <span class="frd-finding-status">open</span>
+    </div>
+    <div class="frd-finding-body">
+      <div class="frd-loc">firebase/firestore.rules:58-66 &middot; confidence: high &middot; surfaced: 2026-07-06</div>
+      <p>The <code>get(/databases/$(database)/documents/articles/$(request.resource.data.itemId))</code> fallback in the articleMarkers rule means any authenticated user who knows a top-level article ID can create a marker in their own namespace. Impact is limited to their own namespace, but enables phantom markers if the top-level <code>articles</code> collection is enumerable.</p>
+      <div class="frd-fix"><strong>Fix:</strong> Add a documentation comment in <code>firestore.rules</code> explicitly stating the fallback's safety assumptions: the top-level <code>articles</code> collection must not be readable/enumerable by non-owners. Document the threat model inline so future rule authors understand the constraint.</div>
+    </div>
+  </div>
+
+  <div class="frd-finding" data-sev="low">
+    <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
+      <span class="frd-sev-badge frd-sev-low">LOW</span>
+      <span class="frd-finding-id">SE-2</span>
+      <span class="frd-finding-msg">batchRestoreArticleTags silent empty on unauthenticated</span>
+      <span class="frd-finding-status">open &mdash; deferred</span>
+    </div>
+    <div class="frd-finding-body">
+      <div class="frd-loc">FirestoreBackupService.kt:511 &middot; confidence: med &middot; surfaced: 2026-07-06</div>
+      <p><code>batchRestoreArticleTags()</code> returns <code>emptyMap()</code> when unauthenticated, with no error signal. Callers in <code>applyRemoteArticles</code> will write articles with empty tags. Unlikely in practice since the call site is upstream-guarded. Deferred pending KDoc annotation.</p>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+(function() {
+  var section = document.currentScript.closest('.fragment-review-dimension') || document.querySelector('[data-dimension="security"]');
+  var inner = section.querySelector('.frd-sec') || section;
+
+  inner.querySelectorAll('.frd-finding-header').forEach(function(h) {
+    function toggle() {
+      var body = h.nextElementSibling;
+      var open = body.classList.toggle('open');
+      h.setAttribute('aria-expanded', open);
+    }
+    h.addEventListener('click', toggle);
+    h.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  });
+
+  inner.querySelectorAll('.frd-chip').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      inner.querySelectorAll('.frd-chip').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var f = btn.dataset.filter;
+      inner.querySelectorAll('.frd-finding').forEach(function(card) {
+        if (f === 'all' || card.dataset.sev === f) {
+          card.classList.remove('frd-hidden');
+        } else {
+          card.classList.add('frd-hidden');
+        }
+      });
+    });
+  });
+
+  document.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
+    detail: { name: 'review-dimension', artifact: 'review-dimension', dimension: 'security', rev: 1, counts: { blocker: 0, high: 0, med: 1, low: 1, nit: 0 } }
+  }));
+})();
+</script>
+</section>

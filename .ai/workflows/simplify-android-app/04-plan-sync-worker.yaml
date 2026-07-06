@@ -1,0 +1,52 @@
+artifact: plan
+slice: sync-worker
+parent: 04-plan-sync-worker.md
+rev: 1
+modules:
+  - id: deterministic-wait
+    label: "Deterministic wait (efficiency-9)"
+    role: "Replace the delay(5000) poll loop with syncJob.join() wrapped in withTimeout to preserve cancellation semantics"
+  - id: paginated-article-load
+    label: "Paginated non-metrics load (efficiency-11)"
+    role: "Replace articleDao.getNonMetricsArticles() full-table load with an offset-based paginated DAO query driven by a while-loop"
+  - id: dead-code-removal
+    label: "Dead-code removal (reuse-9 / quality-7)"
+    role: "Delete syncArchivesInBackground and its private helper populateTextFromArchive; drop the raw FirebaseFirestore.getInstance() call inside that method"
+
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/sync/workers/SyncWorker.kt
+    status: modified
+    role: primary
+    delta: { add: 8, rem: 60 }
+    planned_change:
+      intent: "Replace lines 171-177 delay-poll with syncJob.join() inside withTimeout(30_000); add paginated loop to articleDao.getNonMetricsArticles (new DAO overload with limit/offset) at line 93; delete syncArchivesInBackground (lines 189-243) and populateTextFromArchive (lines 245-257), removing the raw FirebaseFirestore.getInstance() at line 203; remove the now-unused delay import if it becomes orphaned"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt
+    status: modified
+    role: supporting
+    delta: { add: 4, rem: 0 }
+    planned_change:
+      intent: "Add getNonMetricsArticles(limit: Int, offset: Int): List<Article> paginated overload alongside the existing no-arg variant (SQL: SELECT * FROM article WHERE resolved = 2 OR resolved = 1 LIMIT :limit OFFSET :offset); keep the no-arg variant because computeContentMetrics() at line 291 still uses it (that method is itself commented out, but the no-arg query stays for completeness)"
+
+  - path: android/app/src/test/java/com/jayteealao/trails/sync/workers/SyncWorkerTest.kt
+    status: new
+    role: test
+    delta: { add: 90, rem: 0 }
+    planned_change:
+      intent: "New unit-test file using work-testing (TestListenableWorkerBuilder / WorkManagerTestInitHelper) + MockK + runTest + StandardTestDispatcher; three tests: (1) doWork uses join not delay — verify delay() never called after syncJob launches (use advanceUntilIdle, assert result is success without real 5s sleep); (2) doWork paginates non-metrics articles — stub paginated DAO query returning two pages, verify both pages processed; (3) doWork returns failure on job exception — have launch block throw, assert Result.failure()"
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/sync/workers/SyncWorker.kt, to: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt, kind: calls }
+  - { from: android/app/src/test/java/com/jayteealao/trails/sync/workers/SyncWorkerTest.kt, to: android/app/src/main/java/com/jayteealao/trails/sync/workers/SyncWorker.kt, kind: tests }
+  - { from: android/app/src/test/java/com/jayteealao/trails/sync/workers/SyncWorkerTest.kt, to: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt, kind: mocks }
+
+risks:
+  - level: med
+    title: "join() must preserve timeout/cancellation the delay-poll implicitly provided"
+    body: "The old poll checked hadErrors every 5s and returned early on cancellation (isActive check in while condition). A bare syncJob.join() suspends indefinitely if the job hangs. Mitigation: wrap in withTimeout(30_000) matching the WorkManager task deadline; on TimeoutCancellationException cancel syncJob and return Result.failure() to allow WorkManager to reschedule."
+  - level: low
+    title: "Paginating non-metrics articles must not change which articles are processed"
+    body: "The existing query is WHERE resolved = 2 OR resolved = 1; pagination must use ORDER BY timeAdded DESC (or a stable column) to avoid row skips or double-processing across pages. Page size 50 matches the unresolved-articles chunk already used in the same repopulateJob for consistency."
+  - level: low
+    title: "Deleting syncArchivesInBackground removes the only in-worker raw getInstance() site in SyncWorker"
+    body: "Confirmed via grep: the getInstance() at SyncWorker.kt:203 lives entirely inside syncArchivesInBackground, which is already commented out at the call site (line 156). ArchiveService (already @Inject-ed at line 71) provides the same functionality via the live syncArchives() method. Delete both the method and its caller comment."

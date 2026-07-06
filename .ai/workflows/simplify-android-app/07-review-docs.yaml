@@ -1,0 +1,16 @@
+artifact: review-dimension
+dimension: docs
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: ship
+verdict_label: "Ship"
+summary: "Architecture docs written for all three major new system areas: app-scope-di.md, batched-tag-reads.md, firestore-sync-backup.md. KDoc added to new DAO methods and helper functions. @Deprecated annotation added to getAllArticles(). README.md updated. No doc regressions. Minor gap: SE-2 (batchRestoreArticleTags silent-empty) warrants a KDoc annotation — tracked as MA-2."
+counts:
+  blocker: 0
+  high: 0
+  med: 0
+  low: 0
+  nit: 0
+findings: []

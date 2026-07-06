@@ -1,0 +1,38 @@
+artifact: review-dimension
+dimension: performance
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: caveats
+verdict_label: "Ship with Caveats"
+summary: "Strong performance improvements: OOM eliminated by streaming paginated restore, N+1 Firestore tag writes eliminated (tags folded into same batch), palette computation eliminated (major recomposition reduction). One HIGH (CR-1 from correctness) also applies here: N serial DAO reads in syncLocalChanges chunk loop. One NIT: parsedSnippet uses HtmlCompat.fromHtml which allocates a Spanned on first render — memoized by remember so no repeat allocation, but the initial allocation for long HTML bodies may be noticeable on first load."
+counts:
+  blocker: 0
+  high: 1
+  med: 0
+  low: 0
+  nit: 1
+findings:
+  - id: PE-1
+    severity: high
+    dimension: performance
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "296-305"
+    confidence: high
+    status: fixed
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "Tag prefetch N+1 inside syncLocalChanges — same as CR-1. N serial DAO reads (one getArticleTags() per article). For first-sync with 200 articles per chunk this is 200 DB round-trips. Cross-referenced from correctness dimension."
+    fix: "Fixed via CR-1: added getTagsForArticles(itemIds) bulk DAO method; replaced N serial reads with one IN-query per chunk."
+  - id: PE-2
+    severity: nit
+    dimension: performance
+    file: "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt"
+    line: "83-90"
+    confidence: low
+    status: open
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    msg: "parsedSnippet uses HtmlCompat.fromHtml — initial allocation for long bodies may be noticeable on first render. Memoized by remember(article.snippet) so no repeat allocation. NIT: could use a background coroutine for the first parse if snippets are very long."

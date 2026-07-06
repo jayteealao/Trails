@@ -1,0 +1,16 @@
+artifact: review-dimension
+dimension: privacy
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: ship
+verdict_label: "Ship"
+summary: "No new PII surface introduced. Firestore rules remain owner-scoped (isOwner guards all user data). No logging of article content or user URLs in Timber calls. debug_logs collection is uid-scoped. Architecture docs do not contain user data. No privacy regressions."
+counts:
+  blocker: 0
+  high: 0
+  med: 0
+  low: 0
+  nit: 0
+findings: []

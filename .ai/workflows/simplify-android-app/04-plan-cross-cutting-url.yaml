@@ -1,0 +1,58 @@
+artifact: plan
+slice: cross-cutting-url
+parent: 04-plan-cross-cutting-url.md
+rev: 1
+created-at: "2026-06-14T22:46:55Z"
+updated-at: "2026-06-14T22:46:55Z"
+modules: [common, article-repository, firestore-sync, list-viewmodel]
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/common/UrlNormalizer.kt
+    status: modified
+    role: extension-host
+    delta: { add: 12, rem: 0 }
+    planned_change:
+      intent: "Add Article.computeNormalizedUrl() extension fun (below the existing normalizeUrl top-level fn) that delegates to normalizeUrl(this.url ?: this.givenUrl ?: \"\") — zero behaviour change, identical output"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt
+    status: modified
+    role: call-site (article-typed)
+    delta: { add: 1, rem: 2 }
+    planned_change:
+      intent: "Replace normalizeUrl(datum.article.url ?: datum.article.givenUrl ?: \"\") at line 172 with datum.article.computeNormalizedUrl(); remove the now-unused normalizeUrl import if no other call remains"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    status: modified
+    role: call-site (article-typed, 2 occurrences)
+    delta: { add: 2, rem: 4 }
+    planned_change:
+      intent: "Replace both normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: \"\") calls (lines 89 and 106) with remoteArticle.computeNormalizedUrl(); remove now-unused normalizeUrl import if no other call remains"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListViewModel.kt
+    status: modified
+    role: call-site (article-typed, 1 occurrence; string-typed, 3 occurrences unchanged)
+    delta: { add: 1, rem: 2 }
+    planned_change:
+      intent: "Replace only the article-typed call at line 264 (normalizeUrl(article.url ?: article.givenUrl ?: \"\")) with article.computeNormalizedUrl(); leave the three string-typed calls at lines 318/376/436 (normalizeUrl(url)/normalizeUrl(resolvedUrl)) unchanged — they operate on already-resolved URL strings, not Article objects"
+
+  - path: android/app/src/test/java/com/jayteealao/trails/common/UrlNormalizerTest.kt
+    status: modified
+    role: test-extension (pin extension output == normalizeUrl output)
+    delta: { add: 30, rem: 0 }
+    planned_change:
+      intent: "Add ArticleExtensionTest inner class (or companion @Nested class) with ≥4 parametrized cases: article with url only, article with givenUrl fallback, article with both (url wins), article with neither (empty string normalizes gracefully). Each asserts computeNormalizedUrl() == normalizeUrl(article.url ?: article.givenUrl ?: \"\") for byte-for-byte parity proof"
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt, to: android/app/src/main/java/com/jayteealao/trails/common/UrlNormalizer.kt, kind: replaces }
+  - { from: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt, to: android/app/src/main/java/com/jayteealao/trails/common/UrlNormalizer.kt, kind: replaces }
+  - { from: android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListViewModel.kt, to: android/app/src/main/java/com/jayteealao/trails/common/UrlNormalizer.kt, kind: replaces }
+
+risks:
+  - level: low
+    title: "AppDatabase.kt migration callback — intentionally excluded"
+    body: "AppDatabase.kt:222 calls normalizeUrl(raw) inside a SQL migration cursor loop where raw is already the resolved String from the cursor columns (not an Article entity). Wrapping it in computeNormalizedUrl() is not applicable; leave as-is. No behaviour difference."
+  - level: low
+    title: "SyncWorker string-typed calls — intentionally excluded"
+    body: "SyncWorker.kt:110 and ArticleListViewModel.kt:318/376/436 call normalizeUrl(resolvedUrl) on an already-resolved URL string, not an Article. These are correct as-is and are not Article-typed duplication. Forcing them through computeNormalizedUrl() would require constructing a dummy Article — wrong abstraction."
+  - level: med
+    title: "Conflict surface — 3 files overlap other slices"
+    body: "ArticleRepository.kt is also touched by article-repository (B3) and fts-search-fix (A1). FirestoreSyncManager.kt is touched by firestore-dedup (B1) and firestore-io (B2). ArticleListViewModel.kt is touched by list-viewmodel (B5). Land cross-cutting-url AFTER those slices are settled on the branch, or rebase carefully to avoid context conflicts."
