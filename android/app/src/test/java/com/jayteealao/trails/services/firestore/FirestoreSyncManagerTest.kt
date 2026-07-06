@@ -14,6 +14,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -125,6 +126,49 @@ class FirestoreSyncManagerTest {
         coVerify(exactly = 0) { articleDao.getArticleTags(any()) }
         coVerify(exactly = 0) { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) }
         assertTrue(manager.syncStatus.value is SyncStatus.Success)
+    }
+
+    /**
+     * CR-1 companion: the bulk [ArticleDao.getTagsForArticles] result is grouped by
+     * `itemId` and threaded into [backupArticlesPaginated] as `tagsByArticleId`.
+     *
+     * The sibling test above stubs the same path but asserts only the negative (the
+     * per-article [getArticleTags] loop is gone) and passes `any()` for the tags map.
+     * This test pins the positive contract of the CR-1 fix: exactly one bulk read per
+     * chunk with the chunk's ids, and the captured map is correctly grouped —
+     * a1 → [t1, t2], a2 → [t3] — so no article's tags are dropped or mis-attributed.
+     */
+    @Test
+    fun `syncLocalChanges bulk-fetches tags once per chunk and passes them grouped by itemId`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 0L))
+        coEvery { articleDao.countAllArticles() } returns 2
+        coEvery { articleDao.getAllArticlesPaginated(50, 0) } returns
+            listOf(Article(itemId = "a1"), Article(itemId = "a2"))
+        coEvery { articleDao.getTagsForArticles(listOf("a1", "a2")) } returns listOf(
+            ArticleTags(itemId = "a1", tag = "t1", sortId = null, type = null),
+            ArticleTags(itemId = "a1", tag = "t2", sortId = null, type = null),
+            ArticleTags(itemId = "a2", tag = "t3", sortId = null, type = null),
+        )
+        val tagsSlot = slot<Map<String, List<ArticleTags>>>()
+        coEvery {
+            firestoreBackupService.backupArticlesPaginated(any(), capture(tagsSlot), any())
+        } returns Result.success(2)
+        coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
+        coEvery { articleDao.getArticlesNeverBackedUp(any(), any()) } returns emptyList()
+
+        manager.syncLocalChanges()
+
+        // Exactly one bulk read for the whole chunk (positive assertion of the N+1 fix).
+        coVerify(exactly = 1) { articleDao.getTagsForArticles(listOf("a1", "a2")) }
+
+        // The captured map is grouped by itemId with every tag preserved under its owner.
+        val captured = tagsSlot.captured
+        assertEquals(setOf("a1", "a2"), captured.keys)
+        assertEquals(listOf("t1", "t2"), captured.getValue("a1").map { it.tag })
+        assertEquals(listOf("t3"), captured.getValue("a2").map { it.tag })
     }
 
     /**
