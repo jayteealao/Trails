@@ -90,7 +90,7 @@ class SyncWorkerTest {
     @Test
     fun `doWork completes and returns success when no articles need processing`() = runTest(testDispatcher) {
         // Stub paginated DAO to return empty immediately — repopulateJob finishes at once.
-        coEvery { articleDao.getNonMetricsArticles(any(), any()) } returns emptyList()
+        coEvery { articleDao.getNonMetricsArticles(any(), any<String>()) } returns emptyList()
 
         val result = worker.doWork()
 
@@ -103,24 +103,32 @@ class SyncWorkerTest {
      * the second call returns empty, doWork() must call the paginated overload
      * exactly twice (first page → second empty-sentinel), proving the while-loop
      * terminates after one full page rather than re-loading all articles at once.
+     *
+     * Pagination now uses keyset on itemId (ORDER BY itemId ASC, afterId cursor)
+     * so the second call passes the last itemId of the first page as the cursor.
      */
     @Test
     fun `doWork paginates nonMetricsArticles across two pages`() = runTest(testDispatcher) {
-        val page1 = listOf(
-            mockk<Article>(relaxed = true) { coEvery { title } returns "Article 1" },
-            mockk<Article>(relaxed = true) { coEvery { title } returns "Article 2" },
-        )
+        val article1 = mockk<Article>(relaxed = true) {
+            coEvery { title } returns "Article 1"
+            coEvery { itemId } returns "id1"
+        }
+        val article2 = mockk<Article>(relaxed = true) {
+            coEvery { title } returns "Article 2"
+            coEvery { itemId } returns "id2"
+        }
+        val page1 = listOf(article1, article2)
 
-        // First call (offset=0) returns one page; second call (offset=50) returns empty.
-        coEvery { articleDao.getNonMetricsArticles(50, 0) } returns page1
-        coEvery { articleDao.getNonMetricsArticles(50, 50) } returns emptyList()
+        // First call (afterId="") returns one page; second call (afterId="id2") returns empty.
+        coEvery { articleDao.getNonMetricsArticles(50, "") } returns page1
+        coEvery { articleDao.getNonMetricsArticles(50, "id2") } returns emptyList()
 
         val result = worker.doWork()
         advanceUntilIdle()
 
         // Paginated overload was called exactly twice (page + empty terminator).
-        coVerify(exactly = 1) { articleDao.getNonMetricsArticles(50, 0) }
-        coVerify(exactly = 1) { articleDao.getNonMetricsArticles(50, 50) }
+        coVerify(exactly = 1) { articleDao.getNonMetricsArticles(50, "") }
+        coVerify(exactly = 1) { articleDao.getNonMetricsArticles(50, "id2") }
         // No-arg overload is never called (pagination fully replaced it).
         coVerify(exactly = 0) { articleDao.getNonMetricsArticles() }
 

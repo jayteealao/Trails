@@ -518,11 +518,20 @@ class FirestoreSyncManager @Inject constructor(
     // internal for testability
     internal suspend fun reconcileNeverBackedUpArticles() {
         if (auth.currentUser == null) return
-        var offset = 0
         var sweptCount = 0
+        var prevChunkSize = -1
         while (true) {
-            val chunk = articleDao.getArticlesNeverBackedUp(RECONCILE_CHUNK_SIZE, offset)
+            // Always query at OFFSET 0: stamping backed_up_at removes rows from the
+            // WHERE backed_up_at IS NULL predicate, so the next "first page" is
+            // always the next unswept batch. Advancing OFFSET would skip rows.
+            val chunk = articleDao.getArticlesNeverBackedUp(RECONCILE_CHUNK_SIZE, 0)
             if (chunk.isEmpty()) break
+            // Stall guard: if the chunk size is the same as the previous iteration
+            // and no rows were stamped last round, we are not making progress.
+            if (chunk.size == prevChunkSize) {
+                Timber.w("reconcile: no progress detected (chunk size $prevChunkSize unchanged), stopping sweep")
+                break
+            }
             val result = firestoreBackupService.backupArticlesPaginated(chunk)
             result.fold(
                 onSuccess = { count ->
@@ -534,15 +543,15 @@ class FirestoreSyncManager @Inject constructor(
                             Timber.w(e, "reconcile: failed to stamp backed_up_at for ${article.itemId}")
                         }
                     }
+                    prevChunkSize = chunk.size
                     sweptCount += count
-                    Timber.d("reconcile: swept $count articles at offset $offset (total so far: $sweptCount)")
+                    Timber.d("reconcile: swept $count articles (total so far: $sweptCount)")
                 },
                 onFailure = { e ->
-                    Timber.w(e, "reconcile: backup failed for chunk at offset $offset, stopping sweep")
+                    Timber.w(e, "reconcile: backup failed for chunk, stopping sweep")
                     return
                 }
             )
-            offset += chunk.size
         }
         if (sweptCount > 0) {
             Timber.d("reconcile: finished, swept $sweptCount never-backed-up articles")
