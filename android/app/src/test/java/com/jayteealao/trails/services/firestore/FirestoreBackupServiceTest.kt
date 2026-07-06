@@ -274,9 +274,10 @@ class FirestoreBackupServiceTest {
     // ---------------------------------------------------------------------------
 
     /**
-     * `backupArticlesPaginated` chunks writes at WRITE_BATCH_LIMIT (20). 45 articles
-     * ⇒ ceil(45/20) = 3 batches, each committed once. `firestore-io`/`firestore-dedup`
-     * must preserve the per-chunk batch boundary (the rules document-access budget).
+     * `backupArticlesPaginated` now chunks by queued write count (threshold 500), not
+     * by article count.  45 plain articles with no tags and a single itemId-keyed
+     * marker each contribute 2 writes (article doc + marker), totalling 90 writes —
+     * well under the 500-write threshold — so they all land in a single batch.
      */
     @Test
     fun `backupArticlesPaginated chunks at WRITE_BATCH_LIMIT of 20`() = runTest {
@@ -287,8 +288,59 @@ class FirestoreBackupServiceTest {
 
         assertTrue(result.isSuccess)
         assertEquals(45, result.getOrNull())
+        // 45 × 2 writes = 90 total — fits in one batch under the 500-write threshold.
+        verify(exactly = 1) { firestore.batch() }
+        verify(exactly = 1) { batch.commit() }
+    }
+
+    /**
+     * `backupArticlesPaginated` splits into multiple batches when the per-article
+     * write count would push the running total past the 500-write threshold.
+     *
+     * Setup: 3 articles each carrying 250 tags → 252 writes per article
+     * (1 article doc + 250 tag docs + 1 marker).
+     * - Batch 1: article 1 (252). Before article 2: 252+252=504 > 500 → flush.
+     * - Batch 2: article 2 (252). Before article 3: 252+252=504 > 500 → flush.
+     * - Batch 3: article 3 (252). End of list → flush.
+     * Result: 3 batches committed.
+     */
+    @Test
+    fun `backupArticlesPaginated flushes when next article would exceed write-count threshold`() = runTest {
+        every { markersCollection.document(any()) } returns mockk(relaxed = true)
+
+        // Wire tag doc refs for each article.
+        val tagsCollection = mockk<CollectionReference>()
+        every { articleDoc.collection("tags") } returns tagsCollection
+        every { tagsCollection.document(any()) } returns mockk(relaxed = true)
+
+        val tagCount = 250
+        val tagsByArticleId = (1..3).associate { i ->
+            "a$i" to (1..tagCount).map { t ->
+                ArticleTags(itemId = "a$i", tag = "tag$t", sortId = null, type = null)
+            }
+        }
+        val articles = (1..3).map { Article(itemId = "a$it") }
+
+        // Use a fresh mock per batch.commit() call so we can count commits.
+        val batch1 = mockk<WriteBatch>(relaxed = true)
+        val batch2 = mockk<WriteBatch>(relaxed = true)
+        val batch3 = mockk<WriteBatch>(relaxed = true)
+        every { firestore.batch() } returnsMany listOf(batch1, batch2, batch3)
+        every { batch1.commit() } returns Tasks.forResult(null)
+        every { batch2.commit() } returns Tasks.forResult(null)
+        every { batch3.commit() } returns Tasks.forResult(null)
+
+        val result = service.backupArticlesPaginated(
+            articles = articles,
+            tagsByArticleId = tagsByArticleId
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(3, result.getOrNull())
         verify(exactly = 3) { firestore.batch() }
-        verify(exactly = 3) { batch.commit() }
+        verify(exactly = 1) { batch1.commit() }
+        verify(exactly = 1) { batch2.commit() }
+        verify(exactly = 1) { batch3.commit() }
     }
 
     /**
