@@ -185,8 +185,8 @@ class ArticleRepositoryImpl @Inject constructor(
      *     data to be saved
      */
     override suspend fun add(articleData: List<ArticleData>) {
-        // Pass 1: transform all articles, then bulk-upsert in a single @Upsert call (auto-transactional)
-        // Clear deleted_at and archived_at when re-adding articles (undeletes/unarchives)
+        // Transform articles (normalized URL, undelete, bump timeUpdated) before the
+        // transactional insert so the DAO method stays free of business logic.
         val articlesToAdd = articleData.map { datum ->
             datum.article.copy(
                 normalizedUrl = datum.article.computeNormalizedUrl(),
@@ -195,16 +195,10 @@ class ArticleRepositoryImpl @Inject constructor(
                 timeUpdated = System.currentTimeMillis() // Update timestamp for sync
             )
         }
-        articleDao.upsertArticles(articlesToAdd)
 
-        // Pass 2: per-datum associated data (already List-based, no N+1 concern)
-        articleData.forEach { datum ->
-            articleDao.insertArticleImages(datum.images)
-            datum.videos.let { articleDao.insertArticleVideos(it) }
-            articleDao.insertArticleTags(datum.tags)
-            articleDao.insertArticleAuthors(datum.authors)
-            datum.domainMetadata?.let { articleDao.insertDomainMetadata(it) }
-        }
+        // Single @Transaction DAO call: articles + all associated data are written
+        // atomically, so a crash mid-insert cannot leave articles without their tags/images.
+        articleDao.upsertArticlesWithAssociatedData(articlesToAdd, articleData)
 
         // Trigger immediate sync for new articles
         coroutineScope.launch {

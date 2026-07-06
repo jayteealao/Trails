@@ -141,11 +141,14 @@ class DefaultArticleRepositoryTest {
     }
 
     /**
-     * B3 — add() must call [ArticleDao.upsertArticles] exactly once (bulk) and must
-     * never call [ArticleDao.upsertArticle] (per-item).
+     * add() must delegate to the single transactional DAO method
+     * [ArticleDao.upsertArticlesWithAssociatedData] exactly once, guaranteeing that
+     * articles and their associated data are written atomically.  It must never call
+     * the non-transactional [ArticleDao.upsertArticles] or per-item
+     * [ArticleDao.upsertArticle] directly.
      */
     @Test
-    fun `add performs single bulk article upsert`() = runTest(testDispatcher) {
+    fun `add delegates to transactional upsertArticlesWithAssociatedData`() = runTest(testDispatcher) {
         val articles = (1..3).map { i ->
             ArticleData(
                 article = Article(itemId = "id$i", articleId = "aid$i"),
@@ -156,13 +159,14 @@ class DefaultArticleRepositoryTest {
                 domainMetadata = null,
             )
         }
-        coEvery { articleDao.upsertArticles(any()) } returns Unit
+        coEvery { articleDao.upsertArticlesWithAssociatedData(any(), any()) } returns Unit
         coEvery { firestoreSyncManager.syncLocalChanges() } returns Unit
 
         repository.add(articles)
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { articleDao.upsertArticles(any()) }
+        coVerify(exactly = 1) { articleDao.upsertArticlesWithAssociatedData(any(), any()) }
+        coVerify(exactly = 0) { articleDao.upsertArticles(any()) }
         coVerify(exactly = 0) { articleDao.upsertArticle(any()) }
     }
 }
