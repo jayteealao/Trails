@@ -41,16 +41,13 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleContent(
     article: ArticleItem,
     viewStore: ViewStore<S, E, VM>,
     parsedSnippet: AnnotatedString?,
-    tagStates: MutableMap<String, Boolean>,
+    tagStates: Map<String, Boolean>,
     onClick: () -> Unit,
     onFavoriteToggleLocal: (Boolean) -> Unit,
     isFavorite: Boolean,
     isRead: Boolean,
     filledStar: Painter,
     outlinedStar: Painter,
-    dominantColor: Color,
-    vibrantColor: Color,
-    onPaletteExtracted: (Color, Color) -> Unit,
     showAddTagDialog: () -> Unit,
     modifier: Modifier = Modifier,
     onSetFavorite: (String, Boolean) -> Unit = { _, _ -> }
@@ -84,9 +81,6 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleContent(
         ) {
             ArticleThumbnail(
                 article = article,
-                dominantColor = dominantColor,
-                vibrantColor = vibrantColor,
-                onPaletteExtracted = onPaletteExtracted,
                 modifier = Modifier.align(Alignment.CenterVertically)
                     .graphicsLayer { alpha = thumbnailAlpha }
             )

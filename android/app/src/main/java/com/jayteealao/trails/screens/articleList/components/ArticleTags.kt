@@ -23,7 +23,7 @@ import com.jayteealao.trails.R
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TagSection(
-    tagStates: MutableMap<String, Boolean>,
+    tagStates: Map<String, Boolean>,
     onTagToggle: (String, Boolean) -> Unit,
     onAddTag: () -> Unit,
     modifier: Modifier = Modifier

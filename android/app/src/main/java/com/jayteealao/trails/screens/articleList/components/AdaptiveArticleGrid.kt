@@ -74,6 +74,37 @@ fun AdaptiveArticleGrid(
 }
 
 /**
+ * Wires the 7 standard article actions to viewStore and delegates to ArticleListItem.
+ * Eliminates the duplicate action-lambda block between ArticleGrid and ArticleList.
+ */
+@Composable
+private fun ArticleListItemWithActions(
+    article: ArticleItem,
+    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
+    onSelectArticle: (ArticleItem) -> Unit,
+    onOpenTagManagement: (ArticleItem) -> Unit,
+    useCardLayout: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    ArticleListItem<ArticleListState, ArticleListEvent, ArticleListViewModel>(
+        article = article,
+        viewStore = viewStore,
+        modifier = modifier,
+        onClick = { onSelectArticle(article) },
+        onOpenTagManagement = { onOpenTagManagement(article) },
+        useCardLayout = useCardLayout,
+        tags = viewStore.state.tags,
+        onSetFavorite = { itemId, isFavorite -> viewStore.action { setFavorite(itemId, isFavorite) } },
+        onSetReadStatus = { itemId, isRead -> viewStore.action { setReadStatus(itemId, isRead) } },
+        onArchiveArticle = { itemId -> viewStore.action { archiveArticle(itemId) } },
+        onDeleteArticle = { itemId -> viewStore.action { deleteArticle(itemId) } },
+        onRegenerateDetails = { itemId -> viewStore.action { regenerateArticleDetails(itemId) } },
+        onCopyLink = { url, label -> viewStore.action { copyLink(url, label) } },
+        onShareArticle = { title, url -> viewStore.action { shareArticle(title, url) } }
+    )
+}
+
+/**
  * Grid layout for articles using LazyVerticalGrid with adaptive column sizing.
  * Each article maintains a minimum width of 300dp for optimal readability.
  */
@@ -108,37 +139,13 @@ private fun ArticleGrid(
             ) { index ->
                 val article = lazyItems[index]
                 if (article != null) {
-                    ArticleListItem<ArticleListState, ArticleListEvent, ArticleListViewModel>(
+                    ArticleListItemWithActions(
                         article = article,
                         viewStore = viewStore,
-                        modifier = Modifier
-                            .animateItem()
-                            .fillMaxWidth(),
-                        onClick = { onSelectArticle(article) },
-                        onOpenTagManagement = { onOpenTagManagement(article) },
+                        onSelectArticle = onSelectArticle,
+                        onOpenTagManagement = onOpenTagManagement,
                         useCardLayout = useCardLayout,
-                        tags = viewStore.state.tags,
-                        onSetFavorite = { itemId, isFavorite ->
-                            viewStore.action { setFavorite(itemId, isFavorite) }
-                        },
-                        onSetReadStatus = { itemId, isRead ->
-                            viewStore.action { setReadStatus(itemId, isRead) }
-                        },
-                        onArchiveArticle = { itemId ->
-                            viewStore.action { archiveArticle(itemId) }
-                        },
-                        onDeleteArticle = { itemId ->
-                            viewStore.action { deleteArticle(itemId) }
-                        },
-                        onRegenerateDetails = { itemId ->
-                            viewStore.action { regenerateArticleDetails(itemId) }
-                        },
-                        onCopyLink = { url, label ->
-                            viewStore.action { copyLink(url, label) }
-                        },
-                        onShareArticle = { title, url ->
-                            viewStore.action { shareArticle(title, url) }
-                        }
+                        modifier = Modifier.animateItem().fillMaxWidth()
                     )
                 }
             }
@@ -178,28 +185,20 @@ private fun ArticleList(
         ) {
             items(
                 count = lazyItems.itemCount,
-                key = lazyItems.itemKey { it-> it.itemId },
+                key = lazyItems.itemKey { it -> it.itemId },
                 contentType = lazyItems.itemContentType { "article" }
             ) { index ->
                 val article = lazyItems[index]
                 if (article != null) {
-                    ArticleListItem<ArticleListState, ArticleListEvent, ArticleListViewModel>(
+                    ArticleListItemWithActions(
                         article = article,
                         viewStore = viewStore,
+                        onSelectArticle = onSelectArticle,
+                        onOpenTagManagement = onOpenTagManagement,
+                        useCardLayout = useCardLayout,
                         modifier = Modifier.animateItem().then(
                             if (index != 0) Modifier.padding(top = if (useCardLayout) 12.dp else 8.dp) else Modifier
-                        ),
-                        onClick = { onSelectArticle(article) },
-                        onOpenTagManagement = { onOpenTagManagement(article) },
-                        useCardLayout = useCardLayout,
-                        tags = viewStore.state.tags,
-                        onSetFavorite = { itemId, isFavorite -> viewStore.action { setFavorite(itemId, isFavorite) } },
-                        onSetReadStatus = { itemId, isRead -> viewStore.action { setReadStatus(itemId, isRead) } },
-                        onArchiveArticle = { itemId -> viewStore.action { archiveArticle(itemId) } },
-                        onDeleteArticle = { itemId -> viewStore.action { deleteArticle(itemId) } },
-                        onRegenerateDetails = { itemId -> viewStore.action { regenerateArticleDetails(itemId) } },
-                        onCopyLink = { url, label -> viewStore.action { copyLink(url, label) } },
-                        onShareArticle = { title, url -> viewStore.action { shareArticle(title, url) } }
+                        )
                     )
                 }
             }

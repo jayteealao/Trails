@@ -1,11 +1,5 @@
 package com.jayteealao.trails.screens.articleList.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,15 +14,12 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -66,12 +57,6 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
     onCopyLink: (String, String) -> Unit = { _, _ -> },
     onShareArticle: (String, String) -> Unit = { _, _ -> },
 ) {
-    // State for palette colors
-    var dominantColor by remember { mutableStateOf(Color.Transparent) }
-    var vibrantColor by remember { mutableStateOf(Color.Transparent) }
-
-//    val colors = extractPaletteFromBitmap()
-
     var isFavorite by remember(article.itemId) { mutableStateOf(article.favorite) }
     var animationTrigger by remember(article.itemId) { mutableStateOf(0) }
 
@@ -89,58 +74,23 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
     val markReadIcon = painterResource(id = R.drawable.check_24px)
     val markUnreadIcon = painterResource(id = R.drawable.close_24px)
 
-    val tagStates = remember(article.itemId) { mutableStateMapOf<String, Boolean>() }
-    LaunchedEffect(article.tagsString) {
-        // Mark all known tags as absent until confirmed by the latest data snapshot
-        tagStates.keys.toList().forEach { key ->
-            tagStates[key] = false
-        }
-        article.tags.forEach { tag ->
-            tagStates[tag] = true
-        }
+    val tagStates: Map<String, Boolean> = remember(article.tagsString, tags) {
+        val all = mutableMapOf<String, Boolean>()
+        tags.forEach { all[it] = false }
+        article.tags.forEach { all[it] = true }
+        all
     }
-    LaunchedEffect(article.itemId, tags) {
-        tags.forEach { tag ->
-            if (!tagStates.containsKey(tag)) {
-                tagStates[tag] = false
-            }
-        }
-    }
-
-    // Animated gradient angle
-    val infiniteTransition = rememberInfiniteTransition(label = "gradientTransition")
-    val angle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "gradientAngle"
-    )
-
-    // Callback function to update palette colors
-    val onPaletteExtracted: (Color, Color) -> Unit = { dominant, vibrant ->
-        dominantColor = dominant
-        vibrantColor = vibrant
-    }
-
-    DisposableEffect(article.itemId) {
-        onDispose {
-            dominantColor = Color.Transparent
-            vibrantColor = Color.Transparent
-        }
-    }
-
 
     val colorScheme = MaterialTheme.colorScheme
-    val parsedSnippet: AnnotatedString? = if (!article.snippet.isNullOrBlank()) {
-        HtmlCompat.fromHtml(
-            article.snippet,
-            HtmlCompat.FROM_HTML_MODE_LEGACY
-        ).toSpannable().toAnnotatedString(colorScheme.onSurface)
-    } else {
-        null
+    val parsedSnippet: AnnotatedString? = remember(article.snippet) {
+        if (!article.snippet.isNullOrBlank()) {
+            HtmlCompat.fromHtml(
+                article.snippet,
+                HtmlCompat.FROM_HTML_MODE_LEGACY
+            ).toSpannable().toAnnotatedString(colorScheme.onSurface)
+        } else {
+            null
+        }
     }
     val swipeState = rememberSwipeToDismissBoxState()
 
@@ -212,9 +162,6 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
                 isRead = isRead,
                 filledStar = filledStar,
                 outlinedStar = outlinedStar,
-                dominantColor = dominantColor,
-                vibrantColor = vibrantColor,
-                onPaletteExtracted = onPaletteExtracted,
                 showAddTagDialog = onOpenTagManagement,
                 onSetFavorite = onSetFavorite
             )
@@ -231,9 +178,6 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
                 isRead = isRead,
                 filledStar = filledStar,
                 outlinedStar = outlinedStar,
-                dominantColor = dominantColor,
-                vibrantColor = vibrantColor,
-                onPaletteExtracted = onPaletteExtracted,
                 showAddTagDialog = onOpenTagManagement,
                 modifier = Modifier
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp)
@@ -250,16 +194,13 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleItemCardStyle(
     article: ArticleItem,
     viewStore: ViewStore<S, E, VM>,
     parsedSnippet: AnnotatedString?,
-    tagStates: MutableMap<String, Boolean>,
+    tagStates: Map<String, Boolean>,
     onClick: () -> Unit,
     onFavoriteToggleLocal: (Boolean) -> Unit,
     isFavorite: Boolean,
     isRead: Boolean,
     filledStar: Painter,
     outlinedStar: Painter,
-    dominantColor: Color,
-    vibrantColor: Color,
-    onPaletteExtracted: (Color, Color) -> Unit,
     showAddTagDialog: () -> Unit,
     onSetFavorite: (String, Boolean) -> Unit = { _, _ -> }
 ) {
@@ -287,9 +228,6 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleItemCardStyle(
             isRead = isRead,
             filledStar = filledStar,
             outlinedStar = outlinedStar,
-            dominantColor = dominantColor,
-            vibrantColor = vibrantColor,
-            onPaletteExtracted = onPaletteExtracted,
             showAddTagDialog = showAddTagDialog,
             modifier = Modifier
                 .padding(12.dp),
