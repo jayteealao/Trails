@@ -5,12 +5,12 @@ slug: simplify-android-app
 status: complete
 stage-number: 5
 created-at: "2026-06-18T22:04:03Z"
-updated-at: "2026-07-06T01:20:23Z"
-slices-implemented: 14
-slices-total: 14
-metric-total-files-changed: 53
-metric-total-lines-added: 2280
-metric-total-lines-removed: 1062
+updated-at: "2026-07-06T01:33:19Z"
+slices-implemented: 15
+slices-total: 15
+metric-total-files-changed: 57
+metric-total-lines-added: 2505
+metric-total-lines-removed: 1063
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -55,8 +55,11 @@ slices:
   - slice: cross-cutting-url
     file: 05-implement-cross-cutting-url.md
     status: complete
+  - slice: architecture-docs
+    file: 05-implement-architecture-docs.md
+    status: complete
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app cross-cutting-url"
+next-invocation: "/wf verify simplify-android-app architecture-docs"
 ---
 
 # Implement Index
@@ -79,6 +82,7 @@ foundational regression-net gate — every dependent slice waits on it being gre
 | list-rendering | complete | [05-implement-list-rendering.md](05-implement-list-rendering.md) |
 | sync-worker | complete | [05-implement-sync-worker.md](05-implement-sync-worker.md) |
 | cross-cutting-url | complete | [05-implement-cross-cutting-url.md](05-implement-cross-cutting-url.md) |
+| architecture-docs | complete | [05-implement-architecture-docs.md](05-implement-architecture-docs.md) |
 
 ## Cross-Slice Integration Notes
 - **`test-net` is a prerequisite, not a peer.** Its characterization tests pin the
@@ -103,3 +107,7 @@ foundational regression-net gate — every dependent slice waits on it being gre
 ## Recommended Next Stage
 - **Option A (default):** `/wf verify simplify-android-app cross-cutting-url` — 4 new unit tests cover the extension delegation contract; verify runs `testDebugUnitTest --tests "com.jayteealao.trails.common.*"` (all 20 pass) and full-suite green (147/0 failures).
 - **Option B:** `/wf review simplify-android-app cross-cutting-url` — purely structural reuse change; tests already verified inline; skip to review if no additional verification needed.
+
+### architecture-docs slice
+- **Option A (default):** `/wf verify simplify-android-app architecture-docs` — verification is manual (leak check + accuracy review against shipped source). Both passed during implementation.
+- **Option B:** `/wf review simplify-android-app architecture-docs` — docs-only slice; no automated tests; proceed directly to review.

@@ -7,8 +7,8 @@ status: active
 current-stage: verify
 stage-number: 6
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-06T01:20:23Z"
-selected-slice: "cross-cutting-url"
+updated-at: "2026-07-06T01:33:19Z"
+selected-slice: "architecture-docs"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
 base-branch: "main"
@@ -59,7 +59,7 @@ runtime-evidence-deferrals:
     deferred-at: "2026-07-06T01:12:18Z"
     cleared-by: null
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app cross-cutting-url"
+next-invocation: "/wf verify simplify-android-app architecture-docs"
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -125,6 +125,8 @@ workflow-files:
   - 05-implement-sync-worker.md
   - 06-verify-sync-worker.md
   - 05-implement-cross-cutting-url.md
+  - 06-verify-cross-cutting-url.md
+  - 05-implement-architecture-docs.md
 progress:
   intake: complete
   shape: complete

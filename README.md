@@ -4,7 +4,7 @@ Two stacks that together form the Trails read-it-later app:
 
 | Directory | Stack | Purpose |
 | --- | --- | --- |
-| [`android/`](./android/) | Kotlin + Jetpack Compose, Gradle 8.13 | Android client — saves URLs from the share sheet, stores articles in Room, syncs via Firestore. |
+| [`android/`](./android/) | Kotlin + Jetpack Compose, Gradle 8.13 | Android client — saves URLs from the share sheet, stores articles in Room, syncs via Firestore. **Search** returns sanitized FTS results (special characters and operators are handled correctly before reaching the database). **Restore** streams articles page-by-page with constant memory — large libraries no longer risk OOM. |
 | [`warg/`](./warg/) | TypeScript + Cloudflare Workers, pnpm workspace | URL-to-archive pipeline — multi-renderer extraction (SingleFile, Readability, Monolith, Puppeteer), persists artifacts to GCS and metadata to Firestore. |
 | [`firebase/`](./firebase/) | Firebase config | `firestore.rules`, `storage.rules`, project alias. Cross-stack source of truth. |
 | [`shared-types/`](./shared-types/) | Markdown + Node | Canonical schemas + CI drift check between client and backend. |
