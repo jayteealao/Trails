@@ -25,8 +25,8 @@ import androidx.work.WorkManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
-import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.common.di.ApplicationScope
+import com.jayteealao.trails.data.local.database.computeNormalizedUrl
 import com.jayteealao.trails.data.archive.WargMetadata
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
@@ -189,7 +189,7 @@ class ArticleRepositoryImpl @Inject constructor(
         // Clear deleted_at and archived_at when re-adding articles (undeletes/unarchives)
         val articlesToAdd = articleData.map { datum ->
             datum.article.copy(
-                normalizedUrl = normalizeUrl(datum.article.url ?: datum.article.givenUrl ?: ""),
+                normalizedUrl = datum.article.computeNormalizedUrl(),
                 deletedAt = null,
                 archivedAt = null,
                 timeUpdated = System.currentTimeMillis() // Update timestamp for sync
