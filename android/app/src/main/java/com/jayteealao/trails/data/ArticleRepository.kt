@@ -110,6 +110,13 @@ interface ArticleRepository: Syncable {
      * background sync without crashing.
      */
     suspend fun backupArticleNow(itemId: String): Result<Unit>
+
+    suspend fun saveNewArticle(article: Article): String
+    suspend fun upsertArticle(article: Article)
+    suspend fun updateUnfurledDetails(
+        itemId: String, title: String, url: String,
+        image: String?, hasImage: Boolean, excerpt: String, normalizedUrl: String
+    )
 }
 
 interface Syncable {
@@ -456,5 +463,16 @@ class ArticleRepositoryImpl @Inject constructor(
         }
         return result
     }
+
+    override suspend fun saveNewArticle(article: Article): String =
+        articleDao.upsertNewArticle(article)
+
+    override suspend fun upsertArticle(article: Article) =
+        articleDao.upsertArticle(article)
+
+    override suspend fun updateUnfurledDetails(
+        itemId: String, title: String, url: String,
+        image: String?, hasImage: Boolean, excerpt: String, normalizedUrl: String
+    ) = articleDao.updateUnfurledDetails(itemId, title, url, image, hasImage, excerpt, normalizedUrl)
 }
 

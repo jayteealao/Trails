@@ -7,8 +7,8 @@ status: active
 current-stage: verify
 stage-number: 6
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-06T00:01:06Z"
-selected-slice: "detail-viewmodel"
+updated-at: "2026-07-06T00:17:58Z"
+selected-slice: "list-viewmodel"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
 base-branch: "main"
@@ -51,7 +51,7 @@ runtime-evidence-deferrals:
     deferred-at: "2026-07-05T22:23:40Z"
     cleared-by: null
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app detail-viewmodel"
+next-invocation: "/wf verify simplify-android-app list-viewmodel"
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -109,6 +109,8 @@ workflow-files:
   - 05-implement-article-repository.md
   - 06-verify-article-repository.md
   - 05-implement-detail-viewmodel.md
+  - 06-verify-detail-viewmodel.md
+  - 05-implement-list-viewmodel.md
 progress:
   intake: complete
   shape: complete

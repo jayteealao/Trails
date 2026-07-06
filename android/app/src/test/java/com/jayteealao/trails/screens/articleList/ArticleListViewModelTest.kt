@@ -5,9 +5,7 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.Article
-import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.usecases.GetArticleWithTextUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -39,8 +37,6 @@ import org.junit.Test
 class ArticleListViewModelTest {
 
     @MockK private lateinit var articleRepository: ArticleRepository
-    @MockK private lateinit var getArticleWithTextUseCase: GetArticleWithTextUseCase
-    @MockK private lateinit var articleDao: ArticleDao
     // TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
     // private val contentMetricsCalculator = ContentMetricsCalculator()
 
@@ -68,8 +64,15 @@ class ArticleListViewModelTest {
         coEvery { articleRepository.removeTag(any(), any()) } returns Unit
         coEvery { articleRepository.updateExcerpt(any(), any()) } returns Unit
         every { articleRepository.getLastUpdatedArticleTime() } returns 0L
-        every { getArticleWithTextUseCase.invoke() } answers { TestPagingSource() }
         coEvery { articleRepository.backupArticleNow(any()) } returns Result.success(Unit)
+        coEvery { articleRepository.saveNewArticle(any()) } answers {
+            firstArg<Article>().itemId
+        }
+        coEvery { articleRepository.getArticleById(any()) } returns Article(
+            itemId = "test", url = "https://example.com/article", givenUrl = "https://example.com/article"
+        )
+        coEvery { articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) } returns Unit
+        coEvery { articleRepository.upsertArticle(any()) } returns Unit
     }
 
     @After
@@ -94,10 +97,10 @@ class ArticleListViewModelTest {
         every { Unfurler() } returns unfurler
 
         val upsertSlot = slot<Article>()
-        coEvery { articleDao.upsertNewArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
+        coEvery { articleRepository.saveNewArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
 
         // Mock getArticleById for undo-race guard (return article with no deletedAt)
-        coEvery { articleDao.getArticleById(any()) } returns Article(
+        coEvery { articleRepository.getArticleById(any()) } returns Article(
             itemId = "test", url = "https://example.com/article", givenUrl = "https://example.com/article"
         )
 
@@ -105,7 +108,7 @@ class ArticleListViewModelTest {
         val updateTitle = slot<String>()
         val updateUrl = slot<String>()
         coEvery {
-            articleDao.updateUnfurledDetails(
+            articleRepository.updateUnfurledDetails(
                 capture(updateItemId),
                 capture(updateTitle),
                 capture(updateUrl),
@@ -118,8 +121,6 @@ class ArticleListViewModelTest {
 
         val viewModel = ArticleListViewModel(
             articleRepository = articleRepository,
-            getArticleWithTextUseCase = getArticleWithTextUseCase,
-            articleDao = articleDao,
             ioDispatcher = dispatcher,
         )
 
@@ -139,7 +140,7 @@ class ArticleListViewModelTest {
         assertFalse(viewModel.isSaving.value)
         assertEquals("Shared title", viewModel.intentTitle.value)
 
-        coVerify(exactly = 1) { articleDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -153,20 +154,18 @@ class ArticleListViewModelTest {
         every { Unfurler() } returns unfurler
 
         val upsertSlot = slot<Article>()
-        coEvery { articleDao.upsertNewArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
+        coEvery { articleRepository.saveNewArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
 
-        coEvery { articleDao.getArticleById(any()) } returns Article(
+        coEvery { articleRepository.getArticleById(any()) } returns Article(
             itemId = "test", url = "https://example.com/article", givenUrl = "https://example.com/article"
         )
 
         coEvery {
-            articleDao.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any())
+            articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any())
         } returns Unit
 
         val viewModel = ArticleListViewModel(
             articleRepository = articleRepository,
-            getArticleWithTextUseCase = getArticleWithTextUseCase,
-            articleDao = articleDao,
             ioDispatcher = dispatcher,
         )
 
@@ -180,6 +179,33 @@ class ArticleListViewModelTest {
         val capturedId = upsertSlot.captured.itemId
         coVerify(exactly = 1) { articleRepository.backupArticleNow(capturedId) }
         verify(exactly = 1) { articleRepository.syncToFirestore() }
+    }
+
+    @Test
+    fun `saveUrl routes data access through repository not DAO`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+
+        val unfurler = mockk<Unfurler>()
+        coEvery { unfurler.unfurl(any<String>()) } throws RuntimeException("unfurl failure")
+        mockkStatic("me.saket.unfurl.UnfurlerKt")
+        every { Unfurler() } returns unfurler
+
+        val viewModel = ArticleListViewModel(
+            articleRepository = articleRepository,
+            ioDispatcher = dispatcher,
+        )
+
+        val sharedUri = mockk<Uri>()
+        every { sharedUri.toString() } returns "https://example.com/article"
+        viewModel.saveUrl(sharedUri, "Test title")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { articleRepository.saveNewArticle(any()) }
+        coVerify(exactly = 1) { articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
+        // No ArticleDao in the graph — the structural absence is the proof.
+        // These repo-level invocations confirm the ViewModel routes through the
+        // repository abstraction, not directly to Room.
     }
 
     // Tag suggestion tests have been moved to TagManagementViewModelTest
