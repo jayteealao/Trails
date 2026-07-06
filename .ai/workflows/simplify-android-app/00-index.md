@@ -4,10 +4,10 @@ type: index
 slug: simplify-android-app
 title: "Simplify the Trails Android app (triage-driven cleanup)"
 status: active
-current-stage: verify
-stage-number: 6
+current-stage: review
+stage-number: 7
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-06T01:33:19Z"
+updated-at: "2026-07-06T02:04:08Z"
 selected-slice: "architecture-docs"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
@@ -58,8 +58,9 @@ runtime-evidence-deferrals:
     reason: "Rung 1 (unit-tests): 3/3 SyncWorkerTest tests pass — doWork() returns Result.success() with empty article list, pagination drives two-page cycle correctly via coVerify(exactly=1) on both (50,0) and (50,50), dead-method deletion confirmed by reflection. Full 143/143 unit test suite passes with 0 failures. Rung 2 (Roborazzi): not applicable — SyncWorker has no UI surface. Rung 3 (AVD boot / live device): three AVDs installed (Medium_Phone_API_36.0, Pixel_9_Pro, Pixel_9_Pro_Fold) but no display server or GPU acceleration available in this headless agent session; adb devices returns empty. Residual = live sync run on a device with articles in resolved=1/2 state, observing WorkManager reports Result.success() and non-metrics articles are processed page-by-page via Timber logs."
     deferred-at: "2026-07-06T01:12:18Z"
     cleared-by: null
-next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app architecture-docs"
+next-command: wf-handoff
+next-invocation: "/wf handoff simplify-android-app"
+recommended-next-stage: handoff
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -127,14 +128,49 @@ workflow-files:
   - 05-implement-cross-cutting-url.md
   - 06-verify-cross-cutting-url.md
   - 05-implement-architecture-docs.md
+  - 06-verify-architecture-docs.md
+  - 07-review.md
+  - 07-review.yaml
+  - 07-review.html.fragment
+  - 07-review-correctness.md
+  - 07-review-correctness.yaml
+  - 07-review-correctness.html.fragment
+  - 07-review-security.md
+  - 07-review-security.yaml
+  - 07-review-security.html.fragment
+  - 07-review-code-simplification.md
+  - 07-review-code-simplification.yaml
+  - 07-review-testing.md
+  - 07-review-testing.yaml
+  - 07-review-testing.html.fragment
+  - 07-review-maintainability.md
+  - 07-review-maintainability.yaml
+  - 07-review-reliability.md
+  - 07-review-reliability.yaml
+  - 07-review-reliability.html.fragment
+  - 07-review-backend-concurrency.md
+  - 07-review-backend-concurrency.yaml
+  - 07-review-refactor-safety.md
+  - 07-review-refactor-safety.yaml
+  - 07-review-architecture.md
+  - 07-review-architecture.yaml
+  - 07-review-performance.md
+  - 07-review-performance.yaml
+  - 07-review-performance.html.fragment
+  - 07-review-data-integrity.md
+  - 07-review-data-integrity.yaml
+  - 07-review-privacy.md
+  - 07-review-privacy.yaml
+  - 07-review-docs.md
+  - 07-review-docs.yaml
 progress:
   intake: complete
   shape: complete
   slice: complete
   plan: complete
   implement: complete
-  verify: in-progress
-  review: not-started
+  verify: complete
+  review: complete
   handoff: not-started
   ship: not-started
   retro: not-started
