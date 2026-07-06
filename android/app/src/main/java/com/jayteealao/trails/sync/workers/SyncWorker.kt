@@ -91,11 +91,11 @@ class SyncWorker @AssistedInject constructor(
 //TODO: use channels
                 val repopulateJob = launch {
                     val pageSize = 50
-                    var pageOffset = 0
+                    var afterId = ""
                     while (currentCoroutineContext().isActive) {
-                        val page = articleDao.getNonMetricsArticles(pageSize, pageOffset)
+                        val page = articleDao.getNonMetricsArticles(pageSize, afterId)
                         if (page.isEmpty()) break
-                        Timber.d("Processing ${page.size} non-metrics articles (offset=$pageOffset)")
+                        Timber.d("Processing ${page.size} non-metrics articles (afterId=$afterId)")
 
                         val jobs = page.map { article ->
                             launch(Dispatchers.IO) {
@@ -121,8 +121,8 @@ class SyncWorker @AssistedInject constructor(
 
                         // Wait for all article processing in this page before fetching the next
                         jobs.joinAll()
-                        Timber.d("Finished processing ${page.size} non-metrics articles (offset=$pageOffset)")
-                        pageOffset += pageSize
+                        afterId = page.last().itemId
+                        Timber.d("Finished processing ${page.size} non-metrics articles (afterId=$afterId)")
                     }
 
                     val unresolved = articleDao.getUnresolvedArticles()

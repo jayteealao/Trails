@@ -100,9 +100,9 @@ class FirestoreSyncManagerReconcileTest {
     fun `reconcile backs up never-backed-up articles and stamps backed_up_at`() = runTest {
         val articles = listOf(article("art1"), article("art2"), article("art3"))
         every { auth.currentUser } returns signedInUser()
-        // First page returns 3 articles; second page returns empty (end of sweep).
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returns articles
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), 3) } returns emptyList()
+        // Sweep always queries at offset 0. Stamping rows removes them from the
+        // predicate, so the second call at offset 0 returns empty.
+        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returnsMany listOf(articles, emptyList())
         coEvery { firestoreBackupService.backupArticlesPaginated(articles, any()) } returns Result.success(3)
         coEvery { articleDao.updateBackedUpAt(any(), any()) } returns Unit
 
@@ -121,9 +121,9 @@ class FirestoreSyncManagerReconcileTest {
         val page1 = (1..20).map { article("art$it") }
         val page2 = (21..25).map { article("art$it") }
         every { auth.currentUser } returns signedInUser()
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returns page1
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), 20) } returns page2
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), 25) } returns emptyList()
+        // Sweep always queries at offset 0. Each successful stamp removes rows from
+        // the predicate, so the second call at offset 0 returns the next unswept batch.
+        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returnsMany listOf(page1, page2, emptyList())
         coEvery { firestoreBackupService.backupArticlesPaginated(page1, any()) } returns Result.success(20)
         coEvery { firestoreBackupService.backupArticlesPaginated(page2, any()) } returns Result.success(5)
         coEvery { articleDao.updateBackedUpAt(any(), any()) } returns Unit
@@ -154,7 +154,7 @@ class FirestoreSyncManagerReconcileTest {
 
         // backed_up_at must NOT be stamped if the backup failed.
         coVerify(exactly = 0) { articleDao.updateBackedUpAt(any(), any()) }
-        // Second page must not be fetched after the first failed.
-        coVerify(exactly = 0) { articleDao.getArticlesNeverBackedUp(any(), articles.size) }
+        // Second page must not be fetched after the first failed (only one call at offset 0).
+        coVerify(exactly = 1) { articleDao.getArticlesNeverBackedUp(any(), 0) }
     }
 }
