@@ -97,10 +97,6 @@ fun ArticleListScreen(
     val taggedArticles = articleListViewModel.taggedArticles.collectAsLazyPagingItems()
 
     // Handle events
-    viewStore.handle<ArticleListEvent.NavigateToArticle> { event ->
-        // Navigation handled by parent if needed
-    }
-
     viewStore.handle<ArticleListEvent.ShowSnackbar> { event ->
         scope.launch {
             snackbarHostState.showSnackbar(event.message)

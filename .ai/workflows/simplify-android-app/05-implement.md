@@ -5,12 +5,12 @@ slug: simplify-android-app
 status: in-progress
 stage-number: 5
 created-at: "2026-06-18T22:04:03Z"
-updated-at: "2026-07-06T00:17:58Z"
-slices-implemented: 10
+updated-at: "2026-07-06T00:35:54Z"
+slices-implemented: 11
 slices-total: 14
-metric-total-files-changed: 37
-metric-total-lines-added: 1998
-metric-total-lines-removed: 745
+metric-total-files-changed: 44
+metric-total-lines-added: 2059
+metric-total-lines-removed: 963
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -47,7 +47,7 @@ slices:
     file: 05-implement-list-viewmodel.md
     status: complete
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app list-viewmodel"
+next-invocation: "/wf verify simplify-android-app list-rendering"
 ---
 
 # Implement Index
@@ -67,6 +67,7 @@ foundational regression-net gate — every dependent slice waits on it being gre
 | article-repository | complete | [05-implement-article-repository.md](05-implement-article-repository.md) |
 | detail-viewmodel | complete | [05-implement-detail-viewmodel.md](05-implement-detail-viewmodel.md) |
 | list-viewmodel | complete | [05-implement-list-viewmodel.md](05-implement-list-viewmodel.md) |
+| list-rendering | complete | [05-implement-list-rendering.md](05-implement-list-rendering.md) |
 
 ## Cross-Slice Integration Notes
 - **`test-net` is a prerequisite, not a peer.** Its characterization tests pin the
@@ -89,5 +90,5 @@ foundational regression-net gate — every dependent slice waits on it being gre
   any slice here.
 
 ## Recommended Next Stage
-- **Option A (default):** `/wf verify simplify-android-app list-viewmodel` — 3 unit tests already green; verify formalizes the record.
-- **Option B:** `/wf review simplify-android-app list-viewmodel` — skip verify; compile + test run already confirmed green.
+- **Option A (default):** `/wf verify simplify-android-app list-rendering` — recomposition and thumbnail changes are runtime-observable; verify should attempt Compose UI tests and recomposition overlay.
+- **Option B:** `/wf review simplify-android-app list-rendering` — skip verify if no AVD access; changes are purely structural (deletions, type narrowings, remember-wrapping).
