@@ -12,59 +12,59 @@ best-first-slice: test-net
 tags: [refactor, android, cleanup, simplify]
 slices:
   - slug: test-net
-    status: defined
+    status: complete
     complexity: m
     depends-on: []
   - slug: fts-search-fix
-    status: defined
+    status: complete
     complexity: s
     depends-on: [test-net]
   - slug: streaming-restore
-    status: defined
+    status: complete
     complexity: l
     depends-on: [test-net]
   - slug: batched-tag-reads
-    status: defined
+    status: complete
     complexity: m
     depends-on: [test-net]
   - slug: app-scope
-    status: defined
+    status: complete
     complexity: s
     depends-on: [test-net]
   - slug: firestore-dedup
-    status: defined
+    status: complete
     complexity: l
     depends-on: [test-net, app-scope]
   - slug: firestore-io
-    status: defined
+    status: complete
     complexity: m
     depends-on: [test-net, firestore-dedup]
   - slug: article-repository
-    status: defined
+    status: complete
     complexity: s
     depends-on: [test-net, app-scope]
   - slug: detail-viewmodel
-    status: defined
+    status: complete
     complexity: m
     depends-on: []
   - slug: list-viewmodel
-    status: defined
+    status: complete
     complexity: s
     depends-on: [article-repository]
   - slug: list-rendering
-    status: defined
+    status: complete
     complexity: m
     depends-on: []
   - slug: sync-worker
-    status: defined
+    status: complete
     complexity: m
     depends-on: []
   - slug: cross-cutting-url
-    status: defined
+    status: complete
     complexity: s
     depends-on: []
   - slug: architecture-docs
-    status: defined
+    status: complete
     complexity: m
     depends-on: [firestore-dedup, firestore-io, streaming-restore, batched-tag-reads, app-scope]
 refs:

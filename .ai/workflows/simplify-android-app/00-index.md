@@ -4,17 +4,17 @@ type: index
 slug: simplify-android-app
 title: "Simplify the Trails Android app (triage-driven cleanup)"
 status: active
-current-stage: review
-stage-number: 7
+current-stage: handoff
+stage-number: 8
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-06T02:04:08Z"
+updated-at: "2026-07-06T23:16:56Z"
 selected-slice: "architecture-docs"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
 base-branch: "main"
 review-scope: slug-wide
-pr-url: ""
-pr-number: 0
+pr-url: "https://github.com/jayteealao/Trails/pull/29"
+pr-number: 29
 open-questions: []
 resolved-questions:
   - "[plan batched-tag-reads] efficiency-4 RESOLVED -> client-only chunked parallel reads (collectionGroup rejected: ArticleTags has no userId field + no firestore.indexes.json). NOT deploy-gated; firebase/ untouched."
@@ -58,9 +58,9 @@ runtime-evidence-deferrals:
     reason: "Rung 1 (unit-tests): 3/3 SyncWorkerTest tests pass — doWork() returns Result.success() with empty article list, pagination drives two-page cycle correctly via coVerify(exactly=1) on both (50,0) and (50,50), dead-method deletion confirmed by reflection. Full 143/143 unit test suite passes with 0 failures. Rung 2 (Roborazzi): not applicable — SyncWorker has no UI surface. Rung 3 (AVD boot / live device): three AVDs installed (Medium_Phone_API_36.0, Pixel_9_Pro, Pixel_9_Pro_Fold) but no display server or GPU acceleration available in this headless agent session; adb devices returns empty. Residual = live sync run on a device with articles in resolved=1/2 state, observing WorkManager reports Result.success() and non-metrics articles are processed page-by-page via Timber logs."
     deferred-at: "2026-07-06T01:12:18Z"
     cleared-by: null
-next-command: wf-handoff
-next-invocation: "/wf handoff simplify-android-app"
-recommended-next-stage: handoff
+next-command: wf-ship
+next-invocation: "/wf ship simplify-android-app"
+recommended-next-stage: ship
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -163,6 +163,7 @@ workflow-files:
   - 07-review-privacy.yaml
   - 07-review-docs.md
   - 07-review-docs.yaml
+  - 08-handoff.md
 progress:
   intake: complete
   shape: complete
@@ -171,7 +172,7 @@ progress:
   implement: complete
   verify: complete
   review: complete
-  handoff: not-started
+  handoff: complete
   ship: not-started
   retro: not-started
 ---
