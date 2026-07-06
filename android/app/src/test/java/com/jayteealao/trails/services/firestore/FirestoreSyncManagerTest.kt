@@ -104,8 +104,12 @@ class FirestoreSyncManagerTest {
         coEvery { articleDao.countAllArticles() } returns 2
         coEvery { articleDao.getAllArticlesPaginated(50, 0) } returns
             listOf(Article(itemId = "a1"), Article(itemId = "a2"))
-        coEvery { articleDao.getArticleTags("a1") } returns listOf("t1", "t2")
-        coEvery { articleDao.getArticleTags("a2") } returns listOf("t3")
+        // CR-1 fix: bulk getTagsForArticles replaces per-article getArticleTags in syncLocalChanges.
+        coEvery { articleDao.getTagsForArticles(listOf("a1", "a2")) } returns listOf(
+            ArticleTags(itemId = "a1", tag = "t1", sortId = null, type = null),
+            ArticleTags(itemId = "a1", tag = "t2", sortId = null, type = null),
+            ArticleTags(itemId = "a2", tag = "t3", sortId = null, type = null),
+        )
         // Capture the call to verify tagsByArticleId is populated.
         coEvery { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) } returns Result.success(2)
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
@@ -117,6 +121,8 @@ class FirestoreSyncManagerTest {
         // B2: backupArticlesPaginated is called once with the pre-fetched tags map;
         // backupArticle is NOT called (tags are in the chunk batch, not a separate commit).
         coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) }
+        // CR-1: getTagsForArticles (bulk) is used; per-article getArticleTags must not be called.
+        coVerify(exactly = 0) { articleDao.getArticleTags(any()) }
         coVerify(exactly = 0) { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) }
         assertTrue(manager.syncStatus.value is SyncStatus.Success)
     }
@@ -169,7 +175,9 @@ class FirestoreSyncManagerTest {
             mapOf("r1" to listOf(ArticleTags(itemId = "r1", tag = "kotlin", sortId = null, type = null)))
 
         // Use performFullSync → restore scenario to invoke applyRemoteArticles.
-        coEvery { firestoreBackupService.isFirstSync() } returns Result.success(true)
+        // CR-2 fix: performFullSync now uses getUserMetaSnapshot() instead of isFirstSync().
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = true, lastSyncTimestamp = null))
         coEvery { articleDao.countAllArticles() } returns 0
         coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(1)
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
@@ -227,7 +235,9 @@ class FirestoreSyncManagerTest {
     @Test
     fun `performFullSync first-sync restore scenario applies remote and marks synced`() = runTest {
         every { auth.currentUser } returns signedInUser("u1")
-        coEvery { firestoreBackupService.isFirstSync() } returns Result.success(true)
+        // CR-2 fix: performFullSync now uses getUserMetaSnapshot() instead of isFirstSync().
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = true, lastSyncTimestamp = null))
         coEvery { articleDao.countAllArticles() } returns 0
         coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(1)
         coEvery { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) } returns Result.success(Unit)
@@ -246,7 +256,9 @@ class FirestoreSyncManagerTest {
     @Test
     fun `performFullSync first-sync no-data scenario marks synced without restoring`() = runTest {
         every { auth.currentUser } returns signedInUser("u1")
-        coEvery { firestoreBackupService.isFirstSync() } returns Result.success(true)
+        // CR-2 fix: performFullSync now uses getUserMetaSnapshot() instead of isFirstSync().
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = true, lastSyncTimestamp = null))
         coEvery { articleDao.countAllArticles() } returns 0
         coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(0)
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
@@ -272,7 +284,9 @@ class FirestoreSyncManagerTest {
     @Test
     fun `performFullSync restore scenario wires batchRestoreArticleTags not single article restoreArticleTags`() = runTest {
         every { auth.currentUser } returns signedInUser("u1")
-        coEvery { firestoreBackupService.isFirstSync() } returns Result.success(true)
+        // CR-2 fix: performFullSync now uses getUserMetaSnapshot() instead of isFirstSync().
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = true, lastSyncTimestamp = null))
         coEvery { articleDao.countAllArticles() } returns 0
         coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(15)
 

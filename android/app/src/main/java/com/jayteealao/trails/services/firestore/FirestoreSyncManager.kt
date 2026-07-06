@@ -13,6 +13,7 @@ import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -291,18 +292,12 @@ class FirestoreSyncManager @Inject constructor(
 
                     if (chunk.isEmpty()) break
 
-                    // Pre-fetch tags for this chunk so they fold into the chunk batch
-                    // (efficiency-2: no separate per-article commit; tags written in same batch).
-                    val chunkTagsMap = chunk.associate { article ->
-                        article.itemId to articleDao.getArticleTags(article.itemId).map { tag ->
-                            ArticleTags(
-                                itemId = article.itemId,
-                                tag = tag,
-                                sortId = null,
-                                type = null
-                            )
-                        }
-                    }
+                    // Pre-fetch tags for this chunk in one bulk IN-query so they fold into
+                    // the chunk batch (efficiency-2: no separate per-article commit; tags
+                    // written in same batch). Uses getTagsForArticles to avoid N serial DAO
+                    // reads (review fix CR-1).
+                    val allChunkTags = articleDao.getTagsForArticles(chunk.map { it.itemId })
+                    val chunkTagsMap = allChunkTags.groupBy { it.itemId }
 
                     // Backup this chunk with pre-fetched tags folded into each batch commit.
                     val backupResult = firestoreBackupService.backupArticlesPaginated(
@@ -410,8 +405,11 @@ class FirestoreSyncManager @Inject constructor(
             _syncStatus.value = SyncStatus.Syncing
             _lastError.value = null
 
-            // Check if this is first sync
-            val isFirstSync = firestoreBackupService.isFirstSync().getOrNull() ?: false
+            // Check if this is first sync — use getUserMetaSnapshot() (single Firestore read)
+            // instead of isFirstSync() to match the efficiency-1 fix in syncLocalChanges
+            // (review fix CR-2).
+            val syncMeta = firestoreBackupService.getUserMetaSnapshot().getOrNull()
+            val isFirstSync = syncMeta?.isFirstSync ?: false
 
             if (isFirstSync) {
                 Timber.d("First sync detected - determining sync strategy")
@@ -474,6 +472,9 @@ class FirestoreSyncManager @Inject constructor(
 
             Timber.d("Full sync completed successfully")
         } catch (e: Exception) {
+            // Re-throw CancellationException so structured concurrency propagates correctly
+            // (review fix RE-1).
+            if (e is CancellationException) throw e
             Timber.e(e, "Full sync failed: ${e.message}")
             _lastError.value = e.message ?: "Full sync failed"
             _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown error", e)
