@@ -1,0 +1,50 @@
+artifact: review-dimension
+dimension: correctness
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: caveats
+verdict_label: "Ship with Caveats"
+summary: "One HIGH finding (tag-prefetch N+1 inside syncLocalChanges chunk loop) and one MED finding (performFullSync still calls stale isFirstSync() path). Both are fixable in-place; no blockers. One LOW deferred (tagStates map semantics, correct but subtle)."
+counts:
+  blocker: 0
+  high: 1
+  med: 1
+  low: 1
+  nit: 0
+findings:
+  - id: CR-1
+    severity: high
+    dimension: correctness
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "296-305"
+    confidence: high
+    status: fixed
+    surfaced-at: "2026-07-06T01:44:38Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "Tag prefetch inside syncLocalChanges chunk loop does N serial DAO reads (one getArticleTags() per article) instead of one bulk IN-query per chunk. Fix: add getTagsForArticles(itemIds) bulk DAO method."
+    fix: "Added getTagsForArticles(itemIds) to ArticleDao with WHERE itemId IN (:itemIds); replaced associate loop in syncLocalChanges with allChunkTags.groupBy { it.itemId }. Tests updated."
+  - id: CR-2
+    severity: med
+    dimension: correctness
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "414"
+    confidence: high
+    status: fixed
+    surfaced-at: "2026-07-06T01:44:38Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    fixed-at: "2026-07-06T02:04:08Z"
+    msg: "performFullSync() still calls firestoreBackupService.isFirstSync() (two-Firestore-read path) instead of getUserMetaSnapshot() — the efficiency-1 fix is incomplete for this branch."
+    fix: "Replaced isFirstSync() call with getUserMetaSnapshot(); isFirstSync derived from meta.isFirstSync. Tests updated to stub getUserMetaSnapshot() instead."
+  - id: CR-3
+    severity: low
+    dimension: correctness
+    file: "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt"
+    line: "77-82"
+    confidence: med
+    status: open
+    surfaced-at: "2026-07-06T01:44:38Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    msg: "tagStates map semantics rely on second-pass overwrites for precedence — correct today but subtle; future callers may be misled. Defer."

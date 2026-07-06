@@ -1,0 +1,98 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="cross-cutting-url" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-cross-cutting-url.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/common/UrlNormalizer.kt", "delta": { "add": 12, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt", "delta": { "add": 1, "rem": 2 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", "delta": { "add": 2, "rem": 4 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListViewModel.kt", "delta": { "add": 1, "rem": 2 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/common/UrlNormalizerTest.kt", "delta": { "add": 30, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>common/UrlNormalizer.kt — add Article.computeNormalizedUrl() extension</summary>
+      <div class="pl-card">
+        <p>New extension function placed after the existing <code>normalizeUrl(url: String)</code> top-level function. Delegates directly: <code>normalizeUrl(this.url ?: this.givenUrl ?: "")</code>. Zero behaviour change — output is byte-identical to the 4 inline expressions it replaces. If a circular-dependency check fails (common/ importing data/local/database/), move to <code>data/local/database/ArticleExt.kt</code> instead.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "fun Article.computeNormalizedUrl(): String =" },
+          { "kind": "add", "text": "    normalizeUrl(this.url ?: this.givenUrl ?: \"\")" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>data/ArticleRepository.kt — replace 1 Article-typed call site (line 172)</summary>
+      <div class="pl-card">
+        <p>Replaces the inline null-coalescing expression in <code>add(articleData)</code> with the extension. The <code>normalizeUrl</code> import is removed if this is the only call; <code>computeNormalizedUrl</code> import is added.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "normalizedUrl = normalizeUrl(datum.article.url ?: datum.article.givenUrl ?: \"\")," },
+          { "kind": "add", "text": "normalizedUrl = datum.article.computeNormalizedUrl()," }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>services/firestore/FirestoreSyncManager.kt — replace 2 Article-typed call sites (lines 89, 106)</summary>
+      <div class="pl-card">
+        <p>Both occurrences inside <code>handleRemoteArticleChange()</code> — new-article insert path and conflict-resolution update path — use the identical expression; both replaced with <code>remoteArticle.computeNormalizedUrl()</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "normalizedUrl = normalizeUrl(remoteArticle.url ?: remoteArticle.givenUrl ?: \"\")" },
+          { "kind": "add", "text": "normalizedUrl = remoteArticle.computeNormalizedUrl()" },
+          { "kind": "ctx", "text": "// (same replacement applied at both line 89 and line 106)" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>screens/articleList/ArticleListViewModel.kt — replace 1 Article-typed call site (line 264); 3 string-typed calls unchanged</summary>
+      <div class="pl-card">
+        <p>Only the <code>insertArticle(article)</code> call at line 264 is Article-typed and replaced. The three calls at lines 318/376/436 operate on already-resolved URL strings (post-unfurl) and are intentionally left as <code>normalizeUrl(resolvedUrl)</code> — the <code>normalizeUrl</code> import is retained for them.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "normalizedUrl = normalizeUrl(article.url ?: article.givenUrl ?: \"\")" },
+          { "kind": "add", "text": "normalizedUrl = article.computeNormalizedUrl()" },
+          { "kind": "ctx", "text": "// normalizeUrl import kept — still used at lines 318/376/436 for String args" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>test/common/UrlNormalizerTest.kt — add Article extension parity cases</summary>
+      <div class="pl-card">
+        <p>4 new test cases asserting <code>article.computeNormalizedUrl() == normalizeUrl(article.url ?: article.givenUrl ?: "")</code>: (1) url non-null, (2) url null / givenUrl fallback, (3) both non-null (url wins), (4) both null (graceful empty). Existing 16 cases are untouched.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "@Test fun `computeNormalizedUrl uses url when present`() { ... }" },
+          { "kind": "add", "text": "@Test fun `computeNormalizedUrl falls back to givenUrl`() { ... }" },
+          { "kind": "add", "text": "@Test fun `computeNormalizedUrl url wins over givenUrl`() { ... }" },
+          { "kind": "add", "text": "@Test fun `computeNormalizedUrl both null returns empty`() { ... }" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "info", "title": "AppDatabase.kt migration callback — intentionally excluded", "body": "AppDatabase.kt:222 calls <code>normalizeUrl(raw)</code> inside a SQL migration cursor loop where <code>raw</code> is a String from cursor columns, not an Article entity. Excluded by design — no behaviour difference." } -->
+  <!-- @include callout { "kind": "info", "title": "SyncWorker and 3 string-typed ViewModel calls — intentionally excluded", "body": "SyncWorker.kt:110 and ArticleListViewModel.kt:318/376/436 call <code>normalizeUrl(resolvedUrl)</code> on post-unfurl resolved URL strings. Not Article-typed — no benefit from routing through the extension." } -->
+  <!-- @include callout { "kind": "risk", "title": "Conflict surface — sequence this LAST", "body": "ArticleRepository.kt is also touched by article-repository (B3) and fts-search-fix (A1). FirestoreSyncManager.kt is touched by firestore-dedup (B1) and firestore-io (B2). ArticleListViewModel.kt is touched by list-viewmodel (B5). Land cross-cutting-url after all five sibling slices are merged to minimize rebase churn." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-14T22:46:55Z)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":5,"modules":4,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

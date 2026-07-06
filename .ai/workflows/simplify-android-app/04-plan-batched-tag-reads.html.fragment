@@ -1,0 +1,96 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="batched-tag-reads" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-batched-tag-reads.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt", "delta": { "add": 35, "rem": 8 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", "delta": { "add": 40, "rem": 20 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt", "delta": { "add": 60, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt", "delta": { "add": 50, "rem": 10 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>FirestoreBackupService.kt — add batchRestoreArticleTags()</summary>
+      <div class="pl-card">
+        <p>Add <code>RESTORE_TAG_CHUNK_SIZE = 10</code> constant and <code>suspend fun batchRestoreArticleTags(articleIds: List&lt;String&gt;): Map&lt;String, List&lt;ArticleTags&gt;&gt;</code>. Uses <code>coroutineScope { }</code> + <code>async { }</code> + <code>awaitAll()</code> to dispatch up to 10 subcollection reads in parallel per chunk. Existing <code>restoreArticleTags(articleId)</code> is unchanged (still used by single-article <code>restoreArticle</code>).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "ctx", "text": "companion object {" },
+          { "kind": "add", "text": "    private const val RESTORE_TAG_CHUNK_SIZE = 10" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "suspend fun batchRestoreArticleTags(articleIds: List<String>): Map<String, List<ArticleTags>> {" },
+          { "kind": "add", "text": "    if (articleIds.isEmpty()) return emptyMap()" },
+          { "kind": "add", "text": "    val user = getCurrentUser() ?: return emptyMap()" },
+          { "kind": "add", "text": "    return coroutineScope {" },
+          { "kind": "add", "text": "        articleIds.chunked(RESTORE_TAG_CHUNK_SIZE).flatMap { chunk ->" },
+          { "kind": "add", "text": "            chunk.map { id -> async { id to getTagsForArticle(user.uid, id) } }" },
+          { "kind": "add", "text": "        }.awaitAll().toMap()" },
+          { "kind": "add", "text": "    }" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>FirestoreSyncManager.kt — extract applyRemoteArticles(), update 2 call sites</summary>
+      <div class="pl-card">
+        <p>Change <code>handleRemoteArticleChange(remoteArticle)</code> signature to accept <code>prefetchedTags: List&lt;ArticleTags&gt;</code>; remove both internal <code>restoreArticleTags()</code> calls. Extract <code>applyRemoteArticles(articles)</code> that calls <code>batchRestoreArticleTags</code> once per page-chunk, then dispatches <code>handleRemoteArticleChange</code> with the pre-fetched map. Replace both restore call sites in <code>performBidirectionalSync</code> and <code>performFullSync</code> Scenario 2.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "chunk.forEach { remoteArticle -> handleRemoteArticleChange(remoteArticle) }" },
+          { "kind": "add", "text": "applyRemoteArticles(chunk)" },
+          { "kind": "ctx", "text": "// (both call sites — performBidirectionalSync and performFullSync Scenario 2)" },
+          { "kind": "rem", "text": "private suspend fun handleRemoteArticleChange(remoteArticle: Article) {" },
+          { "kind": "rem", "text": "    val remoteTags = firestoreBackupService.restoreArticleTags(remoteArticle.itemId)" },
+          { "kind": "add", "text": "private suspend fun handleRemoteArticleChange(remoteArticle: Article, prefetchedTags: List<ArticleTags>) {" },
+          { "kind": "add", "text": "// uses prefetchedTags directly — zero Firestore calls inside" },
+          { "kind": "add", "text": "private suspend fun applyRemoteArticles(articles: List<Article>) {" },
+          { "kind": "add", "text": "    val tagsByArticleId = firestoreBackupService.batchRestoreArticleTags(articles.map { it.itemId })" },
+          { "kind": "add", "text": "    articles.forEach { article -> handleRemoteArticleChange(article, tagsByArticleId[article.itemId] ?: emptyList()) }" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>FirestoreBackupServiceTest.kt — read-count reduction tests</summary>
+      <div class="pl-card">
+        <p>Mock Firestore to count <code>collection().get()</code> invocations. Assert: N=1 → 1 read; N=10 → 10 reads (1 parallel round); N=11 → 11 reads (2 rounds); empty list → 0 reads; article with no tags → empty list entry, no crash.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "fun `batchRestoreArticleTags issues ceil(N divided by CHUNK) reads not N sequential`() {" },
+          { "kind": "add", "text": "    // mock: count Firestore collection().get() calls" },
+          { "kind": "add", "text": "    batchRestoreArticleTags(11 ids)" },
+          { "kind": "add", "text": "    verify(exactly = 11) { tagsCollection.get() } // parallel, 2 rounds of 10+1" },
+          { "kind": "add", "text": "    // wall-clock: 2 round-trips not 11" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "handleRemoteArticleChange signature change requires all callers updated", "body": "Private method called from exactly 2 sites; both updated atomically in this slice. Compile-time catch — any missed site fails to build before merge. Characterization tests from test-net gate also verify the expected call structure." } -->
+  <!-- @include callout { "kind": "info", "title": "No Firestore deploy — client-only approach elected", "body": "CollectionGroup rejected: ArticleTags has no userId field (confirmed by code), so a collectionGroup query cannot filter to the authenticated user's tags without a schema migration. Chunked parallel coroutines achieve sub-N+1 wall-clock reads with no infra change." } -->
+  <!-- @include callout { "kind": "warn", "title": "Articles with no tags still incur one Firestore read each (per chunk)", "body": "batchRestoreArticleTags fires collection().get() for every article ID regardless of tag presence. The win is parallel wall-clock reduction, not absolute read-count reduction. Acceptable per A3 AC (sub-N+1 batched semantics met)." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (code inspection + collectionGroup feasibility analysis, 2026-06-14)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":4,"modules":3,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

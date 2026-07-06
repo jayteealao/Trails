@@ -1,0 +1,106 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="list-viewmodel" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-list-viewmodel.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListViewModel.kt", "delta": { "add": 5, "rem": 30 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt", "delta": { "add": 25, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "deleted", "path": "android/app/src/main/java/com/jayteealao/trails/usecases/GetArticleWithTextUseCase.kt", "delta": { "add": 0, "rem": 10 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/screens/articleList/ArticleListViewModelTest.kt", "delta": { "add": 25, "rem": 10 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>ArticleListViewModel.kt — remove dead code + move all DAO calls behind repo</summary>
+      <div class="pl-card">
+        <p>Delete dead <code>_articles</code> MutableStateFlow (quality-5); delete the commented-out <code>sync()</code> method (quality-12); replace six direct <code>articleDao.*</code> call-sites with three new repo methods (quality-11 broadened); replace <code>getArticleWithTextUseCase()</code> with <code>articleRepository.pockets()</code> (reuse-6); remove <code>articleDao</code> and <code>getArticleWithTextUseCase</code> constructor params and their imports.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "private val getArticleWithTextUseCase: GetArticleWithTextUseCase," },
+          { "kind": "rem", "text": "private val articleDao: ArticleDao," },
+          { "kind": "rem", "text": "private var _articles = MutableStateFlow(emptyList<Article>())" },
+          { "kind": "rem", "text": "fun sync() { viewModelScope.launch(ioDispatcher) { /* commented out */ } }" },
+          { "kind": "rem", "text": "pagingSourceFactory = { getArticleWithTextUseCase() }" },
+          { "kind": "add", "text": "pagingSourceFactory = { articleRepository.pockets() }" },
+          { "kind": "rem", "text": "articleDao.upsertArticle(article.copy(...))" },
+          { "kind": "add", "text": "articleRepository.upsertArticle(article.copy(...))" },
+          { "kind": "rem", "text": "val articleId = articleDao.upsertNewArticle(Article(...))" },
+          { "kind": "add", "text": "val articleId = articleRepository.saveNewArticle(Article(...))" },
+          { "kind": "rem", "text": "val currentArticle = articleDao.getArticleById(articleId)" },
+          { "kind": "add", "text": "val currentArticle = articleRepository.getArticleById(articleId)" },
+          { "kind": "rem", "text": "articleDao.updateUnfurledDetails(itemId = articleId, ...)" },
+          { "kind": "add", "text": "articleRepository.updateUnfurledDetails(itemId = articleId, ...)" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleRepository.kt — add three pass-through methods (B3-consistent style)</summary>
+      <div class="pl-card">
+        <p>Add to the interface and <code>ArticleRepositoryImpl</code>: <code>saveNewArticle(Article): String</code> (delegates to <code>articleDao.upsertNewArticle</code>, preserving its <code>@Transaction</code>); <code>upsertArticle(Article)</code> (delegates to <code>articleDao.upsertArticle</code>); <code>updateUnfurledDetails(...)</code> (delegates to <code>articleDao.updateUnfurledDetails</code>). <code>getArticleById</code> already exists — no change. No re-dispatch, no added transaction wrappers.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "suspend fun saveNewArticle(article: Article): String" },
+          { "kind": "add", "text": "suspend fun upsertArticle(article: Article)" },
+          { "kind": "add", "text": "suspend fun updateUnfurledDetails(itemId: String, title: String, url: String, image: String?, hasImage: Boolean, excerpt: String, normalizedUrl: String)" },
+          { "kind": "ctx", "text": "// impl: each method delegates directly to articleDao.* — no new logic" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>GetArticleWithTextUseCase.kt — hard-deleted (trivial pass-through)</summary>
+      <div class="pl-card">
+        <p>The entire file is deleted. Its only logic: <code>operator fun invoke() = pocketRepository.pockets()</code>. Only two files referenced it (ViewModel + test) — both updated in this slice. No <code>@Provides</code>/<code>@Binds</code> in any DI module; Hilt resolves via <code>@Inject constructor</code> only, so deletion automatically removes the binding.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "class GetArticleWithTextUseCase @Inject constructor(" },
+          { "kind": "rem", "text": "    private val pocketRepository: ArticleRepository" },
+          { "kind": "rem", "text": ") {" },
+          { "kind": "rem", "text": "    operator fun invoke() = pocketRepository.pockets()" },
+          { "kind": "rem", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleListViewModelTest.kt — remove DAO mocks; assert repo boundary</summary>
+      <div class="pl-card">
+        <p>Remove <code>@MockK articleDao</code> and <code>@MockK getArticleWithTextUseCase</code> fields and all their stubs. Add repo-level <code>coEvery</code> stubs for <code>saveNewArticle</code>, <code>upsertArticle</code>, <code>updateUnfurledDetails</code>. Update ViewModel constructor call (3-param shape). Add new test asserting <code>coVerify(exactly = 1) { articleRepository.saveNewArticle(any()) }</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "@MockK private lateinit var getArticleWithTextUseCase: GetArticleWithTextUseCase" },
+          { "kind": "rem", "text": "@MockK private lateinit var articleDao: ArticleDao" },
+          { "kind": "add", "text": "coEvery { articleRepository.saveNewArticle(any()) } answers { firstArg<Article>().itemId }" },
+          { "kind": "add", "text": "coEvery { articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) } returns Unit" },
+          { "kind": "add", "text": "coEvery { articleRepository.upsertArticle(any()) } returns Unit" },
+          { "kind": "rem", "text": "ArticleListViewModel(articleRepository, getArticleWithTextUseCase, articleDao, ioDispatcher)" },
+          { "kind": "add", "text": "ArticleListViewModel(articleRepository, ioDispatcher)" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "Must sequence strictly after article-repository (B3)", "body": "<code>ArticleRepositoryImpl</code> is modified by B3 (Firebase injection). This slice adds three more methods to the same file. Hard gate: B3 merged and green before list-viewmodel implementation begins." } -->
+  <!-- @include callout { "kind": "warn", "title": "saveUrl() transaction semantics — no re-dispatch inside repo impl", "body": "<code>upsertNewArticle</code> carries <code>@Transaction</code> at the DAO layer. The <code>saveNewArticle</code> repo impl must delegate directly without adding or removing a transaction wrapper. All three repo methods must run on the caller's dispatcher (no <code>withContext</code> inside the impl)." } -->
+  <!-- @include callout { "kind": "warn", "title": "Cross-slice overlap: ArticleListViewModel.kt also touched by cross-cutting-url (B9)", "body": "B9 (reuse-10) replaces inline <code>normalizeUrl()</code> calls in <code>insertArticle()</code> and <code>saveUrl()</code> with <code>Article.computeNormalizedUrl()</code>. Sequence B5 before B9 or coordinate the merge explicitly. Flag for the B9 plan." } -->
+  <!-- @include callout { "kind": "info", "title": "insertArticle() direct DAO site included in quality-11 broadening", "body": "<code>articleDao.upsertArticle(article.copy(...))</code> in <code>insertArticle()</code> is moved behind a new <code>articleRepository.upsertArticle(Article)</code> pass-through — part of quality-11's broadened scope (all direct DAO calls in the ViewModel)." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-15)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":4,"modules":3,"risks":4}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

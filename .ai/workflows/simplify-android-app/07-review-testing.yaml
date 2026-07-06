@@ -1,0 +1,36 @@
+artifact: review-dimension
+dimension: testing
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: caveats
+verdict_label: "Ship with Caveats"
+summary: "Good test coverage for new behavior: AppScopeIsolationTest, FirestoreBackupServiceTest, FirestoreSyncManagerTest, SyncWorkerTest, DefaultArticleRepositoryTest, ArticleDetailViewModelTest, ArticleListViewModelTest, UrlNormalizerTest all present and passing (143/143). One LOW: CR-1 fix (bulk getTagsForArticles) will need a new test once the DAO method is added. One NIT: deleteAllTagsForArticle atomicity window is documented in KDoc but untested."
+counts:
+  blocker: 0
+  high: 0
+  med: 0
+  low: 1
+  nit: 1
+findings:
+  - id: TE-1
+    severity: low
+    dimension: testing
+    file: "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt"
+    line: null
+    confidence: high
+    status: open
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    msg: "When CR-1 fix is applied (bulk getTagsForArticles DAO method), a new test verifying exactly one DAO call per chunk (not N) will be needed. No test exists yet for the bulk path."
+  - id: TE-2
+    severity: nit
+    dimension: testing
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "291-302"
+    confidence: med
+    status: open
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    msg: "deleteAllTagsForArticle atomicity window (delete-then-insert not in @Transaction) is documented in KDoc but no test verifies the documented contract. NIT level."

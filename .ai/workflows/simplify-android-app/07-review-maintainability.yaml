@@ -1,0 +1,36 @@
+artifact: review-dimension
+dimension: maintainability
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: ship
+verdict_label: "Ship"
+summary: "Code structure improved overall. KDoc added to new DAO methods and helper functions. Architecture docs written for app-scope-di, batched-tag-reads, and firestore-sync-backup. One NIT: deleteAllTagsForArticle atomicity window KDoc could be more prescriptive. One NIT: batchRestoreArticleTags silent-empty contract (SE-2) warrants KDoc."
+counts:
+  blocker: 0
+  high: 0
+  med: 0
+  low: 0
+  nit: 2
+findings:
+  - id: MA-1
+    severity: nit
+    dimension: maintainability
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "291-302"
+    confidence: med
+    status: open
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    msg: "deleteAllTagsForArticle KDoc notes the atomicity window but does not prescribe the caller pattern (always call insertArticleTags immediately after). Consider adding @see insertArticleTags and a usage note."
+  - id: MA-2
+    severity: nit
+    dimension: maintainability
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
+    line: "511"
+    confidence: med
+    status: open
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    msg: "batchRestoreArticleTags returns emptyMap on unauthenticated — contract not documented in KDoc. Callers of this function should know they may receive empty results when authentication is absent."

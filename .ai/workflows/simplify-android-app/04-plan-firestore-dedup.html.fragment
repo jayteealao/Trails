@@ -1,0 +1,84 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="firestore-dedup" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-firestore-dedup.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt", "delta": { "add": 35, "rem": 15 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", "delta": { "add": 25, "rem": 90 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt", "delta": { "add": 15, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt", "delta": { "add": 5, "rem": 5 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>FirestoreBackupService.kt — extract addArticleToBatch + withAuthenticatedUser</summary>
+      <div class="pl-card">
+        <p>Step 1: Extract <code>addArticleToBatch(batch, articleRef, article)</code> from the two inlined large-text-branching + <code>batch.set(articleRef, …)</code> blocks in <code>backupArticle</code> and <code>backupArticlesPaginated</code>. Step 2: Add private <code>inline suspend fun withAuthenticatedUser&lt;T&gt;</code> and replace 13 identical auth-guard patterns across all methods.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "private fun addArticleToBatch(batch: WriteBatch, articleRef: DocumentReference, article: Article) { … }" },
+          { "kind": "rem", "text": "val textSize = article.text?.toByteArray()?.size ?: 0  // inlined in backupArticle + backupArticlesPaginated" },
+          { "kind": "add", "text": "addArticleToBatch(batch, articleRef, article)  // single call site" },
+          { "kind": "add", "text": "private suspend inline fun <T> withAuthenticatedUser(block: suspend (FirebaseUser) -> Result<T>): Result<T> { … }" },
+          { "kind": "rem", "text": "val user = getCurrentUser() ?: return Result.failure(Exception(\"User not authenticated\"))  // ×13" },
+          { "kind": "add", "text": "return withAuthenticatedUser { user -> … }  // ×13" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>FirestoreSyncManager.kt — delete duplicate constants + delegate tag-backup + extract applyRemoteArticles</summary>
+      <div class="pl-card">
+        <p>Step 3: Delete <code>USERS_COLLECTION</code> and <code>ARTICLES_COLLECTION</code> from <code>companion object</code> (duplicate of <code>FirestoreBackupService.companion</code>). Step 4: Replace 28-line inline per-article tag-batch in <code>syncLocalChanges</code> with a single <code>firestoreBackupService.backupArticle(article, tags, …)</code> call. Step 5: Extract <code>applyRemoteArticles(articles)</code> from the two duplicated <code>onPage</code> lambda bodies.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "private const val USERS_COLLECTION = \"users\"" },
+          { "kind": "rem", "text": "private const val ARTICLES_COLLECTION = \"articles\"" },
+          { "kind": "rem", "text": "val batch = firestore.batch()  // per-article tag batch (×N)" },
+          { "kind": "rem", "text": "tags.forEach { tag -> val tagRef = articleRef.collection(\"tags\")… batch.set(tagRef, tag, …) }" },
+          { "kind": "rem", "text": "batch.commit().await()" },
+          { "kind": "add", "text": "firestoreBackupService.backupArticle(article = article, tags = tags, …).onFailure { … }" },
+          { "kind": "rem", "text": "onPage = { pageArticles -> withContext(IO) { pageArticles.forEach { handleRemoteArticleChange(it) } } }  // ×2" },
+          { "kind": "add", "text": "private suspend fun applyRemoteArticles(articles: List<Article>) { withContext(IO) { articles.forEach { handleRemoteArticleChange(it) } } }" },
+          { "kind": "add", "text": "onPage = { pageArticles -> applyRemoteArticles(pageArticles) }  // ×2" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>FirestoreSyncManagerTest.kt — update tag-N+1 characterization assertion</summary>
+      <div class="pl-card">
+        <p>The test-net characterization test for the tag-backup N+1 quirk asserts <code>firestore.batch()</code> called N times. After Step 4, it must assert <code>firestoreBackupService.backupArticle(…)</code> called N times instead. Update the assertion + inline comment.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "verify(exactly = 2) { firestore.batch() }  // one per article in tag-backup loop" },
+          { "kind": "add", "text": "verify(exactly = 2) { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) }  // firestore-dedup: delegated to backupArticle" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "Over-eager dedup: tag-backup writes more than just tags after delegation", "body": "Delegating the per-article tag-batch to <code>backupArticle()</code> re-writes the article doc + markers (idempotent via <code>SetOptions.merge()</code>) in addition to tags. Write count per article increases but behaviour is preserved. The characterization test assertion for the N+1 quirk must be updated from <code>firestore.batch()</code>-count to <code>backupArticle()</code>-count." } -->
+  <!-- @include callout { "kind": "warn", "title": "Constant deletion must follow tag-backup inline removal", "body": "<code>USERS_COLLECTION</code> and <code>ARTICLES_COLLECTION</code> in <code>FirestoreSyncManager.companion</code> are only referenced in the inline tag-batch block. Delete constants only after Step 4 removes that block — otherwise the file fails to compile." } -->
+  <!-- @include callout { "kind": "info", "title": "applyRemoteArticles is the batched-tag-reads extension point", "body": "The <code>batched-tag-reads</code> (A3) slice will replace the body of <code>applyRemoteArticles</code> with a batch-prefetch call and pass prefetched tags to <code>handleRemoteArticleChange</code>. Do not add logic here beyond the minimal extraction." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-14T22:46:55Z)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":4,"modules":2,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

@@ -1,0 +1,36 @@
+artifact: plan
+slice: architecture-docs
+parent: 04-plan-architecture-docs.md
+rev: 1
+modules: [firestore-sync-backup, app-scope-di, batched-tag-reads-reference]
+files:
+  - path: docs/architecture/firestore-sync-backup.md
+    role: new
+    delta: { add: 120, rem: 0 }
+    planned_change:
+      intent: "Explanation doc: the post-cleanup Firestore sync/backup architecture — single-source collection constants (companion on FirestoreBackupService), withAuthenticatedUser{} guard (FBS only), addArticleToBatch helper, applyRemoteArticles helper, streamed-restore memory contract (suspend onPage callback, Result<Unit>), A2b large-text rehydration parity, batched-tag-read approach (chunked parallel coroutines, RESTORE_TAG_CHUNK_SIZE=10 — client-only, no index), FTS sanitization fix and result-set impact"
+  - path: docs/architecture/app-scope-di.md
+    role: new
+    delta: { add: 80, rem: 0 }
+    planned_change:
+      intent: "Explanation doc: the @ApplicationScope @Singleton CoroutineScope(SupervisorJob()+ioDispatcher) pattern, when to use it vs viewModelScope, why bare CoroutineScope(dispatcher) is a reliability bug (first child exception cancels the scope), FirestoreSyncManager.cleanup() must not cancel a singleton scope"
+  - path: docs/architecture/batched-tag-reads.md
+    role: new
+    delta: { add: 50, rem: 0 }
+    planned_change:
+      intent: "Reference note: client-only batched tag read query shape — batchRestoreArticleTags(articleIds) using coroutineScope+async+awaitAll, RESTORE_TAG_CHUNK_SIZE=10, subcollection path users/{uid}/articles/{id}/tags/, why collectionGroup was not elected (no userId field on ArticleTags; no firestore.indexes.json; schema migration out of scope)"
+  - path: README.md
+    role: modified
+    delta: { add: 2, rem: 0 }
+    planned_change:
+      intent: "Add one line to the android/ row or a brief ## Android search & restore note: corrected FTS results (sanitized query now reaches the DAO) and memory-bounded restore (streamed page-by-page, no list accumulation)"
+risks:
+  - level: med
+    title: "Docs drift if written before structural slices settle"
+    body: "This slice has a hard dependency on firestore-dedup, firestore-io, streaming-restore, batched-tag-reads, and app-scope. If any of those plans change during implementation, the docs must be updated to reflect the final shipped shape — not the plan shape. Verify against the implemented code, not just the upstream plan files."
+  - level: med
+    title: "External Output Boundary leak"
+    body: "The published docs must contain zero references to SDLC artifacts, workflow files, slice names, plan IDs, or any internal planning vocabulary. A dedicated leak-check step (grep for 'slice', 'sdlc', 'workflow', '04-plan', '03-slice', 'wf-') must pass before the docs are considered done."
+  - level: low
+    title: "collectionGroup reference confusion"
+    body: "The reference doc covers the CLIENT-ONLY batched query shape. Any mention of collectionGroup must be limited to a brief 'why not' rationale (no userId field). Do not imply that an index or rules change exists — none was deployed."

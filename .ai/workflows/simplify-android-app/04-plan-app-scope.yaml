@@ -1,0 +1,77 @@
+artifact: plan
+slice: app-scope
+parent: 04-plan-app-scope.md
+rev: 1
+modules:
+  - id: di-provider
+    label: "@ApplicationScope qualifier + CoroutineScope provider"
+    role: "New qualifier annotation and Hilt singleton CoroutineScope(SupervisorJob()+IO) provider installed in SingletonComponent; the single source of truth for long-lived background scopes"
+  - id: scope-injection
+    label: "Inject app scope into ArticleRepository + FirestoreSyncManager"
+    role: "Hard-cutover constructor changes: remove bare CoroutineScope(ioDispatcher) from ArticleRepositoryImpl and CoroutineScope(SupervisorJob()+Dispatchers.IO) from FirestoreSyncManager; both receive the shared @ApplicationScope scope via Hilt injection"
+  - id: supervised-isolation-test
+    label: "Supervised-isolation unit test"
+    role: "Verify that a child coroutine throwing does not cancel siblings and does not tear down the shared scope; test runs entirely in kotlinx-coroutines-test without live Firebase"
+
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/common/di/AppScopeModule.kt
+    status: new
+    role: provider
+    delta: { add: 30, rem: 0 }
+    planned_change:
+      intent: "Declare @Qualifier @Retention(RUNTIME) annotation class ApplicationScope; provide @Singleton @ApplicationScope CoroutineScope(SupervisorJob() + ioDispatcher) inside a new @Module @InstallIn(SingletonComponent::class) object AppScopeModule alongside DispatchersModule in the common/di package; inject @Dispatcher(TrailsDispatchers.IO) CoroutineDispatcher as the dispatcher parameter"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt
+    status: modified
+    role: consumer
+    delta: { add: 5, rem: 4 }
+    planned_change:
+      intent: "Add @ApplicationScope CoroutineScope parameter to ArticleRepositoryImpl constructor (after ioDispatcher); remove the private val coroutineScope = CoroutineScope(ioDispatcher) initialiser; rename the injected param to coroutineScope so all four launch/async sites (add, delete, synchronize, searchHybrid) remain valid without further edits; remove ioDispatcher from the constructor since it is no longer used to build the scope (keep it only if still needed elsewhere — audit shows it is not, so remove)"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    status: modified
+    role: consumer
+    delta: { add: 4, rem: 5 }
+    planned_change:
+      intent: "Add @ApplicationScope CoroutineScope parameter to FirestoreSyncManager constructor; remove private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO) field; remove the import for SupervisorJob and the bare Dispatchers import (Dispatchers.IO remains used in withContext calls); in cleanup() replace scope.cancel() with a no-op comment explaining the singleton scope is app-lifetime managed — do NOT cancel the shared scope here"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/data/di/DataModule.kt
+    status: modified
+    role: binding
+    delta: { add: 0, rem: 0 }
+    planned_change:
+      intent: "No source change needed — DataModule uses @Binds on ArticleRepositoryImpl which is @Inject-constructor; Hilt resolves the new @ApplicationScope CoroutineScope parameter automatically once the provider exists. Verify no explicit provides call lists the old constructor shape."
+
+  - path: android/app/src/test/java/com/jayteealao/trails/common/di/AppScopeIsolationTest.kt
+    status: new
+    role: test
+    delta: { add: 60, rem: 0 }
+    planned_change:
+      intent: "New JUnit unit test using kotlinx-coroutines-test: (1) create a TestScope with SupervisorJob()+StandardTestDispatcher; (2) launch a child that throws IllegalStateException; (3) advanceUntilIdle(); (4) assert scope.isActive == true and that a sibling child launched after the failure completes normally — proving supervised isolation; (5) assert scope is NOT cancelled after child failure; do NOT call scope.cancel() to confirm app-lifetime behaviour. No MockK / Firebase dependencies. Gradle task: :app:testDebugUnitTest"
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/common/di/AppScopeModule.kt, to: android/app/src/main/java/com/jayteealao/trails/common/di/dispatchers/DispatchersModule.kt, kind: import }
+  - { from: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt, to: android/app/src/main/java/com/jayteealao/trails/common/di/AppScopeModule.kt, kind: import }
+  - { from: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt, to: android/app/src/main/java/com/jayteealao/trails/common/di/AppScopeModule.kt, kind: import }
+  - { from: android/app/src/test/java/com/jayteealao/trails/common/di/AppScopeIsolationTest.kt, to: android/app/src/main/java/com/jayteealao/trails/common/di/AppScopeModule.kt, kind: tests }
+
+risks:
+  - level: high
+    title: "cleanup() in FirestoreSyncManager calls scope.cancel() — must NOT cancel the shared singleton"
+    body: "FirestoreSyncManager.cleanup() currently calls scope.cancel(). After consolidation the scope is @Singleton and shared; cancelling it would silently kill all future coroutines in ArticleRepository and any other future consumer for the lifetime of the process. The cleanup() body must be changed to a no-op (or cancel only periodic WorkManager work, which it already does via cancelPeriodicSync())."
+    mitigation: "Replace scope.cancel() with a comment; retain cancelPeriodicSync(). Add a comment warning that the shared scope must never be cancelled by any single consumer."
+
+  - level: med
+    title: "ArticleRepository.ioDispatcher is unused after scope injection — removing it breaks the constructor"
+    body: "ioDispatcher is injected into ArticleRepositoryImpl but after the scope moves to injection it is only used in the private coroutineScope initialiser (being removed). If no other site in the impl uses ioDispatcher it becomes an orphaned @Dispatcher(IO) parameter. Removing it is safe but constitutes a secondary constructor change that also touches DataModule's @Binds resolution."
+    mitigation: "Audit ArticleRepositoryImpl for any remaining ioDispatcher usage before removal. If found (e.g., a withContext(ioDispatcher) call), retain it. If not, remove to avoid dead parameter smell; Hilt will re-resolve cleanly since DataModule uses @Binds not @Provides."
+
+  - level: med
+    title: "CROSS-SLICE: ArticleRepository.kt and FirestoreSyncManager.kt constructors are shared with firestore-dedup and article-repository"
+    body: "firestore-dedup (B1) edits FirestoreSyncManager body; article-repository (B3) edits ArticleRepositoryImpl body and may also adjust the constructor. Double-editing the same constructor in two slices causes a merge conflict if they are not sequenced properly. This slice (app-scope) must land and be merged BEFORE firestore-dedup and article-repository begin."
+    mitigation: "Enforce sequencing in the recommended order: app-scope → firestore-dedup (5→6) and app-scope → article-repository (5→8). Document the cross-slice constructor dependency in each dependent slice's plan."
+
+  - level: low
+    title: "Supervised-isolation test relies on kotlinx-coroutines-test scheduler not real time"
+    body: "The test creates a TestScope with StandardTestDispatcher; advanceUntilIdle() drives coroutines to completion. If the test accidentally mixes real Dispatchers.IO with the test dispatcher, the isolation assertion may pass trivially or race. No Firebase or WorkManager dependencies should appear in this test."
+    mitigation: "Use only StandardTestDispatcher and TestScope throughout; explicitly assert scope.isActive rather than relying on timeout absence."

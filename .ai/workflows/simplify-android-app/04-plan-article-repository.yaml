@@ -1,0 +1,62 @@
+artifact: plan
+slice: article-repository
+parent: 04-plan-article-repository.md
+rev: 1
+modules:
+  - id: firebase-injection
+    label: "Inject FirebaseFirestore + FirebaseAuth into ArticleRepositoryImpl"
+    role: "Hard-cutover constructor change: add FirebaseFirestore and FirebaseAuth params, delete the two raw getInstance() calls inside delete(); both providers already exist in FirestoreModule/FirebaseModule — no new Hilt module needed"
+  - id: bulk-upsert
+    label: "Bulk upsert in add() — single upsertArticles(List<Article>) call"
+    role: "Replace the per-datum forEach loop's articleDao.upsertArticle(articleToAdd) with a single articleDao.upsertArticles(articlesToAdd) call; associated per-datum inserts (images, videos, tags, authors, domainMetadata) are already List-based and stay per-datum inside the loop — only the Article upsert is batched"
+  - id: repository-tests
+    label: "Repository unit tests for delete() injection + add() bulk behaviour"
+    role: "Extend DefaultArticleRepositoryTest: (1) assert delete() calls the injected FirebaseFirestore/FirebaseAuth mocks rather than getInstance(); (2) assert add() calls upsertArticles once with the full transformed Article list rather than upsertArticle N times; existing test must stay green"
+
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt
+    status: modified
+    role: impl
+    delta: { add: 12, rem: 10 }
+    planned_change:
+      intent: "Extend post-app-scope constructor with two new params: 'private val firestore: FirebaseFirestore' and 'private val firebaseAuth: FirebaseAuth' (injected by Hilt via FirestoreModule/FirebaseModule); in delete(), replace the two raw getInstance() calls with 'firebaseAuth.currentUser' and 'firestore.collection(...)'; in add(), hoist the articleToAdd transform out of the per-datum forEach into a map { } producing 'articlesToAdd: List<Article>', then call articleDao.upsertArticles(articlesToAdd) once AFTER the loop — the remaining per-datum inserts (images, videos, tags, authors, domainMetadata) stay inside a second forEach iteration; add two new imports (FirebaseFirestore, FirebaseAuth) and remove the two unqualified getInstance() call-site imports"
+
+  - path: android/app/src/test/java/com/jayteealao/trails/data/DefaultArticleRepositoryTest.kt
+    status: modified
+    role: test
+    delta: { add: 80, rem: 5 }
+    planned_change:
+      intent: "Add @MockK lateinit vars for ArticleDao, SyncStatusMonitor, FirestoreSyncManager, FirebaseFirestore, FirebaseAuth and a StandardTestDispatcher-backed CoroutineScope; wire ArticleRepositoryImpl in @Before; add test 'delete_usesInjectedFirebaseHandles' (verify firebaseAuth.currentUser called, verify firestore.collection called, verify getInstance never called); add test 'add_performsSingleBulkArticleUpsert' (provide a list of 3 ArticleData, call add(), coVerify exactly { articleDao.upsertArticles(any()) } called once and coVerify exactly(0) { articleDao.upsertArticle(any()) }); keep the existing stub test green"
+
+  - path: android/app/src/main/java/com/jayteealao/trails/data/di/DataModule.kt
+    status: modified
+    role: binding
+    delta: { add: 0, rem: 0 }
+    planned_change:
+      intent: "No source edit needed — DataModule uses @Binds; Hilt resolves the two new constructor params (FirebaseFirestore, FirebaseAuth) automatically from FirestoreModule and FirebaseModule. Verify by inspection only."
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/di/FirestoreModule.kt, kind: import }
+  - { from: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt, to: android/app/src/main/java/com/jayteealao/trails/di/FirebaseModule.kt, kind: import }
+  - { from: android/app/src/test/java/com/jayteealao/trails/data/DefaultArticleRepositoryTest.kt, to: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt, kind: tests }
+
+risks:
+  - level: high
+    title: "CROSS-SLICE: constructor is shared with app-scope — sequence strictly after app-scope"
+    body: "ArticleRepositoryImpl constructor is edited by app-scope (A4) to inject @ApplicationScope CoroutineScope and remove ioDispatcher. This slice extends that post-app-scope constructor. If B3 edits land before app-scope, a three-way merge conflict results. The post-app-scope constructor shape must be known before B3 implements."
+    mitigation: "Enforce order: app-scope merged first, article-repository patches the resulting constructor shape. Both plans document this dependency explicitly."
+
+  - level: med
+    title: "Bulk upsert semantics: upsertArticles(List) must preserve upsert-by-URL behaviour of the current per-item upsertArticle"
+    body: "The current add() loop calls articleDao.upsertArticle(articleToAdd) per item. upsertArticle is annotated @Upsert, which uses the primary-key-based conflict resolution from Room. The URL-dedup path (upsertNewArticle) is NOT called in add() — so the current semantics are already primary-key-based @Upsert, not URL-dedup. Replacing N calls to upsertArticle with one upsertArticles(List) call preserves semantics exactly (both are @Upsert; Room 2.8 @Upsert(List) is auto-transactional and uses the same conflict strategy)."
+    mitigation: "Confirm @Upsert annotation on both upsertArticle and upsertArticles in ArticleDao before patching. Do NOT route through upsertNewArticle — that would change conflict semantics."
+
+  - level: low
+    title: "searchWithScore is owned by fts-search-fix — do not touch it"
+    body: "ArticleRepository.kt also contains searchWithScore (the FTS bug). B3 must not modify that method; fts-search-fix (A1) owns it. If both slices edit the same file, sequence A1 before B3 to avoid merge churn."
+    mitigation: "B3 edits only the constructor, delete(), and add(). Keep diff surgical."
+
+  - level: low
+    title: "Per-datum associated inserts (images, videos, tags, authors, domainMetadata) stay per-datum"
+    body: "The efficiency-10 finding targets the per-article upsertArticle call only. The five associated insert calls (insertArticleImages, insertArticleVideos, insertArticleTags, insertArticleAuthors, insertDomainMetadata) are already List-based and must remain per-datum (each ArticleData owns its own images/tags/etc). Bulk-collecting them would require a flat-map and out-of-scope complexity."
+    mitigation: "Only the Article transform + upsert is batched. The second forEach for associated data is unchanged."

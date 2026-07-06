@@ -1,0 +1,94 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="app-scope" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-app-scope.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "new", "path": "android/app/src/main/java/com/jayteealao/trails/common/di/AppScopeModule.kt", "delta": { "add": 30, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt", "delta": { "add": 5, "rem": 4 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", "delta": { "add": 4, "rem": 5 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/di/DataModule.kt", "delta": { "add": 0, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "android/app/src/test/java/com/jayteealao/trails/common/di/AppScopeIsolationTest.kt", "delta": { "add": 60, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>common/di/AppScopeModule.kt — new @ApplicationScope qualifier + Hilt provider</summary>
+      <div class="pl-card">
+        <p>Declares the <code>@ApplicationScope</code> qualifier annotation and a <code>@Singleton</code> Hilt provider in <code>SingletonComponent</code>. Reuses the already-provided <code>@Dispatcher(TrailsDispatchers.IO)</code> dispatcher — no new dispatcher needed.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "@Qualifier @Retention(AnnotationRetention.RUNTIME) annotation class ApplicationScope" },
+          { "kind": "add", "text": "@Module @InstallIn(SingletonComponent::class) object AppScopeModule {" },
+          { "kind": "add", "text": "  @Provides @Singleton @ApplicationScope" },
+          { "kind": "add", "text": "  fun provideApplicationScope(@Dispatcher(TrailsDispatchers.IO) io: CoroutineDispatcher): CoroutineScope" },
+          { "kind": "add", "text": "    = CoroutineScope(SupervisorJob() + io)" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>data/ArticleRepository.kt — replace bare scope initialiser with @ApplicationScope injection</summary>
+      <div class="pl-card">
+        <p>Removes <code>ioDispatcher</code> from the constructor (no remaining usage after removal) and the bare <code>CoroutineScope(ioDispatcher)</code> field. Adds <code>@ApplicationScope coroutineScope: CoroutineScope</code>. The four launch/async sites (<code>add</code>, <code>delete</code>, <code>synchronize</code>, <code>searchHybrid</code>) already use the name <code>coroutineScope</code> — no body edits needed.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "@Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher" },
+          { "kind": "add", "text": "@ApplicationScope private val coroutineScope: CoroutineScope" },
+          { "kind": "rem", "text": "private val coroutineScope = CoroutineScope(ioDispatcher)" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>services/firestore/FirestoreSyncManager.kt — inject shared scope, neuter cleanup()</summary>
+      <div class="pl-card">
+        <p>Removes the ad-hoc <code>CoroutineScope(SupervisorJob() + Dispatchers.IO)</code> field. Adds <code>@ApplicationScope scope: CoroutineScope</code> to the constructor. <strong>Critical:</strong> <code>cleanup()</code> replaces <code>scope.cancel()</code> with a comment — the singleton scope must never be cancelled by a single consumer.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)" },
+          { "kind": "add", "text": "// @ApplicationScope CoroutineScope injected — app-lifetime managed, do not cancel" },
+          { "kind": "ctx", "text": "fun cleanup() { cancelPeriodicSync() /* scope.cancel() removed — shared singleton */ }" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>test/…/common/di/AppScopeIsolationTest.kt — supervised-isolation unit test</summary>
+      <div class="pl-card">
+        <p>Pure kotlinx-coroutines-test unit test. Builds <code>CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))</code>; launches a throwing child; asserts <code>scope.isActive == true</code>; launches a sibling and asserts it completes normally. No Firebase, no WorkManager, no MockK. Gradle task: <code>./gradlew :app:testDebugUnitTest</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))" },
+          { "kind": "add", "text": "scope.launch { throw IllegalStateException(\"child failure\") }" },
+          { "kind": "add", "text": "advanceUntilIdle()" },
+          { "kind": "add", "text": "assertTrue(scope.isActive) // SupervisorJob absorbs child failure" },
+          { "kind": "add", "text": "scope.launch { counter++ }; advanceUntilIdle(); assertEquals(1, counter)" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "HIGH — cleanup() must NOT cancel the shared singleton scope", "body": "<code>FirestoreSyncManager.cleanup()</code> calls <code>scope.cancel()</code>. After consolidation the scope is <code>@Singleton</code>; cancelling it kills all future coroutines in ArticleRepository and any future consumer for the process lifetime. Replace with a no-op comment." } -->
+  <!-- @include callout { "kind": "warn", "title": "MED — ioDispatcher removal from ArticleRepositoryImpl is a secondary constructor change", "body": "After scope injection <code>ioDispatcher</code> is unused in ArticleRepositoryImpl. Audit the full impl before removing; if any <code>withContext(ioDispatcher)</code> site remains, keep the param. Verified by static read: no such site exists — safe to remove." } -->
+  <!-- @include callout { "kind": "warn", "title": "MED — CROSS-SLICE: constructor churn shared with firestore-dedup and article-repository", "body": "ArticleRepository.kt and FirestoreSyncManager.kt constructors are also edited by article-repository (B3) and firestore-dedup (B1) respectively. This slice MUST be merged before those slices begin to avoid double-edit merge conflicts." } -->
+  <!-- @include callout { "kind": "info", "title": "LOW — isolation test must use StandardTestDispatcher only", "body": "Mixing real Dispatchers.IO into AppScopeIsolationTest would make the assertion trivially pass or introduce races. Use StandardTestDispatcher exclusively throughout the test." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (static analysis + shape freshness research, 2026-06-14)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":5,"modules":3,"risks":4}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

@@ -1,0 +1,93 @@
+artifact: plan
+slice: list-viewmodel
+parent: 04-plan-list-viewmodel.md
+rev: 1
+modules: [viewmodel, repository, usecases]
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListViewModel.kt
+    status: modified
+    role: primary — ViewModel under cleanup
+    delta: { add: 5, rem: 30 }
+    planned_change:
+      intent: >
+        Remove dead `_articles` MutableStateFlow (quality-5); remove commented-out `sync()` body and
+        the method itself (quality-12); replace `getArticleWithTextUseCase()` call with direct
+        `articleRepository.pockets()` call (reuse-6); replace three direct `articleDao.*` calls —
+        `upsertNewArticle`, `getArticleById`, `updateUnfurledDetails` — with three new repo-delegated
+        methods (quality-11 broadened); remove `articleDao` and `getArticleWithTextUseCase` from the
+        constructor; remove now-unused imports; preserve `ioDispatcher` (still used for `viewModelScope.launch`).
+  - path: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt
+    status: modified
+    role: interface + impl — new pass-through methods added
+    delta: { add: 25, rem: 0 }
+    planned_change:
+      intent: >
+        Add three new methods to `ArticleRepository` interface and delegate implementations in
+        `ArticleRepositoryImpl`: `suspend fun saveNewArticle(article: Article): String` (delegates
+        to `articleDao.upsertNewArticle`); `suspend fun getArticleById(itemId: String): Article?`
+        (already exists — no-op); `suspend fun updateUnfurledDetails(itemId, title, url, image,
+        hasImage, excerpt, normalizedUrl)` (delegates to `articleDao.updateUnfurledDetails`).
+        NOTE: `getArticleById` is already on the interface — so only `saveNewArticle` and
+        `updateUnfurledDetails` are net-new. All B3-style: thin delegation, same dispatcher semantics,
+        no added logic. These additions must be consistent with the post-B3 constructor shape.
+  - path: android/app/src/main/java/com/jayteealao/trails/usecases/GetArticleWithTextUseCase.kt
+    status: deleted
+    role: deleted use case — trivial pass-through eliminated
+    delta: { add: 0, rem: 10 }
+    planned_change:
+      intent: >
+        Hard-delete the file. Its only caller was `ArticleListViewModel` (constructor + `articles`
+        Pager). Its only logic is `return pocketRepository.pockets()` — a one-line pass-through.
+        After reuse-6 moves the ViewModel to call `articleRepository.pockets()` directly, this file
+        is dead. No Hilt @Binds or @Provides references the class; Hilt resolves it via `@Inject`
+        constructor directly — removing the class removes the binding automatically.
+  - path: android/app/src/test/java/com/jayteealao/trails/screens/articleList/ArticleListViewModelTest.kt
+    status: modified
+    role: test — update setUp + add new assertions; remove use-case mock
+    delta: { add: 25, rem: 10 }
+    planned_change:
+      intent: >
+        Remove `@MockK getArticleWithTextUseCase` field and its `every { invoke() }` stub; remove
+        `@MockK articleDao` field and all its `coEvery` / `coVerify` stubs; add repo-level stubs for
+        the three new `ArticleRepository` methods (`saveNewArticle`, `updateUnfurledDetails` —
+        `getArticleById` already mocked). Update the `ArticleListViewModel(...)` constructor call to
+        match the new 3-param shape (remove `getArticleWithTextUseCase` and `articleDao` args). Add
+        test asserting that `saveUrl(...)` invokes `articleRepository.saveNewArticle()` and
+        `articleRepository.updateUnfurledDetails()` rather than any DAO method directly.
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListViewModel.kt, to: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt, kind: depends-on }
+  - { from: android/app/src/main/java/com/jayteealao/trails/usecases/GetArticleWithTextUseCase.kt, to: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt, kind: deleted-dependency }
+  - { from: android/app/src/test/java/com/jayteealao/trails/screens/articleList/ArticleListViewModelTest.kt, to: android/app/src/main/java/com/jayteealao/trails/screens/articleList/ArticleListViewModel.kt, kind: tests }
+
+risks:
+  - level: high
+    title: "Must sequence strictly after article-repository (B3)"
+    body: >
+      `ArticleRepositoryImpl` constructor is modified by B3 (and by app-scope / A4 before it).
+      This slice adds two more methods to the same file. Landing list-viewmodel before B3 causes
+      a three-way merge conflict and risks building on a pre-B3 constructor shape. Hard gate:
+      B3 merged and green before list-viewmodel implementation begins.
+  - level: med
+    title: "saveUrl() DAO sites: transaction and threading semantics must be preserved"
+    body: >
+      `upsertNewArticle` is a `@Transaction`-annotated DAO method (Room enforces atomicity at the
+      DAO layer). The new repo method `saveNewArticle` must delegate directly to `articleDao.upsertNewArticle`
+      without adding or removing a wrapping transaction. The undo-race guard (`getArticleById` +
+      `updateUnfurledDetails`) runs on `ioDispatcher` inside `viewModelScope.launch(ioDispatcher)` —
+      all three repo calls must remain on that same dispatcher path (no re-dispatch inside the impl).
+  - level: med
+    title: "ArticleListViewModel.kt overlaps cross-cutting-url (B9)"
+    body: >
+      B9 (cross-cutting-url) also touches `ArticleListViewModel.kt` — it replaces `normalizeUrl()`
+      call sites with `Article.computeNormalizedUrl()`. Both slices edit `saveUrl()` and
+      `insertArticle()`. Sequence list-viewmodel (B5) before cross-cutting-url (B9) or coordinate
+      the merge carefully to avoid conflicts. Flag as a cross-slice overlap.
+  - level: low
+    title: "insertArticle() direct DAO call: move behind repo"
+    body: >
+      `insertArticle(article)` calls `articleDao.upsertArticle(...)` directly. This is a direct DAO
+      site. The new `ArticleRepository` interface already has no matching method, so a new
+      `suspend fun upsertArticle(article: Article)` pass-through is needed. Alternatively, the
+      existing `add(List<ArticleData>)` method is not a fit (different type). The plan adds a
+      minimal `upsertArticle(Article)` pass-through — this is part of the quality-11 broadening scope.

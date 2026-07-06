@@ -1,0 +1,62 @@
+artifact: plan
+slice: test-net
+parent: 04-plan-test-net.md
+rev: 1
+modules:
+  - id: test-infra-revival
+    label: "Test infra revival (E1)"
+    role: "Revive the commented-out Hilt test DI module and stub repository test so they compile and pass as a foundation for characterization tests"
+  - id: firestore-characterization
+    label: "Firestore characterization suite"
+    role: "New unit tests pinning current observable behaviour of FirestoreSyncManager and FirestoreBackupService before any dedup refactor touches them"
+
+files:
+  - path: android/app/src/androidTest/java/com/jayteealao/trails/testdi/TestDatabaseModule.kt
+    status: modified
+    role: test-infra
+    delta: { add: 40, rem: 25 }
+    planned_change:
+      intent: "Uncomment and rewrite the @TestInstallIn module to replace DataModule with an in-memory Room database binding; wire ArticleRepository to ArticleRepositoryImpl backed by the in-memory DB so Hilt-backed instrumented tests can run"
+
+  - path: android/app/src/test/java/com/jayteealao/trails/data/DefaultArticleRepositoryTest.kt
+    status: modified
+    role: test-infra
+    delta: { add: 35, rem: 10 }
+    planned_change:
+      intent: "Uncomment and revive the pockets_newItemSaved_itemIsReturned test using MockK fakes for ArticleDao, SyncStatusMonitor, FirestoreSyncManager, and ioDispatcher; remove the FakePocketDao inner class skeleton and replace with a minimal MockK-based fake that satisfies the current ArticleRepositoryImpl constructor; verify the test compiles and passes green"
+
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt
+    status: modified
+    role: characterization
+    delta: { add: 60, rem: 0 }
+    planned_change:
+      intent: "Extend the existing FirestoreBackupServiceTest with characterization tests pinning: (1) backupArticlesPaginated chunks at WRITE_BATCH_LIMIT=20, each chunk gets exactly one batch.commit(); (2) large-text path (>900KB) stores text in subcollection and nulls article.text; (3) inline-text path stores text inline; (4) restoreAllArticlesPaginated accumulates pages into a single list (the OOM quirk to preserve as baseline, fixed in streaming-restore slice); (5) auth-guard: unauthenticated getCurrentUser() returns Result.failure with 'User not authenticated' message — all methods guard consistently; (6) user-meta read: getLastSyncTimestamp reads users/{uid} document field 'lastSyncTimestamp'; isFirstSync returns true when field absent"
+
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt
+    status: new
+    role: characterization
+    delta: { add: 180, rem: 0 }
+    planned_change:
+      intent: "New characterization test class for FirestoreSyncManager pinning current behaviour: (1) syncLocalChanges auth-guard: null currentUser emits SyncStatus.Error('Not authenticated', null) and returns without calling articleDao; (2) syncLocalChanges tag-backup path: per-article getArticleTags call followed by firestore.batch() + batch.set per tag + batch.commit per article — one batch per article (the N+1 quirk to preserve as baseline); (3) syncLocalChanges adaptive chunk size: >1000 articles on first sync uses chunk=200, regular sync uses chunk=50; (4) performFullSync first-sync restore scenario: localCount==0 and remoteCount>0 → calls restoreAllArticlesPaginated then updateLastSyncTimestamp; (5) handleRemoteArticleChange new-article path: calls articleDao.upsertArticle then restoreArticleTags; (6) shouldAcceptRemoteChange: remote.timeUpdated > local wins; equal timestamps use calculateArticleCompleteness score; (7) performBidirectionalSync: pulls remote then pushes local (syncLocalChanges called after remote apply). Use MockK for FirebaseAuth, FirebaseFirestore, ArticleDao, FirestoreBackupService; use StandardTestDispatcher + runTest."
+
+edges:
+  - { from: android/app/src/androidTest/java/com/jayteealao/trails/testdi/TestDatabaseModule.kt, to: android/app/src/main/java/com/jayteealao/trails/data/di/DataModule.kt, kind: replaces }
+  - { from: android/app/src/test/java/com/jayteealao/trails/data/DefaultArticleRepositoryTest.kt, to: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt, kind: tests }
+  - { from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt, kind: tests }
+  - { from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt, to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt, kind: tests }
+
+risks:
+  - level: med
+    title: "TestDatabaseModule revival may surface a larger Hilt graph break"
+    body: "The original module was disabled before the ArticleRepositoryImpl constructor grew dependencies (SyncStatusMonitor, FirestoreSyncManager, ioDispatcher). Reviving it requires providing all constructor deps; if Hilt singleton scoping conflicts with the test component, the fix balloons. Scope: repair only what the net requires; record a deferral with reason if it exceeds ~2h."
+    mitigation: "Prefer MockK constructor injection over a full Hilt in-memory graph; if TestDatabaseModule revival is blocked, descope it to a plain unit test and document."
+
+  - level: med
+    title: "FirestoreSyncManager is hard to unit-test: uses ad-hoc CoroutineScope + WorkManager"
+    body: "FirestoreSyncManager creates its own CoroutineScope(SupervisorJob() + Dispatchers.IO) and calls WorkManager.getInstance(context) directly. These make scheduling and concurrency non-deterministic in plain JUnit tests. The characterization tests must mock or stub around them."
+    mitigation: "Pass a TestCoroutineScheduler-backed scope via constructor; mock WorkManager at call sites using MockK object-level mocking (mockkObject/every); pin only the functions exercised in characterization — schedulePeriodicSync/cancelPeriodicSync are out of scope for this slice."
+
+  - level: low
+    title: "Characterization tests must pin current quirks, not fix them"
+    body: "The tag-backup N+1 batch (one batch per article per chunk) and restoreAllArticlesPaginated accumulating all pages into memory are the exact quirks firestore-dedup/streaming-restore will fix. If tests are written against the 'ideal' behaviour they will fail on the current code."
+    mitigation: "Assert the as-is batch count and list accumulation; include explicit comments noting which tests are expected to change when firestore-dedup/streaming-restore land."

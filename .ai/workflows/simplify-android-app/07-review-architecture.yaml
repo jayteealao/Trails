@@ -1,0 +1,26 @@
+artifact: review-dimension
+dimension: architecture
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: ship
+verdict_label: "Ship"
+summary: "Architecture improved: @ApplicationScope consolidates lifetime management, withAuthenticatedUser centralizes auth guard, addArticleToBatch is single-source for batch writes, getUserMetaSnapshot reduces Firestore round-trips. Architecture docs written for all three major system areas. One NIT: FirestoreSyncManager still directly accesses firestore and auth fields that could be further delegated to FirestoreBackupService — acceptable for now given the bidirectional sync logic."
+counts:
+  blocker: 0
+  high: 0
+  med: 0
+  low: 0
+  nit: 1
+findings:
+  - id: AR-1
+    severity: nit
+    dimension: architecture
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "1-59"
+    confidence: low
+    status: open
+    surfaced-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-06T02:00:00Z"
+    msg: "FirestoreSyncManager still holds direct firestore and auth references for user checks and scheduling — minor layering concern since FirestoreBackupService is the intended Firestore facade. Acceptable for the current scope; future cleanup could remove these direct references."

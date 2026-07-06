@@ -1,0 +1,80 @@
+artifact: plan
+slice: fts-search-fix
+parent: 04-plan-fts-search-fix.md
+rev: 1
+created-at: "2026-06-14T22:46:55Z"
+updated-at: "2026-06-14T22:46:55Z"
+
+modules:
+  - id: repo-fix
+    label: "ArticleRepository — route sanitized query to DAO"
+    files:
+      - android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt
+  - id: fts-tests
+    label: "FTS unit tests — pin intended sanitized + wildcard semantics"
+    files:
+      - android/app/src/test/java/com/jayteealao/trails/data/FtsSearchTest.kt
+
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt
+    status: modified
+    role: bug-fix
+    delta: { add: 1, rem: 1 }
+    planned_change:
+      intent: >
+        In searchWithScore, replace the raw `query` argument passed to
+        articleDao.searchArticlesWithMatchInfo() with `sanitizedQuery` (already computed on
+        the line above). This is the one-line fix: change `searchArticlesWithMatchInfo(query)`
+        to `searchArticlesWithMatchInfo(sanitizedQuery)`. Do NOT touch sanitizeSearchQuery(),
+        calculateScore(), delete(), add(), or the constructor — this slice is limited to the
+        single call-site fix in searchWithScore.
+
+  - path: android/app/src/test/java/com/jayteealao/trails/data/FtsSearchTest.kt
+    status: new
+    role: test
+    delta: { add: 120, rem: 0 }
+    planned_change:
+      intent: >
+        New JVM unit test class (no Hilt, no Room — use MockK to stub ArticleDao
+        and a real ArticleRepositoryImpl wired with a test ioDispatcher via
+        StandardTestDispatcher). Pin the INTENDED post-fix semantics for every
+        edge case: (1) plain word → sanitized to *"**word**"* and passed to DAO,
+        (2) unbalanced quote → internal quotes escaped, expression remains valid,
+        (3) lone `*` wildcard → escaped inside phrase, no FTS special meaning leaks,
+        (4) FTS operators AND/OR/NEAR as literal text → escaped inside phrase quotes,
+        (5) empty string → searchWithScore returns emptyList() without calling DAO,
+        (6) whitespace-only → sanitized to non-crashing expression (empty or trimmed),
+        (7) non-ASCII / Unicode → passes through sanitizeSearchQuery unchanged and reaches DAO.
+        Each test verifies via `coVerify { articleDao.searchArticlesWithMatchInfo(expectedSanitized) }`.
+        Tests depend on the revived DB harness from test-net for the compile environment
+        but do NOT require an in-process Room DB — MockK suffices.
+
+edges:
+  - { from: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt,
+      to: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt,
+      kind: calls }
+  - { from: android/app/src/test/java/com/jayteealao/trails/data/FtsSearchTest.kt,
+      to: android/app/src/main/java/com/jayteealao/trails/data/ArticleRepository.kt,
+      kind: tests }
+
+risks:
+  - level: med
+    title: "Result-set change is intentional — not a regression"
+    body: >
+      Routing the sanitized+wildcard query to the DAO will change which rows are returned
+      for queries containing FTS-special chars (quotes, *, AND/OR/NEAR). Reviewers must
+      treat any pre/post diff in returned rows as the INTENDED correction, not a regression.
+      The new FTS tests pin the post-fix behaviour; pre-fix behaviour must NOT be pinned.
+  - level: low
+    title: "sanitizeSearchQuery double-wraps wildcards"
+    body: >
+      searchWithScore calls sanitizeSearchQuery("*$query*"), which itself wraps the
+      result in *"..."*. The intended final expression is *"*<escaped-query>*"*. Verify
+      the composed expression is a valid FTS4 MATCH pattern and does not produce an
+      overly-broad or empty match for typical queries. Confirm with the edge-case tests.
+  - level: low
+    title: "Callers: searchLocal and ArticleSearchViewModel"
+    body: >
+      searchLocal() delegates entirely to searchWithScore(); ArticleListViewModel and
+      ArticleSearchViewModel call searchLocal(). No caller signature changes — hard
+      cutover is entirely internal to searchWithScore. No caller update required.

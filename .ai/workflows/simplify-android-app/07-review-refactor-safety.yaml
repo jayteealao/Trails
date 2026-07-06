@@ -1,0 +1,16 @@
+artifact: review-dimension
+dimension: refactor-safety
+parent: 07-review.md
+rev: 1
+model: claude-sonnet-4-6
+run_at: "2026-07-06T02:00:00Z"
+verdict: ship
+verdict_label: "Ship"
+summary: "All interface changes are backward-compatible: ArticleRepository interface extended with new methods (additive). GetArticleWithTextUseCase deletion is safe — no remaining callers. @ApplicationScope injection replaces private CoroutineScope construction — same lifecycle semantics. UrlModifier promoted to @Singleton — idempotent, no state change. No breaking changes to existing callers found."
+counts:
+  blocker: 0
+  high: 0
+  med: 0
+  low: 0
+  nit: 0
+findings: []

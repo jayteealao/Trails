@@ -1,0 +1,96 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="architecture-docs" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-architecture-docs.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "new", "path": "docs/architecture/firestore-sync-backup.md", "delta": { "add": 120, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "docs/architecture/app-scope-di.md", "delta": { "add": 80, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "docs/architecture/batched-tag-reads.md", "delta": { "add": 50, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "README.md", "delta": { "add": 2, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>docs/architecture/firestore-sync-backup.md — Firestore sync/backup architecture (post-cleanup)</summary>
+      <div class="pl-card">
+        <p>Explanation doc covering: single-source collection constants (companion on FirestoreBackupService), <code>withAuthenticatedUser{}</code> guard (FBS only — FSM uses an intentionally distinct early-return guard), <code>addArticleToBatch</code> write helper, <code>applyRemoteArticles</code> restore-loop helper, streamed restore memory contract (<code>suspend onPage</code> callback, <code>Result&lt;Unit&gt;</code>), A2b large-text rehydration parity, batched-tag-read client-only approach, and FTS sanitization fix + result-set impact.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "## Collection layout" },
+          { "kind": "add", "text": "All path strings are constants in `FirestoreBackupService.companion`." },
+          { "kind": "add", "text": "## Streamed restore — memory contract" },
+          { "kind": "add", "text": "suspend fun restoreAllArticlesPaginated(onProgress, onPage): Result<Unit>" },
+          { "kind": "add", "text": "  // onPage called per page; no list accumulation; restoreAllArticles() removed" },
+          { "kind": "add", "text": "## FTS search fix" },
+          { "kind": "add", "text": "  // sanitizedQuery (not raw query) now reaches the DAO" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>docs/architecture/app-scope-di.md — App-scope &amp; DI conventions</summary>
+      <div class="pl-card">
+        <p>Explanation doc covering: the <code>@ApplicationScope @Singleton CoroutineScope(SupervisorJob()+ioDispatcher)</code> pattern provided by <code>AppScopeModule</code>; when to use it vs <code>viewModelScope</code>; why bare <code>CoroutineScope(dispatcher)</code> is a reliability bug (first child exception permanently cancels the scope); why <code>cleanup()</code> must not cancel a singleton scope.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "## The @ApplicationScope scope" },
+          { "kind": "add", "text": "  @Provides @Singleton @ApplicationScope" },
+          { "kind": "add", "text": "  fun provideApplicationScope(...) = CoroutineScope(SupervisorJob() + ioDispatcher)" },
+          { "kind": "add", "text": "## When to use @ApplicationScope vs viewModelScope" },
+          { "kind": "add", "text": "  // viewModelScope → UI/ViewModel lifecycle; @ApplicationScope → background sync" },
+          { "kind": "add", "text": "## Anti-pattern: bare CoroutineScope(dispatcher)" },
+          { "kind": "add", "text": "  // First child exception cancels the scope permanently — inject @ApplicationScope instead" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>docs/architecture/batched-tag-reads.md — Batched tag read reference note</summary>
+      <div class="pl-card">
+        <p>Reference note: <code>batchRestoreArticleTags(articleIds)</code> query shape — subcollection reads dispatched in parallel chunks of <code>RESTORE_TAG_CHUNK_SIZE=10</code> via <code>coroutineScope+async+awaitAll</code>. Includes rationale for rejecting collectionGroup (no <code>userId</code> field on <code>ArticleTags</code>; no <code>firestore.indexes.json</code>; schema migration out of scope). No index deployed, no rules change.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "## Query shape" },
+          { "kind": "add", "text": "  users/{uid}/articles/{articleId}/tags/  (full subcollection get)" },
+          { "kind": "add", "text": "  chunked(RESTORE_TAG_CHUNK_SIZE=10) → coroutineScope { async }.awaitAll()" },
+          { "kind": "add", "text": "## Why not collectionGroup" },
+          { "kind": "add", "text": "  // ArticleTags has no userId field → cross-user isolation impossible" },
+          { "kind": "add", "text": "  // No firestore.indexes.json; schema migration out of scope" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>README.md — one-line FTS + restore capability note</summary>
+      <div class="pl-card">
+        <p>Add one sentence to the Android client row: corrected FTS results (sanitized query reaches the DAO) and memory-bounded page-by-page restore (no OOM on large libraries).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "Search returns sanitized FTS results; restore streams page-by-page (constant memory)." }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "Docs drift if written before structural slices settle", "body": "The implementer must read the shipped source in Step 1 before writing — not copy from plan files. If any constant is renamed or a signature changes during implementation, the docs must reflect the final code." } -->
+  <!-- @include callout { "kind": "risk", "title": "External Output Boundary leak", "body": "Published docs must contain zero references to SDLC artifacts, workflow files, slice names, or plan IDs. The Step 6 grep (<code>slice|sdlc|workflow|04-plan|03-slice|wf-</code>) is a hard gate before the docs are considered done." } -->
+  <!-- @include callout { "kind": "info", "title": "Reference doc is client-only (no index deployed)", "body": "The batched-tag-reads reference doc covers the chunked parallel coroutine shape only. collectionGroup was evaluated and rejected. No Firestore index or rules change was made." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-14T22:46:55Z)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":4,"modules":3,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

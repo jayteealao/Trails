@@ -1,0 +1,122 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="test-net" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-test-net.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/androidTest/java/com/jayteealao/trails/testdi/TestDatabaseModule.kt", "delta": { "add": 40, "rem": 25 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/data/DefaultArticleRepositoryTest.kt", "delta": { "add": 35, "rem": 10 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreBackupServiceTest.kt", "delta": { "add": 60, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt", "delta": { "add": 180, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>TestDatabaseModule.kt — revive @TestInstallIn Hilt module</summary>
+      <div class="pl-card">
+        <p>The entire module body has been commented out since a Hilt restructure deleted <code>FakePocketRepository</code> and <code>DataModule</code>. Revive with an in-memory Room database provider and MockK stubs for <code>FirestoreSyncManager</code>/<code>SyncStatusMonitor</code> so instrumented tests have a valid <code>ArticleRepository</code> binding.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "// @Module" },
+          { "kind": "rem", "text": "// @TestInstallIn(components=[SingletonComponent::class], replaces=[DataModule::class])" },
+          { "kind": "rem", "text": "// interface FakeDataModule {" },
+          { "kind": "add", "text": "@Module" },
+          { "kind": "add", "text": "@TestInstallIn(components = [SingletonComponent::class], replaces = [DataModule::class])" },
+          { "kind": "add", "text": "object TestDataModule {" },
+          { "kind": "add", "text": "  @Provides @Singleton fun provideInMemoryDb(@ApplicationContext ctx: Context): AppDatabase = Room.inMemoryDatabaseBuilder(ctx, AppDatabase::class.java).allowMainThreadQueries().build()" },
+          { "kind": "add", "text": "  @Provides fun provideArticleDao(db: AppDatabase): ArticleDao = db.articleDao()" },
+          { "kind": "add", "text": "  @Provides @Singleton fun bindRepository(dao: ArticleDao, ...): ArticleRepository = mockk(relaxed = true)" },
+          { "kind": "ctx", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+
+    <details class="pl-card-d">
+      <summary>DefaultArticleRepositoryTest.kt — revive the one unit test</summary>
+      <div class="pl-card">
+        <p>The single test body and the <code>FakePocketDao</code> inner class are fully commented out. Replace with a MockK-based setup wiring <code>ArticleRepositoryImpl</code> with fakes for <code>ArticleDao</code>, <code>SyncStatusMonitor</code>, <code>FirestoreSyncManager</code>, and <code>StandardTestDispatcher</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "//        val repository = DefaultArticleRepository(FakePocketDao())" },
+          { "kind": "rem", "text": "//        repository.add(\"Repository\")" },
+          { "kind": "rem", "text": "//        assertEquals(repository.pockets.first().size, 1)" },
+          { "kind": "add", "text": "val repository = ArticleRepositoryImpl(context, articleDao, syncStatusMonitor, firestoreSyncManager, testDispatcher)" },
+          { "kind": "add", "text": "every { articleDao.getArticlesWithTags() } answers { TestPagingSource() }" },
+          { "kind": "add", "text": "assertNotNull(repository.pockets())" }
+        ] } -->
+      </div>
+    </details>
+
+    <details class="pl-card-d">
+      <summary>FirestoreBackupServiceTest.kt — characterization: batch chunking + large-text + auth-guard + user-meta</summary>
+      <div class="pl-card">
+        <p>Extend the existing 8-test file with ~7 characterization tests pinning the surfaces <code>firestore-dedup</code> and <code>streaming-restore</code> will refactor. Key assertions: <code>backupArticlesPaginated</code> chunks at <code>WRITE_BATCH_LIMIT=20</code> (one <code>batch.commit()</code> per chunk); large-text (>900KB) stores to subcollection and nulls inline text; <code>restoreAllArticlesPaginated</code> accumulates all pages in one list (the OOM baseline); all methods return <code>Result.failure</code> when unauthenticated.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "fun `backupArticlesPaginated commits one batch per chunk of 20`() = runTest {" },
+          { "kind": "add", "text": "  // 45 articles → 3 batches (20 + 20 + 5)" },
+          { "kind": "add", "text": "  verify(exactly = 3) { firestore.batch() }" },
+          { "kind": "add", "text": "  verify(exactly = 3) { batch.commit() }" },
+          { "kind": "ctx", "text": "  // NOTE: firestore-dedup will change chunk strategy — update this test then" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "fun `backupArticlesPaginated stores large text in subcollection`() = runTest {" },
+          { "kind": "add", "text": "  // article.text > 900KB → text/content set; article.text = null in main doc" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "fun `restoreAllArticlesPaginated accumulates all pages into single list`() = runTest {" },
+          { "kind": "ctx", "text": "  // Baseline OOM quirk — streaming-restore slice will fix; update test then" },
+          { "kind": "add", "text": "  assertEquals(100, result.getOrThrow().size)" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+
+    <details class="pl-card-d">
+      <summary>FirestoreSyncManagerTest.kt — new: auth-guard, tag-backup N+1, adaptive chunks, sync strategy</summary>
+      <div class="pl-card">
+        <p>New characterization test class (~180 lines, ~10 tests). Uses MockK for <code>FirebaseAuth</code>, <code>FirebaseFirestore</code>, <code>ArticleDao</code>, <code>FirestoreBackupService</code>; <code>StandardTestDispatcher</code> + <code>runTest</code> + <code>advanceUntilIdle()</code>. Pins: (1) auth-guard on <code>syncLocalChanges</code>/<code>performFullSync</code>; (2) tag-backup per-article batch loop (N+1 quirk); (3) adaptive chunk size (200 for first sync &gt;1000 articles, 50 otherwise); (4) first-sync restore scenario dispatch; (5) conflict resolution timestamp comparison; (6) bidirectional sync ordering.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "fun `syncLocalChanges emits error status when user is null`() = runTest {" },
+          { "kind": "add", "text": "  every { auth.currentUser } returns null" },
+          { "kind": "add", "text": "  syncManager.syncLocalChanges()" },
+          { "kind": "add", "text": "  assertEquals(SyncStatus.Error(\"Not authenticated\", null), syncManager.syncStatus.value)" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "fun `syncLocalChanges tag-backup calls one batch per article`() = runTest {" },
+          { "kind": "ctx", "text": "  // N+1 baseline: 2 articles → firestore.batch() called twice in tag loop" },
+          { "kind": "ctx", "text": "  // NOTE: firestore-dedup will collapse to one batch per chunk — update then" },
+          { "kind": "add", "text": "  verify(exactly = 2) { firestore.batch() }" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "fun `performFullSync first-sync restore scenario calls restoreAllArticlesPaginated`() = runTest {" },
+          { "kind": "add", "text": "  // localCount=0, remoteCount=5 → restore branch taken" },
+          { "kind": "add", "text": "  coVerify { firestoreBackupService.restoreAllArticlesPaginated(any()) }" },
+          { "kind": "add", "text": "  coVerify { firestoreBackupService.updateLastSyncTimestamp() }" },
+          { "kind": "add", "text": "}" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "risk", "title": "TestDatabaseModule revival may surface a larger Hilt graph break", "body": "The module was disabled before <code>ArticleRepositoryImpl</code> grew multiple constructor deps. If Hilt singleton scoping conflicts with the test component, the fix may balloon. Mitigation: prefer MockK constructor injection; if revival exceeds ~2h, descope to a plain unit test harness and record a deferral." } -->
+  <!-- @include callout { "kind": "warn", "title": "FirestoreSyncManager is hard to unit-test: ad-hoc CoroutineScope + WorkManager", "body": "<code>FirestoreSyncManager</code> creates its own <code>CoroutineScope(SupervisorJob() + Dispatchers.IO)</code> internally and calls <code>WorkManager.getInstance(context)</code> directly. Mock <code>WorkManager</code> via <code>mockkStatic</code>; use <code>StandardTestDispatcher</code> with <code>advanceUntilIdle()</code>. <code>schedulePeriodicSync</code>/<code>cancelPeriodicSync</code> are out of scope." } -->
+  <!-- @include callout { "kind": "info", "title": "Characterization tests pin current quirks — do not fix them", "body": "The tag-backup N+1 per-article batch and <code>restoreAllArticlesPaginated</code> in-memory accumulation are the exact behaviour <code>firestore-dedup</code> and <code>streaming-restore</code> will refactor. Assertions must match as-is behaviour; inline comments mark which tests to update when those slices land." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (codebase exploration + slice def, 2026-06-14)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":4,"modules":2,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>

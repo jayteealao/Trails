@@ -1,0 +1,114 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="detail-viewmodel" data-rev="1">
+  <!-- Body-only fragment: the page owns the heading, metric-row, and topology figure.
+       All content below is a deterministic projection of 04-plan-detail-viewmodel.yaml. -->
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailViewModel.kt", "delta": { "add": 30, "rem": 40 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/common/UrlModifier.kt", "delta": { "add": 1, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "android/app/src/main/java/com/jayteealao/trails/common/di/CommonModule.kt", "delta": { "add": 20, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/screens/settings/SettingsPreferenceKeys.kt", "delta": { "add": 0, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "new", "path": "android/app/src/test/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailViewModelTest.kt", "delta": { "add": 120, "rem": 0 } } -->
+  </table>
+
+  <div class="pl-cards">
+    <details class="pl-card-d">
+      <summary>ArticleDetailViewModel.kt — nested combine() drops 9 unchecked casts (quality-4)</summary>
+      <div class="pl-card">
+        <p>Two private data classes (<code>ArticleGroup</code>, <code>ArchiveGroup</code>) split the 9 flows into typed groups of 4 and 5. The outer <code>combine(articleGroupFlow, archiveGroupFlow)</code> then produces <code>ArticleDetailState</code> with no casts. The <code>stateIn(WhileSubscribed(5000), viewModelScope)</code> call is preserved unchanged.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "combine(_article, _selectedTabIndex, …, _selectedArchiveContent) { values ->" },
+          { "kind": "rem", "text": "    @Suppress(\"UNCHECKED_CAST\")" },
+          { "kind": "rem", "text": "    ArticleDetailState(article = values[0] as Article?, …)" },
+          { "kind": "add", "text": "private val articleGroupFlow = combine(_article, _selectedTabIndex, useFreediumFlow, _isLoading) { article, tab, useFreedium, loading ->" },
+          { "kind": "add", "text": "    ArticleGroup(article, tab, useFreedium, loading)" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "private val archiveGroupFlow = combine(_remoteArchives, _localArchives, _archiveSyncing, _textSource, _selectedArchiveContent) { remote, local, syncing, textSrc, sel ->" },
+          { "kind": "add", "text": "    ArchiveGroup(remote, local, syncing, textSrc, sel)" },
+          { "kind": "add", "text": "}" },
+          { "kind": "add", "text": "private val _state = combine(articleGroupFlow, archiveGroupFlow) { ag, arc ->" },
+          { "kind": "add", "text": "    ArticleDetailState(article = ag.article, selectedTabIndex = ag.selectedTabIndex, …)" },
+          { "kind": "ctx", "text": "}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), …) // unchanged" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleDetailViewModel.kt — typed settings key (quality-6) + UrlModifier injection (reuse-5)</summary>
+      <div class="pl-card">
+        <p>All three <code>"USE_FREEDIUM"</code> string literals replaced with <code>SettingsPreferenceKeys.USE_FREEDIUM</code>. The three <code>val modifier = UrlModifier()</code> local allocations are removed; <code>urlModifier</code> is injected as a constructor parameter (Hilt provides the <code>@Singleton</code> instance from <code>UrlModifier.kt</code>).</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": ".filter { it == \"USE_FREEDIUM\" }" },
+          { "kind": "add", "text": ".filter { it == SettingsPreferenceKeys.USE_FREEDIUM }" },
+          { "kind": "rem", "text": "sharedPreferencesManager.getBoolean(\"USE_FREEDIUM\")" },
+          { "kind": "add", "text": "sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_FREEDIUM)" },
+          { "kind": "rem", "text": "val modifier = UrlModifier()  // ×3 across getArticle/autoPopulateText/loadArchiveContent" },
+          { "kind": "add", "text": "// constructor: private val urlModifier: UrlModifier (injected @Singleton)" },
+          { "kind": "add", "text": "modifier.modifyUrl(…)  →  urlModifier.modifyUrl(…)" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleDetailViewModel.kt — ArchiveType enum constants replace magic strings (reuse-11)</summary>
+      <div class="pl-card">
+        <p>In <code>autoPopulateText()</code>, the hardcoded <code>"readability"</code> and <code>"markdown"</code> keys are replaced with <code>ArchiveType.READABILITY.archiveKey</code> and <code>ArchiveType.MARKDOWN.archiveKey</code>. The <code>ArchiveType</code> import is already present.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "archives.firstOrNull { it.archiveKey == \"readability\" }" },
+          { "kind": "add", "text": "archives.firstOrNull { it.archiveKey == ArchiveType.READABILITY.archiveKey }" },
+          { "kind": "rem", "text": "?: archives.firstOrNull { it.archiveKey == \"markdown\" }" },
+          { "kind": "add", "text": "?: archives.firstOrNull { it.archiveKey == ArchiveType.MARKDOWN.archiveKey }" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>UrlModifier.kt — @Singleton annotation</summary>
+      <div class="pl-card">
+        <p><code>UrlModifier</code> holds only <code>val</code> compiled Regex fields — no per-instance mutable state. Adding <code>@Singleton</code> allows Hilt to provide a single shared instance. No DI module needed if the class already has <code>@Inject constructor</code>.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "rem", "text": "class UrlModifier {" },
+          { "kind": "add", "text": "@Singleton" },
+          { "kind": "add", "text": "class UrlModifier @Inject constructor() {" }
+        ] } -->
+      </div>
+    </details>
+    <details class="pl-card-d">
+      <summary>ArticleDetailViewModelTest.kt — new unit tests pin state assembly and all 4 items</summary>
+      <div class="pl-card">
+        <p>MockK + <code>StandardTestDispatcher</code> (same harness as <code>ArticleListViewModelTest</code>). Four tests: state-assembly field mapping (no cast exceptions), <code>useFreediumFlow</code> key filter, injected <code>UrlModifier</code> call verification, and <code>autoPopulateText</code> archive-key priority.</p>
+        <!-- @include diff-block { "lines": [
+          { "kind": "add", "text": "@Test fun stateAssembly_allFieldsMappedCorrectly() { … advanceUntilIdle() … assertEquals(expected, state.value) }" },
+          { "kind": "add", "text": "@Test fun useFreediumFlow_filtersByCorrectKey() { … }" },
+          { "kind": "add", "text": "@Test fun getArticle_usesInjectedUrlModifier() { … verify { urlModifier.modifyUrl(any()) } }" },
+          { "kind": "add", "text": "@Test fun autoPopulateText_prefersReadabilityOverMarkdown() { … }" }
+        ] } -->
+      </div>
+    </details>
+  </div>
+
+  <!-- @include callout { "kind": "info", "title": "Nested combine() preserves emission semantics", "body": "All 9 source flows still participate. The intermediate <code>ArticleGroup</code>/<code>ArchiveGroup</code> data classes add one allocation per emission but do not change which values trigger re-emission. Pin with the state-assembly test." } -->
+  <!-- @include callout { "kind": "warn", "title": "SettingsPreferenceKeys import crosses screen package", "body": "Importing <code>screens/settings/SettingsPreferenceKeys</code> into <code>screens/articleDetail/</code> is an intra-screens cross-package dependency. Acceptable per codebase conventions — <code>SettingsViewModel</code> already owns the const." } -->
+  <!-- @include callout { "kind": "info", "title": "Verify Hilt @Singleton binding before merging", "body": "Run <code>./gradlew :app:compileDebugKotlin</code> to confirm the Hilt component graph accepts <code>@Singleton UrlModifier</code> without an explicit <code>@Provides</code> module. Create <code>CommonModule.kt</code> only if compilation fails." } -->
+
+  <details class="pl-revs">
+    <summary>0 prior revisions</summary>
+    <ul>
+      <li>rev 1 — initial plan (2026-06-14T22:46:55Z)</li>
+    </ul>
+  </details>
+
+  <style>
+    .fragment-plan .pl-cards { margin: 1rem 0; display: grid; gap: .5rem; }
+    .fragment-plan .pl-card-d > summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+    .fragment-plan .pl-card { padding: .5rem .75rem; border-left: 3px solid currentColor; opacity: .95; }
+    .fragment-plan .pl-card p { margin: .25rem 0 .5rem; }
+    .fragment-plan .pl-revs { margin-top: 1.25rem; }
+    .fragment-plan .pl-revs ul { margin: .5rem 0 0 1rem; }
+  </style>
+
+  <script>
+  (function () {
+    var detail = {"counts":{"files":5,"modules":2,"risks":3}};
+    detail.name = 'plan';
+    detail.artifact = 'plan';
+    window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', { detail: detail }));
+  })();
+  </script>
+</section>
