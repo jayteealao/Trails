@@ -49,6 +49,12 @@ class FirestoreBackupService @Inject constructor(
         // access calls per batched write (same-path calls are cached, but each
         // article has a unique path). Keep chunk sizes ≤ 20.
         private const val WRITE_BATCH_LIMIT = 20 // ≤ 20 so each batch's marker getAfter() calls fit the Firestore rules document-access budget
+        // Throughput-hygiene target for backupArticlesPaginated: close a batch before
+        // the next article would push the queued write count past this threshold.
+        // Firestore's hard limit is 10 MiB per commit (not a write count), so 500 is a
+        // conservative ceiling that keeps individual commits small and predictable when
+        // articles carry many tags. An article is never split across two batches.
+        private const val WRITE_COUNT_THRESHOLD = 500
         // Read-side page size for restore operations — independent of the write-batch budget.
         private const val RESTORE_PAGE_LIMIT = 50
         // Number of article IDs dispatched concurrently per round in batchRestoreArticleTags.
@@ -721,28 +727,45 @@ class FirestoreBackupService @Inject constructor(
 
                 Timber.d("Starting paginated backup of $totalCount articles")
 
-                // Process in chunks of WRITE_BATCH_LIMIT to respect the Firestore rules document-access budget
-                articles.chunked(WRITE_BATCH_LIMIT).forEachIndexed { chunkIndex, chunk ->
-                    val batch = firestore.batch()
+                // Process in write-count-aware chunks rather than by article count.
+                // Each article contributes a variable number of writes: 1 article doc +
+                // optionally 1 large-text subcollection doc + tags.size tag docs +
+                // markerKeysFor(article).size marker docs.  We close and commit the
+                // current batch before adding an article that would push the total past
+                // WRITE_COUNT_THRESHOLD, so a single article is never split across two
+                // batches (all-or-nothing within a chunk is preserved).
+                var batch = firestore.batch()
+                var batchWriteCount = 0
+                var chunkIndex = 0
 
-                    chunk.forEach { article ->
-                        val articleRef = getUserArticlesCollection(user.uid)
-                            .document(article.itemId)
+                articles.forEach { article ->
+                    val tags = tagsByArticleId[article.itemId] ?: emptyList()
+                    val textSize = article.text?.toByteArray()?.size ?: 0
+                    val largeTextWrites = if (textSize > MAX_TEXT_SIZE && article.text != null) 1 else 0
+                    val articleWrites = 1 + largeTextWrites + tags.size + markerKeysFor(article).size
 
-                        // Write article doc (large-text branch) + tags (efficiency-2) into
-                        // the same batch. Tag writes have no rules getAfter() cost.
-                        val tags = tagsByArticleId[article.itemId] ?: emptyList()
-                        addArticleToBatch(batch, articleRef, article, tags)
-
-                        // Write existence marker(s) alongside each article in the chunk.
-                        // Chunk size ≤ 20 (WRITE_BATCH_LIMIT) keeps the rules budget:
-                        // one getAfter per article = at most 20 document-access calls.
-                        addMarkerWrites(batch, user.uid, article)
+                    // Flush the current batch if this article would push it over the threshold.
+                    // Always flush after the first article even if it alone exceeds the threshold
+                    // (we never split a single article across batches).
+                    if (batchWriteCount > 0 && batchWriteCount + articleWrites > WRITE_COUNT_THRESHOLD) {
+                        batch.commit().await()
+                        onProgress(successCount, totalCount)
+                        Timber.d("Backed up $successCount / $totalCount articles (chunk ${chunkIndex + 1})")
+                        batch = firestore.batch()
+                        batchWriteCount = 0
+                        chunkIndex++
                     }
 
-                    batch.commit().await()
-                    successCount += chunk.size
+                    val articleRef = getUserArticlesCollection(user.uid).document(article.itemId)
+                    addArticleToBatch(batch, articleRef, article, tags)
+                    addMarkerWrites(batch, user.uid, article)
+                    batchWriteCount += articleWrites
+                    successCount++
+                }
 
+                // Commit the final (possibly only) batch.
+                if (batchWriteCount > 0) {
+                    batch.commit().await()
                     onProgress(successCount, totalCount)
                     Timber.d("Backed up $successCount / $totalCount articles (chunk ${chunkIndex + 1})")
                 }
