@@ -5,12 +5,12 @@ slug: simplify-android-app
 status: in-progress
 stage-number: 5
 created-at: "2026-06-18T22:04:03Z"
-updated-at: "2026-07-06T00:35:54Z"
-slices-implemented: 11
+updated-at: "2026-07-06T01:02:08Z"
+slices-implemented: 13
 slices-total: 14
-metric-total-files-changed: 44
-metric-total-lines-added: 2059
-metric-total-lines-removed: 963
+metric-total-files-changed: 48
+metric-total-lines-added: 2228
+metric-total-lines-removed: 1054
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -46,8 +46,14 @@ slices:
   - slice: list-viewmodel
     file: 05-implement-list-viewmodel.md
     status: complete
+  - slice: list-rendering
+    file: 05-implement-list-rendering.md
+    status: complete
+  - slice: sync-worker
+    file: 05-implement-sync-worker.md
+    status: complete
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app list-rendering"
+next-invocation: "/wf verify simplify-android-app sync-worker"
 ---
 
 # Implement Index
@@ -68,6 +74,7 @@ foundational regression-net gate — every dependent slice waits on it being gre
 | detail-viewmodel | complete | [05-implement-detail-viewmodel.md](05-implement-detail-viewmodel.md) |
 | list-viewmodel | complete | [05-implement-list-viewmodel.md](05-implement-list-viewmodel.md) |
 | list-rendering | complete | [05-implement-list-rendering.md](05-implement-list-rendering.md) |
+| sync-worker | complete | [05-implement-sync-worker.md](05-implement-sync-worker.md) |
 
 ## Cross-Slice Integration Notes
 - **`test-net` is a prerequisite, not a peer.** Its characterization tests pin the

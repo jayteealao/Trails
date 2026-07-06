@@ -14,7 +14,6 @@ import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.archive.ArchiveService
-import com.jayteealao.trails.data.archive.ArchiveType
 import com.jayteealao.trails.data.datasource.NetworkDataSource
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArticleData
@@ -37,8 +36,9 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import javax.inject.Inject
@@ -90,11 +90,14 @@ class SyncWorker @AssistedInject constructor(
                 try {
 //TODO: use channels
                 val repopulateJob = launch {
-                    val nonMetricsArticles = articleDao.getNonMetricsArticles()
-                    if (nonMetricsArticles.isNotEmpty()) {
-                        Timber.d("Processing ${nonMetricsArticles.size} non-metrics articles")
+                    val pageSize = 50
+                    var pageOffset = 0
+                    while (currentCoroutineContext().isActive) {
+                        val page = articleDao.getNonMetricsArticles(pageSize, pageOffset)
+                        if (page.isEmpty()) break
+                        Timber.d("Processing ${page.size} non-metrics articles (offset=$pageOffset)")
 
-                        val jobs = nonMetricsArticles.map { article ->
+                        val jobs = page.map { article ->
                             launch(Dispatchers.IO) {
                                 try {
                                     if (article.title.isBlank()) {
@@ -116,9 +119,10 @@ class SyncWorker @AssistedInject constructor(
                             }
                         }
 
-                        // Wait for all article processing to complete before moving to unresolved articles
+                        // Wait for all article processing in this page before fetching the next
                         jobs.joinAll()
-                        Timber.d("Finished processing non-metrics articles")
+                        Timber.d("Finished processing ${page.size} non-metrics articles (offset=$pageOffset)")
+                        pageOffset += pageSize
                     }
 
                     val unresolved = articleDao.getUnresolvedArticles()
@@ -151,10 +155,6 @@ class SyncWorker @AssistedInject constructor(
                 }
                     repopulateJob.join()
 
-                    // ── Phase 7: Background archive sync ─────────────────────
-                    // TODO: Re-enable after verifying ArticleDetailViewModel.loadArchives() in isolation
-                    // syncArchivesInBackground()
-
                     // ── Phase 6: Metadata backfill ───────────────────────────
                     // backfillMetadata()
 
@@ -168,13 +168,14 @@ class SyncWorker @AssistedInject constructor(
                 setProgress(workDataOf(PROGRESS to 50))
             }
 
-            delay(1000)
-            while (syncJob.isActive) {
-                if (hadErrors) {
-                    return@withContext Result.failure()
-                }
-                delay(5000)
+            try {
+                withTimeout(30_000L) { syncJob.join() }
+            } catch (e: TimeoutCancellationException) {
+                Timber.e("SyncWorker: syncJob timed out after 30s — cancelling")
+                syncJob.cancel()
+                return@withContext Result.failure()
             }
+            if (hadErrors) return@withContext Result.failure()
 
             setProgress(workDataOf(PROGRESS to 100))
             if (syncJob.isCancelled) {
@@ -182,78 +183,6 @@ class SyncWorker @AssistedInject constructor(
             }
             Result.success()
 
-    }
-
-    // ── Phase 7: Download archives and populate text for articles ─────────
-
-    private suspend fun syncArchivesInBackground() {
-        val batchSize = 20
-        var offset = 0
-
-        while (currentCoroutineContext().isActive) {
-            val itemIds = articleDao.getArticlesNeedingText(batchSize, offset)
-            if (itemIds.isEmpty()) break
-
-            Timber.d("Archive sync: processing ${itemIds.size} articles (offset=$offset)")
-
-            for (itemId in itemIds) {
-                if (!currentCoroutineContext().isActive) break
-                try {
-                    // Fetch remote archive status from Firestore
-                    val doc = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-                        .collection("articles")
-                        .document(itemId)
-                        .get()
-                        .await()
-
-                    if (!doc.exists()) {
-                        delay(100)
-                        continue
-                    }
-
-                    @Suppress("UNCHECKED_CAST")
-                    val archivesMap = doc.get("archives") as? Map<String, Map<String, Any>>
-                        ?: emptyMap()
-
-                    val remoteArchives = archivesMap.mapNotNull { (key, value) ->
-                        val status = value["status"] as? String ?: return@mapNotNull null
-                        val gcsPath = value["gcs_path"] as? String
-                        key to com.jayteealao.trails.data.archive.ArchiveStatus(status, gcsPath)
-                    }.toMap()
-
-                    if (remoteArchives.isNotEmpty()) {
-                        // Download archive files locally
-                        archiveService.syncArchives(itemId, remoteArchives)
-
-                        // Populate article.text from readability or markdown
-                        populateTextFromArchive(itemId)
-                    }
-
-                    // Apply screenshot as image fallback if article has no image
-                    archiveService.applyScreenshotAsImage(itemId)
-
-                    delay(100) // Rate-limit Firestore reads
-                } catch (e: Exception) {
-                    Timber.e(e, "Archive sync failed for $itemId")
-                }
-            }
-
-            offset += batchSize
-        }
-    }
-
-    private suspend fun populateTextFromArchive(itemId: String) {
-        val article = articleDao.getArticleById(itemId) ?: return
-        if (!article.text.isNullOrBlank()) return
-
-        // Prefer readability over markdown
-        val type = listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN)
-            .firstOrNull { archiveService.getLocalArchiveFile(itemId, it) != null }
-            ?: return
-
-        val text = archiveService.readArchiveText(itemId, type) ?: return
-        articleRepository.updateArticleText(itemId, text, type.archiveKey)
-        Timber.d("Populated text for $itemId from ${type.archiveKey}")
     }
 
     // ── Phase 6: Metadata backfill from Warg ─────────────────────────────

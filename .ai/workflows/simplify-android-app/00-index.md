@@ -7,8 +7,8 @@ status: active
 current-stage: verify
 stage-number: 6
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-06T00:36:30Z"
-selected-slice: "list-rendering"
+updated-at: "2026-07-06T01:02:08Z"
+selected-slice: "sync-worker"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
 base-branch: "main"
@@ -50,8 +50,12 @@ runtime-evidence-deferrals:
     reason: "Rung 1 (unit-tests): 6 batchRestoreArticleTags read-count tests assert sub-N+1 via MockK verify(exactly=N); 1 integration test confirms coVerify(exactly=0) restoreArticleTags never called. Rung 2 (Roborazzi): not applicable — no visual surface. Rung 3 (AVD boot): three AVDs installed but boot requires display; no X server/GPU display available in this headless agent session. Residual = live lazylogcat smoke during a bidirectional sync (≥15 articles) observing chunk-grouped Timber.d log lines, plus before/after Firebase console Firestore read-count screenshot."
     deferred-at: "2026-07-05T22:23:40Z"
     cleared-by: null
+  - slice: list-rendering
+    reason: "Rung 1 (unit-tests): 140/140 unit tests pass with 0 failures; compile verified (compileDebugKotlin BUILD SUCCESSFUL). Rung 2 (Roborazzi): project has no Roborazzi golden configuration in place. Rung 3 (AVD boot): three AVDs installed (Medium_Phone_API_36.0, Pixel_9_Pro, Pixel_9_Pro_Fold) but no device running (adb devices empty); booting requires GPU/HAXM acceleration and a display server — unavailable in this headless agent session. Residual = live scroll smoke (≥20 articles) via Layout Inspector recomposition overlay confirming no gradientAngle/gradientTransition nodes and thumbnail hardware-decode, plus before/after screenshot pair confirming appearance unchanged."
+    deferred-at: "2026-07-06T00:47:44Z"
+    cleared-by: null
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app list-rendering"
+next-invocation: "/wf verify simplify-android-app sync-worker"
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -113,6 +117,8 @@ workflow-files:
   - 05-implement-list-viewmodel.md
   - 06-verify-list-viewmodel.md
   - 05-implement-list-rendering.md
+  - 06-verify-list-rendering.md
+  - 05-implement-sync-worker.md
 progress:
   intake: complete
   shape: complete

@@ -256,6 +256,7 @@ dependencies {
     ksp(libs.androidx.hilt.hilt.compiler)
 //    annotationProcessor(libs.androidx.hilt.hilt.compiler)
     androidTestImplementation(libs.androidx.work.testing)
+    testImplementation(libs.androidx.work.testing)
 
     // Retrofit
     implementation(libs.bundles.retrofit)
