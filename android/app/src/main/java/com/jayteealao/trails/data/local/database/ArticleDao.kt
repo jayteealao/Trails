@@ -9,6 +9,7 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.network.ArticleAuthors
+import com.jayteealao.trails.network.ArticleData
 import com.jayteealao.trails.network.ArticleImages
 import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.network.ArticleVideos
@@ -195,8 +196,8 @@ interface ArticleDao {
     @Query("SELECT * FROM article WHERE resolved = 2 OR resolved = 1")
     suspend fun getNonMetricsArticles(): List<Article>
 
-    @Query("SELECT * FROM article WHERE resolved = 2 OR resolved = 1 ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
-    suspend fun getNonMetricsArticles(limit: Int, offset: Int): List<Article>
+    @Query("SELECT * FROM article WHERE (resolved = 2 OR resolved = 1) AND itemId > :afterId ORDER BY itemId ASC LIMIT :limit")
+    suspend fun getNonMetricsArticles(limit: Int, afterId: String): List<Article>
 
     @Query("SELECT * FROM article WHERE text = '0' OR text = '1'")
     suspend fun getTextEqualsZeroOrOne(): List<Article>
@@ -432,6 +433,32 @@ interface ArticleDao {
 //
 //    @Query("SELECT * FROM pocketsummary WHERE id = :itemId")
 //    suspend fun getSummary(itemId: String): PocketSummary?
+
+    /**
+     * Atomically upserts a batch of articles together with all their associated data
+     * (images, videos, tags, authors, domain metadata) in a single database transaction.
+     *
+     * [articles] must be the already-transformed list (normalized URL, cleared
+     * deletedAt/archivedAt, updated timeUpdated) that corresponds positionally to
+     * [dataList]. The caller owns the Article transformation; this method owns the
+     * atomicity guarantee.
+     *
+     * Mirrors the [@Transaction] pattern used by [upsertNewArticle].
+     */
+    @Transaction
+    suspend fun upsertArticlesWithAssociatedData(
+        articles: List<Article>,
+        dataList: List<ArticleData>,
+    ) {
+        upsertArticles(articles)
+        dataList.forEach { datum ->
+            insertArticleImages(datum.images)
+            insertArticleVideos(datum.videos)
+            insertArticleTags(datum.tags)
+            insertArticleAuthors(datum.authors)
+            datum.domainMetadata?.let { insertDomainMetadata(it) }
+        }
+    }
 
     /**
      * Upserts an article into the database.
