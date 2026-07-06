@@ -83,7 +83,7 @@ This branch delivers the full cleanup scope from shape: dead complexity removed,
 | PE-1 | performance | HIGH | **fixed** | `FirestoreSyncManager.kt:296-305` | N+1 DAO reads (cross-ref CR-1) |
 | CR-3 | correctness | LOW | deferred | `ArticleListItem.kt:77-82` | tagStates second-pass precedence subtle but correct |
 | SE-2 | security | LOW | deferred | `FirestoreBackupService.kt:511` | batchRestoreArticleTags silent empty on unauthenticated |
-| TE-1 | testing | LOW | open | `FirestoreSyncManagerTest.kt` | Bulk DAO tag fetch test gap (CR-1 fix needs companion test) |
+| TE-1 | testing | LOW | **resolved** | `FirestoreSyncManagerTest.kt` | Bulk DAO tag fetch test gap (CR-1 fix needs companion test) — companion test added (commit `56a6533`) |
 | RE-2 | reliability | LOW | deferred | `FirestoreSyncManager.kt:538-542` | reconcile sweep stops on first chunk failure |
 | TE-2 | testing | NIT | deferred | `ArticleDao.kt:291-302` | deleteAllTagsForArticle atomicity window untested |
 | MA-1 | maintainability | NIT | deferred | `ArticleDao.kt:291-302` | deleteAllTagsForArticle KDoc could be more prescriptive |
@@ -99,7 +99,7 @@ This branch delivers the full cleanup scope from shape: dead complexity removed,
 | correctness | 0 | 0 (fixed) | 0 (fixed) | 1 defer | 0 | caveats |
 | security | 0 | 0 | 0 (fixed) | 1 defer | 0 | caveats |
 | code-simplification | 0 | 0 | 0 | 0 | 0 | clean |
-| testing | 0 | 0 | 0 | 1 open | 1 defer | caveats |
+| testing | 0 | 0 | 0 | 1 resolved | 1 defer | ship |
 | maintainability | 0 | 0 | 0 | 0 | 2 defer | ship |
 | reliability | 0 | 0 | 0 (fixed) | 1 defer | 0 | caveats |
 | backend-concurrency | 0 | 0 | 0 | 0 | 0 | clean |
@@ -161,5 +161,6 @@ This branch delivers the full cleanup scope from shape: dead complexity removed,
 | SE-1 | Add SECURITY NOTE comment to `firestore.rules` | fixed | `8362d4c` |
 | RE-1 | Add `if (e is CancellationException) throw e` in `performFullSync` catch | fixed | `8362d4c` |
 | PE-1 | Same fix as CR-1 | fixed | `8362d4c` |
+| TE-1 | Add companion test capturing `tagsByArticleId` — bulk read once per chunk, grouped by itemId | fixed | `56a6533` |
 
-All 147 unit tests pass after fixes (BUILD SUCCESSFUL).
+All 148 unit tests pass after fixes (BUILD SUCCESSFUL). No open findings remain; 2 LOW + 6 NIT deferred to follow-up.
