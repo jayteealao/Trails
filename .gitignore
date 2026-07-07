@@ -45,3 +45,12 @@ warg/scripts/export-articles-csv.mjs
 Analytics _ Dashboards _ Jayteealao@gmail.PDF
 firebase/test/node_modules/**/*
 firebase/test/firestore-debug.log
+
+# Firebase emulator debug logs (written wherever the emulator runs)
+firebase-debug.log
+firestore-debug.log
+database-debug.log
+ui-debug.log
+pubsub-debug.log
+**/firebase-debug.log
+**/firestore-debug.log
