@@ -1,0 +1,32 @@
+<section class="consult-panel">
+  <style>
+    @scope (.consult-panel) {
+      :scope { margin: 20px 0; border: 1px solid var(--border, #d0d4da); border-radius: 10px; padding: 16px 18px; }
+      h3 { margin: 0 0 4px; font-size: 1rem; }
+      .cp-meta { font-size: 0.75rem; opacity: .75; margin-bottom: 12px; }
+      .cp-badge { display: inline-block; border: 1px solid currentColor; border-radius: 999px; padding: 0 8px; font-size: 0.7rem; margin-left: 6px; }
+      .cp-verdict { font-style: italic; margin: 0 0 12px; }
+      dl { margin: 0; }
+      dt { font-weight: 600; font-size: 0.85rem; margin-top: 10px; }
+      dt .sev { font-size: 0.7rem; border-radius: 4px; padding: 1px 6px; margin-right: 6px; color: #fff; }
+      .sev-high { background: #b3261e; }
+      .sev-med { background: #9a6700; }
+      dd { margin: 2px 0 0 0; font-size: 0.85rem; }
+      .cp-outcome { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border, #d0d4da); font-size: 0.85rem; }
+    }
+  </style>
+  <h3>Second opinion — consult panel (plan critique)</h3>
+  <p class="cp-meta">2026-07-10 · provider: <strong>codex</strong><span class="cp-badge">repo-aware</span> · read-only oracle over the plan + live sweep code</p>
+  <p class="cp-verdict">Verdict: "Mostly sound for the stated defects" — the identity guard is a local no-progress detector, correct so long as nothing re-nulls a written stamp; the download-stamp is correct iff remote-wins is deliberately destructive.</p>
+  <dl>
+    <dt><span class="sev sev-high">high</span>Rows re-entering the predicate defeat the identity guard</dt>
+    <dd>If any writer resets a non-null <code>backed_up_at</code> to NULL between iterations, the same set returns and the guard aborts legitimate work. <em>Plan response:</em> recorded as the guard's soundness invariant in Assumptions; Step 10 adds a repo-wide grep audit of all <code>backed_up_at</code>/<code>backedUpAt</code> writers.</dd>
+    <dt><span class="sev sev-med">med</span>Cyclic re-entry evades the previous-set comparison</dt>
+    <dd>Alternating pages re-nulling each other are caught only by the 1000-iteration cap. <em>Plan response:</em> accepted for a defensive sweep; the cap's warn log must read distinctly from the normal <code>finished</code> line (Risks updated).</dd>
+    <dt><span class="sev sev-med">med</span>Partial stamp failure ends the sweep on the failing singleton</dt>
+    <dd>Backup succeeded, so only a stale NULL marker remains, retried next sync. <em>Plan response:</em> recorded as known benign behaviour; the PO had already declined the throwing-stamp test variant in discovery round 2.</dd>
+    <dt><span class="sev sev-med">med</span>Remote-wins stamping assumes a destructive conflict policy</dt>
+    <dd>Stamping the remote-won row is only correct because <code>shouldAcceptRemoteChange</code> already overwrites divergent local edits today (pre-existing, unchanged). <em>Plan response:</em> made explicit in Assumptions.</dd>
+  </dl>
+  <p class="cp-outcome"><strong>Outcome:</strong> proceed — all four findings folded into the plan (two Assumptions, two Risks/Watchouts entries, one Step-10 audit). No step-level redesign required; the zero-branch gating and first-sync ordering were confirmed correct as planned.</p>
+</section>

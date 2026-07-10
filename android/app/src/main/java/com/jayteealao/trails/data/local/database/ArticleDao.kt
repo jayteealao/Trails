@@ -425,6 +425,13 @@ interface ArticleDao {
     """)
     suspend fun getArticlesNeverBackedUp(limit: Int, offset: Int): List<Article>
 
+    /**
+     * Count of articles matching the [getArticlesNeverBackedUp] predicate — the
+     * backlog the reconciliation sweep is about to drain.
+     */
+    @Query("SELECT COUNT(*) FROM article WHERE backed_up_at IS NULL AND deleted_at IS NULL")
+    suspend fun countArticlesNeverBackedUp(): Int
+
 //    @Upsert
 //    suspend fun upsertArticleSummary(pocketSummary: PocketSummary)
 //

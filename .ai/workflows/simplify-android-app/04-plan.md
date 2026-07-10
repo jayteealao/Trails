@@ -5,15 +5,15 @@ slug: simplify-android-app
 status: complete
 stage-number: 4
 created-at: "2026-06-14T22:46:55Z"
-updated-at: "2026-06-14T22:46:55Z"
+updated-at: "2026-07-10T21:32:04Z"
 planning-mode: all
-slices-planned: 14
-slices-total: 14
-implementation-order: [test-net, fts-search-fix, streaming-restore, batched-tag-reads, app-scope, firestore-dedup, firestore-io, article-repository, detail-viewmodel, list-viewmodel, list-rendering, sync-worker, cross-cutting-url, architecture-docs]
+slices-planned: 15
+slices-total: 15
+implementation-order: [test-net, fts-search-fix, streaming-restore, batched-tag-reads, app-scope, firestore-dedup, firestore-io, article-repository, detail-viewmodel, list-viewmodel, list-rendering, sync-worker, cross-cutting-url, architecture-docs, reconcile-stall-guard]
 conflicts-found: 0
 deploy-gated: false
-total-files-to-touch: 57
-total-step-count: 117
+total-files-to-touch: 61
+total-step-count: 127
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -121,6 +121,18 @@ sites are intentionally left). **Finding:** 9 normalization sites total, all byt
 (no divergence). **Land last** of its overlap set (ArticleRepository, ArticleListViewModel,
 FirestoreSyncManager).
 
+### `reconcile-stall-guard` (m · 4 files · 10 steps) — extension round 1, bugfix, behaviour-changing
+Three defects in the offline-save backup safety net, all in `FirestoreSyncManager.kt`, found by
+the live probe of PR #29: the `fd2778e` stall guard compares chunk *sizes* so two full pages abort
+the sweep (fix: **full-chunk identity** + `MAX_RECONCILE_ITERATIONS=1000` cap); the sweep is
+skipped when `totalCount == 0` (fix: sweep call inside the zero-branch); download-applied rows
+land `backed_up_at = NULL` and re-upload (fix: stamp via the remote-won upsert `copy()`, local-wins
+untouched). Built-in oracle: the existing multi-page reconcile test fails pre-fix, passes post-fix.
+**Key risk:** strict-@MockK collateral from the new `countArticlesNeverBackedUp()` backlog log —
+stub setups first. `setForeground()` long-drain protection found already wired (verify-only);
+device-wall residual resolved as `harness-declined` (PO 2026-07-10). Planned 2026-07-10, after
+handoff of the original 14.
+
 ### `architecture-docs` (m · 4 files · 7 steps) — DoD #6, docs, **land last**
 `docs/architecture/` (new): explanation `firestore-sync-backup.md`, explanation
 `app-scope-di.md`, reference `batched-tag-reads.md` (**client-only query-shape note** —
@@ -178,6 +190,8 @@ Dependent order with parallelizable points called out ("parallel where appropria
 12. **`sync-worker`** — B7; independent. *(parallelizable any time after test-net)*
 13. **`cross-cutting-url`** — B9; conflict-prone, land after its overlap set (8, 10, 6, 7, 9).
 14. **`architecture-docs`** — DoD #6; needs the 5 structural slices settled — land last.
+15. **`reconcile-stall-guard`** — extension round 1 (2026-07-10); regression fix on the shipped
+    sweep — implement next; ideally lands before PR #29 merges (ship decision).
 
 **Parallelizable groups** (once `test-net` is green): `{fts-search-fix}`,
 `{detail-viewmodel, list-rendering, sync-worker}` can proceed independently of the Firestore

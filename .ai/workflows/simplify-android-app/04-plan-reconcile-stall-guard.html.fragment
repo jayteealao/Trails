@@ -1,0 +1,53 @@
+<section class="fragment-plan" data-artifact="plan" data-slice="reconcile-stall-guard" data-rev="0">
+  <!-- Body-only fragment: page chrome (heading, metric-row, topology figure) is renderer-owned. -->
+  <style>
+    .fragment-plan .pl-guard-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+    .fragment-plan .pl-guard-compare .pl-col { border: 1px solid var(--border, #d0d4da); border-radius: 8px; padding: 10px 12px; }
+    .fragment-plan .pl-col h4 { margin: 0 0 6px; font-size: 0.85rem; letter-spacing: .02em; }
+    .fragment-plan .pl-col.pl-bad h4 { color: var(--danger, #b3261e); }
+    .fragment-plan .pl-col.pl-good h4 { color: var(--success, #1b7f4d); }
+    .fragment-plan .pl-col pre { margin: 0; font-size: 0.75rem; overflow-x: auto; }
+    .fragment-plan .pl-note { font-size: 0.8rem; opacity: .85; margin: 4px 0 0; }
+    @media (max-width: 640px) { .fragment-plan .pl-guard-compare { grid-template-columns: 1fr; } }
+  </style>
+
+  <div class="pl-guard-compare">
+    <div class="pl-col pl-bad">
+      <h4>Shipped guard — misfires on full pages</h4>
+      <pre>if (chunk.size == prevChunkSize) break
+// page1: 20 rows → prev = 20
+// page2: 20 DIFFERENT rows → 20 == 20
+// → "no progress", sweep aborts</pre>
+      <p class="pl-note">Live probe: 30 of 50 never-backed-up articles left stranded after one chunk.</p>
+    </div>
+    <div class="pl-col pl-good">
+      <h4>Planned guard — full-chunk identity + cap</h4>
+      <pre>val ids = chunk.mapTo(mutableSetOf()) { it.itemId }
+if (ids == prevChunkIds) break   // same rows = true stall
+prevChunkIds = ids
+if (++iterations > MAX_RECONCILE_ITERATIONS) break</pre>
+      <p class="pl-note">Stalls only when stamping stops removing rows; 1000-iteration cap as independent failsafe (AC2).</p>
+    </div>
+  </div>
+
+  <table class="files-touched">
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt", "delta": { "add": 30, "rem": 8 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt", "delta": { "add": 7, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerReconcileTest.kt", "delta": { "add": 60, "rem": 0 } } -->
+    <!-- @include files-touched-row { "role": "modified", "path": "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt", "delta": { "add": 70, "rem": 0 } } -->
+  </table>
+
+  <!-- @include callout { "kind": "risk", "title": "Strict-mock collateral", "body": "Both sync test classes use strict @MockK. The new countArticlesNeverBackedUp() call and the sweep now running in the totalCount==0 branch will fail existing tests with 'no answer found' until shared setups stub the new call — the stubs are sequenced first in steps 8–9." } -->
+  <!-- @include callout { "kind": "warn", "title": "Stamp only remote-won rows", "body": "backedUpAt rides the two remote-won upsert copies in handleRemoteArticleChange(); the local-wins branch stays unstamped so a legitimately-newer local article still re-uploads. AC4's companion assertion pins this." } -->
+  <!-- @include callout { "kind": "info", "title": "setForeground already wired; harness declined on record", "body": "FirestoreSyncWorker.doWork() already calls setForeground() before syncLocalChanges() (verify-don't-build; targetSdk 33 needs no service type). The recurring headless-device wall is resolved as harness-declined (PO 2026-07-10) — all five ACs are pure-JVM; the live probe-scenario re-run stays a pre-registered manual deferral." } -->
+
+  <script>
+    (function () {
+      var root = document.currentScript.closest('.fragment-plan');
+      if (!root) return;
+      window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
+        detail: { name: 'plan', artifact: 'plan', counts: { files: 4, modules: 3, risks: 4 } }
+      }));
+    })();
+  </script>
+</section>

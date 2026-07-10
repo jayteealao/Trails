@@ -50,6 +50,10 @@ class FirestoreSyncManagerTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
+        // The reconcile sweep (reached from syncLocalChanges, including the
+        // no-local-changes branch) logs its backlog count at start — stub once here
+        // for the strict mocks; individual tests override when the count matters.
+        coEvery { articleDao.countArticlesNeverBackedUp() } returns 0
         manager = FirestoreSyncManager(
             context = context,
             firestore = firestore,
@@ -344,5 +348,110 @@ class FirestoreSyncManagerTest {
         // The single-article restoreArticleTags must never be called from any restore path.
         coVerify(exactly = 0) { firestoreBackupService.restoreArticleTags(any()) }
         assertTrue(manager.syncStatus.value is SyncStatus.Success)
+    }
+
+    // ---- Reconcile sweep gating (reconcile-stall-guard AC3) -----------------
+
+    /**
+     * AC3 — never-backed-up (offline-stranded) articles are swept even when the
+     * incremental count finds nothing to sync: the sweep now runs inside the
+     * `totalCount == 0` branch instead of being skipped by the early return.
+     */
+    @Test
+    fun `syncLocalChanges runs reconcile sweep when there are no incremental changes`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 1000L))
+        coEvery { articleDao.countArticlesModifiedSince(1000L) } returns 0
+
+        val stranded = listOf(Article(itemId = "s1"), Article(itemId = "s2"))
+        coEvery { articleDao.countArticlesNeverBackedUp() } returns 2
+        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returnsMany listOf(stranded, emptyList())
+        coEvery { firestoreBackupService.backupArticlesPaginated(stranded, any()) } returns Result.success(2)
+        coEvery { articleDao.updateBackedUpAt(any(), any()) } returns Unit
+
+        manager.syncLocalChanges()
+
+        // The stranded articles were backed up and stamped despite "no local changes".
+        coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(stranded, any()) }
+        coVerify(exactly = 1) { articleDao.updateBackedUpAt("s1", any()) }
+        coVerify(exactly = 1) { articleDao.updateBackedUpAt("s2", any()) }
+        assertEquals(SyncStatus.Success("Up to date"), manager.syncStatus.value)
+    }
+
+    // ---- Download-stamp on remote-won upserts (reconcile-stall-guard AC4) ----
+
+    /**
+     * AC4 — an article applied from a remote restore is stamped `backedUpAt` at
+     * apply time (it already exists in Firestore), so the next reconcile sweep
+     * does not re-upload it.
+     */
+    @Test
+    fun `handleRemoteArticleChange stamps backedUpAt on remote-won upserts`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+
+        // New-article path: no local row, remote is applied as-is.
+        val remoteArticle = Article(itemId = "r1", timeUpdated = 200)
+        coEvery { articleDao.getArticleById("r1") } returns null
+        coEvery { articleDao.upsertArticle(any()) } returns Unit
+        coEvery { firestoreBackupService.batchRestoreArticleTags(listOf("r1")) } returns emptyMap()
+
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = true, lastSyncTimestamp = null))
+        coEvery { articleDao.countAllArticles() } returns 0
+        coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(1)
+        coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
+        coEvery { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) } coAnswers {
+            val onPage = secondArg<suspend (List<Article>) -> Unit>()
+            onPage(listOf(remoteArticle))
+            Result.success(Unit)
+        }
+
+        manager.performFullSync()
+
+        coVerify(exactly = 1) {
+            articleDao.upsertArticle(match { it.itemId == "r1" && it.backedUpAt != null })
+        }
+    }
+
+    /**
+     * AC4 companion — a local-wins conflict must NOT be stamped: the local row is
+     * newer than Firestore, so it legitimately needs the push path (and, if that
+     * fails, the reconcile sweep). No remote copy is upserted at all; the local
+     * article is pushed instead.
+     */
+    @Test
+    fun `handleRemoteArticleChange does not stamp or upsert on local-wins conflicts`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+
+        val remoteArticle = Article(itemId = "r1", timeUpdated = 100)
+        val localArticle = Article(itemId = "r1", timeUpdated = 200) // local newer → local wins
+        coEvery { articleDao.getArticleById("r1") } returns localArticle
+        coEvery { articleDao.getArticleTags("r1") } returns emptyList()
+        coEvery {
+            firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any())
+        } returns Result.success(Unit)
+        coEvery { firestoreBackupService.batchRestoreArticleTags(listOf("r1")) } returns emptyMap()
+
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = true, lastSyncTimestamp = null))
+        coEvery { articleDao.countAllArticles() } returns 0
+        coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.success(1)
+        coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
+        coEvery { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) } coAnswers {
+            val onPage = secondArg<suspend (List<Article>) -> Unit>()
+            onPage(listOf(remoteArticle))
+            Result.success(Unit)
+        }
+
+        manager.performFullSync()
+
+        // The remote copy is never applied — nothing is upserted, so nothing is stamped —
+        // and the newer local article is pushed to Firestore instead.
+        coVerify(exactly = 0) { articleDao.upsertArticle(any()) }
+        coVerify(exactly = 1) {
+            firestoreBackupService.backupArticle(localArticle, any(), any(), any(), any(), any())
+        }
     }
 }

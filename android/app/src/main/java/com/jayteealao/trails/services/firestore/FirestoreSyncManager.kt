@@ -72,6 +72,9 @@ class FirestoreSyncManager @Inject constructor(
         // Keep ≤ 20 to stay within the Firestore rules document-access budget per
         // batched write (one getAfter call per article, max 20 per batch).
         private const val RECONCILE_CHUNK_SIZE = 20
+        // Absolute failsafe for the reconcile drain loop, independent of the
+        // row-identity stall guard (1000 iterations ≈ 20k articles per sweep).
+        private const val MAX_RECONCILE_ITERATIONS = 1000
     }
 
     /**
@@ -93,9 +96,13 @@ class FirestoreSyncManager @Inject constructor(
             val localArticle = articleDao.getArticleById(remoteArticle.itemId)
 
             if (localArticle == null) {
-                // New article - insert with related data
+                // New article - insert with related data. Stamp backedUpAt: the row
+                // came from Firestore, so it is by definition already backed up —
+                // without the stamp the next reconcile sweep re-uploads it (a billed
+                // write per pulled article).
                 articleDao.upsertArticle(remoteArticle.copy(
-                    normalizedUrl = remoteArticle.computeNormalizedUrl()
+                    normalizedUrl = remoteArticle.computeNormalizedUrl(),
+                    backedUpAt = System.currentTimeMillis()
                 ))
 
                 // Apply pre-fetched tags
@@ -108,8 +115,12 @@ class FirestoreSyncManager @Inject constructor(
             } else {
                 // Conflict resolution: compare timestamps
                 if (shouldAcceptRemoteChange(localArticle, remoteArticle)) {
+                    // Remote won — the applied row exactly reflects Firestore, so it
+                    // is already backed up. Stamping keeps it out of the reconcile
+                    // sweep (local-wins rows below stay unstamped deliberately).
                     articleDao.upsertArticle(remoteArticle.copy(
-                        normalizedUrl = remoteArticle.computeNormalizedUrl()
+                        normalizedUrl = remoteArticle.computeNormalizedUrl(),
+                        backedUpAt = System.currentTimeMillis()
                     ))
 
                     // Replace tags: bulk delete (efficiency-3: N DAO calls → 1 DAO call)
@@ -259,6 +270,12 @@ class FirestoreSyncManager @Inject constructor(
 
             if (totalCount == 0) {
                 Timber.d("No local changes to sync")
+
+                // Offline-saved articles are invisible to the incremental count
+                // (backed_up_at IS NULL, but timeUpdated predates lastSync), so the
+                // safety-net sweep must run even when there is nothing else to push.
+                reconcileNeverBackedUpArticles()
+
                 _syncStatus.value = SyncStatus.Success("Up to date")
 
                 // Still update timestamp even if nothing to sync
@@ -518,20 +535,33 @@ class FirestoreSyncManager @Inject constructor(
     // internal for testability
     internal suspend fun reconcileNeverBackedUpArticles() {
         if (auth.currentUser == null) return
+        val backlog = articleDao.countArticlesNeverBackedUp()
+        if (backlog > 0) {
+            Timber.d("reconcile: starting sweep, $backlog never-backed-up articles")
+        }
         var sweptCount = 0
-        var prevChunkSize = -1
+        var prevChunkIds: Set<String> = emptySet()
+        var iterations = 0
         while (true) {
+            if (iterations++ >= MAX_RECONCILE_ITERATIONS) {
+                Timber.w("reconcile: iteration cap $MAX_RECONCILE_ITERATIONS hit, stopping sweep — work may remain")
+                break
+            }
             // Always query at OFFSET 0: stamping backed_up_at removes rows from the
             // WHERE backed_up_at IS NULL predicate, so the next "first page" is
             // always the next unswept batch. Advancing OFFSET would skip rows.
             val chunk = articleDao.getArticlesNeverBackedUp(RECONCILE_CHUNK_SIZE, 0)
             if (chunk.isEmpty()) break
-            // Stall guard: if the chunk size is the same as the previous iteration
-            // and no rows were stamped last round, we are not making progress.
-            if (chunk.size == prevChunkSize) {
-                Timber.w("reconcile: no progress detected (chunk size $prevChunkSize unchanged), stopping sweep")
+            // Stall guard: the same rows coming back means stamping is not removing
+            // them from the predicate. Consecutive full pages of *different* rows are
+            // normal progress — comparing sizes here (the old guard) misfires on any
+            // backlog larger than one chunk.
+            val chunkIds = chunk.mapTo(mutableSetOf()) { it.itemId }
+            if (chunkIds == prevChunkIds) {
+                Timber.w("reconcile: same ${chunk.size} rows returned twice, stopping sweep")
                 break
             }
+            prevChunkIds = chunkIds
             val result = firestoreBackupService.backupArticlesPaginated(chunk)
             result.fold(
                 onSuccess = { count ->
@@ -543,7 +573,6 @@ class FirestoreSyncManager @Inject constructor(
                             Timber.w(e, "reconcile: failed to stamp backed_up_at for ${article.itemId}")
                         }
                     }
-                    prevChunkSize = chunk.size
                     sweptCount += count
                     Timber.d("reconcile: swept $count articles (total so far: $sweptCount)")
                 },
