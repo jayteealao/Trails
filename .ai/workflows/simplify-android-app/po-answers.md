@@ -106,3 +106,53 @@ Additional plan-stage findings (recorded, non-blocking):
 
 All 14 plans: **has-blockers: false**, **0 conflicts**, **no deploy gate**. Recommended order and
 parallelizable groups in `04-plan.md`.
+
+## 2026-07-09 — extend (extension round 1)
+Stage: extend | Scope: reconcile-stall-guard (runtime-found regression from PR #29 sync test)
+
+- **Slice scope** → include ALL THREE findings in one slice: (1) stall-guard fix + regression test,
+  (2) reconcile skipped when no incremental changes ("No local changes to sync" gating),
+  (3) freshly-downloaded articles land backed_up_at=NULL and re-upload (churn).
+- **Fix approach** → row-identity stall detection (a stall = the same rows returning; a repeating
+  full chunk of *different* rows is normal progress). Not chunk-size equality.
+- **Grouping** → one combined slice (`reconcile-stall-guard`), not three — same subsystem, same test
+  harness. depends-on: none blocking (firestore-io / sync-worker / firestore-dedup are complete).
+- **Confirm** → proceed; wrote 03-slice-reconcile-stall-guard.md, updated 03-slice.md (total 14→15)
+  and 00-index.md workflow-files. No existing slice modified.
+
+## 2026-07-10 — plan (reconcile-stall-guard, 2 rounds of 4 + 1 gate question)
+Stage: plan | 2026-07-10T21:32:04Z
+
+### Round 1 — fix shapes
+- **Stall signal** → **Full-chunk identity**: stall = the SAME set of itemIds returning as last
+  iteration (Set<String> comparison). Robust to partial-stamp of the head row; head-id-only and
+  stamped-count signals rejected.
+- **Hard cap** → **Yes, generous**: MAX_RECONCILE_ITERATIONS = 1000 (~20k articles) as an
+  independent failsafe; exact count-derived cap rejected.
+- **Gating shape** → **Sweep inside the zero-branch**: call reconcileNeverBackedUpArticles() in the
+  totalCount == 0 branch before SyncStatus.Success("Up to date"); preserves sweep-after-upload
+  order in the has-changes path. Hoist-above-return and skip-upload-only restructure rejected.
+- **Stamp method** → **Set backedUpAt in the upsert copy** (atomic single Room write) at the two
+  remote-won sites of handleRemoteArticleChange(); local-wins branch untouched. Separate
+  updateBackedUpAt call rejected (second write + unstamped window).
+
+### Round 2 — semantics & posture
+- **Stamp value** → **Current time at apply** (System.currentTimeMillis()), consistent with the
+  sweep's own stamping; preserve-remote-value rejected.
+- **Drain window** → **Add setForeground() in this slice** (PO diverged from recommendation).
+  Plan finding: ALREADY IMPLEMENTED — FirestoreSyncWorker.doWork() calls
+  setForeground(getForegroundInfo()) at line 38 before syncLocalChanges(), with full
+  notification-channel helper (SyncWorkHelpers.kt); targetSdk 33 → no foregroundServiceType work
+  due. Lands as a verify-don't-build step (resolved-as-found, efficiency-13 precedent).
+- **AC2 test shape** → **DAO returns same page forever** (backup succeeds, updateBackedUpAt no-op);
+  verify loop exits after exactly 2 fetches. Throwing-stamp variant not required.
+- **Sweep logging** → **Log backlog count at start** (PO diverged from recommendation): new
+  ArticleDao.countArticlesNeverBackedUp() @Query + Timber.d at sweep start, making "N remaining
+  → 0" observable in logcat for the live re-run.
+
+### Gate — repeat-deferral tripwire (5th occurrence of the headless-device wall)
+- **Device wall** → **Decline harness** (harness-declined, on the record): the wall is
+  environmental (no display/GPU in agent sessions), all 5 ACs are pure-JVM automated, and the live
+  probe-scenario re-run (200/250 → 0 rows backed_up_at IS NULL) is a one-time manual confirmation
+  on a real device — same posture as the prior 4 deferrals. Headless-emulator harness rejected
+  (unproven on this host, own-slice-sized work).

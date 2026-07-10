@@ -6,8 +6,8 @@ status: complete
 stage-number: 3
 revision-count: 1
 created-at: "2026-06-14T22:28:57Z"
-updated-at: "2026-06-14T22:28:57Z"
-total-slices: 14
+updated-at: "2026-07-09T12:26:33Z"
+total-slices: 15
 best-first-slice: test-net
 tags: [refactor, android, cleanup, simplify]
 slices:
@@ -67,6 +67,12 @@ slices:
     status: complete
     complexity: m
     depends-on: [firestore-dedup, firestore-io, streaming-restore, batched-tag-reads, app-scope]
+  - slug: reconcile-stall-guard
+    status: defined
+    complexity: m
+    depends-on: []
+    source: extension
+    extension-round: 1
 refs:
   index: 00-index.md
   shape: 02-shape.md
@@ -76,8 +82,9 @@ next-invocation: "/wf plan simplify-android-app test-net"
 
 # Slice Index
 
-14 slices decompose the 37 triage findings (11 reuse, 13 quality, 13 efficiency) plus the three
-PO-scoped extras (revive test infra, remove deprecated `restoreAllArticles()`, broaden quality-11).
+15 slices: 14 decompose the 37 triage findings (11 reuse, 13 quality, 13 efficiency) plus the three
+PO-scoped extras (revive test infra, remove deprecated `restoreAllArticles()`, broaden quality-11);
+the 15th (`reconcile-stall-guard`) is a runtime-found regression fix added in extension round 1.
 Axis = **by code area**; order = **risky-3-first**, behind a test-net gate.
 
 ## Slice Strategy
@@ -117,6 +124,27 @@ architecture (DoD item 6).
 12. `sync-worker` — B7, worker glue; independent.
 13. `cross-cutting-url` — B9, single-source URL; conflict-prone, land when neighbours settle.
 14. `architecture-docs` — Diátaxis docs; needs the structural slices done.
+15. `reconcile-stall-guard` — fix the never-backed-up reconcile sweep (row-identity stall guard, run
+    without incremental changes, no re-upload of pulled rows); a runtime-found regression, planned
+    after the cleanup set (extension round 1).
+
+## Extension Round 1 — 2026-07-09
+Source: user request (runtime sync test / probe of PR #29)
+
+### New Slices Added
+| Slice | Goal | Complexity | Depends On |
+|-------|------|------------|------------|
+| `reconcile-stall-guard` | Fix the never-backed-up reconcile sweep: row-identity stall detection, run without incremental changes, stamp `backed_up_at` on downloaded rows | m | — |
+
+### Motivation
+A live bidirectional-sync test (200 local / 250 remote, articles missing at both ends of the
+`timeAdded` order) confirmed the download/upload reconciliation converged correctly, but exposed that
+the reconcile **backup sweep** stops after one chunk — the stall guard added in handoff commit
+`fd2778e` uses `chunk.size == prevChunkSize`, which misfires on any backlog larger than one chunk and
+left 30 never-backed-up articles unbacked. Two adjacent findings ride along: the sweep is skipped
+entirely when there are no incremental changes, and freshly-downloaded articles land
+`backed_up_at = NULL` and get re-uploaded. All three are corrections to already-shipped sync behaviour,
+so they are net-new scope rather than edits to the completed slices.
 
 ## Cross-Cutting Concerns
 - **Behaviour-preserving by default.** Only `fts-search-fix`, `streaming-restore` (+A2b),

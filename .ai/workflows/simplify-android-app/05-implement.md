@@ -5,12 +5,12 @@ slug: simplify-android-app
 status: complete
 stage-number: 5
 created-at: "2026-06-18T22:04:03Z"
-updated-at: "2026-07-06T01:33:19Z"
-slices-implemented: 15
-slices-total: 15
-metric-total-files-changed: 57
-metric-total-lines-added: 2505
-metric-total-lines-removed: 1063
+updated-at: "2026-07-10T22:04:29Z"
+slices-implemented: 16
+slices-total: 16
+metric-total-files-changed: 61
+metric-total-lines-added: 2698
+metric-total-lines-removed: 1079
 tags: [refactor, android, cleanup, simplify]
 refs:
   index: 00-index.md
@@ -58,14 +58,18 @@ slices:
   - slice: architecture-docs
     file: 05-implement-architecture-docs.md
     status: complete
+  - slice: reconcile-stall-guard
+    file: 05-implement-reconcile-stall-guard.md
+    status: complete
 next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app architecture-docs"
+next-invocation: "/wf verify simplify-android-app reconcile-stall-guard"
 ---
 
 # Implement Index
 
-Tracks per-slice implementation across the 14-slice refactor. `test-net` is the
-foundational regression-net gate — every dependent slice waits on it being green.
+Tracks per-slice implementation across the refactor (14 original slices + the
+`reconcile-stall-guard` extension). `test-net` is the foundational regression-net
+gate — every dependent slice waits on it being green.
 
 | Slice | Status | Record |
 |-------|--------|--------|
@@ -83,6 +87,7 @@ foundational regression-net gate — every dependent slice waits on it being gre
 | sync-worker | complete | [05-implement-sync-worker.md](05-implement-sync-worker.md) |
 | cross-cutting-url | complete | [05-implement-cross-cutting-url.md](05-implement-cross-cutting-url.md) |
 | architecture-docs | complete | [05-implement-architecture-docs.md](05-implement-architecture-docs.md) |
+| reconcile-stall-guard | complete | [05-implement-reconcile-stall-guard.md](05-implement-reconcile-stall-guard.md) |
 
 ## Cross-Slice Integration Notes
 - **`test-net` is a prerequisite, not a peer.** Its characterization tests pin the
@@ -103,11 +108,19 @@ foundational regression-net gate — every dependent slice waits on it being gre
 - **Pre-existing red test:** `data/archive/ArchiveServiceTest.kt` has 3 failures on
   `main` unrelated to this workflow. Slug-wide review/verify should not attribute it to
   any slice here.
+- **`reconcile-stall-guard` (extension, round 1) corrects shipped sibling behaviour:**
+  it rewrites the stall guard that `sync-worker`/handoff commit `fd2778e` introduced in
+  `FirestoreSyncManager.reconcileNeverBackedUpArticles()`, adds a sweep call in the
+  `syncLocalChanges()` zero-branch, and stamps `backedUpAt` on remote-won upserts. Both
+  sync test classes gained a strict-mock stub for the new
+  `ArticleDao.countArticlesNeverBackedUp()` — any future test that reaches the sweep
+  must stub it too.
 
 ## Recommended Next Stage
-- **Option A (default):** `/wf verify simplify-android-app cross-cutting-url` — 4 new unit tests cover the extension delegation contract; verify runs `testDebugUnitTest --tests "com.jayteealao.trails.common.*"` (all 20 pass) and full-suite green (147/0 failures).
-- **Option B:** `/wf review simplify-android-app cross-cutting-url` — purely structural reuse change; tests already verified inline; skip to review if no additional verification needed.
 
-### architecture-docs slice
-- **Option A (default):** `/wf verify simplify-android-app architecture-docs` — verification is manual (leak check + accuracy review against shipped source). Both passed during implementation.
-- **Option B:** `/wf review simplify-android-app architecture-docs` — docs-only slice; no automated tests; proceed directly to review.
+### reconcile-stall-guard slice (extension)
+- **Option A (default):** `/wf verify simplify-android-app reconcile-stall-guard` — all 5 ACs automated and green inline (153/153, 0 failures; AC1 red→green recorded); verify owns the AC gate + deferral bookkeeping.
+- **Option B:** `/wf review simplify-android-app reconcile-stall-guard` — only if the inline run is accepted as AC evidence.
+
+### Earlier slices (all verified/reviewed; PR #29 open)
+- cross-cutting-url and architecture-docs routing kept for the record: both completed verify + review; branch went through handoff (08-handoff.md).

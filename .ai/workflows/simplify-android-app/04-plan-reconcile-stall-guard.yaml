@@ -1,0 +1,107 @@
+artifact: plan
+slice: reconcile-stall-guard
+modules:
+  - id: sync-manager
+    label: "Firestore sync manager"
+    role: domain
+  - id: dao
+    label: "Room DAO"
+    role: data
+  - id: tests
+    label: "Unit tests"
+    role: test
+files:
+  - path: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    status: modified
+    role: domain
+    module: sync-manager
+    loc: 568
+    delta: { add: 30, rem: 8 }
+    planned_change:
+      intent: "All three defect fixes: full-chunk-identity stall guard + MAX_RECONCILE_ITERATIONS cap + backlog-count start log in reconcileNeverBackedUpArticles(); sweep call inside the totalCount==0 zero-branch of syncLocalChanges(); backedUpAt stamped in both remote-won upsert copies in handleRemoteArticleChange()."
+      diff: |
+        @@ reconcileNeverBackedUpArticles() (lines 519-559) @@
+        -        var prevChunkSize = -1
+        +        var prevChunkIds: Set<String> = emptySet()
+        +        var iterations = 0
+        +        val backlog = articleDao.countArticlesNeverBackedUp()
+        +        if (backlog > 0) Timber.d("reconcile: starting sweep, $backlog never-backed-up articles")
+                 while (true) {
+        +            if (++iterations > MAX_RECONCILE_ITERATIONS) { Timber.w(...); break }
+                     val chunk = articleDao.getArticlesNeverBackedUp(RECONCILE_CHUNK_SIZE, 0)
+                     if (chunk.isEmpty()) break
+        -            if (chunk.size == prevChunkSize) {
+        -                Timber.w("reconcile: no progress detected (chunk size $prevChunkSize unchanged)...")
+        +            val chunkIds = chunk.mapTo(mutableSetOf()) { it.itemId }
+        +            if (chunkIds == prevChunkIds) {
+        +                Timber.w("reconcile: no progress detected (same ${chunkIds.size} rows returned)...")
+                         break
+                     }
+        +            prevChunkIds = chunkIds
+        @@ syncLocalChanges() zero-branch (lines 266-269) @@
+                 if (totalCount == 0) {
+                     Timber.d("No local changes to sync")
+        +            reconcileNeverBackedUpArticles()
+                     _syncStatus.value = SyncStatus.Success("Up to date")
+        @@ handleRemoteArticleChange() remote-won branches (lines 97, 111) @@
+        -            articleDao.upsertArticle(remoteArticle.copy(normalizedUrl = ...))
+        +            articleDao.upsertArticle(remoteArticle.copy(normalizedUrl = ..., backedUpAt = System.currentTimeMillis()))
+  - path: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt
+    status: modified
+    role: data
+    module: dao
+    delta: { add: 7, rem: 0 }
+    planned_change:
+      intent: "New countArticlesNeverBackedUp() @Query (COUNT over the same WHERE predicate as getArticlesNeverBackedUp) for the sweep-start backlog log."
+      diff: |
+        +    @Query("SELECT COUNT(*) FROM article WHERE backed_up_at IS NULL AND deleted_at IS NULL")
+        +    suspend fun countArticlesNeverBackedUp(): Int
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerReconcileTest.kt
+    status: modified
+    role: test
+    module: tests
+    delta: { add: 60, rem: 0 }
+    planned_change:
+      intent: "AC1 confirmed by the existing multi-page test (fails pre-fix, passes post-fix); new AC2 genuine-stall test (DAO returns the same page forever -> loop exits after exactly 2 fetches); stub the new count query in shared setup (strict @MockK)."
+  - path: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt
+    status: modified
+    role: test
+    module: tests
+    delta: { add: 70, rem: 0 }
+    planned_change:
+      intent: "New AC3 test (countArticlesModifiedSince=0 AND non-empty never-backed-up backlog -> sweep still executes); new AC4 test (restore-applied remote article upserted with backedUpAt != null; local-wins branch stays unstamped); stub countArticlesNeverBackedUp in tests whose zero-branch now reaches the sweep."
+edges:
+  - from: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    to: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt
+    kind: calls
+    label: "countArticlesNeverBackedUp / getArticlesNeverBackedUp / updateBackedUpAt / upsertArticle"
+  - from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerReconcileTest.kt
+    to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    kind: import
+    label: "pins sweep loop"
+  - from: android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt
+    to: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt
+    kind: import
+    label: "pins gating + download-stamp"
+risks:
+  - id: strict-mock-breakage
+    severity: high
+    title: "New DAO count call breaks existing strict-mock tests"
+    body: "Both sync test classes use strict @MockK. Adding countArticlesNeverBackedUp() at sweep start and running the sweep in the zero-branch means existing tests that reach these paths fail with 'no answer found' until the new stub is added to their setup."
+    mitigation: "Add the coEvery count stub to shared @Before setup in both test classes as the first test step; run the reconcile class in isolation before the full suite."
+  - id: guard-weakening
+    severity: high
+    title: "Weakened stall guard could reintroduce an infinite loop"
+    body: "Full-chunk identity only fires when the entire chunk repeats; a pathological interleaving that keeps rotating rows could evade it."
+    mitigation: "MAX_RECONCILE_ITERATIONS=1000 hard cap bounds the loop absolutely; AC2 test pins termination after exactly 2 fetches of an identical page."
+  - id: conflict-mask
+    severity: med
+    title: "Download-stamp must not mask local edits needing upload"
+    body: "Stamping backedUpAt on the wrong branch would exclude a legitimately-newer local article from the sweep."
+    mitigation: "Stamp only the two remote-won copy() sites; local-wins branch pushes via pushLocalArticle and is asserted unstamped in the AC4 companion test."
+  - id: pr29-sequencing
+    severity: low
+    title: "The buggy guard is on open PR #29"
+    body: "If PR #29 merges before this fix lands, the slice becomes a follow-up fix on main instead of a fixup on the branch."
+    mitigation: "Ship decision, not a plan blocker; slice targets the same feat/simplify-android-app branch."
+history: []

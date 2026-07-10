@@ -48,6 +48,9 @@ class FirestoreSyncManagerReconcileTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
+        // The sweep logs its backlog count at start (strict mocks — stub here once;
+        // individual tests override when the count matters).
+        coEvery { articleDao.countArticlesNeverBackedUp() } returns 0
         manager = FirestoreSyncManager(
             context = context,
             firestore = firestore,
@@ -118,25 +121,54 @@ class FirestoreSyncManagerReconcileTest {
 
     @Test
     fun `reconcile processes multiple pages until empty`() = runTest {
+        // Two consecutive FULL pages (20 + 20) followed by a partial page: a backlog
+        // larger than two full chunks is exactly the shape that made the old
+        // chunk-size-equality stall guard misfire (two full pages of *different*
+        // rows both have size 20) and strand everything after the first chunk.
         val page1 = (1..20).map { article("art$it") }
-        val page2 = (21..25).map { article("art$it") }
+        val page2 = (21..40).map { article("art$it") }
+        val page3 = (41..45).map { article("art$it") }
         every { auth.currentUser } returns signedInUser()
         // Sweep always queries at offset 0. Each successful stamp removes rows from
-        // the predicate, so the second call at offset 0 returns the next unswept batch.
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returnsMany listOf(page1, page2, emptyList())
+        // the predicate, so the next call at offset 0 returns the next unswept batch.
+        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returnsMany listOf(page1, page2, page3, emptyList())
         coEvery { firestoreBackupService.backupArticlesPaginated(page1, any()) } returns Result.success(20)
-        coEvery { firestoreBackupService.backupArticlesPaginated(page2, any()) } returns Result.success(5)
+        coEvery { firestoreBackupService.backupArticlesPaginated(page2, any()) } returns Result.success(20)
+        coEvery { firestoreBackupService.backupArticlesPaginated(page3, any()) } returns Result.success(5)
         coEvery { articleDao.updateBackedUpAt(any(), any()) } returns Unit
 
         manager.reconcileNeverBackedUpArticles()
 
-        // 25 articles total — verify backup called for both pages.
+        // 45 articles total — verify backup called for all three pages.
         coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(page1, any()) }
         coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(page2, any()) }
-        // backed_up_at stamped for all 25 articles.
-        (1..25).forEach { i ->
+        coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(page3, any()) }
+        // backed_up_at stamped for all 45 articles.
+        (1..45).forEach { i ->
             coVerify(exactly = 1) { articleDao.updateBackedUpAt("art$i", any()) }
         }
+    }
+
+    // ── genuine stall terminates ──────────────────────────────────────────────
+
+    @Test
+    fun `reconcile terminates when the same rows keep returning`() = runTest {
+        // Stamping is a silent no-op here, so the identical page comes back on every
+        // fetch — a genuine stall. The row-identity guard must break the loop on the
+        // second fetch instead of spinning forever.
+        val samePage = (1..20).map { article("art$it") }
+        every { auth.currentUser } returns signedInUser()
+        coEvery { articleDao.countArticlesNeverBackedUp() } returns 20
+        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returns samePage
+        coEvery { firestoreBackupService.backupArticlesPaginated(samePage, any()) } returns Result.success(20)
+        coEvery { articleDao.updateBackedUpAt(any(), any()) } returns Unit
+
+        manager.reconcileNeverBackedUpArticles()
+
+        // First fetch proceeds (backup + stamp attempt); second fetch sees the same
+        // ids and stops. No third fetch, no second backup.
+        coVerify(exactly = 2) { articleDao.getArticlesNeverBackedUp(any(), 0) }
+        coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(samePage, any()) }
     }
 
     // ── backup failure stops sweep ────────────────────────────────────────────
