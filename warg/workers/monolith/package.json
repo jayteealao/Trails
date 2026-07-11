@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "^0.7.0",
+    "@cloudflare/sandbox": "^0.12.3",
     "@warg/shared": "workspace:*",
     "aws4fetch": "^1.0.20"
   },
