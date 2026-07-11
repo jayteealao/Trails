@@ -49,18 +49,34 @@ runtime-evidence-deferrals:
     reason: "Rung 1 (unit-tests): 5 streaming-API tests + 3 A2b rehydration tests cover state-machine correctness. Rung 2 (Roborazzi): not applicable — no visual surface. Rung 3 (AVD boot): three AVDs installed but boot requires display; no X server/GPU display available in this headless agent session. Residual = live memory-profiler smoke confirming heap stays bounded (one page) across a real restore run."
     deferred-at: "2026-07-05T21:58:27Z"
     cleared-by: null
+    ship-override-authorization:
+      by: "jayteealao (PO)"
+      at: "2026-07-11T01:12:05Z"
+      reason: "PO risk-acceptance at ship gate: no display server/GPU in agent sessions so AVDs cannot boot; Rung-1 coverage (5 streaming-API + 3 rehydration tests) accepted as sufficient for release. Residual memory-profiler smoke deferred to post-ship device session."
   - slice: batched-tag-reads
     reason: "Rung 1 (unit-tests): 6 batchRestoreArticleTags read-count tests assert sub-N+1 via MockK verify(exactly=N); 1 integration test confirms coVerify(exactly=0) restoreArticleTags never called. Rung 2 (Roborazzi): not applicable — no visual surface. Rung 3 (AVD boot): three AVDs installed but boot requires display; no X server/GPU display available in this headless agent session. Residual = live lazylogcat smoke during a bidirectional sync (≥15 articles) observing chunk-grouped Timber.d log lines, plus before/after Firebase console Firestore read-count screenshot."
     deferred-at: "2026-07-05T22:23:40Z"
     cleared-by: null
+    ship-override-authorization:
+      by: "jayteealao (PO)"
+      at: "2026-07-11T01:12:05Z"
+      reason: "PO risk-acceptance at ship gate: headless session, AVD boot unavailable; Rung-1 coverage (6 read-count tests asserting sub-N+1 + integration test) accepted. Residual lazylogcat sync smoke + Firestore read-count screenshot deferred to post-ship device session."
   - slice: list-rendering
     reason: "Rung 1 (unit-tests): 140/140 unit tests pass with 0 failures; compile verified (compileDebugKotlin BUILD SUCCESSFUL). Rung 2 (Roborazzi): project has no Roborazzi golden configuration in place. Rung 3 (AVD boot): three AVDs installed (Medium_Phone_API_36.0, Pixel_9_Pro, Pixel_9_Pro_Fold) but no device running (adb devices empty); booting requires GPU/HAXM acceleration and a display server — unavailable in this headless agent session. Residual = live scroll smoke (≥20 articles) via Layout Inspector recomposition overlay confirming no gradientAngle/gradientTransition nodes and thumbnail hardware-decode, plus before/after screenshot pair confirming appearance unchanged."
     deferred-at: "2026-07-06T00:47:44Z"
     cleared-by: null
+    ship-override-authorization:
+      by: "jayteealao (PO)"
+      at: "2026-07-11T01:12:05Z"
+      reason: "PO risk-acceptance at ship gate: headless session, AVD boot unavailable; 140/140 unit tests + compile verification accepted. Residual Layout Inspector scroll smoke + before/after screenshots deferred to post-ship device session."
   - slice: sync-worker
     reason: "Rung 1 (unit-tests): 3/3 SyncWorkerTest tests pass — doWork() returns Result.success() with empty article list, pagination drives two-page cycle correctly via coVerify(exactly=1) on both (50,0) and (50,50), dead-method deletion confirmed by reflection. Full 143/143 unit test suite passes with 0 failures. Rung 2 (Roborazzi): not applicable — SyncWorker has no UI surface. Rung 3 (AVD boot / live device): three AVDs installed (Medium_Phone_API_36.0, Pixel_9_Pro, Pixel_9_Pro_Fold) but no display server or GPU acceleration available in this headless agent session; adb devices returns empty. Residual = live sync run on a device with articles in resolved=1/2 state, observing WorkManager reports Result.success() and non-metrics articles are processed page-by-page via Timber logs."
     deferred-at: "2026-07-06T01:12:18Z"
     cleared-by: null
+    ship-override-authorization:
+      by: "jayteealao (PO)"
+      at: "2026-07-11T01:12:05Z"
+      reason: "PO risk-acceptance at ship gate: headless session, AVD boot unavailable; 3/3 SyncWorkerTest + full 143/143 suite accepted. Residual live sync run on device with resolved=1/2 articles deferred to post-ship device session."
 next-command: wf-handoff
 next-invocation: "/wf handoff pr#29"
 recommended-next-stage: handoff
