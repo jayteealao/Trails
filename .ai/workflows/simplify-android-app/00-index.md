@@ -3,11 +3,11 @@ schema: sdlc/v1
 type: index
 slug: simplify-android-app
 title: "Simplify the Trails Android app (triage-driven cleanup)"
-status: active
-current-stage: ship
-stage-number: 9
+status: complete
+current-stage: retro
+stage-number: 10
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-11T01:39:30Z"
+updated-at: "2026-07-11T08:44:42Z"
 selected-slice: "reconcile-stall-guard"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
@@ -77,9 +77,9 @@ runtime-evidence-deferrals:
       by: "jayteealao (PO)"
       at: "2026-07-11T01:12:05Z"
       reason: "PO risk-acceptance at ship gate: headless session, AVD boot unavailable; 3/3 SyncWorkerTest + full 143/143 suite accepted. Residual live sync run on device with resolved=1/2 articles deferred to post-ship device session."
-next-command: wf-retro
-next-invocation: "/wf retro simplify-android-app"
-recommended-next-stage: retro
+next-command: ""
+next-invocation: ""
+recommended-next-stage: complete
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -200,6 +200,7 @@ workflow-files:
   - 09-ship-run-20260711T0112Z.html.fragment
   - 09-ship-runs.md
   - announce.md
+  - 10-retro.md
 progress:
   intake: complete
   shape: complete
@@ -210,5 +211,5 @@ progress:
   review: complete
   handoff: complete
   ship: complete
-  retro: not-started
+  retro: complete
 ---
