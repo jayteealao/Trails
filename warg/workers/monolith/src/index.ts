@@ -237,7 +237,7 @@ export async function runMonolithInSandbox(
         console.warn('[monolith] Container unavailable; waiting before curl fallback', {
           retryAfterMs
         });
-        await new Promise<void>(resolve => setTimeout(resolve, retryAfterMs));
+        await new Promise<void>(resolve => setTimeout(resolve, Math.min(retryAfterMs, 5000)));
       }
       console.warn('[monolith] URL-fetch path failed, trying curl-to-file fallback', {
         exitCode: result.exitCode,
