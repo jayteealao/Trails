@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -101,7 +102,7 @@ class ArchiveService @Inject constructor(
         // rules cache refresh. After the rule relaxation, the second attempt almost
         // always succeeds; the cap prevents an infinite loop in the unlikely event
         // the marker write itself fails (e.g. offline).
-        var selfHealAttempts = 0
+        val selfHealAttempts = AtomicInteger(0)
         val MAX_SELF_HEAL_ATTEMPTS = 2
         // Single source of truth for the current registration, visible across the
         // Firestore callback thread and the coroutine launched for self-heal.
@@ -115,10 +116,10 @@ class ArchiveService @Inject constructor(
                     // After the marker create-rule relaxation, self-heal now succeeds
                     // even when the backup doc is absent (the new fallback path).
                     if (error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED &&
-                        selfHealAttempts < MAX_SELF_HEAL_ATTEMPTS && auth.currentUser != null
+                        selfHealAttempts.get() < MAX_SELF_HEAL_ATTEMPTS && auth.currentUser != null
                     ) {
-                        selfHealAttempts++
-                        Timber.w(error, "observeRemoteArchives($itemId) — read denied, self-healing marker (attempt $selfHealAttempts/$MAX_SELF_HEAL_ATTEMPTS)")
+                        val attempt = selfHealAttempts.incrementAndGet()
+                        Timber.w(error, "observeRemoteArchives($itemId) — read denied, self-healing marker (attempt $attempt/$MAX_SELF_HEAL_ATTEMPTS)")
                         launch {
                             val markerItemId = owningItemId(itemId)
                             val result = backupService.writeArticleMarker(itemId, markerItemId)
