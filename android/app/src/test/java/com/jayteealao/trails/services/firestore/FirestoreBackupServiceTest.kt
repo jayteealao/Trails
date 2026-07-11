@@ -274,23 +274,64 @@ class FirestoreBackupServiceTest {
     // ---------------------------------------------------------------------------
 
     /**
-     * `backupArticlesPaginated` now chunks by queued write count (threshold 500), not
-     * by article count.  45 plain articles with no tags and a single itemId-keyed
-     * marker each contribute 2 writes (article doc + marker), totalling 90 writes —
-     * well under the 500-write threshold — so they all land in a single batch.
+     * `backupArticlesPaginated` caps each batch at WRITE_BATCH_LIMIT (20) articles to
+     * honour the Firestore rules getAfter budget, regardless of total write count.
+     * 45 plain articles (no tags, null resolvedId) contribute 2 writes each (article
+     * doc + 1 marker) = 90 total writes — well under the 500-write threshold — but
+     * the 20-article cap forces 3 batches: articles 1–20, 21–40, 41–45.
      */
     @Test
     fun `backupArticlesPaginated chunks at WRITE_BATCH_LIMIT of 20`() = runTest {
         every { markersCollection.document(any()) } returns mockk(relaxed = true)
         val articles = (1..45).map { Article(itemId = "a$it") }
 
+        // Use a fresh mock per batch.commit() call so we can count commits.
+        val batch1 = mockk<WriteBatch>(relaxed = true)
+        val batch2 = mockk<WriteBatch>(relaxed = true)
+        val batch3 = mockk<WriteBatch>(relaxed = true)
+        every { firestore.batch() } returnsMany listOf(batch1, batch2, batch3)
+        every { batch1.commit() } returns Tasks.forResult(null)
+        every { batch2.commit() } returns Tasks.forResult(null)
+        every { batch3.commit() } returns Tasks.forResult(null)
+
         val result = service.backupArticlesPaginated(articles)
 
         assertTrue(result.isSuccess)
         assertEquals(45, result.getOrNull())
-        // 45 × 2 writes = 90 total — fits in one batch under the 500-write threshold.
-        verify(exactly = 1) { firestore.batch() }
-        verify(exactly = 1) { batch.commit() }
+        // 45 articles capped at 20 per batch → 3 batches (20 + 20 + 5).
+        verify(exactly = 3) { firestore.batch() }
+        verify(exactly = 1) { batch1.commit() }
+        verify(exactly = 1) { batch2.commit() }
+        verify(exactly = 1) { batch3.commit() }
+    }
+
+    /**
+     * Companion test for the article-count cap: a list of 25 articles with tiny
+     * write footprints (no tags, small text — 2 writes each, total 50 writes —
+     * well under the 500-write threshold) must still be committed in 2 batches
+     * because the WRITE_BATCH_LIMIT (20 articles per batch) is hit first.
+     * No single batch should receive more than 20 articles.
+     */
+    @Test
+    fun `backupArticlesPaginated caps batches at 20 articles even when write count is low`() = runTest {
+        every { markersCollection.document(any()) } returns mockk(relaxed = true)
+        val articles = (1..25).map { Article(itemId = "c$it") }
+
+        // Use a fresh mock per batch so we can verify each is committed exactly once.
+        val batch1 = mockk<WriteBatch>(relaxed = true)
+        val batch2 = mockk<WriteBatch>(relaxed = true)
+        every { firestore.batch() } returnsMany listOf(batch1, batch2)
+        every { batch1.commit() } returns Tasks.forResult(null)
+        every { batch2.commit() } returns Tasks.forResult(null)
+
+        val result = service.backupArticlesPaginated(articles)
+
+        assertTrue(result.isSuccess)
+        assertEquals(25, result.getOrNull())
+        // 25 articles at 20 per batch → 2 batches (20 + 5), not 1.
+        verify(exactly = 2) { firestore.batch() }
+        verify(exactly = 1) { batch1.commit() }
+        verify(exactly = 1) { batch2.commit() }
     }
 
     /**

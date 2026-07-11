@@ -727,15 +727,18 @@ class FirestoreBackupService @Inject constructor(
 
                 Timber.d("Starting paginated backup of $totalCount articles")
 
-                // Process in write-count-aware chunks rather than by article count.
-                // Each article contributes a variable number of writes: 1 article doc +
-                // optionally 1 large-text subcollection doc + tags.size tag docs +
-                // markerKeysFor(article).size marker docs.  We close and commit the
-                // current batch before adding an article that would push the total past
-                // WRITE_COUNT_THRESHOLD, so a single article is never split across two
-                // batches (all-or-nothing within a chunk is preserved).
+                // Process in write-count-aware chunks bounded by both write count and
+                // article count. Each article contributes a variable number of writes:
+                // 1 article doc + optionally 1 large-text subcollection doc +
+                // tags.size tag docs + markerKeysFor(article).size marker docs.  We
+                // flush before adding an article that would either push the write total
+                // past WRITE_COUNT_THRESHOLD or push the article count to
+                // WRITE_BATCH_LIMIT (≤ 20 required by the marker rule's getAfter budget
+                // — see RULES BUDGET comment above). A single article is never split
+                // across two batches (all-or-nothing within a chunk is preserved).
                 var batch = firestore.batch()
                 var batchWriteCount = 0
+                var batchArticleCount = 0
                 var chunkIndex = 0
 
                 articles.forEach { article ->
@@ -744,15 +747,16 @@ class FirestoreBackupService @Inject constructor(
                     val largeTextWrites = if (textSize > MAX_TEXT_SIZE && article.text != null) 1 else 0
                     val articleWrites = 1 + largeTextWrites + tags.size + markerKeysFor(article).size
 
-                    // Flush the current batch if this article would push it over the threshold.
-                    // Always flush after the first article even if it alone exceeds the threshold
+                    // Flush the current batch if this article would exceed either limit.
+                    // Always flush after the first article even if it alone exceeds a limit
                     // (we never split a single article across batches).
-                    if (batchWriteCount > 0 && batchWriteCount + articleWrites > WRITE_COUNT_THRESHOLD) {
+                    if (batchWriteCount > 0 && (batchWriteCount + articleWrites > WRITE_COUNT_THRESHOLD || batchArticleCount >= WRITE_BATCH_LIMIT)) {
                         batch.commit().await()
                         onProgress(successCount, totalCount)
                         Timber.d("Backed up $successCount / $totalCount articles (chunk ${chunkIndex + 1})")
                         batch = firestore.batch()
                         batchWriteCount = 0
+                        batchArticleCount = 0
                         chunkIndex++
                     }
 
@@ -760,6 +764,7 @@ class FirestoreBackupService @Inject constructor(
                     addArticleToBatch(batch, articleRef, article, tags)
                     addMarkerWrites(batch, user.uid, article)
                     batchWriteCount += articleWrites
+                    batchArticleCount++
                     successCount++
                 }
 
