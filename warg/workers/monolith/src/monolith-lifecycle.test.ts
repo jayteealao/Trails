@@ -92,7 +92,7 @@ describe('runMonolithInSandbox container lifecycle', () => {
     );
 
     expect(result.sandboxId).toBe('req-keyed-123');
-    expect(getSandboxMock).toHaveBeenCalledWith(expect.anything(), 'req-keyed-123');
+    expect(getSandboxMock).toHaveBeenCalledWith(expect.anything(), 'req-keyed-123', { transport: 'rpc' });
   });
 
   it('stops the container once when execution fails (primary + curl fallback)', async () => {

@@ -1,4 +1,4 @@
-import { getSandbox, Sandbox as BaseSandbox } from '@cloudflare/sandbox';
+import { getSandbox, Sandbox as BaseSandbox, ContainerUnavailableError } from '@cloudflare/sandbox';
 import { getR2Key, storeArtifact, timingSafeEqual, type ArtifactMeta } from '@warg/shared';
 import type { MonolithRequest, MonolithSuccessResponse } from './types.js';
 import {
@@ -134,12 +134,17 @@ function validateBaseUrl(url: string): string {
 /**
  * Normalized result of a single sandbox exec. Exec RPC failures are folded into
  * a failed outcome (not thrown) so the caller can attempt the curl fallback.
+ *
+ * `retryAfterMs` is set when the failure was a ContainerUnavailableError — the
+ * SDK-signalled backoff hint before the container will be ready for a retry.
  */
 interface ExecOutcome {
   success: boolean;
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** Set when the exec threw ContainerUnavailableError; caller should wait this long before retrying. */
+  retryAfterMs?: number;
 }
 
 type SandboxHandle = ReturnType<typeof getSandbox>;
@@ -155,7 +160,11 @@ async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<E
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { success: false, exitCode: -1, stdout: '', stderr: `Sandbox exec failed: ${message}` };
+    const retryAfterMs = error instanceof ContainerUnavailableError ? error.retryAfterMs : undefined;
+    if (retryAfterMs !== undefined) {
+      console.warn('[monolith] ContainerUnavailableError: container not ready', { retryAfterMs, message });
+    }
+    return { success: false, exitCode: -1, stdout: '', stderr: `Sandbox exec failed: ${message}`, retryAfterMs };
   }
 }
 
@@ -199,7 +208,7 @@ export async function runMonolithInSandbox(
   const normalizedBaseUrl = validateBaseUrl(baseUrl);
   const sandboxId = normalizeSandboxId(requestId);
   console.log('[monolith] Getting sandbox for request:', requestId, 'sandbox:', sandboxId);
-  const sandbox = getSandbox(env.Sandbox, sandboxId);
+  const sandbox = getSandbox(env.Sandbox, sandboxId, { transport: 'rpc' });
 
   try {
     // Retry attempts can land on the same per-request container within the
@@ -221,6 +230,15 @@ export async function runMonolithInSandbox(
 
     // Fallback: curl the URL into a local file, then monolith reads the file.
     if (!result.success) {
+      // If the container signalled it isn't ready yet, honour its backoff hint
+      // before burning the retry budget against an unavailable container.
+      const retryAfterMs = result.retryAfterMs;
+      if (retryAfterMs !== undefined) {
+        console.warn('[monolith] Container unavailable; waiting before curl fallback', {
+          retryAfterMs
+        });
+        await new Promise<void>(resolve => setTimeout(resolve, retryAfterMs));
+      }
       console.warn('[monolith] URL-fetch path failed, trying curl-to-file fallback', {
         exitCode: result.exitCode,
         stderr: result.stderr.slice(0, 500)
@@ -365,9 +383,17 @@ export default {
         }
         const sandboxId = normalizeSandboxId(stopBody.request_id);
         try {
-          await getSandbox(env.Sandbox, sandboxId).stop();
+          await getSandbox(env.Sandbox, sandboxId, { transport: 'rpc' }).stop();
           console.log('[monolith] Stopped container via /container/stop:', sandboxId);
         } catch (stopErr) {
+          // Primary: ContainerUnavailableError is the structured signal that the container
+          // cannot accept the stop RPC — which covers both "never started" and "already stopped"
+          // (neither has a container running to receive the call).
+          if (stopErr instanceof ContainerUnavailableError) {
+            console.log('[monolith] /container/stop benign (container unavailable — already stopped or never started):', sandboxId, 'request_id:', stopBody.request_id);
+            return Response.json({ ok: true, note: 'container already stopped or never started' });
+          }
+          // Fallback: message-text heuristic for non-SandboxError platform throws.
           const msg = stopErr instanceof Error ? stopErr.message : String(stopErr);
           if (/not found|already stopped|no container|does not exist|not running/i.test(msg)) {
             console.log('[monolith] /container/stop benign (container already stopped or never started):', sandboxId, 'request_id:', stopBody.request_id);
