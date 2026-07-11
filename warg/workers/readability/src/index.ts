@@ -86,17 +86,19 @@ export default {
       });
 
       // Prepare outputs
+      // @mozilla/readability 0.6.0 widened Article fields to `T | null | undefined`;
+      // coalesce undefined → null (and length → 0) to preserve the existing JSON contract.
       const readabilityResult: ReadabilityResult = {
-        title: article.title,
-        byline: article.byline,
-        dir: article.dir,
-        lang: article.lang,
-        content: article.content,
-        textContent: article.textContent,
-        length: article.length,
-        excerpt: article.excerpt,
-        siteName: article.siteName,
-        publishedTime: article.publishedTime
+        title: article.title ?? null,
+        byline: article.byline ?? null,
+        dir: article.dir ?? null,
+        lang: article.lang ?? null,
+        content: article.content ?? null,
+        textContent: article.textContent ?? null,
+        length: article.length ?? 0,
+        excerpt: article.excerpt ?? null,
+        siteName: article.siteName ?? null,
+        publishedTime: article.publishedTime ?? null
       };
 
       const jsonContent = JSON.stringify(readabilityResult, null, 2);
@@ -128,8 +130,8 @@ export default {
         json: jsonMeta,
         md: mdMeta,
         meta: {
-          title: article.title,
-          byline: article.byline,
+          title: article.title ?? null,
+          byline: article.byline ?? null,
           textLength: article.textContent?.length ?? 0,
           excerptLength: article.excerpt?.length ?? 0
         }
