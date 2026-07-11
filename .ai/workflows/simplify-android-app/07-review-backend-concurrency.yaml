@@ -1,12 +1,21 @@
 artifact: review-dimension
 dimension: backend-concurrency
 parent: 07-review.md
-rev: 1
+rev: 2
 model: claude-sonnet-4-6
-run_at: "2026-07-06T02:00:00Z"
+run_at: "2026-07-10T23:44:14Z"
 verdict: ship
 verdict_label: "Ship"
-summary: "batchRestoreArticleTags uses coroutineScope { RESTORE_TAG_CHUNK_SIZE async{} }.awaitAll() — correct parallel chunked reads. addArticleToBatch uses single WriteBatch — correct. No shared mutable state between parallel coroutines. Firestore batch limit (500 doc budget) respected by RESTORE_TAG_CHUNK_SIZE=10 and RECONCILE_CHUNK_SIZE=20 constraints. No concurrency issues found."
+summary: >
+  All four unreviewed commits (2ff0200, b8da752, fd2778e, 249eb41) are clean.
+  Transaction-wrapping of ArticleRepository.add() via upsertArticlesWithAssociatedData()
+  improves atomicity — articles and associated data now land in a single SQLite transaction.
+  Write-count-aware batch chunking (batchWriteCount) is local function state, sequentially
+  advanced, no sharing across coroutines. Keyset pagination (afterId cursor) in SyncWorker
+  eliminates OFFSET drift under concurrent inserts. Reconcile stall guard (set-equality on
+  prevChunkIds) and iteration cap (MAX_RECONCILE_ITERATIONS=1000) are local-variable guards
+  in a single-coroutine loop. backedUpAt stamping on remote-won upserts is local to one
+  coroutine invocation. No concurrency issues found across either the prior or new delta.
 counts:
   blocker: 0
   high: 0

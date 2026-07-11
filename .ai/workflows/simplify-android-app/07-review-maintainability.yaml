@@ -1,36 +1,52 @@
 artifact: review-dimension
 dimension: maintainability
 parent: 07-review.md
-rev: 1
+rev: 2
 model: claude-sonnet-4-6
-run_at: "2026-07-06T02:00:00Z"
+run_at: "2026-07-10T23:43:27Z"
 verdict: ship
 verdict_label: "Ship"
-summary: "Code structure improved overall. KDoc added to new DAO methods and helper functions. Architecture docs written for app-scope-di, batched-tag-reads, and firestore-sync-backup. One NIT: deleteAllTagsForArticle atomicity window KDoc could be more prescriptive. One NIT: batchRestoreArticleTags silent-empty contract (SE-2) warrants KDoc."
+summary: "Good overall. Transaction atomicity wrapper added to add() path. Keyset pagination added to non-metrics load. Reconcile stall guard (row-identity + iteration cap) and sweep gating on zero-changes branch all correct. Three NITs: positionally-aligned constraint in upsertArticlesWithAssociatedData KDoc over-constrains callers; redundant null guard in largeTextWrites estimation; and a prior open NIT on deleteAllTagsForArticle caller guidance."
 counts:
   blocker: 0
   high: 0
   med: 0
   low: 0
-  nit: 2
+  nit: 3
 findings:
   - id: MA-1
     severity: nit
     dimension: maintainability
     file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
-    line: "291-302"
+    line: "292-302"
     confidence: med
+    action: consider
     status: open
     surfaced-at: "2026-07-06T02:00:00Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
-    msg: "deleteAllTagsForArticle KDoc notes the atomicity window but does not prescribe the caller pattern (always call insertArticleTags immediately after). Consider adding @see insertArticleTags and a usage note."
-  - id: MA-2
+    last-seen-at: "2026-07-10T23:43:27Z"
+    msg: "deleteAllTagsForArticle KDoc describes the delete-then-insert pattern but lacks a formal @see insertArticleTags and explicit instruction that insertArticleTags must always be called immediately after."
+    fix: "Add `@see insertArticleTags` and a one-line caller note: 'Always follow this call with insertArticleTags in the same suspend context.'"
+  - id: MA-3
+    severity: nit
+    dimension: maintainability
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "448-450"
+    confidence: high
+    action: consider
+    status: open
+    surfaced-at: "2026-07-10T23:43:27Z"
+    last-seen-at: "2026-07-10T23:43:27Z"
+    msg: "upsertArticlesWithAssociatedData KDoc says '[articles] … corresponds positionally to [dataList]' but the implementation does not use or enforce positional alignment — associated data rows carry their own itemId FK. The 'positionally' constraint over-constrains callers."
+    fix: "Replace 'corresponds positionally to [dataList]' with 'must cover the same set of articles as [dataList] (by itemId) — order does not matter.'"
+  - id: MA-4
     severity: nit
     dimension: maintainability
     file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
-    line: "511"
-    confidence: med
+    line: "744"
+    confidence: high
+    action: consider
     status: open
-    surfaced-at: "2026-07-06T02:00:00Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
-    msg: "batchRestoreArticleTags returns emptyMap on unauthenticated — contract not documented in KDoc. Callers of this function should know they may receive empty results when authentication is absent."
+    surfaced-at: "2026-07-10T23:43:27Z"
+    last-seen-at: "2026-07-10T23:43:27Z"
+    msg: "largeTextWrites contains a redundant null guard: `if (textSize > MAX_TEXT_SIZE && article.text != null)`. textSize is derived as `article.text?.toByteArray()?.size ?: 0`, so when article.text is null textSize is 0 (never > MAX_TEXT_SIZE). The `&& article.text != null` clause is dead code."
+    fix: "Simplify to `val largeTextWrites = if (textSize > MAX_TEXT_SIZE) 1 else 0`."

@@ -1,75 +1,180 @@
-<section class="fragment-review" data-artifact="review" data-rev="1">
+<section class="fragment-review" data-artifact="review" data-rev="2">
 <style>
-.fr-master { font-family: system-ui, sans-serif; color: #1a1a2e; }
-.fr-master .fr-verdict { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 8px; background: #fef3e2; border: 1px solid #e67e22; margin-bottom: 20px; }
-.fr-master .fr-verdict-label { font-size: 15px; font-weight: 700; color: #e67e22; }
-.fr-master .fr-counts { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-.fr-master .fr-count-chip { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
-.fr-master .fr-count-chip.blocker { background: #2c0a0a; color: #fff; }
-.fr-master .fr-count-chip.high { background: #fde8e8; color: #c0392b; }
-.fr-master .fr-count-chip.med { background: #fef3e2; color: #e67e22; }
-.fr-master .fr-count-chip.low { background: #e8f8f0; color: #27ae60; }
-.fr-master .fr-count-chip.nit { background: #f0f0f0; color: #666; }
-.fr-master .fr-dim-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
-.fr-master .fr-dim-table th { text-align: left; padding: 6px 8px; border-bottom: 2px solid #e0e0e0; font-weight: 600; color: #555; font-size: 12px; }
-.fr-master .fr-dim-table td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; }
-.fr-master .fr-dim-status-clean { color: #27ae60; font-weight: 600; }
-.fr-master .fr-dim-status-caveats { color: #e67e22; font-weight: 600; }
-.fr-master .fr-fix-notice { padding: 10px 14px; background: #eafff0; border-left: 3px solid #27ae60; border-radius: 4px; font-size: 13px; margin-bottom: 16px; }
+.fragment-review .fr-heat { overflow-x: auto; margin-bottom: 18px; }
+.fragment-review .fr-heat table { border-collapse: collapse; font-size: 0.78rem; min-width: 480px; }
+.fragment-review .fr-heat th, .fragment-review .fr-heat td {
+  padding: 5px 9px; text-align: center; border: 1px solid var(--color-border, #e3e3e3);
+}
+.fragment-review .fr-heat th { color: var(--color-text-secondary, #666); font-weight: 600; }
+.fragment-review .fr-heat td.fr-dim { text-align: left; font-weight: 600; white-space: nowrap; }
+.fragment-review .fr-cell-0 { color: var(--color-text-secondary, #bbb); }
+.fragment-review .fr-cell-med  { background: #fff3e0; color: #e65100; font-weight: 700; }
+.fragment-review .fr-cell-low  { background: #e8f5e9; color: #1b5e20; font-weight: 700; }
+.fragment-review .fr-cell-nit  { background: #eceff1; color: #37474f; font-weight: 700; }
+.fragment-review .fr-clean { color: #2e7d32; font-weight: 600; }
+@media (prefers-color-scheme: dark) {
+  .fragment-review .fr-cell-med { background: #3a2300; color: #ffb74d; }
+  .fragment-review .fr-cell-low { background: #0a2e0d; color: #69f0ae; }
+  .fragment-review .fr-cell-nit { background: #23292c; color: #b0bec5; }
+  .fragment-review .fr-clean { color: #69f0ae; }
+}
+:root[data-theme="dark"] .fragment-review .fr-cell-med { background: #3a2300; color: #ffb74d; }
+:root[data-theme="dark"] .fragment-review .fr-cell-low { background: #0a2e0d; color: #69f0ae; }
+:root[data-theme="dark"] .fragment-review .fr-cell-nit { background: #23292c; color: #b0bec5; }
+:root[data-theme="dark"] .fragment-review .fr-clean { color: #69f0ae; }
+
+.fragment-review .fr-pills { display: flex; gap: 7px; flex-wrap: wrap; margin: 14px 0; }
+.fragment-review .fr-pill {
+  padding: 3px 11px; border-radius: 16px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
+  border: 1.5px solid transparent; background: var(--fr-bg, #eee); color: var(--fr-fg, #333);
+}
+.fragment-review .fr-pill[data-active="true"] { border-color: currentColor; }
+.fragment-review .fr-pill[data-k="MED"] { --fr-bg: #fff3e0; --fr-fg: #e65100; }
+.fragment-review .fr-pill[data-k="LOW"] { --fr-bg: #e8f5e9; --fr-fg: #1b5e20; }
+.fragment-review .fr-pill[data-k="NIT"] { --fr-bg: #eceff1; --fr-fg: #37474f; }
+.fragment-review .fr-pill[data-k="ALL"] { --fr-bg: #e8eaf6; --fr-fg: #283593; }
+@media (prefers-color-scheme: dark) {
+  .fragment-review .fr-pill[data-k="MED"] { --fr-bg: #3a2300; --fr-fg: #ffb74d; }
+  .fragment-review .fr-pill[data-k="LOW"] { --fr-bg: #0a2e0d; --fr-fg: #69f0ae; }
+  .fragment-review .fr-pill[data-k="NIT"] { --fr-bg: #23292c; --fr-fg: #b0bec5; }
+  .fragment-review .fr-pill[data-k="ALL"] { --fr-bg: #1a1d3a; --fr-fg: #8c9eff; }
+}
+:root[data-theme="dark"] .fragment-review .fr-pill[data-k="MED"] { --fr-bg: #3a2300; --fr-fg: #ffb74d; }
+:root[data-theme="dark"] .fragment-review .fr-pill[data-k="LOW"] { --fr-bg: #0a2e0d; --fr-fg: #69f0ae; }
+:root[data-theme="dark"] .fragment-review .fr-pill[data-k="NIT"] { --fr-bg: #23292c; --fr-fg: #b0bec5; }
+:root[data-theme="dark"] .fragment-review .fr-pill[data-k="ALL"] { --fr-bg: #1a1d3a; --fr-fg: #8c9eff; }
+
+.fragment-review .fr-list { list-style: none; margin: 0; padding: 0; }
+.fragment-review .fr-item {
+  border: 1px solid var(--color-border, #e3e3e3); border-radius: 7px;
+  padding: 10px 13px; margin-bottom: 8px;
+}
+.fragment-review .fr-item-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; cursor: pointer; }
+.fragment-review .fr-id { font-weight: 700; font-size: 0.85rem; }
+.fragment-review .fr-chip {
+  padding: 1px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: 700;
+  background: var(--fr-bg, #eee); color: var(--fr-fg, #333);
+}
+.fragment-review .fr-chip[data-k="MED"] { --fr-bg: #fff3e0; --fr-fg: #e65100; }
+.fragment-review .fr-chip[data-k="LOW"] { --fr-bg: #e8f5e9; --fr-fg: #1b5e20; }
+.fragment-review .fr-chip[data-k="NIT"] { --fr-bg: #eceff1; --fr-fg: #37474f; }
+.fragment-review .fr-chip[data-k="PRE"] { --fr-bg: #f3e5f5; --fr-fg: #6a1b9a; }
+@media (prefers-color-scheme: dark) {
+  .fragment-review .fr-chip[data-k="MED"] { --fr-bg: #3a2300; --fr-fg: #ffb74d; }
+  .fragment-review .fr-chip[data-k="LOW"] { --fr-bg: #0a2e0d; --fr-fg: #69f0ae; }
+  .fragment-review .fr-chip[data-k="NIT"] { --fr-bg: #23292c; --fr-fg: #b0bec5; }
+  .fragment-review .fr-chip[data-k="PRE"] { --fr-bg: #2a0f33; --fr-fg: #ce93d8; }
+}
+:root[data-theme="dark"] .fragment-review .fr-chip[data-k="MED"] { --fr-bg: #3a2300; --fr-fg: #ffb74d; }
+:root[data-theme="dark"] .fragment-review .fr-chip[data-k="LOW"] { --fr-bg: #0a2e0d; --fr-fg: #69f0ae; }
+:root[data-theme="dark"] .fragment-review .fr-chip[data-k="NIT"] { --fr-bg: #23292c; --fr-fg: #b0bec5; }
+:root[data-theme="dark"] .fragment-review .fr-chip[data-k="PRE"] { --fr-bg: #2a0f33; --fr-fg: #ce93d8; }
+.fragment-review .fr-loc { font-family: monospace; font-size: 0.74rem; color: var(--color-text-secondary, #777); word-break: break-all; }
+.fragment-review .fr-msg { font-size: 0.82rem; margin-top: 5px; display: none; }
+.fragment-review .fr-item[data-open="true"] .fr-msg { display: block; }
+.fragment-review .fr-empty { padding: 16px; text-align: center; color: var(--color-text-secondary, #888); }
+.fragment-review .fr-fixed-banner {
+  border-left: 3px solid #0d47a1; background: var(--color-surface-subtle, #eef3ff);
+  border-radius: 0 6px 6px 0; padding: 10px 14px; margin-bottom: 16px; font-size: 0.84rem;
+}
+@media (prefers-color-scheme: dark) { .fragment-review .fr-fixed-banner { background: #0a1529; border-left-color: #64b5f6; } }
+:root[data-theme="dark"] .fragment-review .fr-fixed-banner { background: #0a1529; border-left-color: #64b5f6; }
 </style>
-<div class="fr-master">
 
-<div class="fr-verdict">
-  <span class="fr-verdict-label">Ship with Caveats</span>
-  <span style="font-size:13px;color:#888;">0 open blockers &middot; 0 open HIGH &middot; 0 open MED</span>
-</div>
+<div class="fr-fixed-banner"><strong>Fixed this run:</strong> RE-3/CO-1 (HIGH) — write-count batch chunking dropped the 20-article Firestore rules <code>getAfter</code> budget cap; &gt;20-article sync backups would be rejected wholesale. Patched in <code>8b06e84</code> (batchArticleCount flush condition + regression test, 154/154 green). Found independently by the reliability and cost reviewers.</div>
 
-<div class="fr-fix-notice">
-  <strong>4 findings fixed this run</strong> (commit 8362d4c): CR-1/PE-1 bulk DAO tag query &middot; CR-2 performFullSync one-read path &middot; SE-1 Firestore rules security note &middot; RE-1 CancellationException re-throw. All 147 unit tests pass.
-</div>
-
-<div class="fr-counts">
-  <span class="fr-count-chip blocker">BLOCKER: 0</span>
-  <span class="fr-count-chip high">HIGH: 0 open (2 fixed)</span>
-  <span class="fr-count-chip med">MED: 0 open (3 fixed)</span>
-  <span class="fr-count-chip low">LOW: 3 open/deferred</span>
-  <span class="fr-count-chip nit">NIT: 6 deferred</span>
-</div>
-
-<table class="fr-dim-table">
-  <thead>
-    <tr><th>Dimension</th><th>Blocker</th><th>HIGH</th><th>MED</th><th>LOW</th><th>NIT</th><th>Status</th></tr>
-  </thead>
-  <tbody>
-    <tr><td>correctness</td><td>0</td><td>0 ✓fixed</td><td>0 ✓fixed</td><td>1 defer</td><td>0</td><td class="fr-dim-status-caveats">caveats</td></tr>
-    <tr><td>security</td><td>0</td><td>0</td><td>0 ✓fixed</td><td>1 defer</td><td>0</td><td class="fr-dim-status-caveats">caveats</td></tr>
-    <tr><td>code-simplification</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="fr-dim-status-clean">clean</td></tr>
-    <tr><td>testing</td><td>0</td><td>0</td><td>0</td><td>1 open</td><td>1</td><td class="fr-dim-status-caveats">caveats</td></tr>
-    <tr><td>maintainability</td><td>0</td><td>0</td><td>0</td><td>0</td><td>2</td><td class="fr-dim-status-clean">ship</td></tr>
-    <tr><td>reliability</td><td>0</td><td>0</td><td>0 ✓fixed</td><td>1 defer</td><td>0</td><td class="fr-dim-status-caveats">caveats</td></tr>
-    <tr><td>backend-concurrency</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="fr-dim-status-clean">clean</td></tr>
-    <tr><td>refactor-safety</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="fr-dim-status-clean">clean</td></tr>
-    <tr><td>architecture</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1</td><td class="fr-dim-status-clean">ship</td></tr>
-    <tr><td>performance</td><td>0</td><td>0 ✓fixed</td><td>0</td><td>0</td><td>1</td><td class="fr-dim-status-caveats">caveats</td></tr>
-    <tr><td>data-integrity</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1</td><td class="fr-dim-status-clean">ship</td></tr>
-    <tr><td>privacy</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="fr-dim-status-clean">clean</td></tr>
-    <tr><td>docs</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td class="fr-dim-status-clean">clean</td></tr>
-  </tbody>
+<div class="fr-heat">
+<table aria-label="Severity by dimension (open findings)">
+<thead><tr><th>Dimension</th><th>MED</th><th>LOW</th><th>NIT</th></tr></thead>
+<tbody id="fr-heat-body"></tbody>
 </table>
-
 </div>
+
+<div class="fr-pills" id="fr-pills">
+  <button class="fr-pill" data-k="ALL" data-active="true">All open (16)</button>
+  <button class="fr-pill" data-k="MED">MED (1)</button>
+  <button class="fr-pill" data-k="LOW">LOW (6)</button>
+  <button class="fr-pill" data-k="NIT">NIT (9)</button>
+</div>
+
+<ul class="fr-list" id="fr-list"></ul>
+<p class="fr-empty" id="fr-empty" style="display:none;">No open findings match this filter.</p>
+
 <script>
 (function() {
-  document.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
-    detail: {
-      name: 'review',
-      artifact: 'review',
-      rev: 1,
-      verdict: 'caveats',
-      counts: { blocker: 0, high: 0, med: 0, low: 3, nit: 6 },
-      fixCommit: '8362d4c',
-      fixedCount: 5
-    }
+  var sec = document.currentScript.closest('.fragment-review');
+
+  var HEAT = [
+    ['correctness',0,1,0],['security',0,1,0],['code-simplification',0,1,2],
+    ['testing',0,0,2],['maintainability',0,0,2],['reliability',0,1,0],
+    ['backend-concurrency',0,0,0],['refactor-safety',0,0,0],['architecture',0,0,1],
+    ['performance',0,2,1],['data-integrity',1,0,1],['privacy',0,0,0],
+    ['docs',0,0,0],['cost',0,0,0]
+  ];
+
+  var FINDINGS = [
+    {id:'DI-2',sev:'MED',dim:'data-integrity',pre:true,loc:'ArticleDao.kt:502-530',msg:'upsertNewArticle merge-copy drops backedUpAt on re-save of an existing URL, re-queuing already-backed-up articles for one redundant sweep upload. Pre-existing; tracked follow-up (task_f7a78e68). Fix: carry existingArticle.backedUpAt in the merge-copy.'},
+    {id:'CR-3',sev:'LOW',dim:'correctness',pre:true,loc:'ArticleListItem.kt:77-82',msg:'tagStates map second-pass precedence subtle but correct. Deferred.'},
+    {id:'SE-2',sev:'LOW',dim:'security',pre:true,loc:'FirestoreBackupService.kt:517',msg:'batchRestoreArticleTags returns emptyMap() silently when unauthenticated. KDoc added this cycle; behavior unchanged. Deferred (upstream-guarded).'},
+    {id:'RE-2',sev:'LOW',dim:'reliability',pre:true,loc:'FirestoreSyncManager.kt:579-583',msg:'Reconcile sweep returns on first chunk backup failure; remaining never-backed-up articles wait for the next cycle. Re-anchored after the 249eb41 rewrite. Deferred.'},
+    {id:'CS-1',sev:'LOW',dim:'code-simplification',pre:false,loc:'FirestoreBackupService.kt:747',msg:'Dead "&& article.text != null" guard in largeTextWrites — textSize is already 0 when text is null. (Cross-dim: MA-4.)'},
+    {id:'PE-3',sev:'LOW',dim:'performance',pre:false,loc:'FirestoreBackupService.kt:746',msg:'article.text?.toByteArray() allocated twice per article — write-count pre-check plus addArticleToBatch. Use a cheaper size proxy or compute once.'},
+    {id:'PE-4',sev:'LOW',dim:'performance',pre:false,loc:'FirestoreSyncManager.kt:569-575',msg:'Up to 20 individual updateBackedUpAt DAO calls per reconcile chunk; a bulk WHERE itemId IN (:ids) UPDATE would be one statement.'},
+    {id:'TE-2',sev:'NIT',dim:'testing',pre:true,loc:'ArticleDao.kt:291-302',msg:'deleteAllTagsForArticle atomicity window untested. Deferred.'},
+    {id:'MA-1',sev:'NIT',dim:'maintainability',pre:true,loc:'ArticleDao.kt:291-302',msg:'deleteAllTagsForArticle KDoc could be more prescriptive (@see tag). Deferred.'},
+    {id:'AR-1',sev:'NIT',dim:'architecture',pre:true,loc:'FirestoreSyncManager.kt:1-59',msg:'Direct firestore/auth refs alongside the BackupService facade — minor layering leak. Deferred.'},
+    {id:'PE-2',sev:'NIT',dim:'performance',pre:true,loc:'ArticleListItem.kt:83-90',msg:'parsedSnippet HtmlCompat.fromHtml initial allocation (memoized). Deferred.'},
+    {id:'DI-1',sev:'NIT',dim:'data-integrity',pre:true,loc:'ArticleDao.kt:459',msg:'Pre-existing TODO: timeAdded = existingArticle.timeAdded in upsertNewArticle. Deferred.'},
+    {id:'CS-3',sev:'NIT',dim:'code-simplification',pre:false,loc:'FirestoreBackupService.kt:748,765',msg:'markerKeysFor(article) called twice per article in the chunking loop — size estimate + addMarkerWrites. (Cross-dim: PE-5.)'},
+    {id:'CS-4',sev:'NIT',dim:'code-simplification',pre:true,loc:'ArticleDao.kt:415-426',msg:'getArticlesNeverBackedUp(limit, offset) — offset param vestigial after the sweep locked it to 0; KDoc still advertises it.'},
+    {id:'TE-3',sev:'NIT',dim:'testing',pre:false,loc:'FirestoreSyncManager.kt:567-583',msg:'try-catch around updateBackedUpAt has no test for the throwing path; stall guard terminates cleanly but the path is unexercised.'},
+    {id:'MA-3',sev:'NIT',dim:'maintainability',pre:false,loc:'ArticleDao.kt:545-560',msg:'upsertArticlesWithAssociatedData KDoc says dataList "corresponds positionally" but the implementation is FK-keyed and order-independent.'}
+  ];
+
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+  var heatBody = sec.querySelector('#fr-heat-body');
+  heatBody.innerHTML = HEAT.map(function(r){
+    function cell(n, cls){ return n ? '<td class="fr-cell-'+cls+'">'+n+'</td>' : '<td class="fr-cell-0">·</td>'; }
+    var clean = !r[1] && !r[2] && !r[3];
+    return '<tr><td class="fr-dim">'+esc(r[0])+(clean?' <span class="fr-clean">✓</span>':'')+'</td>'+cell(r[1],'med')+cell(r[2],'low')+cell(r[3],'nit')+'</tr>';
+  }).join('');
+
+  var filter = 'ALL';
+  function render(){
+    var list = sec.querySelector('#fr-list');
+    var empty = sec.querySelector('#fr-empty');
+    var rows = FINDINGS.filter(function(f){ return filter==='ALL' || f.sev===filter; });
+    empty.style.display = rows.length ? 'none' : '';
+    list.innerHTML = rows.map(function(f){
+      return '<li class="fr-item" data-open="false">'+
+        '<div class="fr-item-head">'+
+        '<span class="fr-id">'+esc(f.id)+'</span>'+
+        '<span class="fr-chip" data-k="'+esc(f.sev)+'">'+esc(f.sev)+'</span>'+
+        (f.pre?'<span class="fr-chip" data-k="PRE">pre-existing</span>':'')+
+        '<span class="fr-chip">'+esc(f.dim)+'</span>'+
+        '<span class="fr-loc">'+esc(f.loc)+'</span>'+
+        '</div><div class="fr-msg">'+esc(f.msg)+'</div></li>';
+    }).join('');
+    list.querySelectorAll('.fr-item-head').forEach(function(h){
+      h.addEventListener('click', function(){
+        var it = h.closest('.fr-item');
+        it.dataset.open = String(it.dataset.open !== 'true');
+      });
+    });
+  }
+
+  sec.querySelector('#fr-pills').addEventListener('click', function(e){
+    var p = e.target.closest('.fr-pill'); if(!p) return;
+    filter = p.dataset.k;
+    sec.querySelectorAll('.fr-pill').forEach(function(x){ x.dataset.active = String(x===p); });
+    render();
+  });
+
+  render();
+
+  window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
+    detail: { name: 'review', artifact: 'review', counts: { findings: 16, blockers: 0 } }
   }));
 })();
 </script>

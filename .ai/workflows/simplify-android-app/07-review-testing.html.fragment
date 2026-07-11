@@ -1,37 +1,76 @@
-<section class="fragment-review-dimension" data-artifact="review-dimension" data-dimension="testing" data-rev="1">
+<section class="fragment-review-dimension" data-artifact="review-dimension" data-dimension="testing" data-rev="2">
 <style>
 .frd-te { font-family: system-ui, sans-serif; }
+.frd-te .frd-pill-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.frd-te .frd-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px; border: 1.5px solid transparent; cursor: pointer; text-transform: uppercase; }
+.frd-te .frd-pill.active { border-color: currentColor; }
+.frd-te .frd-pill-nit { background: #f0f0f0; color: #666; }
+.frd-te .frd-pill-all { background: #e8e8f8; color: #446; }
 .frd-te .frd-finding { border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+.frd-te .frd-finding[hidden] { display: none; }
 .frd-te .frd-finding-header { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; background: #fafafa; }
 .frd-te .frd-sev-badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; }
-.frd-te .frd-sev-low { background: #e8f8f0; color: #27ae60; }
 .frd-te .frd-sev-nit { background: #f0f0f0; color: #666; }
+.frd-te .frd-pre-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #fff3cd; color: #856404; font-weight: 600; }
+.frd-te .frd-new-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #d1ecf1; color: #0c5460; font-weight: 600; }
 .frd-te .frd-finding-id { font-weight: 700; font-size: 13px; }
 .frd-te .frd-finding-msg { font-size: 13px; color: #555; flex: 1; }
 .frd-te .frd-finding-body { padding: 10px 12px; border-top: 1px solid #e0e0e0; background: #fff; font-size: 13px; display: none; }
 .frd-te .frd-finding-body.open { display: block; }
+.frd-te .frd-finding-body pre { background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+.frd-te .frd-resolved { border-color: #c3e6cb; background: #f0faf4; }
+.frd-te .frd-resolved .frd-finding-header { background: #f0faf4; }
+.frd-te .frd-resolved-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #c3e6cb; color: #155724; font-weight: 600; }
 </style>
 <div class="frd-te">
 
-<div class="frd-finding" data-sev="low">
+<div class="frd-pill-bar">
+  <button class="frd-pill frd-pill-all active" data-filter="all">All (3)</button>
+  <button class="frd-pill frd-pill-nit" data-filter="nit">NIT (2 open)</button>
+</div>
+
+<div class="frd-finding frd-resolved" data-sev="low" data-status="resolved">
   <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
-    <span class="frd-sev-badge frd-sev-low">LOW</span>
+    <span class="frd-sev-badge frd-sev-low" style="background:#e8f8f0;color:#27ae60;">LOW</span>
     <span class="frd-finding-id">TE-1</span>
-    <span class="frd-finding-msg">Missing bulk-DAO tag fetch test (forward gap for CR-1 fix)</span>
+    <span class="frd-resolved-badge">RESOLVED</span>
+    <span class="frd-finding-msg">Missing bulk-DAO tag fetch test — resolved (method + test landed in 8362d4c + 56a6533)</span>
   </div>
   <div class="frd-finding-body">
-    <p>Once the <code>getTagsForArticles(itemIds)</code> DAO method is added (CR-1 fix), a test asserting exactly one DAO call per chunk is needed. No test exists yet for this bulk path.</p>
+    <p><code>getTagsForArticles(itemIds)</code> was added in commit <code>8362d4c</code> and the one-call-per-chunk test was landed in <code>56a6533</code> (both before the current review window). The forward gap is closed.</p>
   </div>
 </div>
 
-<div class="frd-finding" data-sev="nit">
+<div class="frd-finding" data-sev="nit" data-status="open">
   <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
     <span class="frd-sev-badge frd-sev-nit">NIT</span>
     <span class="frd-finding-id">TE-2</span>
+    <span class="frd-pre-badge">PRE-EXISTING</span>
     <span class="frd-finding-msg">deleteAllTagsForArticle atomicity window documented but untested</span>
   </div>
   <div class="frd-finding-body">
-    <p>The KDoc documents a brief window where an article has no tags (delete-then-insert, not in <code>@Transaction</code>). No test verifies this documented contract.</p>
+    <p><strong>Location:</strong> <code>ArticleDao.kt:291-302</code></p>
+    <p>The KDoc documents a brief window where an article has no tags (delete-then-insert, not in <code>@Transaction</code>). No test verifies this documented contract. Pre-existing; unaffected by the new commits.</p>
+    <p><strong>Fix:</strong> Add a unit test asserting that <code>deleteAllTagsForArticle</code> is only called from the background sync path, or annotate the non-atomicity as an explicit accepted invariant.</p>
+  </div>
+</div>
+
+<div class="frd-finding" data-sev="nit" data-status="open">
+  <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
+    <span class="frd-sev-badge frd-sev-nit">NIT</span>
+    <span class="frd-finding-id">TE-3</span>
+    <span class="frd-new-badge">NEW</span>
+    <span class="frd-finding-msg">updateBackedUpAt try-catch exception path in reconcile sweep untested</span>
+  </div>
+  <div class="frd-finding-body">
+    <p><strong>Location:</strong> <code>FirestoreSyncManager.kt:567-583</code> (added in <code>249eb41</code>)</p>
+    <p>The try-catch around <code>articleDao.updateBackedUpAt()</code> in the reconcile <code>onSuccess</code> block has no test for the catch path. If stamping throws, the article stays <code>backed_up_at=NULL</code> and the stall guard fires on the next iteration. Behavior is recoverable but the direct exception path is not exercised.</p>
+    <pre>try {
+    articleDao.updateBackedUpAt(article.itemId, now)
+} catch (e: Exception) {
+    Timber.w(e, "...") // ← untested path
+}</pre>
+    <p><strong>Fix:</strong> Stub <code>updateBackedUpAt</code> to throw for one article; verify the sweep continues for remaining articles, then the stall guard fires cleanly on the next iteration.</p>
   </div>
 </div>
 
@@ -39,13 +78,34 @@
 <script>
 (function() {
   var sec = document.currentScript.closest('.fragment-review-dimension') || document.querySelector('[data-dimension="testing"]');
+
+  // Toggle expand
   sec.querySelectorAll('.frd-finding-header').forEach(function(h) {
     h.addEventListener('click', function() {
-      var b = h.nextElementSibling; var open = b.classList.toggle('open'); h.setAttribute('aria-expanded', open);
+      var b = h.nextElementSibling;
+      var open = b.classList.toggle('open');
+      h.setAttribute('aria-expanded', open);
     });
   });
-  document.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
-    detail: { name: 'review-dimension', artifact: 'review-dimension', dimension: 'testing', rev: 1, counts: { blocker: 0, high: 0, med: 0, low: 1, nit: 1 } }
+
+  // Severity filter pills
+  sec.querySelectorAll('.frd-pill').forEach(function(pill) {
+    pill.addEventListener('click', function() {
+      sec.querySelectorAll('.frd-pill').forEach(function(p) { p.classList.remove('active'); });
+      pill.classList.add('active');
+      var filter = pill.dataset.filter;
+      sec.querySelectorAll('.frd-finding').forEach(function(f) {
+        if (filter === 'all') {
+          f.hidden = false;
+        } else {
+          f.hidden = f.dataset.sev !== filter || f.dataset.status === 'resolved';
+        }
+      });
+    });
+  });
+
+  window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
+    detail: { name: 'review-dimension', artifact: 'review-dimension', dimension: 'testing', rev: 2, counts: { blocker: 0, high: 0, med: 0, low: 0, nit: 2, findings: 2 } }
   }));
 })();
 </script>

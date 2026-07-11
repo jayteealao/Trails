@@ -6,10 +6,11 @@ review-scope: slug-wide
 slice-slug: ""
 review-command: security
 status: complete
-updated-at: "2026-07-06T01:44:38Z"
-metric-findings-total: 2
+updated-at: "2026-07-10T23:42:20Z"
+metric-findings-total: 1
 metric-findings-blocker: 0
 metric-findings-high: 0
+metric-findings-pre-existing: 1
 metric-findings-resolved: 0
 result: issues-found
 tags: []
@@ -21,41 +22,39 @@ refs:
 
 ## Findings
 
-| ID | Sev | Conf | Status | Surfaced | File:Line | Issue |
-|----|-----|------|--------|----------|-----------|-------|
-| SE-1 | MED | High | open | 2026-07-06 | `firestore.rules:58-66` | Firestore marker rule fallback `get(articles/{itemId})` allows any Warg-known article to be used as proof of ownership — unauthenticated path if top-level articles/{itemId} is client-readable |
-| SE-2 | LOW | Med | open | 2026-07-06 | `FirestoreBackupService.kt:511` | `batchRestoreArticleTags` returns `emptyMap()` silently on unauthenticated — callers receive empty tags without an error signal |
+| ID | Sev | Conf | Status | Pre | Surfaced | File:Line | Issue |
+|----|-----|------|--------|-----|----------|-----------|-------|
+| SE-1 | MED | High | fixed | true | 2026-07-06 | `firebase/firestore.rules:51-65` | Firestore marker fallback `get(articles/{itemId})` widens proof surface — FIXED: SECURITY NOTE comment added |
+| SE-2 | LOW | Med | open | true | 2026-07-06 | `FirestoreBackupService.kt:517` | `batchRestoreArticleTags` returns `emptyMap()` silently on unauthenticated; callers receive empty tags with no error signal |
 
 ## Detailed Findings
 
-### SE-1: Firestore Marker Rule Fallback Widens Proof Surface [MED]
+### SE-1: Firestore Marker Rule Fallback Widens Proof Surface [MED] — FIXED
 
-**Location:** `firebase/firestore.rules:58-66`
+**Location:** `firebase/firestore.rules:51-65`
 
 **Evidence:**
 ```
-allow create, update: if isOwner(userId)
-  && request.resource.data.itemId is string
-  && (
-    getAfter(…/articles/$(request.resource.data.itemId)).data != null
-    || get(/databases/$(database)/documents/articles/$(request.resource.data.itemId)) != null
-  );
+// SECURITY NOTE (review SE-1): The `get(articles/{itemId})` fallback's safety
+// depends on the top-level `articles` collection being non-enumerable by clients.
+// If that collection ever becomes client-readable/listable, any authenticated user
+// who learns a top-level article ID could write a marker for that ID in their own
+// namespace — enabling phantom markers. The current `allow list: false` on the
+// top-level article read rules MUST re-evaluate this fallback's threat model.
 ```
 
-**Issue:** The fallback `get(articles/{itemId})` references the top-level `articles` collection (Warg backend-written). If that collection's read rules allow unauthenticated/any-authenticated access — or if they are overly permissive — then any user who knows an article ID from the top-level collection could write a marker referencing that ID. The comment says "the top-level `articles` collection rejects all client writes" but read access is not restricted to the article owner. This is an enumeration-adjacent concern: if an attacker can guess or enumerate top-level article IDs, they can create markers for those IDs in their own namespace. Impact is limited to their own marker namespace, but it could enable phantom markers.
+**Issue:** The `get(/databases/$(database)/documents/articles/$(request.resource.data.itemId))` fallback in the `articleMarkers` create/update rule allowed any authenticated user who knows a top-level article ID to write a marker in their own namespace (not another user's), enabling phantom markers if the top-level `articles` collection were enumerable.
 
-**Mitigation check:** Review `match /articles/{articleId}` rule's read permission. If read is restricted to authenticated users with no ownership check, the risk is that any authenticated user can probe whether any article ID exists (by attempting to write a marker). This is low-severity but worth documenting.
+**Fix:** A SECURITY NOTE comment was added to `firebase/firestore.rules` (lines 51-65) documenting that the fallback's safety depends on the top-level `articles` collection being non-enumerable (`allow list: false` enforces this today). Future rule authors relaxing those read rules must re-evaluate this threat model before doing so.
 
-**Fix:** Add a comment in the rules documenting that the fallback's safety depends on `articles/{articleId}` being unreadable or unguessable by non-owners. Optionally add an existence check that the marker's `itemId` matches a verified ownership path.
-
-**Severity:** MED | **Confidence:** High
-**Status:** open | **Surfaced:** 2026-07-06 | **Last seen:** 2026-07-06
+**Severity:** MED | **Confidence:** High | **Pre-existing:** true
+**Status:** fixed | **Surfaced:** 2026-07-06 | **Last seen:** 2026-07-10 | **Fixed:** 2026-07-06T02:04:08Z
 
 ---
 
 ### SE-2: batchRestoreArticleTags Silent Empty on Unauthenticated [LOW]
 
-**Location:** `android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt:511`
+**Location:** `android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt:517`
 
 **Evidence:**
 ```kotlin
@@ -63,21 +62,22 @@ suspend fun batchRestoreArticleTags(
     articleIds: List<String>
 ): Map<String, List<ArticleTags>> {
     if (articleIds.isEmpty()) return emptyMap()
-    val user = getCurrentUser() ?: return emptyMap()
-    …
+    val user = getCurrentUser() ?: return emptyMap()   // ← line 517: silent empty
+    // ...
 }
 ```
 
-**Issue:** When the user is not authenticated, `batchRestoreArticleTags` returns an empty map silently. The caller in `applyRemoteArticles` proceeds to write articles with no tags — data will be silently incomplete. Since `applyRemoteArticles` is only called from within paginated restore which itself checks authentication, this is unlikely to trigger in practice. However, the silent-empty contract could mislead future callers.
+**Issue:** When the user is not authenticated, `batchRestoreArticleTags` returns `emptyMap()` silently with no log or error signal. Callers in `applyRemoteArticles` proceed to write articles with zero tags — data is silently incomplete. A KDoc comment was added this cycle (`Returns an empty map when [articleIds] is empty or the user is unauthenticated`) that documents the behaviour, but the silent-empty path itself is unchanged. The defect is unlikely to trigger in practice: `applyRemoteArticles` is only called from paginated restore which upstream-guards on authentication. However, the silent contract could mislead future callers that do not have an upstream auth guard.
 
-**Fix:** Return a distinct failure signal or throw (callers should catch), or document the unauthenticated-returns-empty contract explicitly in KDoc.
+**Fix:** Return a distinct failure signal — either `Result<Map<…>>` returning `Result.failure(…)` when unauthenticated, or throw (callers should catch). Minimum acceptable: add `Timber.w("batchRestoreArticleTags called unauthenticated")` so the path is detectable in logs if it fires.
 
-**Severity:** LOW | **Confidence:** Med
-**Status:** open | **Surfaced:** 2026-07-06 | **Last seen:** 2026-07-06
+**Severity:** LOW | **Confidence:** Med | **Pre-existing:** true
+**Status:** open | **Surfaced:** 2026-07-06 | **Last seen:** 2026-07-10
 
 ---
 
 ## Summary
-- Open findings: 2 (resolved this run: 0)
-- Open blockers: 0
+- Open findings: 1 (pre-existing: 1)
+- Open blockers: 0 (pre-existing excluded from verdict)
+- Findings fixed this cycle: 0 (SE-1 was fixed in prior session 2026-07-06)
 - Status: Issues Found

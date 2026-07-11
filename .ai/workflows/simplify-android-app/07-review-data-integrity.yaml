@@ -1,16 +1,27 @@
 artifact: review-dimension
 dimension: data-integrity
 parent: 07-review.md
-rev: 1
+rev: 2
 model: claude-sonnet-4-6
-run_at: "2026-07-06T02:00:00Z"
+run_at: "2026-07-10T23:45:08Z"
 verdict: ship
 verdict_label: "Ship"
-summary: "upsertNewArticle correctly merges fields with last-write-wins semantics. deleteAllTagsForArticle atomicity window is documented and acceptable for background-only path. Soft-delete pattern (deleted_at, archived_at) maintained. backedUpAt column properly nullable and stamped on success. FTS sanitization bug fixed — searchWithScore no longer passes raw unsanitized query. No data integrity regressions found."
+summary: >
+  Four new commits reviewed (2ff0200, b8da752, fd2778e, 249eb41).
+  The transaction-wrapped upsertArticlesWithAssociatedData (2ff0200) correctly
+  fixes the prior non-atomic multi-step write in add(). Batch write-count
+  estimation (b8da752) accurately matches actual Firestore operations.
+  Cursor-based pagination (fd2778e) eliminates skip/duplicate risk from
+  concurrent mutations. The reconcile stall guard (249eb41) — row-identity
+  guard, iteration cap, backedUpAt stamping on remote-won upserts — is
+  logically correct with no new data integrity regressions.
+  One pre-existing MED deferred (DI-2): upsertNewArticle merge-copy drops
+  backedUpAt, already tracked as a follow-up task by the branch authors.
+  One pre-existing NIT remains open (DI-1).
 counts:
   blocker: 0
   high: 0
-  med: 0
+  med: 1
   low: 0
   nit: 1
 findings:
@@ -18,9 +29,31 @@ findings:
     severity: nit
     dimension: data-integrity
     file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
-    line: "459"
+    line: "508"
     confidence: low
+    action: defer
     status: open
     surfaced-at: "2026-07-06T02:00:00Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
-    msg: "upsertNewArticle has a pre-existing TODO: 'timeAdded = existingArticle.timeAdded //TODO: this is not right'. Not introduced by this branch; deferred to follow-up."
+    last-seen-at: "2026-07-10T23:45:08Z"
+    msg: "upsertNewArticle merge-copy has a pre-existing TODO: 'timeAdded = existingArticle.timeAdded //TODO: this is not right'. Not introduced by this branch."
+    evidence: "timeAdded = existingArticle.timeAdded, //TODO: this is not right"
+    fix: "Preserve newArticle.timeAdded (the API-provided value) instead of pinning to the existing row's timeAdded."
+  - id: DI-2
+    severity: med
+    dimension: data-integrity
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "502-530"
+    confidence: high
+    action: defer
+    status: deferred
+    surfaced-at: "2026-07-10T23:45:08Z"
+    last-seen-at: "2026-07-10T23:45:08Z"
+    msg: >
+      upsertNewArticle merge-copy does not preserve backedUpAt from the existing
+      row. When an already-backed-up article is re-added (e.g. via share intent),
+      backedUpAt is reset to null, causing the article to appear in the next
+      reconcile sweep and triggering an unnecessary Firestore re-upload. Already
+      identified and tracked as a follow-up task by branch authors per the
+      stamp-monotonicity audit in 06-verify-reconcile-stall-guard.md.
+    evidence: "upsertArticle(newArticle.copy(...)) // backedUpAt not present in merge-copy fields (lines 502-530)"
+    fix: "Add 'backedUpAt = existingArticle.backedUpAt' to the merge-copy in upsertNewArticle so already-backed-up rows retain their stamp on re-add."

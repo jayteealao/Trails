@@ -1,15 +1,15 @@
 artifact: review
-rev: 1
-model: claude-sonnet-4-6
-run_at: "2026-07-06T02:04:08Z"
-verdict: caveats
-summary: "Ship with caveats. 4 HIGH/MED fixed (CR-1 bulk DAO, CR-2 performFullSync one-read, SE-1 rules doc, RE-1 CancellationException). Remaining open: RE-2 LOW (reconcile early-exit), CR-3 LOW (tagStates subtle), SE-2 LOW (silent empty). All blockers: 0."
+rev: 2
+model: claude-fable-5
+run_at: "2026-07-10T23:54:22Z"
+verdict: ship
+summary: "Ship. Re-run over the 4 unreviewed commits (2ff0200, b8da752, fd2778e, 249eb41) across 10 dimensions (cost added). One net-new HIGH — RE-3/CO-1, write-count batch chunking dropped the 20-article cap required by the Firestore rules getAfter budget, rejecting 50/200-article sync backups — found independently by reliability and cost, triaged Fix, and patched in commit 8b06e84 (154/154 tests green). Remaining open: 0 blocker, 0 high, 1 med (pre-existing DI-2, tracked), 6 low, 9 nit."
 counts:
   blocker: 0
   high: 0
-  med: 0
-  low: 3
-  nit: 6
+  med: 1
+  low: 6
+  nit: 9
 dimensions:
   - key: correctness
     status: issues-found
@@ -26,19 +26,19 @@ dimensions:
     low: 1
     nit: 0
   - key: code-simplification
-    status: clean
-    blocker: 0
-    high: 0
-    med: 0
-    low: 0
-    nit: 0
-  - key: testing
     status: issues-found
     blocker: 0
     high: 0
     med: 0
     low: 1
-    nit: 1
+    nit: 2
+  - key: testing
+    status: issues-found
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 2
   - key: maintainability
     status: issues-found
     blocker: 0
@@ -79,13 +79,13 @@ dimensions:
     blocker: 0
     high: 0
     med: 0
-    low: 0
+    low: 2
     nit: 1
   - key: data-integrity
     status: issues-found
     blocker: 0
     high: 0
-    med: 0
+    med: 1
     low: 0
     nit: 1
   - key: privacy
@@ -102,27 +102,24 @@ dimensions:
     med: 0
     low: 0
     nit: 0
+  - key: cost
+    status: clean
+    blocker: 0
+    high: 0
+    med: 0
+    low: 0
+    nit: 0
 findings:
-  - id: CR-1
-    severity: high
-    dimension: correctness
-    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
-    line: "296-305"
-    confidence: high
-    status: fixed
-    surfaced-at: "2026-07-06T01:44:38Z"
-    fixed-at: "2026-07-06T02:04:08Z"
-    msg: "Tag prefetch N+1 in syncLocalChanges: N serial getArticleTags() calls per chunk. Fixed: getTagsForArticles(itemIds) bulk DAO method."
-  - id: CR-2
+  - id: DI-2
     severity: med
-    dimension: correctness
-    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
-    line: "414"
+    dimension: data-integrity
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "502-530"
     confidence: high
-    status: fixed
-    surfaced-at: "2026-07-06T01:44:38Z"
-    fixed-at: "2026-07-06T02:04:08Z"
-    msg: "performFullSync used stale isFirstSync() (two-read path). Fixed: replaced with getUserMetaSnapshot()."
+    status: deferred
+    pre-existing: true
+    surfaced-at: "2026-07-10T23:54:22Z"
+    msg: "upsertNewArticle merge-copy drops backedUpAt on re-save of an existing URL, re-queuing already-backed-up articles for one redundant sweep upload. Pre-existing; already tracked as standalone follow-up (session chip task_f7a78e68). Fix: carry existingArticle.backedUpAt in the merge-copy."
   - id: CR-3
     severity: low
     dimension: correctness
@@ -130,36 +127,59 @@ findings:
     line: "77-82"
     confidence: med
     status: deferred
+    pre-existing: true
     surfaced-at: "2026-07-06T01:44:38Z"
     msg: "tagStates map second-pass precedence subtle but correct. Deferred."
-  - id: SE-1
-    severity: med
-    dimension: security
-    file: "firebase/firestore.rules"
-    line: "58-66"
-    confidence: high
-    status: fixed
-    surfaced-at: "2026-07-06T01:44:38Z"
-    fixed-at: "2026-07-06T02:04:08Z"
-    msg: "Firestore marker fallback widens proof surface. Fixed: SECURITY NOTE comment added documenting threat model and constraint."
   - id: SE-2
     severity: low
     dimension: security
     file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
-    line: "511"
+    line: "517"
     confidence: med
     status: deferred
+    pre-existing: true
     surfaced-at: "2026-07-06T01:44:38Z"
-    msg: "batchRestoreArticleTags silent empty on unauthenticated. Deferred."
-  - id: TE-1
+    msg: "batchRestoreArticleTags silent empty on unauthenticated. KDoc added this cycle; behavior unchanged. Deferred (upstream-guarded)."
+  - id: RE-2
     severity: low
-    dimension: testing
-    file: "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt"
-    line: null
+    dimension: reliability
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "579-583"
+    confidence: med
+    status: deferred
+    pre-existing: true
+    surfaced-at: "2026-07-06T02:00:00Z"
+    msg: "reconcileNeverBackedUpArticles stops on first chunk failure. Re-anchored from 538-542 after 249eb41 rewrite; behavior unchanged. Deferred."
+  - id: CS-1
+    severity: low
+    dimension: code-simplification
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
+    line: "747"
     confidence: high
     status: open
-    surfaced-at: "2026-07-06T02:00:00Z"
-    msg: "Bulk DAO tag fetch test gap (forward-looking; getTagsForArticles path now added). Open for next verify pass."
+    pre-existing: false
+    surfaced-at: "2026-07-10T23:54:22Z"
+    msg: "Dead '&& article.text != null' guard in largeTextWrites — textSize is 0 when text is null so the null clause can never matter. Copied from addArticleToBatch where it serves a purpose. (Cross-dim: maintainability MA-4.)"
+  - id: PE-3
+    severity: low
+    dimension: performance
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
+    line: "746"
+    confidence: high
+    status: open
+    pre-existing: false
+    surfaced-at: "2026-07-10T23:54:22Z"
+    msg: "article.text?.toByteArray() allocated twice per article — once in the write-count pre-check, again inside addArticleToBatch. Two ~900KB allocations per large-text article per backup iteration. Fix: use a cheaper size proxy in the pre-check."
+  - id: PE-4
+    severity: low
+    dimension: performance
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "569-575"
+    confidence: med
+    status: open
+    pre-existing: false
+    surfaced-at: "2026-07-10T23:54:22Z"
+    msg: "N individual updateBackedUpAt(itemId, now) DAO calls per reconcile chunk (up to 20 DB writes). A bulk WHERE itemId IN (:ids) UPDATE would be one statement."
   - id: TE-2
     severity: nit
     dimension: testing
@@ -167,27 +187,9 @@ findings:
     line: "291-302"
     confidence: med
     status: deferred
+    pre-existing: true
     surfaced-at: "2026-07-06T02:00:00Z"
     msg: "deleteAllTagsForArticle atomicity window untested. Deferred."
-  - id: RE-1
-    severity: med
-    dimension: reliability
-    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
-    line: "476-479"
-    confidence: med
-    status: fixed
-    surfaced-at: "2026-07-06T02:00:00Z"
-    fixed-at: "2026-07-06T02:04:08Z"
-    msg: "CancellationException not re-thrown in performFullSync outer catch. Fixed: added re-throw guard."
-  - id: RE-2
-    severity: low
-    dimension: reliability
-    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
-    line: "538-542"
-    confidence: med
-    status: deferred
-    surfaced-at: "2026-07-06T02:00:00Z"
-    msg: "reconcileNeverBackedUpArticles stops on first chunk failure. Deferred."
   - id: MA-1
     severity: nit
     dimension: maintainability
@@ -195,17 +197,9 @@ findings:
     line: "291-302"
     confidence: med
     status: deferred
+    pre-existing: true
     surfaced-at: "2026-07-06T02:00:00Z"
-    msg: "deleteAllTagsForArticle KDoc could be more prescriptive. Deferred."
-  - id: MA-2
-    severity: nit
-    dimension: maintainability
-    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
-    line: "511"
-    confidence: med
-    status: deferred
-    surfaced-at: "2026-07-06T02:00:00Z"
-    msg: "batchRestoreArticleTags silent-empty contract undocumented in KDoc. Deferred."
+    msg: "deleteAllTagsForArticle KDoc could be more prescriptive (formal @see tag). Deferred."
   - id: AR-1
     severity: nit
     dimension: architecture
@@ -213,18 +207,9 @@ findings:
     line: "1-59"
     confidence: low
     status: deferred
+    pre-existing: true
     surfaced-at: "2026-07-06T02:00:00Z"
     msg: "SyncManager holds direct firestore/auth refs alongside BackupService facade. Minor layering leak. Deferred."
-  - id: PE-1
-    severity: high
-    dimension: performance
-    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
-    line: "296-305"
-    confidence: high
-    status: fixed
-    surfaced-at: "2026-07-06T02:00:00Z"
-    fixed-at: "2026-07-06T02:04:08Z"
-    msg: "N+1 DAO reads in syncLocalChanges (cross-ref CR-1). Fixed."
   - id: PE-2
     severity: nit
     dimension: performance
@@ -232,8 +217,9 @@ findings:
     line: "83-90"
     confidence: low
     status: deferred
+    pre-existing: true
     surfaced-at: "2026-07-06T02:00:00Z"
-    msg: "parsedSnippet HtmlCompat.fromHtml initial allocation — memoized. Deferred."
+    msg: "parsedSnippet HtmlCompat.fromHtml initial allocation — memoized. Deferred (triage decision preserved; the 2026-07-10 performance re-run did not re-surface it)."
   - id: DI-1
     severity: nit
     dimension: data-integrity
@@ -241,5 +227,46 @@ findings:
     line: "459"
     confidence: low
     status: deferred
+    pre-existing: true
     surfaced-at: "2026-07-06T02:00:00Z"
-    msg: "Pre-existing TODO: timeAdded = existingArticle.timeAdded in upsertNewArticle. Not introduced by this branch. Deferred."
+    msg: "Pre-existing TODO: timeAdded = existingArticle.timeAdded in upsertNewArticle. Deferred."
+  - id: CS-3
+    severity: nit
+    dimension: code-simplification
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
+    line: "748,765"
+    confidence: high
+    status: open
+    pre-existing: false
+    surfaced-at: "2026-07-10T23:54:22Z"
+    msg: "markerKeysFor(article) called twice per article in the chunking loop — once for size estimate, once inside addMarkerWrites. Pure/cheap; redundancy + two-sources-of-truth smell. (Cross-dim: performance PE-5.)"
+  - id: CS-4
+    severity: nit
+    dimension: code-simplification
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "415-426"
+    confidence: med
+    status: open
+    pre-existing: true
+    surfaced-at: "2026-07-10T23:54:22Z"
+    msg: "getArticlesNeverBackedUp(limit, offset) — offset param is vestigial after the sweep locked it to 0; KDoc still advertises it as a live pagination knob."
+  - id: TE-3
+    severity: nit
+    dimension: testing
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "567-583"
+    confidence: med
+    status: open
+    pre-existing: false
+    surfaced-at: "2026-07-10T23:54:22Z"
+    msg: "try-catch around updateBackedUpAt in the reconcile stamp loop has no test for the throwing path. Consequence is recoverable (stall guard terminates), but unexercised. Suggested: stub one throwing stamp and assert clean termination."
+  - id: MA-3
+    severity: nit
+    dimension: maintainability
+    file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
+    line: "545-560"
+    confidence: med
+    status: open
+    pre-existing: false
+    surfaced-at: "2026-07-10T23:54:22Z"
+    msg: "upsertArticlesWithAssociatedData KDoc says dataList 'corresponds positionally' to articles but the implementation is FK-keyed and order-independent — over-constrains callers. One-line doc fix."

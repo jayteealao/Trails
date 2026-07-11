@@ -1,38 +1,29 @@
 artifact: review-dimension
 dimension: reliability
 parent: 07-review.md
-rev: 1
+rev: 2
 model: claude-sonnet-4-6
-run_at: "2026-07-06T02:00:00Z"
-verdict: caveats
-verdict_label: "Ship with Caveats"
-summary: "reconcileNeverBackedUpArticles is a safety net for offline-save stranding — good reliability improvement. SyncWorker replaces delay-poll with syncJob.join() + withTimeout(30s) — deterministic. CancellationException re-throw in restoreAllArticlesPaginated is correct. One MED: performFullSync error path catches all Exception but does not re-throw; if the outer try-catch swallows a CancellationException the coroutine may not cancel cleanly. One LOW: reconcile sweep stops silently on first failed chunk rather than skipping and continuing."
+run_at: "2026-07-10T23:43:54Z"
+verdict: ship
+verdict_label: "Ship"
+summary: "RE-3 (HIGH, pre-existing: false) — backupArticlesPaginated write-count chunking dropped the 20-article-per-batch cap required by the Firestore rules getAfter budget — was FIXED in the review fix loop (commit 8b06e84): batchArticleCount flush condition restored alongside the write-count threshold, with a regression test. RE-2 still open (reconcile stops on first chunk failure — pre-existing LOW, deferred). RE-1 fixed (CancellationException re-throw confirmed in code)."
 counts:
   blocker: 0
   high: 0
-  med: 1
+  med: 0
   low: 1
   nit: 0
 findings:
-  - id: RE-1
-    severity: med
-    dimension: reliability
-    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
-    line: "476-479"
-    confidence: med
-    status: fixed
-    surfaced-at: "2026-07-06T02:00:00Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
-    fixed-at: "2026-07-06T02:04:08Z"
-    msg: "performFullSync() outer catch(e: Exception) does not check for or re-throw CancellationException. In a SupervisorJob scope this is less critical, but structured concurrency best practice is to always re-throw CancellationException before handling generic exceptions."
-    fix: "Added `if (e is CancellationException) throw e` as first statement in the outer catch block. Added import kotlinx.coroutines.CancellationException."
   - id: RE-2
     severity: low
     dimension: reliability
     file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
-    line: "538-542"
+    line: "579-583"
     confidence: med
     status: open
+    pre-existing: true
     surfaced-at: "2026-07-06T02:00:00Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
-    msg: "reconcileNeverBackedUpArticles() returns on first chunk failure (early exit). If a transient network error occurs mid-sweep, subsequent never-backed-up articles are not processed until the next sync cycle. Consider logging the total skipped count and continuing rather than returning."
+    last-seen-at: "2026-07-10T23:43:54Z"
+    msg: "reconcileNeverBackedUpArticles() returns on first chunk failure (early exit). If a transient network error occurs mid-sweep, subsequent never-backed-up articles are not processed until the next sync cycle. Line was re-anchored from 538-542 (pre-249eb41) to 579-583 (post-rewrite); functional behavior unchanged."
+    fix: "Log the failure, increment a failureCount, and continue to the next fetch instead of returning. Track total chunk failures and log them at sweep end."
+# RE-3 (HIGH) fixed in review fix loop commit 8b06e84 — moved out of OPEN findings (history in the .md body)
