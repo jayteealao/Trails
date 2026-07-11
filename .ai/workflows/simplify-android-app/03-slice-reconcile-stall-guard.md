@@ -3,7 +3,7 @@ schema: sdlc/v1
 type: slice
 slug: simplify-android-app
 slice-slug: reconcile-stall-guard
-status: defined
+status: complete
 stage-number: 3
 created-at: "2026-07-09T12:26:33Z"
 updated-at: "2026-07-09T12:26:33Z"

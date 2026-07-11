@@ -68,7 +68,7 @@ slices:
     complexity: m
     depends-on: [firestore-dedup, firestore-io, streaming-restore, batched-tag-reads, app-scope]
   - slug: reconcile-stall-guard
-    status: defined
+    status: complete
     complexity: m
     depends-on: []
     source: extension

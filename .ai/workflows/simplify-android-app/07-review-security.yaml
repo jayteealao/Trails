@@ -1,38 +1,28 @@
 artifact: review-dimension
 dimension: security
 parent: 07-review.md
-rev: 1
+rev: 2
 model: claude-sonnet-4-6
-run_at: "2026-07-06T02:00:00Z"
+run_at: "2026-07-10T23:42:20Z"
 verdict: caveats
 verdict_label: "Ship with Caveats"
-summary: "No blockers or HIGHs. One MED: Firestore marker fallback rule widens proof surface (any authenticated user knowing a top-level article ID can create a marker in their own namespace). Fix: add clarifying documentation comment. One LOW deferred: batchRestoreArticleTags silent-empty on unauthenticated."
+summary: "SE-1 fixed (SECURITY NOTE comment added to firestore.rules in prior session). SE-2 remains open: batchRestoreArticleTags returns emptyMap() silently on unauthenticated — a KDoc comment was added this cycle documenting the behaviour but the silent-empty path is unchanged. No new findings from the unreviewed delta (transaction-wrapped add, write-count batch chunking, concurrent-set-mutation robustness, reconcile-stall-guard)."
 counts:
   blocker: 0
   high: 0
-  med: 1
+  med: 0
   low: 1
   nit: 0
 findings:
-  - id: SE-1
-    severity: med
-    dimension: security
-    file: "firebase/firestore.rules"
-    line: "58-66"
-    confidence: high
-    status: fixed
-    surfaced-at: "2026-07-06T01:44:38Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
-    fixed-at: "2026-07-06T02:04:08Z"
-    msg: "Firestore articleMarkers fallback get(articles/{itemId}) widens proof surface: any authenticated user knowing a top-level article ID can write a marker in their own namespace. Depends on top-level articles/{articleId} read rules being restrictive."
-    fix: "Added SECURITY NOTE comment in firestore.rules documenting: fallback safety depends on articles collection being non-enumerable (allow list: false enforces this); any future relaxation must re-evaluate this threat model."
   - id: SE-2
     severity: low
     dimension: security
     file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt"
-    line: "511"
+    line: "517"
     confidence: med
     status: open
+    pre-existing: true
     surfaced-at: "2026-07-06T01:44:38Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
-    msg: "batchRestoreArticleTags returns emptyMap() silently on unauthenticated — callers receive empty tags without an error signal. Unlikely to trigger in practice since caller auth-guards upstream, but contract is surprising."
+    last-seen-at: "2026-07-10T23:42:20Z"
+    msg: "batchRestoreArticleTags returns emptyMap() silently on unauthenticated — callers receive empty tags without an error signal. KDoc added this cycle documents the behaviour but does not change it. Unlikely to trigger in practice since call site in applyRemoteArticles is upstream-guarded."
+    fix: "Return Result.failure or throw when unauthenticated (callers should catch), or add Timber.w on the unauthenticated path so it is detectable at runtime."

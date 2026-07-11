@@ -1,16 +1,114 @@
 artifact: review-dimension
 dimension: code-simplification
 parent: 07-review.md
-rev: 1
+rev: 2
 model: claude-sonnet-4-6
-run_at: "2026-07-06T02:00:00Z"
-verdict: ship
-verdict_label: "Ship"
-summary: "Significant complexity reduction achieved: dead infinite animation removed, palette feature deleted, tagStates simplified from two LaunchedEffects to one remember block, parsedSnippet memoized, GetArticleWithTextUseCase deleted, dead SyncWorker methods removed. No new complexity introduced. All simplification shape findings addressed."
+run_at: "2026-07-10T23:42:38Z"
+verdict: caveats
+verdict_label: "Caveats"
+summary: >
+  Four findings in the unreviewed delta (commits 2ff0200–249eb41): one LOW dead-code null guard
+  in the new write-count estimation logic; three NITs covering a double markerKeysFor call,
+  a stale KDoc referencing WRITE_BATCH_LIMIT, and a vestigial offset parameter on
+  getArticlesNeverBackedUp. No blockers or highs. Core logic of the stall guard, keyset pagination,
+  transaction wrapping, and backedUpAt stamping is clean.
 counts:
   blocker: 0
   high: 0
   med: 0
-  low: 0
-  nit: 0
-findings: []
+  low: 1
+  nit: 3
+findings:
+  - id: CS-1
+    severity: LOW
+    file: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt
+    line: 744
+    confidence: High
+    action: simplify
+    msg: >
+      Redundant null guard in largeTextWrites estimation. When article.text is null,
+      textSize evaluates to 0 (via ?: 0) which cannot exceed MAX_TEXT_SIZE (900,000),
+      making the `&& article.text != null` condition dead code.
+    evidence: |
+      val textSize = article.text?.toByteArray()?.size ?: 0
+      val largeTextWrites = if (textSize > MAX_TEXT_SIZE && article.text != null) 1 else 0
+    fix: >
+      val largeTextWrites = if (textSize > MAX_TEXT_SIZE) 1 else 0
+    status: open
+    surfaced-at: "2026-07-10T23:42:38Z"
+    last-seen-at: "2026-07-10T23:42:38Z"
+    pre-existing: false
+
+  - id: CS-2
+    severity: NIT
+    file: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt
+    line: "710-711"
+    confidence: High
+    action: note
+    msg: >
+      KDoc for backupArticlesPaginated references WRITE_BATCH_LIMIT as the governing chunk-size
+      constraint ("The chunk size ≤ 20 limit ([WRITE_BATCH_LIMIT])"), but the implementation was
+      changed in this delta to use WRITE_COUNT_THRESHOLD (500). The KDoc is now misleading.
+    evidence: |
+      // Tag writes do NOT add `getAfter()` calls to the Firestore rules document-access
+      // budget (tag subcollection writes have no rules check). The chunk size ≤ 20 limit
+      // ([WRITE_BATCH_LIMIT]) is governed solely by the article marker rule…
+    fix: >
+      Update the KDoc to reference WRITE_COUNT_THRESHOLD and describe the write-count-aware
+      batching strategy instead of the old article-count limit.
+    status: open
+    surfaced-at: "2026-07-10T23:42:38Z"
+    last-seen-at: "2026-07-10T23:42:38Z"
+    pre-existing: true
+
+  - id: CS-3
+    severity: NIT
+    file: android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt
+    line: "745,761"
+    confidence: High
+    action: simplify
+    msg: >
+      markerKeysFor(article) is called twice per article in the new backupArticlesPaginated body:
+      once to estimate the write count (.size) and once inside addMarkerWrites (.forEach).
+      Both calls produce the same deterministic list, so the first allocation is redundant.
+    evidence: |
+      val articleWrites = 1 + largeTextWrites + tags.size + markerKeysFor(article).size
+      // …later…
+      addMarkerWrites(batch, user.uid, article)  // internally calls markerKeysFor again
+    fix: >
+      Cache the result: val markerKeys = markerKeysFor(article)
+      val articleWrites = 1 + largeTextWrites + tags.size + markerKeys.size
+      Then pass markerKeys to a new overload of addMarkerWrites, or inline the marker
+      writes using the cached list. The saving is trivial per article but eliminates
+      a subtle "two sources of truth" smell.
+    status: open
+    surfaced-at: "2026-07-10T23:42:38Z"
+    last-seen-at: "2026-07-10T23:42:38Z"
+    pre-existing: false
+
+  - id: CS-4
+    severity: NIT
+    file: android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt
+    line: "415-426"
+    confidence: High
+    action: note
+    msg: >
+      getArticlesNeverBackedUp(limit, offset) has a vestigial offset parameter. After the
+      reconcile-stall-guard fix in this delta, the only production caller (reconcileNeverBackedUpArticles)
+      always passes offset=0. The KDoc still says "Paginated via [limit] / [offset]". The parameter
+      is harmless but misleading — it implies callers could page through results via offset, when the
+      correct strategy is to rely on backed_up_at stamping removing rows from the WHERE clause.
+    evidence: |
+      // KDoc: "Paginated via [limit] / [offset]"
+      suspend fun getArticlesNeverBackedUp(limit: Int, offset: Int): List<Article>
+      // …only production call site:
+      val chunk = articleDao.getArticlesNeverBackedUp(RECONCILE_CHUNK_SIZE, 0)
+    fix: >
+      Either remove the offset parameter (simplify SQL to remove OFFSET clause) or rename it
+      to _offset with a deprecation note explaining the always-zero invariant. Update KDoc to
+      explain that callers should always pass 0 because the sweep relies on backed_up_at
+      removal from the WHERE predicate to advance.
+    status: open
+    surfaced-at: "2026-07-10T23:42:38Z"
+    last-seen-at: "2026-07-10T23:42:38Z"
+    pre-existing: true

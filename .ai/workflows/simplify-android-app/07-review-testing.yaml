@@ -1,36 +1,40 @@
 artifact: review-dimension
 dimension: testing
 parent: 07-review.md
-rev: 1
+rev: 2
 model: claude-sonnet-4-6
-run_at: "2026-07-06T02:00:00Z"
+run_at: "2026-07-10T23:46:54Z"
 verdict: caveats
 verdict_label: "Ship with Caveats"
-summary: "Good test coverage for new behavior: AppScopeIsolationTest, FirestoreBackupServiceTest, FirestoreSyncManagerTest, SyncWorkerTest, DefaultArticleRepositoryTest, ArticleDetailViewModelTest, ArticleListViewModelTest, UrlNormalizerTest all present and passing (143/143). One LOW: CR-1 fix (bulk getTagsForArticles) will need a new test once the DAO method is added. One NIT: deleteAllTagsForArticle atomicity window is documented in KDoc but untested."
+summary: "Test coverage is excellent for the unreviewed delta (commits 2ff0200, b8da752, fd2778e, 249eb41): all 5 reconcile-stall-guard ACs have named passing tests, batch-chunking by write count has a flush-threshold test with per-batch mocks, keyset pagination in SyncWorker is covered, and the transactional ArticleRepository.add is pinned. Prior TE-1 (forward gap for getTagsForArticles) is now resolved — the method and test were landed before the last ledger commit. Two NITs remain: deleteAllTagsForArticle atomicity window (TE-2, pre-existing) and the updateBackedUpAt try-catch exception path in the reconcile sweep (TE-3, new). 153/153 tests green."
 counts:
   blocker: 0
   high: 0
   med: 0
-  low: 1
-  nit: 1
+  low: 0
+  nit: 2
 findings:
-  - id: TE-1
-    severity: low
-    dimension: testing
-    file: "android/app/src/test/java/com/jayteealao/trails/services/firestore/FirestoreSyncManagerTest.kt"
-    line: null
-    confidence: high
-    status: open
-    surfaced-at: "2026-07-06T02:00:00Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
-    msg: "When CR-1 fix is applied (bulk getTagsForArticles DAO method), a new test verifying exactly one DAO call per chunk (not N) will be needed. No test exists yet for the bulk path."
   - id: TE-2
     severity: nit
     dimension: testing
     file: "android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt"
     line: "291-302"
     confidence: med
+    action: defer
     status: open
     surfaced-at: "2026-07-06T02:00:00Z"
-    last-seen-at: "2026-07-06T02:00:00Z"
+    last-seen-at: "2026-07-10T23:46:54Z"
     msg: "deleteAllTagsForArticle atomicity window (delete-then-insert not in @Transaction) is documented in KDoc but no test verifies the documented contract. NIT level."
+    fix: "Add a unit test asserting that deleteAllTagsForArticle is only called from the sync path (never from UI), or annotate the non-atomicity as an explicit accepted invariant with a @VisibleForTesting note."
+  - id: TE-3
+    severity: nit
+    dimension: testing
+    file: "android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreSyncManager.kt"
+    line: "567-583"
+    confidence: high
+    action: defer
+    status: open
+    surfaced-at: "2026-07-10T23:46:54Z"
+    last-seen-at: "2026-07-10T23:46:54Z"
+    msg: "The try-catch around articleDao.updateBackedUpAt() in the reconcile onSuccess block (added in 249eb41) has no test for the catch path. If updateBackedUpAt throws, the article stays backed_up_at=NULL, and the stall guard fires on the next iteration — a recoverable but silent truncation. The behavior is acceptable but the catch path is untested."
+    fix: "Add a test: stub updateBackedUpAt to throw for one article, verify that (a) the sweep continues to the next article for that iteration, and (b) on the next iteration the stall guard fires and the sweep terminates cleanly."

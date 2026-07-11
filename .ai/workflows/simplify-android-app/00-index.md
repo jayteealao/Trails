@@ -4,10 +4,10 @@ type: index
 slug: simplify-android-app
 title: "Simplify the Trails Android app (triage-driven cleanup)"
 status: active
-current-stage: implement
-stage-number: 5
+current-stage: handoff
+stage-number: 8
 created-at: "2026-06-14T18:14:48Z"
-updated-at: "2026-07-10T22:04:29Z"
+updated-at: "2026-07-11T00:27:34Z"
 selected-slice: "reconcile-stall-guard"
 branch-strategy: dedicated
 branch: "feat/simplify-android-app"
@@ -15,6 +15,9 @@ base-branch: "main"
 review-scope: slug-wide
 pr-url: "https://github.com/jayteealao/Trails/pull/29"
 pr-number: 29
+handoff-scope: branch
+handoff-lead: simplify-android-app
+branch-slugs: [simplify-android-app, rca-saved-articles-no-archives]
 open-questions: []
 resolved-questions:
   - "[plan batched-tag-reads] efficiency-4 RESOLVED -> client-only chunked parallel reads (collectionGroup rejected: ArticleTags has no userId field + no firestore.indexes.json). NOT deploy-gated; firebase/ untouched."
@@ -58,9 +61,9 @@ runtime-evidence-deferrals:
     reason: "Rung 1 (unit-tests): 3/3 SyncWorkerTest tests pass — doWork() returns Result.success() with empty article list, pagination drives two-page cycle correctly via coVerify(exactly=1) on both (50,0) and (50,50), dead-method deletion confirmed by reflection. Full 143/143 unit test suite passes with 0 failures. Rung 2 (Roborazzi): not applicable — SyncWorker has no UI surface. Rung 3 (AVD boot / live device): three AVDs installed (Medium_Phone_API_36.0, Pixel_9_Pro, Pixel_9_Pro_Fold) but no display server or GPU acceleration available in this headless agent session; adb devices returns empty. Residual = live sync run on a device with articles in resolved=1/2 state, observing WorkManager reports Result.success() and non-metrics articles are processed page-by-page via Timber logs."
     deferred-at: "2026-07-06T01:12:18Z"
     cleared-by: null
-next-command: wf-verify
-next-invocation: "/wf verify simplify-android-app reconcile-stall-guard"
-recommended-next-stage: verify
+next-command: wf-handoff
+next-invocation: "/wf handoff pr#29"
+recommended-next-stage: handoff
 workflow-files:
   - 00-index.md
   - 01-intake.md
@@ -140,11 +143,13 @@ workflow-files:
   - 07-review-security.html.fragment
   - 07-review-code-simplification.md
   - 07-review-code-simplification.yaml
+  - 07-review-code-simplification.html.fragment
   - 07-review-testing.md
   - 07-review-testing.yaml
   - 07-review-testing.html.fragment
   - 07-review-maintainability.md
   - 07-review-maintainability.yaml
+  - 07-review-maintainability.html.fragment
   - 07-review-reliability.md
   - 07-review-reliability.yaml
   - 07-review-reliability.html.fragment
@@ -159,10 +164,13 @@ workflow-files:
   - 07-review-performance.html.fragment
   - 07-review-data-integrity.md
   - 07-review-data-integrity.yaml
+  - 07-review-data-integrity.html.fragment
   - 07-review-privacy.md
   - 07-review-privacy.yaml
   - 07-review-docs.md
   - 07-review-docs.yaml
+  - 07-review-cost.md
+  - 07-review-cost.yaml
   - 08-handoff.md
   - 03-slice-reconcile-stall-guard.md
   - 04-plan-reconcile-stall-guard.md
@@ -170,6 +178,7 @@ workflow-files:
   - 04-plan-reconcile-stall-guard.html.fragment
   - 04-plan-reconcile-stall-guard.01-consult.html.fragment
   - 05-implement-reconcile-stall-guard.md
+  - 06-verify-reconcile-stall-guard.md
 progress:
   intake: complete
   shape: complete

@@ -1,49 +1,208 @@
-<section class="fragment-review-dimension" data-artifact="review-dimension" data-dimension="performance" data-rev="1">
+<section class="fragment-review-dimension" data-artifact="review-dimension" data-dimension="performance" data-rev="2">
 <style>
-.frd-pe .frd-finding { border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
-.frd-pe .frd-finding-header { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; background: #fafafa; font-family: system-ui, sans-serif; }
-.frd-pe .frd-sev-high { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; background: #fde8e8; color: #c0392b; }
-.frd-pe .frd-sev-nit  { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; background: #f0f0f0; color: #666; }
-.frd-pe .frd-finding-id { font-weight: 700; font-size: 13px; }
-.frd-pe .frd-finding-msg { font-size: 13px; color: #555; flex: 1; }
-.frd-pe .frd-finding-body { padding: 10px 12px; border-top: 1px solid #e0e0e0; background: #fff; font-size: 13px; display: none; font-family: system-ui, sans-serif; }
-.frd-pe .frd-finding-body.open { display: block; }
-.frd-pe .frd-fix { margin-top: 8px; padding: 8px; background: #e8f4ff; border-radius: 4px; border-left: 3px solid #2980b9; }
+.rd2-wrap { font-family: system-ui, sans-serif; font-size: 14px; }
+.rd2-filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.rd2-pill {
+  padding: 3px 10px; border-radius: 12px; border: 1px solid currentColor;
+  cursor: pointer; font-size: 12px; font-weight: 600; opacity: 0.45;
+  background: transparent; transition: opacity .15s;
+}
+.rd2-pill.active { opacity: 1; }
+.rd2-pill[data-sev="LOW"]   { color: #2196f3; }
+.rd2-pill[data-sev="NIT"]   { color: #9e9e9e; }
+.rd2-pill[data-sev="ALL"]   { color: inherit; border-color: #888; }
+.rd2-table { width: 100%; border-collapse: collapse; }
+.rd2-table th {
+  text-align: left; padding: 6px 8px; font-size: 12px; font-weight: 600;
+  border-bottom: 2px solid #ddd; cursor: pointer; white-space: nowrap;
+}
+.rd2-table td { padding: 7px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+.rd2-table tr.rd2-detail-row td { padding: 0; border-bottom: none; }
+.rd2-badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.rd2-badge-LOW    { background: #e3f2fd; color: #1565c0; }
+.rd2-badge-NIT    { background: #f5f5f5; color: #616161; }
+.rd2-badge-open   { background: #fff9c4; color: #827717; }
+.rd2-badge-fixed  { background: #e8f5e9; color: #2e7d32; }
+.rd2-badge-resolved { background: #f5f5f5; color: #616161; }
+.rd2-expand-btn {
+  background: none; border: 1px solid #ccc; border-radius: 4px;
+  cursor: pointer; padding: 2px 8px; font-size: 11px; color: #555;
+}
+.rd2-detail { display: none; background: #f8f8f8; border-radius: 6px; padding: 10px 14px; margin: 2px 0 6px; }
+.rd2-detail.open { display: block; }
+.rd2-detail pre { background: #1e1e1e; color: #d4d4d4; padding: 10px 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+.rd2-fix-label { font-size: 12px; font-weight: 700; margin-top: 8px; margin-bottom: 2px; color: #444; }
+.rd2-positives { margin-top: 20px; border: 1px solid #ddd; border-radius: 8px; padding: 0 14px; }
+.rd2-positives summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 10px 0; }
+.rd2-positives ul { margin: 0 0 10px 16px; font-size: 13px; }
+.rd2-positives li { margin-bottom: 4px; }
+@media (prefers-color-scheme: dark) {
+  .rd2-table td, .rd2-table th { border-color: #333; }
+  .rd2-table th { border-bottom-color: #444; }
+  .rd2-detail { background: #1a1a1a; }
+  .rd2-fix-label { color: #bbb; }
+  .rd2-badge-LOW     { background: #0d2137; color: #64b5f6; }
+  .rd2-badge-NIT     { background: #222; color: #aaa; }
+  .rd2-badge-open    { background: #2a2300; color: #fdd835; }
+  .rd2-badge-fixed   { background: #0a1f0a; color: #81c784; }
+  .rd2-badge-resolved{ background: #1a1a1a; color: #888; }
+  .rd2-expand-btn    { border-color: #555; color: #aaa; }
+  .rd2-positives     { border-color: #333; }
+}
+:root[data-theme="dark"] .rd2-table td,
+:root[data-theme="dark"] .rd2-table th { border-color: #333; }
+:root[data-theme="dark"] .rd2-table th { border-bottom-color: #444; }
+:root[data-theme="dark"] .rd2-detail   { background: #1a1a1a; }
+:root[data-theme="dark"] .rd2-fix-label { color: #bbb; }
+:root[data-theme="dark"] .rd2-badge-LOW  { background: #0d2137; color: #64b5f6; }
+:root[data-theme="dark"] .rd2-badge-NIT  { background: #222; color: #aaa; }
+:root[data-theme="dark"] .rd2-badge-open { background: #2a2300; color: #fdd835; }
+:root[data-theme="dark"] .rd2-badge-fixed { background: #0a1f0a; color: #81c784; }
+:root[data-theme="dark"] .rd2-badge-resolved { background: #1a1a1a; color: #888; }
+:root[data-theme="dark"] .rd2-expand-btn { border-color: #555; color: #aaa; }
+:root[data-theme="dark"] .rd2-positives { border-color: #333; }
 </style>
-<div class="frd-pe">
+<div class="rd2-wrap">
+  <div class="rd2-filter-bar" id="rd2Filters">
+    <button class="rd2-pill active" data-sev="ALL">All open (3)</button>
+    <button class="rd2-pill active" data-sev="LOW">LOW (2)</button>
+    <button class="rd2-pill active" data-sev="NIT">NIT (1)</button>
+  </div>
+  <table class="rd2-table" id="rd2Table">
+    <thead>
+      <tr>
+        <th data-col="id">ID <span class="rd2-sort-icon">▲</span></th>
+        <th data-col="sev">Sev</th>
+        <th data-col="conf">Conf</th>
+        <th data-col="status">Status</th>
+        <th data-col="file">File:Line</th>
+        <th data-col="issue">Issue</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="rd2Body"></tbody>
+  </table>
 
-<div class="frd-finding" data-sev="high">
-  <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
-    <span class="frd-sev-high">HIGH</span>
-    <span class="frd-finding-id">PE-1</span>
-    <span class="frd-finding-msg">N+1 serial DAO reads in syncLocalChanges (cross-ref CR-1)</span>
-  </div>
-  <div class="frd-finding-body">
-    <p>N serial <code>getArticleTags()</code> calls per chunk. 200-article chunk = 200 DB round-trips. Same as CR-1.</p>
-    <div class="frd-fix"><strong>Fix:</strong> Add <code>getTagsForArticles(itemIds)</code> bulk DAO method. See CR-1.</div>
-  </div>
+  <details class="rd2-positives">
+    <summary>Performance improvements in this delta (4)</summary>
+    <ul>
+      <li><strong>Keyset pagination</strong> for <code>getNonMetricsArticles</code> — replaces OFFSET scan with <code>WHERE itemId &gt; :afterId ORDER BY itemId ASC</code>; O(log n) with index.</li>
+      <li><strong>Write-count-aware Firestore batching</strong> — variable chunk boundaries by write count (500 threshold) vs fixed 20-article chunks; prevents oversized commits for tag-heavy articles.</li>
+      <li><strong><code>countArticlesNeverBackedUp()</code> early exit</strong> — cheap COUNT(*) gates the reconcile sweep; zero backlog skips all iteration.</li>
+      <li><strong><code>backedUpAt</code> stamping on remote-won upserts</strong> — articles applied from Firestore are stamped at apply time, removing them from the never-backed-up predicate and eliminating a billed re-upload per article per sync cycle.</li>
+    </ul>
+  </details>
 </div>
 
-<div class="frd-finding" data-sev="nit">
-  <div class="frd-finding-header" role="button" tabindex="0" aria-expanded="false">
-    <span class="frd-sev-nit">NIT</span>
-    <span class="frd-finding-id">PE-2</span>
-    <span class="frd-finding-msg">parsedSnippet HtmlCompat.fromHtml on first render (memoized)</span>
-  </div>
-  <div class="frd-finding-body">
-    <p>Initial <code>HtmlCompat.fromHtml()</code> runs synchronously on first composition. Memoized by <code>remember(article.snippet)</code> — no repeat allocation. NIT for very long bodies only.</p>
-  </div>
-</div>
-
-</div>
 <script>
-(function() {
-  var sec = document.currentScript.closest('.fragment-review-dimension') || document.querySelector('[data-dimension="performance"]');
-  sec.querySelectorAll('.frd-finding-header').forEach(function(h) {
-    h.addEventListener('click', function() { var b = h.nextElementSibling; var o = b.classList.toggle('open'); h.setAttribute('aria-expanded', o); });
+(function () {
+  var root = document.currentScript.closest('.fragment-review-dimension');
+
+  var findings = [
+    {
+      id: 'PE-3', sev: 'LOW', conf: 'Med', status: 'open', pre: false,
+      file: 'FirestoreBackupService.kt', line: '743,89',
+      issue: 'toByteArray() double-allocation for large-text size-check in backup loop',
+      evidence: '// Line 743 (pre-check):\nval textSize = article.text?.toByteArray()?.size ?: 0\nval largeTextWrites = if (textSize > MAX_TEXT_SIZE ...) 1 else 0\n// ...\n// Line 89 inside addArticleToBatch() recomputes:\nval textSize = article.text?.toByteArray()?.size ?: 0',
+      fix: 'Use char-count proxy for pre-check — no ByteArray allocation needed:\n  val textLen = article.text?.length ?: 0\n  val largeTextWrites = if (textLen * 4 > MAX_TEXT_SIZE ...) 1 else 0\nOr pass computed textSize into addArticleToBatch() to share the allocation.'
+    },
+    {
+      id: 'PE-4', sev: 'LOW', conf: 'Med', status: 'open', pre: false,
+      file: 'FirestoreSyncManager.kt', line: '569-575',
+      issue: 'N per-article updateBackedUpAt DAO calls in reconcile stamp loop (20 DB writes per chunk vs 1)',
+      evidence: 'chunk.forEach { article ->\n    try {\n        articleDao.updateBackedUpAt(article.itemId, now)\n    } catch (e: Exception) {\n        Timber.w(e, "failed to stamp ${article.itemId}")\n    }\n}',
+      fix: 'Add bulk DAO method:\n  @Query("UPDATE article SET backed_up_at = :ts WHERE itemId IN (:ids)")\n  suspend fun updateBackedUpAtBulk(ids: List<String>, ts: Long)\nReplace forEach with one call. Partial failure is idempotent — next sweep re-stamps missing rows.'
+    },
+    {
+      id: 'PE-5', sev: 'NIT', conf: 'High', status: 'open', pre: false,
+      file: 'FirestoreBackupService.kt', line: '745,165',
+      issue: 'markerKeysFor() called twice per article — for size count at line 745 and inside addMarkerWrites() at line 165',
+      evidence: '// Line 745:\nval articleWrites = 1 + largeTextWrites + tags.size + markerKeysFor(article).size\n// ...\n// Line 761 -> addMarkerWrites() calls markerKeysFor() again at line 165',
+      fix: 'val markerKeys = markerKeysFor(article)\nval articleWrites = 1 + largeTextWrites + tags.size + markerKeys.size\n// pass markerKeys into addMarkerWrites() overload'
+    }
+  ];
+
+  var sortState = { col: 'id', asc: true };
+  var filterSev = { ALL: true, LOW: true, NIT: true };
+
+  function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function render() {
+    var body = root.querySelector('#rd2Body');
+    var visible = findings.filter(function (f) { return filterSev.ALL || filterSev[f.sev]; });
+    visible = visible.slice().sort(function (a, b) {
+      var va = a[sortState.col] || '', vb = b[sortState.col] || '';
+      return sortState.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+    body.innerHTML = '';
+    visible.forEach(function (f) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td><code>' + f.id + '</code></td>' +
+        '<td><span class="rd2-badge rd2-badge-' + f.sev + '">' + f.sev + '</span></td>' +
+        '<td>' + f.conf + '</td>' +
+        '<td><span class="rd2-badge rd2-badge-' + f.status + '">' + f.status + '</span></td>' +
+        '<td style="font-size:12px"><code>' + escHtml(f.file + ':' + f.line) + '</code></td>' +
+        '<td style="font-size:13px">' + escHtml(f.issue) + '</td>' +
+        '<td><button class="rd2-expand-btn" data-id="' + f.id + '">detail</button></td>';
+      body.appendChild(tr);
+      var dtr = document.createElement('tr');
+      dtr.className = 'rd2-detail-row';
+      dtr.innerHTML = '<td colspan="7"><div class="rd2-detail" id="rd2d-' + f.id + '">' +
+        '<div class="rd2-fix-label">Evidence</div>' +
+        '<pre>' + escHtml(f.evidence) + '</pre>' +
+        '<div class="rd2-fix-label">Fix</div>' +
+        '<pre>' + escHtml(f.fix) + '</pre>' +
+        '</div></td>';
+      body.appendChild(dtr);
+    });
+  }
+
+  root.querySelector('#rd2Body').addEventListener('click', function (e) {
+    var btn = e.target.closest('.rd2-expand-btn');
+    if (!btn) return;
+    var panel = root.querySelector('#rd2d-' + btn.dataset.id);
+    if (!panel) return;
+    panel.classList.toggle('open');
+    btn.textContent = panel.classList.contains('open') ? 'hide' : 'detail';
   });
-  document.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
-    detail: { name: 'review-dimension', artifact: 'review-dimension', dimension: 'performance', rev: 1, counts: { blocker: 0, high: 1, med: 0, low: 0, nit: 1 } }
+
+  root.querySelector('#rd2Filters').addEventListener('click', function (e) {
+    var pill = e.target.closest('.rd2-pill');
+    if (!pill) return;
+    var sev = pill.dataset.sev;
+    if (sev === 'ALL') {
+      var on = !pill.classList.contains('active');
+      filterSev = { ALL: on, LOW: on, NIT: on };
+      root.querySelectorAll('.rd2-pill').forEach(function (p) { p.classList.toggle('active', on); });
+    } else {
+      pill.classList.toggle('active');
+      filterSev[sev] = pill.classList.contains('active');
+      filterSev.ALL = filterSev.LOW && filterSev.NIT;
+      root.querySelector('[data-sev="ALL"]').classList.toggle('active', filterSev.ALL);
+    }
+    render();
+  });
+
+  root.querySelector('#rd2Table thead').addEventListener('click', function (e) {
+    var th = e.target.closest('th[data-col]');
+    if (!th) return;
+    var col = th.dataset.col;
+    sortState = { col: col, asc: sortState.col === col ? !sortState.asc : true };
+    root.querySelectorAll('.rd2-sort-icon').forEach(function (ic) { ic.textContent = ''; });
+    var ic = document.createElement('span');
+    ic.className = 'rd2-sort-icon';
+    ic.textContent = sortState.asc ? ' ▲' : ' ▼';
+    th.appendChild(ic);
+    render();
+  });
+
+  render();
+
+  window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
+    detail: { name: 'review-dimension', artifact: 'review-dimension', dimension: 'performance', counts: { findings: 3, blockers: 0 } }
   }));
 })();
 </script>
