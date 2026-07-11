@@ -15,8 +15,8 @@
     "@warg/shared": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.16.14",
+    "@cloudflare/vitest-pool-workers": "^0.18.4",
     "@cloudflare/workers-types": "^4.20260609.1",
-    "vitest": "^4.1.8"
+    "vitest": "4.1.10"
   }
 }

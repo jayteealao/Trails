@@ -18,17 +18,17 @@
     "deploy:workers": "pnpm --filter @warg/logger deploy && pnpm --filter @warg/monolith deploy && pnpm --filter @warg/workflow deploy && pnpm --filter @warg/gateway deploy"
   },
   "devDependencies": {
-    "@cloudflare/puppeteer": "^1.0.5",
+    "@cloudflare/puppeteer": "1.1.0",
     "concurrently": "^9.1.2",
     "eslint": "^9.39.4",
-    "globals": "^17.6.0",
-    "prettier": "^3.4.2",
+    "globals": "17.7.0",
+    "prettier": "3.9.5",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.61.0",
-    "wrangler": "^4.99.0"
+    "typescript-eslint": "8.63.0",
+    "wrangler": "4.110.0"
   },
   "dependencies": {
-    "@cloudflare/workerd-windows-64": "^1.20260131.0"
+    "@cloudflare/workerd-windows-64": "1.20260711.1"
   },
   "pnpm": {
     "overrides": {

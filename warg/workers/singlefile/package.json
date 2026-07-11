@@ -11,8 +11,7 @@
     "update-bundle": "curl -o lib/single-file-bundle.js https://raw.githubusercontent.com/gildas-lormeau/single-file-cli/master/lib/single-file-bundle.js"
   },
   "dependencies": {
-    "@warg/shared": "workspace:*",
-    "@cloudflare/puppeteer": "^1.0.5"
-  },
-  "devDependencies": {}
+    "@cloudflare/puppeteer": "1.1.0",
+    "@warg/shared": "workspace:*"
+  }
 }
