@@ -20,7 +20,7 @@
   "devDependencies": {
     "@cloudflare/puppeteer": "1.1.0",
     "@eslint/js": "^10.0.1",
-    "concurrently": "^9.1.2",
+    "concurrently": "^10.0.3",
     "eslint": "^10.7.0",
     "globals": "17.7.0",
     "prettier": "3.9.5",
