@@ -156,3 +156,12 @@ Stage: plan | 2026-07-10T21:32:04Z
   probe-scenario re-run (200/250 → 0 rows backed_up_at IS NULL) is a one-time manual confirmation
   on a real device — same posture as the prior 4 deferrals. Headless-emulator harness rejected
   (unproven on this host, own-slice-sized work).
+
+## Ship — run 20260711T0112Z (2026-07-11T01:12:05Z)
+
+- **[ship 1.2] Version for this release?** → `1.10.24` (patch; PO chose patch over the recommended minor — treat branch as cleanup + fixes).
+- **[ship 6.5-override] Runtime-evidence deferrals** → PO risk-acceptance recorded as `ship-override-authorization` on all 5 open deferrals (4 on simplify-android-app, 1 on rca-saved-articles-no-archives). Rationale: headless agent environment cannot boot AVDs; Rung-1 unit/emulator coverage accepted; residual device smokes deferred post-ship.
+- **[ship 3.1] Rollout strategy?** → Immediate (plan default). Only Android + Firestore rules ship this run; no Warg deploy needed (no warg/ changes on branch).
+- **[ship 3.2] Release window?** → No constraints — ship now.
+- **[ship 3.3] Stakeholder/compliance sign-off?** → None beyond plan defaults (GitHub Release page as announcement).
+- **[ship 5] Go/No-Go?** → **Go.** All gates pass (pre-flight warn-only, dry-run green, reviews ship, platform healthy, no blocking CVEs). Caveats recorded: fragile firebase-rules deploy path (unpinned firebase-tools + deprecated FIREBASE_TOKEN — verify rules deploy post-merge), 5 deferrals shipped on PO override, advisory-only dependency notes (Kotlin CVE-2026-53914 build-infra, Okio 3.16.0 timeout regression, OkHttp 5.4.0 hardening).

@@ -1,0 +1,52 @@
+release: v1.10.24
+run_at: "2026-07-11T01:12:05Z"
+stages:
+  - name: pre-flight
+    status: warn
+    started_at: "2026-07-11T01:12:05Z"
+    ended_at: "2026-07-11T01:16:30Z"
+  - name: dry-run-build
+    status: pass
+    started_at: "2026-07-11T01:16:40Z"
+    ended_at: "2026-07-11T01:19:55Z"
+  - name: freshness-go-nogo
+    status: pass
+    started_at: "2026-07-11T01:17:00Z"
+    ended_at: "2026-07-11T01:28:30Z"
+  - name: merge-pr29
+    status: pass
+    started_at: "2026-07-11T01:29:00Z"
+    ended_at: "2026-07-11T01:29:12Z"
+  - name: firestore-rules-deploy
+    status: pass
+    started_at: "2026-07-11T01:29:17Z"
+    ended_at: "2026-07-11T01:30:14Z"
+  - name: tag-release-workflow
+    status: pass
+    started_at: "2026-07-11T01:30:00Z"
+    ended_at: "2026-07-11T01:38:30Z"
+  - name: post-publish-verify
+    status: pass
+    started_at: "2026-07-11T01:38:40Z"
+    ended_at: "2026-07-11T01:39:30Z"
+checks:
+  - name: github-release-assets
+    kind: github-release
+    results:
+      android-release: { status: pass, duration: "2s" }
+  - name: gateway-deployment-smoke
+    kind: smoke-test
+    results:
+      warg-backend: { status: skip, duration: "0s" }
+  - name: firestore-rules-released
+    kind: smoke-test
+    results:
+      android-release: { status: pass, duration: "57s" }
+  - name: release-workflow-conclusion
+    kind: ci-workflow
+    results:
+      android-release: { status: pass, duration: "8m" }
+rollback:
+  window_minutes: 15
+  target_release: v1.10.23
+  approvers: [jayteealao]

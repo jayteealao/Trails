@@ -1,0 +1,88 @@
+<section class="fragment-shiprun" data-artifact="ship-run" data-release="v1.10.24">
+  <style>
+    .fragment-shiprun { font-family: inherit; }
+    .fragment-shiprun .sr-timeline { width: 100%; max-width: 760px; height: auto; display: block; margin: 0 0 1rem; }
+    .fragment-shiprun .sr-seg-pass { fill: #2e9e5b; }
+    .fragment-shiprun .sr-seg-warn { fill: #d99a2b; }
+    .fragment-shiprun .sr-seg-label { font-size: 10px; fill: currentColor; opacity: .85; }
+    .fragment-shiprun .sr-checks { border-collapse: collapse; width: 100%; max-width: 760px; margin: 0 0 1rem; }
+    .fragment-shiprun .sr-checks th, .fragment-shiprun .sr-checks td { border: 1px solid rgba(128,128,128,.35); padding: .35rem .6rem; text-align: left; font-size: .9rem; }
+    .fragment-shiprun .sr-checks td.is-pass { background: rgba(46,158,91,.18); cursor: pointer; }
+    .fragment-shiprun .sr-checks td.is-skip { background: rgba(128,128,128,.15); cursor: pointer; }
+    .fragment-shiprun .sr-checks td.is-fail { background: rgba(200,60,60,.2); cursor: pointer; }
+    .fragment-shiprun .sr-log-panel { border: 1px solid rgba(128,128,128,.35); border-radius: 6px; padding: .6rem .8rem; margin: 0 0 1rem; font-family: monospace; font-size: .8rem; white-space: pre-wrap; max-width: 760px; }
+    .fragment-shiprun .sr-actions { display: flex; gap: .6rem; }
+    .fragment-shiprun .btn { padding: .45rem .9rem; border-radius: 6px; border: 1px solid transparent; cursor: pointer; font-size: .9rem; }
+    .fragment-shiprun .btn-primary { background: #2e6bd6; color: #fff; }
+    .fragment-shiprun .btn-danger { background: #c83c3c; color: #fff; }
+  </style>
+
+  <svg class="sr-timeline" viewBox="0 0 760 70" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deploy timeline: pre-flight through post-publish verify, all complete">
+    <rect class="sr-seg-warn" x="0"   y="18" width="100" height="20" rx="3"/>
+    <rect class="sr-seg-pass" x="104" y="18" width="100" height="20" rx="3"/>
+    <rect class="sr-seg-pass" x="208" y="18" width="100" height="20" rx="3"/>
+    <rect class="sr-seg-pass" x="312" y="18" width="100" height="20" rx="3"/>
+    <rect class="sr-seg-pass" x="416" y="18" width="100" height="20" rx="3"/>
+    <rect class="sr-seg-pass" x="520" y="18" width="130" height="20" rx="3"/>
+    <rect class="sr-seg-pass" x="654" y="18" width="106" height="20" rx="3"/>
+    <text class="sr-seg-label" x="4"   y="52">pre-flight (warn)</text>
+    <text class="sr-seg-label" x="108" y="52">dry-run build</text>
+    <text class="sr-seg-label" x="212" y="52">go/no-go</text>
+    <text class="sr-seg-label" x="316" y="52">merge #29</text>
+    <text class="sr-seg-label" x="420" y="52">rules deploy</text>
+    <text class="sr-seg-label" x="524" y="52">tag + release wf</text>
+    <text class="sr-seg-label" x="658" y="52">verify</text>
+    <text class="sr-seg-label" x="4" y="12">v1.10.24 — 2026-07-11 01:12Z → 01:39Z</text>
+  </svg>
+
+  <table class="sr-checks">
+    <thead>
+      <tr><th>Check</th><th>android-release</th><th>warg-backend</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>github-release-assets</td>
+        <td class="is-pass" data-log="gh release view v1.10.24 → assets: app-release.apk, app-release.aab, mapping.txt (created 2026-07-11T01:29:12Z)">pass</td>
+        <td class="is-skip" data-log="n/a — Android-only check">—</td>
+      </tr>
+      <tr>
+        <td>firestore-rules-released</td>
+        <td class="is-pass" data-log="firebase-rules run 29134703854: 'firestore: uploading rules firestore.rules…' → '✔ firestore: released rules firestore.rules to cloud.firestore' at 01:30:14Z (verified per-resource release lines, not just exit code)">pass</td>
+        <td class="is-skip" data-log="n/a — rules deploy is project-wide, verified on the release surface">—</td>
+      </tr>
+      <tr>
+        <td>gateway-deployment-smoke</td>
+        <td class="is-skip" data-log="n/a">—</td>
+        <td class="is-skip" data-log="skipped — no warg/ changes on this branch; no backend deploy this release, so no new gateway deployment expected. Local wrangler auth also unavailable.">skip</td>
+      </tr>
+      <tr>
+        <td>release-workflow-conclusion</td>
+        <td class="is-pass" data-log="release-on-tag.yml run 29134719220: build-and-release + post-publish both success. One optional step (git-cliff changelog) exited 2 under continue-on-error — release body fell back to auto-notes; regenerated in announce phase.">pass</td>
+        <td class="is-skip" data-log="n/a">—</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <aside class="sr-log-panel" hidden></aside>
+
+  <div class="sr-actions">
+    <button class="btn btn-primary" type="button">Promote to 100%</button>
+    <button class="btn btn-danger" type="button">Roll back</button>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.currentScript.closest('.fragment-shiprun');
+      var panel = root.querySelector('.sr-log-panel');
+      root.querySelectorAll('.sr-checks td[data-log]').forEach(function (cell) {
+        cell.addEventListener('click', function () {
+          panel.textContent = cell.getAttribute('data-log');
+          panel.hidden = false;
+        });
+      });
+      window.dispatchEvent(new CustomEvent('sdlc:fragment-ready', {
+        detail: { name: 'ship-run', artifact: 'ship-run', counts: { checks: 4, stages: 7 }, status: 'pass' }
+      }));
+    })();
+  </script>
+</section>
