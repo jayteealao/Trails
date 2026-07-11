@@ -5,14 +5,8 @@ slug: simplify-android-app
 status: complete
 stage-number: 10
 created-at: "2026-07-11T08:44:42Z"
-updated-at: "2026-07-11T08:58:34Z"
+updated-at: "2026-07-11T08:44:42Z"
 workflow-outcome: completed
-revisions:
-  - rev: 1
-    at: "2026-07-11T08:58:34Z"
-    trigger: manual
-    because: "act-now debt item '3 red ArchiveServiceTest tests' checked before routing to a fix workflow — found already resolved: the archive-readback commit (c4f3a25 rebased) fixed the production API shape the tests assert; verified green (3 tests, 0 failures) on main post-v1.10.24. The test-net flag was stale when harvested."
-    changed: "Deferred Debt row re-dispositioned act-now → resolved; Option B removed from Recommended Next Stage; story paragraph count corrected. Prior body at history/10-retro-r1.md."
 learnings-written:
   - ../../solutions/testing/avd-headless-wall.md
   - ../../solutions/gotcha/mockk-suspend-lambda-ceiling.md
@@ -35,7 +29,7 @@ Fifteen slices, ten stages, zero blockers at ship — and the plan held: roughly
 
 The friction that mattered clusters into three findings, and the most damning is this: **the worst bug in the workflow was introduced by the review process itself.** A bot-suggested "hygiene" triage fix during handoff silently removed the Firestore 20-article budget-cap flush — an invariant documented in a comment right next to the code — and the existing test was updated to match the new behavior instead of catching the break (RE-3, HIGH, found only by the second full review run). The same handoff also paid a dismiss→re-encounter→fix cycle on a one-line threading fix. Meanwhile the AVD headless wall blocked 5 device-observable ACs across 4 slices, each discovered at verify time and resolved by retroactive PO override — a wall that should be classified at plan time and that one KVM emulator CI job would retire permanently.
 
-The single highest-leverage repo fix surfaced by this retro costs one line: **PR CI never runs the unit tests.** `pr-build-check.yml` builds `assembleDebug` only, so the 143-test suite this workflow built runs nowhere but local machines — the fd2778e-era reconcile regression that forced the late 15th slice would have been caught pre-merge by `./gradlew test` in CI. Three durable learnings went into the new `.ai/solutions/` corpus; the deferred-debt harvest found two intentional `sdlc-debt:` ceilings (both acceptable) plus one act-now item, already spawned as a background task — a second act-now candidate, the "3 red ArchiveServiceTest tests," proved to be a stale flag at rev 1: verification found them already green, fixed by the archive-readback work this very branch shipped.
+The single highest-leverage repo fix surfaced by this retro costs one line: **PR CI never runs the unit tests.** `pr-build-check.yml` builds `assembleDebug` only, so the 143-test suite this workflow built runs nowhere but local machines — the fd2778e-era reconcile regression that forced the late 15th slice would have been caught pre-merge by `./gradlew test` in CI. Three durable learnings went into the new `.ai/solutions/` corpus; the deferred-debt harvest found two intentional `sdlc-debt:` ceilings (both acceptable) plus two act-now items, one already spawned as a background task.
 
 ## What Went Well
 - **Plan fidelity:** ~81% of steps as-planned, 0 scope creep, 15/15 slices shipped; deviations were mostly legitimate discovery (5) or one-time stale assumptions (5).
@@ -132,7 +126,7 @@ Drop:
 | sequential rehydration (FirestoreBackupService, restore page loop) | 50 serial large-text GETs per page | `async{}/awaitAll()` per page (idiom already in batchRestoreArticleTags) | 05-implement-streaming-restore.md ## Anything Deferred | accept — latency-gated, no user report |
 | `RESTORE_TAG_CHUNK_SIZE = 10` | conservative chunk parallelism (max useful ~30) | raise the constant if profiling shows wall-clock benefit | 05-implement-batched-tag-reads.md ## Anything Deferred | accept — profiling-gated |
 | `upsertNewArticle` resets `backedUpAt` to NULL on re-save (ArticleDao.kt:502) | one redundant re-upload per re-saved article | preserve stamp in merge-copy | reconcile-stall-guard audit | act-now — already spawned as background task |
-| 3 pre-existing RED `ArchiveServiceTest` tests | — (stale flag) | — | 05-implement-test-net.md follow-up note | **resolved** — already fixed by the archive-readback commit (c4f3a25, shipped v1.10.24); verified green 2026-07-11 (3 tests, 0 failures). Flag was stale at harvest time |
+| 3 pre-existing RED `ArchiveServiceTest` tests | failing tests mask real signal in that file | fix or quarantine with tracking | 05-implement-test-net.md follow-up note | act-now → `/wf intake fix "resolve 3 red ArchiveServiceTest tests"` |
 | dead `firestore` field in FirestoreSyncManager; commented `computeContentMetrics()` | dead code only | future simplify pass | 05-implement-firestore-dedup.md / -sync-worker.md | accept |
 
 ## Learnings Written
@@ -142,6 +136,6 @@ Drop:
 
 ## Recommended Next Stage
 - **Option A (default):** Workflow complete — all 15 slices shipped in v1.10.24; retro closes the lifecycle.
-- ~~Option B~~ *(resolved at rev 1)*: the "3 red ArchiveServiceTest tests" item was verified already green — fixed by the archive-readback work shipped in v1.10.24. The remaining act-now item (backedUpAt reset) already has a spawned background task.
+- **Option B:** `/wf intake fix "resolve 3 pre-existing red ArchiveServiceTest tests"` — act-now debt; small, self-contained. (The backedUpAt-reset item already has a spawned background task.)
 - **Option D:** Apply quick wins now — (1) `./gradlew test` step in pr-build-check.yml, (2) `android/CLAUDE.md` from the block above, (3) pin firebase-tools + git-cliff loud-failure. All S-effort; retro documents but does not apply them.
 - **Post-ship obligation (outside lifecycle):** `/wf probe simplify-android-app <deferred-AC>` with a device attached — clears the 5 owed device smokes recorded in `runtime-evidence-deferrals`.
