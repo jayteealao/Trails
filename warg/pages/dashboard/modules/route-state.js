@@ -159,7 +159,8 @@ function appendParam(searchParams, key, value) {
 export function buildUrl(routeState) {
   const route = normalizeRouteState(routeState);
   const params = new URLSearchParams();
-  let path = '/inbox';
+  // Every branch below (including the final else) assigns path; no initializer needed.
+  let path;
 
   if (route.view === 'detail') {
     path = `/requests/${encodeURIComponent(route.requestId || '')}`;
