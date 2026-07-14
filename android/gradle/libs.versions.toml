@@ -43,7 +43,7 @@ paging = "3.4.2"
 postgrest = "0.2.0"
 readability4j = "1.0.8"
 retrofit = "3.0.0"
-robolectric = "4.8"
+robolectric = "4.16"
 splashscreen = "1.2.0"
 supabase = "3.6.0"
 shadowsPlus = "1.0.4"
@@ -142,7 +142,7 @@ androidx-hilt-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler",
 
 hilt-gradle-plugin = { module = "com.google.dagger:hilt-android-gradle-plugin", version.ref = "hilt" }
 
-robolectric = { module = "org.robolectric:roboelectric", version.ref = "robolectric"}
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric"}
 
 retrofit-core = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit" }
 retrofit-gson = { module = "com.squareup.retrofit2:converter-gson", version.ref = "retrofit" }

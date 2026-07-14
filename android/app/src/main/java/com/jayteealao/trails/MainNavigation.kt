@@ -3,6 +3,8 @@ package com.jayteealao.trails
 
 //import com.jayteealao.trails.ui.adaptive.rememberListDetailSceneStrategy
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheetProperties
@@ -16,6 +18,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -38,6 +41,7 @@ import com.jayteealao.trails.screens.settings.LogoutConfirmationDialog
 import com.jayteealao.trails.screens.settings.SettingsScreen
 import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.tagManagement.TagManagementScreen
+import com.jayteealao.trails.testtags.MainNavTestTags
 import com.jayteealao.trails.ui.adaptive.BOTTOM_SHEET
 import com.jayteealao.trails.ui.adaptive.BottomSheetSceneStrategy
 import com.jayteealao.trails.ui.adaptive.DIALOG
@@ -123,6 +127,7 @@ fun MainNavigation(
 //                )
             ) {
                 ArticleListScreen(
+                    modifier = Modifier.testTag(MainNavTestTags.LIST_PANE),
                     onSelectArticle = { article ->
                         appBackStack.add(Screen.ArticleDetail(article.itemId))
                     },
@@ -141,7 +146,9 @@ fun MainNavigation(
                 }
                 val selectedArticle by articleDetailViewModel.state.map { it.article }.collectAsState(null)
 
-                selectedArticle?.let { ArticleDetailScreen(article = it) }
+                Box(modifier = Modifier.fillMaxSize().testTag(MainNavTestTags.DETAIL_PANE)) {
+                    selectedArticle?.let { ArticleDetailScreen(article = it) }
+                }
             }
             entry<Screen.ArticleSearch> {
                 ArticleSearchScreen(
