@@ -1,6 +1,6 @@
 [versions]
 accompanistWebview = "0.36.0"
-androidGradlePlugin = "8.13.0"
+androidGradlePlugin = "9.1.1"
 androidxCore = "1.17.0"
 androidxLifecycle = "2.9.4"
 androidxActivity = "1.11.0"
@@ -28,11 +28,10 @@ composeIcons = "1.1.1"
 crux = "5.1.0"
 essence = "0.13.0"
 fonts = "1.9.1"
-hilt = "2.57.1"
+hilt = "2.60.1"
 junit = "4.13.2"
-kotlin = "2.2.20"
-kapt = "2.2.20"
-ksp = "2.2.20-2.0.3"
+kotlin = "2.4.0"
+ksp = "2.3.10"
 librariesBom = "26.85.0"
 library = "4.2.0"
 libraryNoOp = "4.2.0"
@@ -195,8 +194,6 @@ work = ["androidx-work-runtime-ktx", "androidx-work-multiprocess"]
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }
 android-library = { id = "com.android.library", version.ref = "androidGradlePlugin" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kapt" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp"}
 hilt-gradle = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
