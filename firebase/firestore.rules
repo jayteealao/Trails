@@ -105,6 +105,24 @@ service cloud.firestore {
         match /domainMetadata/{metadataId} {
           allow read, write: if isOwner(userId);
         }
+
+        // Large article body text (written by FirestoreBackupService to
+        // text/content when the body exceeds the inline size cap; read back by
+        // rehydrateLargeText). Firestore rules do not cascade from the parent
+        // articles/{articleId} match, so this subcollection needs its own
+        // owner-scoped grant — without it the read returned PERMISSION_DENIED
+        // and full body text silently never rehydrated from the cloud.
+        match /text/{textId} {
+          allow read, write: if isOwner(userId);
+        }
+
+        // Domain metadata subcollection — snake_case path actually written by
+        // FirestoreBackupService (DOMAIN_METADATA_COLLECTION = "domain_metadata").
+        // The camelCase domainMetadata rule above matches no write path; this is
+        // the one the app uses. Owner-scoped, mirroring the siblings.
+        match /domain_metadata/{metadataId} {
+          allow read, write: if isOwner(userId);
+        }
       }
 
       // User settings subcollection
