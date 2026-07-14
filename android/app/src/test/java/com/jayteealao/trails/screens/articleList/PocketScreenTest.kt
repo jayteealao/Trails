@@ -16,6 +16,7 @@
 
 package com.jayteealao.trails.screens.articleList
 
+import android.app.Application
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -45,7 +46,10 @@ import org.robolectric.annotation.Config
  * (it would have failed if run). It now renders the real composable with the shared fakes.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], qualifiers = "w400dp-h800dp")
+// Plain Application so Robolectric does not boot the @HiltAndroidApp `Trails` app (whose
+// onCreate eagerly initialises FirebaseFirestore and throws on the JVM). See sibling
+// ArticleListScreenKtTest for the full rationale.
+@Config(sdk = [33], qualifiers = "w400dp-h800dp", application = Application::class)
 class PocketScreenTest {
 
     @get:Rule

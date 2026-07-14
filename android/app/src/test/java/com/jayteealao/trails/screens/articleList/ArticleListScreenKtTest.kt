@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.articleList
 
+import android.app.Application
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -50,7 +51,12 @@ import org.robolectric.annotation.Config
  *    item content, item click identity, and all-items rendering (5 tests).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], qualifiers = "w400dp-h800dp")
+// Render the content composable in isolation under a plain Application. Without this
+// override Robolectric boots the manifest's @HiltAndroidApp `Trails` app, whose onCreate
+// eagerly wires FirebaseFirestore and throws "Default FirebaseApp is not initialized" on
+// the JVM. These tests inject fakes directly and need no Hilt graph — the plan's stated
+// "no Hilt under Robolectric" design.
+@Config(sdk = [33], qualifiers = "w400dp-h800dp", application = Application::class)
 class ArticleListScreenKtTest {
 
     @get:Rule
