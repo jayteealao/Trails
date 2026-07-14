@@ -136,11 +136,31 @@ android {
     }
 
     testOptions {
+        // Steady frames for both JVM (Robolectric) and instrumented Compose tests.
+        animationsDisabled = true
+
         unitTests {
             // Firebase enums (e.g. FirebaseFirestoreException.Code) statically
             // touch android.util.SparseArray; without this their <clinit> throws
             // "not mocked" under plain JVM unit tests.
             isReturnDefaultValues = true
+            // Robolectric Compose tests need real Android resources on the JVM
+            // classpath to inflate themes/drawables when rendering composables.
+            isIncludeAndroidResources = true
+        }
+
+        // Gradle Managed Device that AGP auto-provisions for the instrumented
+        // characterization suite (Room+Hilt smoke test + NavigationTest). Creates
+        // the `pixel33DebugAndroidTest` task. API 33 matches the app's targetSdk,
+        // so regenerated Room/Hilt codegen is exercised on the same API the app ships.
+        managedDevices {
+            localDevices {
+                create("pixel33") {
+                    device = "Pixel 6"
+                    apiLevel = 33
+                    systemImageSource = "aosp"
+                }
+            }
         }
     }
 
@@ -342,6 +362,12 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("io.mockk:mockk:1.14.5")
+    // JVM Compose characterization (Robolectric renders ArticleListScreenContent in
+    // isolation — no emulator, no Hilt). ui-test-manifest supplies the activity that
+    // createComposeRule() hosts under Robolectric.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    testImplementation(libs.androidx.compose.ui.test.manifest)
     // Provides Tasks + Task.await() on the unit-test classpath (version-aligned
     // with kotlinx-coroutines-test) so Firestore Task mocks resolve correctly.
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")

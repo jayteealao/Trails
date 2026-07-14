@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemContentType
@@ -25,6 +26,7 @@ import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleList.ArticleListEvent
 import com.jayteealao.trails.screens.articleList.ArticleListState
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import com.jayteealao.trails.testtags.ArticleListTestTags
 import io.yumemi.tartlet.ViewStore
 
 /**
@@ -89,7 +91,7 @@ private fun ArticleListItemWithActions(
     ArticleListItem<ArticleListState, ArticleListEvent, ArticleListViewModel>(
         article = article,
         viewStore = viewStore,
-        modifier = modifier,
+        modifier = modifier.testTag(ArticleListTestTags.item(article.itemId)),
         onClick = { onSelectArticle(article) },
         onOpenTagManagement = { onOpenTagManagement(article) },
         useCardLayout = useCardLayout,
@@ -123,6 +125,7 @@ private fun ArticleGrid(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
+            .testTag(ArticleListTestTags.LIST_ROOT)
     ) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 300.dp),
@@ -172,6 +175,7 @@ private fun ArticleList(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
+            .testTag(ArticleListTestTags.LIST_ROOT)
     ) {
         LazyColumn(
             state = listState,
