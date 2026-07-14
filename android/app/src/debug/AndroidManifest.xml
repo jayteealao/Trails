@@ -1,0 +1,34 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Debug-only manifest override for instrumented characterization tests.
+
+      Instrumented tests run against `HiltTestApplication` (via HiltTestRunner), whose Hilt
+      component is created lazily by `HiltAndroidRule` inside each test — not at process
+      start. `FirestoreSyncInitializer` is an androidx.startup Initializer that runs at
+      `InitializationProvider.onCreate()` (before Application.onCreate) and calls
+      `EntryPointAccessors.fromApplication(...)`. Under the test application that access
+      throws "The component was not created. Check that you have added the HiltAndroidRule",
+      crashing the app process before any test can run (Room+Hilt smoke test / NavigationTest).
+
+      Removing the initializer from App Startup for the debug build type (the build type
+      instrumented tests assemble) lets the test application boot cleanly; the Hilt graph is
+      then built by the test's own `HiltAndroidRule`. In production (release), the real
+      `@HiltAndroidApp` app creates its component on demand, so the initializer runs normally
+      and this override does not apply. Debug developer builds still schedule periodic sync
+      from `Trails.onCreate()`; only the initializer's auth-state listener/logging is skipped.
+    -->
+    <application>
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="com.jayteealao.trails.sync.initializers.FirestoreSyncInitializer"
+                tools:node="remove" />
+        </provider>
+    </application>
+
+</manifest>

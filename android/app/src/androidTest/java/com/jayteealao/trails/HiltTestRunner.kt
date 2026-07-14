@@ -19,6 +19,7 @@ package com.jayteealao.trails
 import android.app.Application
 import android.content.Context
 import androidx.test.runner.AndroidJUnitRunner
+import androidx.work.testing.WorkManagerTestInitHelper
 import dagger.hilt.android.testing.HiltTestApplication
 
 /**
@@ -28,5 +29,26 @@ class HiltTestRunner : AndroidJUnitRunner() {
 
     override fun newApplication(cl: ClassLoader?, name: String?, context: Context?): Application {
         return super.newApplication(cl, HiltTestApplication::class.java.name, context)
+    }
+
+    /**
+     * Initialize WorkManager for the instrumented test process before any test builds the
+     * real Hilt graph.
+     *
+     * The app removes the default `androidx.work.WorkManagerInitializer` from its manifest
+     * and relies on on-demand initialization via `Trails : Configuration.Provider`
+     * (see Trails.kt). Under `HiltTestApplication` that provider is absent, so the first
+     * `WorkManager.getInstance()` — reached transitively when the graph resolves
+     * `WorkManagerSyncStatusMonitor` — throws "WorkManager is not initialized properly".
+     * `initializeTestWorkManager` seeds a test WorkManager instance (its own default
+     * Configuration, SynchronousExecutor) so `getInstance()` succeeds for both the
+     * `@Before` graph build (ArticleGraphSmokeTest) and the activity-launch graph build
+     * (NavigationTest). `onStart()` runs once before any test method, so the ordering holds
+     * regardless of when a test first touches the graph.
+     * source: androidx.work:work-testing 2.11.2 WorkManagerTestInitHelper.initializeTestWorkManager(Context)
+     */
+    override fun onStart() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(targetContext)
+        super.onStart()
     }
 }
