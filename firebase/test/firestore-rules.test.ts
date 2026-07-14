@@ -384,4 +384,10 @@ describe('article subcollections (text + domain_metadata)', () => {
   it('a different signed-in user cannot write the owner domain_metadata', async () => {
     await assertFails(setDoc(doc(otherDb(), META_PATH), { domain: 'evil.com' }));
   });
+
+  it('an unauthenticated user cannot read or write domain_metadata', async () => {
+    const ref = doc(anonDb(), META_PATH);
+    await assertFails(getDoc(ref));
+    await assertFails(setDoc(ref, { domain: 'evil.com' }));
+  });
 });
