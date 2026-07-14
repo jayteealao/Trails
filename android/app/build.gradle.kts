@@ -164,13 +164,6 @@ android {
         }
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
-            freeCompilerArgs.add("-Xcontext-receivers")
-        }
-    }
-
     buildFeatures {
         compose = true
         aidl = false
@@ -179,25 +172,23 @@ android {
         shaders = false
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = libs.versions.androidxComposeCompiler.get()
-    }
-
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
 //            excludes += "META-INF/DEPENDENCIES"
         }
     }
-    kotlinOptions {
-        freeCompilerArgs = listOf("-XXLanguage:+PropertyParamAnnotationDefaultTargetMode",
-            "-XXLanguage:+ContextParameters"
-        )
-    }
 }
 
 kotlin {
     jvmToolchain(17)
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+        freeCompilerArgs.addAll(
+            "-Xcontext-parameters",
+            "-XXLanguage:+PropertyParamAnnotationDefaultTargetMode",
+        )
+    }
 }
 
 dependencies {
