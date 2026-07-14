@@ -329,3 +329,59 @@ describe('articles (top-level get/list/write matrix)', () => {
     await assertFails(setDoc(doc(ownerDb(), 'articles/article-1'), { title: 'nope' }));
   });
 });
+
+describe('article subcollections (text + domain_metadata)', () => {
+  // Regression lock for the missing-subcollection-rule defect: Firestore rules
+  // do not cascade from users/{uid}/articles/{articleId} to its subcollections,
+  // so text/content and domain_metadata each need their own owner-scoped match.
+  // Owner read+write must succeed; a different signed-in user must be denied.
+
+  const TEXT_PATH = `users/${OWNER}/articles/article-1/text/content`;
+  const META_PATH = `users/${OWNER}/articles/article-1/domain_metadata/metadata`;
+
+  // ── text/content (headline fix) ────────────────────────────────────────────
+
+  it('owner can write then read their own article text/content', async () => {
+    const db = ownerDb();
+    const ref = doc(db, TEXT_PATH);
+    await assertSucceeds(setDoc(ref, { text: 'the full article body' }));
+    await assertSucceeds(getDoc(ref));
+  });
+
+  it('a different signed-in user cannot read the owner text/content', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), TEXT_PATH), { text: 'the full article body' });
+    });
+    await assertFails(getDoc(doc(otherDb(), TEXT_PATH)));
+  });
+
+  it('a different signed-in user cannot write the owner text/content', async () => {
+    await assertFails(setDoc(doc(otherDb(), TEXT_PATH), { text: 'intruder' }));
+  });
+
+  it('an unauthenticated user cannot read or write text/content', async () => {
+    const ref = doc(anonDb(), TEXT_PATH);
+    await assertFails(getDoc(ref));
+    await assertFails(setDoc(ref, { text: 'intruder' }));
+  });
+
+  // ── domain_metadata (snake_case gap the sibling audit uncovered) ────────────
+
+  it('owner can write then read their own article domain_metadata', async () => {
+    const db = ownerDb();
+    const ref = doc(db, META_PATH);
+    await assertSucceeds(setDoc(ref, { domain: 'example.com' }));
+    await assertSucceeds(getDoc(ref));
+  });
+
+  it('a different signed-in user cannot read the owner domain_metadata', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), META_PATH), { domain: 'example.com' });
+    });
+    await assertFails(getDoc(doc(otherDb(), META_PATH)));
+  });
+
+  it('a different signed-in user cannot write the owner domain_metadata', async () => {
+    await assertFails(setDoc(doc(otherDb(), META_PATH), { domain: 'evil.com' }));
+  });
+});
