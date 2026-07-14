@@ -33,8 +33,6 @@ fun signingValue(key: String): String? =
 //@Suppress("DSL_SCOPE_VIOLATION") // Remove when fixed https://youtrack.jetbrains.com/issue/KTIJ-19369
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.hilt.gradle)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
@@ -45,7 +43,7 @@ plugins {
 
 android {
     namespace = "com.jayteealao.trails"
-    compileSdk = 36
+    compileSdk = 37
 
     signingConfigs {
         create("release") {
