@@ -152,14 +152,16 @@ describe('LoggerDO', () => {
       expect(second.created).toBe(true); // the new bucket's SQLite had no row
 
       const after = await env.INDEX_DB.prepare(
-        'SELECT created_at, url FROM requests_index WHERE request_id = ?'
+        'SELECT created_at, url, stage FROM requests_index WHERE request_id = ?'
       )
         .bind(requestId)
-        .first<{ created_at: string; url: string }>();
+        .first<{ created_at: string; url: string; stage: string }>();
       // created_at advanced → routing now converges on the current bucket.
       expect(after?.created_at).toBe(secondCreatedAt);
       // canonical url from the first init is NOT overwritten.
       expect(after?.url).toBe('https://example.com/canonical');
+      // stage is reset to the value a fresh init writes.
+      expect(after?.stage).toBe('queued');
     });
 
     it('does not rewind the D1 requests_index created_at when a stale (older) init lands after a newer one', async () => {
@@ -198,15 +200,18 @@ describe('LoggerDO', () => {
       expect(second.created).toBe(true);
 
       const after = await env.INDEX_DB.prepare(
-        'SELECT created_at, url FROM requests_index WHERE request_id = ?'
+        'SELECT created_at, url, stage FROM requests_index WHERE request_id = ?'
       )
         .bind(requestId)
-        .first<{ created_at: string; url: string }>();
+        .first<{ created_at: string; url: string; stage: string }>();
       // created_at must NOT be rewound to the stale, earlier value — routing
       // stays pointed at the newer bucket.
       expect(after?.created_at).toBe(newerCreatedAt);
       // canonical url from the first (newer) init is still NOT overwritten.
       expect(after?.url).toBe('https://example.com/canonical');
+      // stage must NOT change — the stale init's WHERE clause rejects the
+      // entire UPDATE, so stage stays at the newer init's value.
+      expect(after?.stage).toBe('queued');
     });
   });
 
