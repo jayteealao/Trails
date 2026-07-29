@@ -389,12 +389,20 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
       JSON.stringify(initialDerived)
     );
 
-    // Update D1 index (best-effort)
+    // Update D1 index (best-effort). Idempotent upsert: a re-driven request_id
+    // re-inits under the current-hour bucket, so re-point its D1 row's
+    // created_at to this hour — otherwise routing (getBucketStubForWrite reads
+    // created_at) keeps sending events to the stale original bucket, whose DO
+    // holds no row (D5). Preserve the canonical url/domain from the first init.
     try {
       await this.env.INDEX_DB.prepare(
         `INSERT INTO requests_index
          (request_id, url, domain, created_at, updated_at, stage)
-         VALUES (?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(request_id) DO UPDATE SET
+           created_at = excluded.created_at,
+           updated_at = excluded.updated_at,
+           stage = excluded.stage`
       )
         .bind(
           payload.requestId,
@@ -440,13 +448,17 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
       this.upsertArtifact(requestId, artifact);
     }
 
-    // Update derived summary (only request_id + derived_json needed here)
-    const requestRow = this.sql
+    // Update derived summary (only request_id + derived_json needed here).
+    // Tolerate zero rows: a re-driven request_id can route here before its
+    // row exists in this bucket (D5). Events are still stored above; only the
+    // derived update is skipped when no row is found.
+    const requestRows = this.sql
       .exec<Pick<RequestRow, 'request_id' | 'derived_json'>>(
         'SELECT request_id, derived_json FROM requests WHERE request_id = ? LIMIT 1',
         requestId
       )
-      .one();
+      .toArray();
+    const requestRow = requestRows[0];
     if (requestRow) {
       const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
 
@@ -503,12 +515,13 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
         finalDerived = undefined;
         derivedUpdated = false;
 
-        const requestRow = this.sql
+        const requestRows = this.sql
           .exec<Pick<RequestRow, 'request_id' | 'derived_json'>>(
             'SELECT request_id, derived_json FROM requests WHERE request_id = ? LIMIT 1',
             requestId
           )
-          .one();
+          .toArray();
+        const requestRow = requestRows[0];
         // Same contract as appendEvent: events are stored even when this
         // instance holds no request row; only the derived update is skipped.
         const derived: DerivedSummary | undefined = requestRow

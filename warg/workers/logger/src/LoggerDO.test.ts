@@ -117,6 +117,50 @@ describe('LoggerDO', () => {
       const view = await stub.getRequestView(requestId);
       expect(view?.createdAt).toBe(createdAt);
     });
+
+    it('re-init under a later hour advances the D1 requests_index created_at (D5-B)', async () => {
+      // A re-driven request_id re-inits under the CURRENT-hour bucket (a
+      // different DO instance whose SQLite holds no row → no early return), so
+      // it reaches the D1 upsert. The upsert must re-point created_at to the
+      // new hour; otherwise getBucketStubForWrite keeps routing events to the
+      // stale original bucket, whose DO has no row → the D5 500.
+      const requestId = `d5b-reinit-${Date.now()}`;
+      const firstCreatedAt = '2026-06-09T10:15:00.000Z'; // bucket:2026060910
+      const secondCreatedAt = '2026-06-09T14:20:00.000Z'; // bucket:2026060914 (later hour)
+      const firstStub = getStub(bucketKeyForTs(firstCreatedAt));
+      const secondStub = getStub(bucketKeyForTs(secondCreatedAt));
+
+      const first = await firstStub.initRequest(
+        { requestId, url: 'https://example.com/canonical' },
+        firstCreatedAt
+      );
+      expect(first.created).toBe(true);
+
+      const before = await env.INDEX_DB.prepare(
+        'SELECT created_at FROM requests_index WHERE request_id = ?'
+      )
+        .bind(requestId)
+        .first<{ created_at: string }>();
+      expect(before?.created_at).toBe(firstCreatedAt);
+
+      // Re-drive: re-init under the later-hour bucket with a different url to
+      // prove the canonical url is preserved on conflict.
+      const second = await secondStub.initRequest(
+        { requestId, url: 'https://example.com/DIFFERENT' },
+        secondCreatedAt
+      );
+      expect(second.created).toBe(true); // the new bucket's SQLite had no row
+
+      const after = await env.INDEX_DB.prepare(
+        'SELECT created_at, url FROM requests_index WHERE request_id = ?'
+      )
+        .bind(requestId)
+        .first<{ created_at: string; url: string }>();
+      // created_at advanced → routing now converges on the current bucket.
+      expect(after?.created_at).toBe(secondCreatedAt);
+      // canonical url from the first init is NOT overwritten.
+      expect(after?.url).toBe('https://example.com/canonical');
+    });
   });
 
   describe('hour-bucket keying (multi-request instance)', () => {
@@ -600,6 +644,41 @@ describe('LoggerDO', () => {
       const view = await stub.getRequestView(requestId);
       expect(view?.artifacts).toHaveLength(0);
     });
+
+    it('stores the event without throwing when this bucket holds no request row (D5)', async () => {
+      // A re-driven request_id can route to a bucket that never held its
+      // request row. appendEvent must NOT throw (the old `.one()` did — the
+      // D5 500); the event is still persisted, only the derived update skipped.
+      const requestId = `d5a-single-norow-${Date.now()}`;
+      const bucketKey = `bucket:d5a-single-${Date.now()}`;
+      const id = env.LOGGER_DO.idFromName(bucketKey);
+      const rawStub = env.LOGGER_DO.get(id);
+      const stub = rawStub as unknown as LoggerStub;
+
+      const result = await stub.appendEvent(
+        requestId,
+        infoEvent('step.started', 'Render on a bucket with no request row', { step: 'render' })
+      );
+      expect(result.eventId).toBeGreaterThan(0);
+
+      // Event row persisted even though no `requests` row exists for the id.
+      await runInDurableObject(rawStub, async (_instance, state) => {
+        const rows = state.storage.sql
+          .exec<{ c: number }>(
+            'SELECT COUNT(*) AS c FROM events WHERE request_id = ?',
+            requestId
+          )
+          .toArray();
+        expect(rows[0]?.c).toBe(1);
+        const reqRows = state.storage.sql
+          .exec<{ c: number }>(
+            'SELECT COUNT(*) AS c FROM requests WHERE request_id = ?',
+            requestId
+          )
+          .toArray();
+        expect(reqRows[0]?.c).toBe(0);
+      });
+    });
   });
 
   describe('appendEvents', () => {
@@ -780,6 +859,38 @@ describe('LoggerDO', () => {
       expect(batchView?.derived.diagnostics?.retryCount).toBe(2);
       expect(batchView?.events).toHaveLength(events.length);
       expect(batchView?.artifacts).toHaveLength(1);
+    });
+
+    it('stores all events with derivedUpdated:false when this bucket holds no request row (D5)', async () => {
+      // Batch equivalent of the appendEvent D5 case: the old `.one()` inside
+      // the transaction threw when the bucket held no request row. Events must
+      // still be stored; derivedUpdated is false because derived state is skipped.
+      const requestId = `d5a-batch-norow-${Date.now()}`;
+      const bucketKey = `bucket:d5a-batch-${Date.now()}`;
+      const id = env.LOGGER_DO.idFromName(bucketKey);
+      const rawStub = env.LOGGER_DO.get(id);
+      const stub = rawStub as unknown as LoggerStub;
+
+      const events: LogEvent[] = [
+        infoEvent('step.started', 'Renderer step started', { step: 'render' }),
+        infoEvent('request.done', 'Request completed')
+      ];
+
+      const result = await stub.appendEvents(requestId, events);
+      expect(result.eventIds).toHaveLength(events.length);
+      expect(result.eventIds.every((eid) => eid > 0)).toBe(true);
+      expect(result.derivedUpdated).toBe(false);
+
+      // All event rows persisted even though no `requests` row exists.
+      await runInDurableObject(rawStub, async (_instance, state) => {
+        const rows = state.storage.sql
+          .exec<{ c: number }>(
+            'SELECT COUNT(*) AS c FROM events WHERE request_id = ?',
+            requestId
+          )
+          .toArray();
+        expect(rows[0]?.c).toBe(events.length);
+      });
     });
   });
 
