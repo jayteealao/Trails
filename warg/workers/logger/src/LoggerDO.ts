@@ -402,7 +402,8 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
          ON CONFLICT(request_id) DO UPDATE SET
            created_at = excluded.created_at,
            updated_at = excluded.updated_at,
-           stage = excluded.stage`
+           stage = excluded.stage
+         WHERE excluded.created_at >= requests_index.created_at`
       )
         .bind(
           payload.requestId,

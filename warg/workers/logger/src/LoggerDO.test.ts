@@ -161,6 +161,53 @@ describe('LoggerDO', () => {
       // canonical url from the first init is NOT overwritten.
       expect(after?.url).toBe('https://example.com/canonical');
     });
+
+    it('does not rewind the D1 requests_index created_at when a stale (older) init lands after a newer one', async () => {
+      // Cross-hour-boundary race (PR #32, P2): two /request/init calls for the
+      // same request_id can execute in different bucket DOs and their D1
+      // writes are not serialized. If the newer bucket's upsert completes
+      // first and the older one completes last, an unconditional DO UPDATE
+      // would rewind created_at, mis-routing subsequent events back to the
+      // stale bucket. The upsert's WHERE clause must reject the stale write.
+      const requestId = `stale-init-${Date.now()}`;
+      const newerCreatedAt = '2026-06-09T14:20:00.000Z'; // bucket:2026060914
+      const staleCreatedAt = '2026-06-09T10:15:00.000Z'; // bucket:2026060910 (earlier hour)
+      const newerStub = getStub(bucketKeyForTs(newerCreatedAt));
+      const staleStub = getStub(bucketKeyForTs(staleCreatedAt));
+
+      const first = await newerStub.initRequest(
+        { requestId, url: 'https://example.com/canonical' },
+        newerCreatedAt
+      );
+      expect(first.created).toBe(true);
+
+      const before = await env.INDEX_DB.prepare(
+        'SELECT created_at FROM requests_index WHERE request_id = ?'
+      )
+        .bind(requestId)
+        .first<{ created_at: string }>();
+      expect(before?.created_at).toBe(newerCreatedAt);
+
+      // Out-of-order arrival: the stale (older-hour) init's D1 write lands
+      // after the newer one already indexed. Its own bucket's SQLite has no
+      // row for this request_id, so it still proceeds to the D1 upsert.
+      const second = await staleStub.initRequest(
+        { requestId, url: 'https://example.com/DIFFERENT' },
+        staleCreatedAt
+      );
+      expect(second.created).toBe(true);
+
+      const after = await env.INDEX_DB.prepare(
+        'SELECT created_at, url FROM requests_index WHERE request_id = ?'
+      )
+        .bind(requestId)
+        .first<{ created_at: string; url: string }>();
+      // created_at must NOT be rewound to the stale, earlier value — routing
+      // stays pointed at the newer bucket.
+      expect(after?.created_at).toBe(newerCreatedAt);
+      // canonical url from the first (newer) init is still NOT overwritten.
+      expect(after?.url).toBe('https://example.com/canonical');
+    });
   });
 
   describe('hour-bucket keying (multi-request instance)', () => {
