@@ -1,4 +1,4 @@
-import { storeArtifact, timingSafeEqual } from '@warg/shared';
+import { isProxyErrorPage, storeArtifact, timingSafeEqual } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import { capturePdfViaCdp } from './cdp-pdf.js';
 import {
@@ -252,6 +252,11 @@ export default {
       const html = job.result.data?.html;
       if (!html || html.length === 0) {
         throw new Error('Hyperbrowser scrape did not return HTML');
+      }
+      if (isProxyErrorPage(html)) {
+        throw new Error(
+          `Hyperbrowser returned a proxy/network error page instead of ${targetUrl}`,
+        );
       }
 
       const htmlData = new TextEncoder().encode(html);

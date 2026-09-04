@@ -53,5 +53,7 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
+export { isProxyErrorPage } from './render-content.js';
+
 export type { ArtifactBucket } from './artifacts.js';
 export { storeArtifact } from './artifacts.js';
