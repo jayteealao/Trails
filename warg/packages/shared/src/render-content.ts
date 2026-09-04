@@ -8,8 +8,8 @@
  * enough to reject it would also reject legitimately short articles.
  *
  * Detection is therefore structural first, signature second: the body must
- * contain nothing but a single `<pre>`, AND that block's text must read as a
- * network error. Prose that merely quotes an error string still has other
+ * contain nothing but a single `<pre>`, AND that block's short text must read
+ * as a network error. Prose that merely quotes an error string still has other
  * markup around it and is accepted.
  */
 
@@ -22,6 +22,18 @@ const NETWORK_ERROR_PATTERNS: readonly RegExp[] = [
   /connection closed\b/i,
   /timed out\b/i,
 ];
+
+/**
+ * Longest `<pre>` text still treated as a candidate error message.
+ *
+ * The proxy's error page is one short line — the observed stub's block is 66
+ * characters. A legitimate plain-text document (a log, a transcript, a raw
+ * `.txt` article) renders as a bare `<pre>` too, and a generic phrase such as
+ * "timed out" can appear anywhere inside it, so the signature test is only
+ * applied to a block short enough to be an error message rather than a
+ * document in its own right.
+ */
+const MAX_ERROR_TEXT_LENGTH = 512;
 
 const ENTITIES: Record<string, string> = {
   '&amp;': '&',
@@ -87,5 +99,6 @@ export function isProxyErrorPage(html: string): boolean {
   if (!pre) return false;
 
   const text = decodeEntities(pre[1] ?? '').trim();
+  if (text.length > MAX_ERROR_TEXT_LENGTH) return false;
   return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text));
 }

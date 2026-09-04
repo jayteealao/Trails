@@ -73,6 +73,19 @@ describe('isProxyErrorPage', () => {
     expect(isProxyErrorPage(page)).toBe(false);
   });
 
+  it('accepts a long plain-text document that merely mentions a network error', () => {
+    // A raw log or `.txt` article renders as a bare <pre> exactly like the
+    // proxy stub does; only its length tells the two apart.
+    const lines = Array.from(
+      { length: 200 },
+      (_, i) => `2026-09-04 12:00:${i} INFO request handled`,
+    );
+    lines.push('2026-09-04 12:05:00 WARN upstream timed out after 30s');
+    const log = lines.join('\n');
+    const page = `<html><body><pre style="white-space: pre-wrap;">${log}</pre></body></html>`;
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+
   it('rejects empty and whitespace-only input', () => {
     expect(isProxyErrorPage('')).toBe(true);
     expect(isProxyErrorPage('   \n\t  ')).toBe(true);
