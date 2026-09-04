@@ -37,6 +37,25 @@ function decodeEntities(text: string): string {
   return text.replace(/&(?:amp|lt|gt|quot|#39|apos|nbsp);/g, (m) => ENTITIES[m] ?? m);
 }
 
+/**
+ * Drops elements that carry no content at all (`<div id="x"></div>`), innermost
+ * first. A headless browser's plain-text render appends such empty nodes beside
+ * the `<pre>` — the captured 275-byte stub ends with a hidden, empty `<div>` —
+ * and they must not defeat the "nothing but a `<pre>`" structural test. Only
+ * genuinely contentless elements are removed, so anything a reader would see
+ * still counts against that test.
+ */
+function dropEmptyElements(html: string): string {
+  const empty = /<([a-zA-Z][\w-]*)\b[^>]*>\s*<\/\1\s*>/g;
+  let current = html;
+  for (let pass = 0; pass < 8; pass += 1) {
+    const next = current.replace(empty, '');
+    if (next === current) break;
+    current = next;
+  }
+  return current;
+}
+
 /** Inner HTML of `<body>`, or the whole document with the shell elements dropped. */
 function extractBodyInner(html: string): string {
   const body = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html);
@@ -58,10 +77,11 @@ function extractBodyInner(html: string): string {
 export function isProxyErrorPage(html: string): boolean {
   if (!html || html.trim().length === 0) return true;
 
-  const stripped = extractBodyInner(html)
+  const withoutNoise = extractBodyInner(html)
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-    .trim();
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+
+  const stripped = dropEmptyElements(withoutNoise).trim();
 
   const pre = /^<pre\b[^>]*>([\s\S]*?)<\/pre>$/i.exec(stripped);
   if (!pre) return false;
