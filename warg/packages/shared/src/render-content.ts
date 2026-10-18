@@ -79,6 +79,13 @@ function extractBodyInner(html: string): string {
 }
 
 /**
+ * Discriminator a renderer puts in the `reason` field of its error payload when
+ * it rejects a proxy/network error page. The workflow reads it to route the
+ * request to the alternate renderer, which may still reach the target.
+ */
+export const PROXY_ERROR_PAGE_REASON = 'proxy_error_page';
+
+/**
  * True when `html` is not a rendered document but a proxy/network error page —
  * or is empty. Callers must fail the render step rather than archive the body.
  *

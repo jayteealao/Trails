@@ -1,4 +1,4 @@
-import { isProxyErrorPage, storeArtifact, timingSafeEqual } from '@warg/shared';
+import { isProxyErrorPage, PROXY_ERROR_PAGE_REASON, storeArtifact, timingSafeEqual } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -134,6 +134,7 @@ export default {
         return Response.json(
           {
             error: 'Browser Rendering /content returned a proxy/network error page',
+            reason: PROXY_ERROR_PAGE_REASON,
             url: targetUrl
           },
           { status: 502 }
