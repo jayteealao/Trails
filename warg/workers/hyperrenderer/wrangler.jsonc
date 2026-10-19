@@ -29,7 +29,9 @@
 // - HYPERBROWSER_WAIT_UNTIL (load|domcontentloaded|networkidle; default load)
 // - HYPERBROWSER_NAV_TIMEOUT_MS (default 30000)
 // - HYPERBROWSER_WAIT_FOR_MS (default 0)
-// - HYPERBROWSER_SCRAPE_TIMEOUT_MS (default 90000)
+// - HYPERBROWSER_SCRAPE_TIMEOUT_MS (default 90000; the value sent to the
+//   Hyperbrowser scrape API is clamped to its 60000 ms cap, the remainder is
+//   the local poll budget)
 // - HYPERBROWSER_POLL_INTERVAL_MS (default 2000)
 // - HYPERBROWSER_PDF_TIMEOUT_MS (default 45000)
 // - HYPERBROWSER_SCREENSHOT_FORMAT (png|jpeg|webp; default png)

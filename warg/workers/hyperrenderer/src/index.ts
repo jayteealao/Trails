@@ -147,6 +147,18 @@ async function waitForScrapeResult(
   throw new Error(`Timed out waiting for Hyperbrowser scrape job ${jobId}`);
 }
 
+// Hyperbrowser rejects scrapeOptions.timeout above this with HTTP 400
+// "scrapeOptions.timeout - Number must be less than or equal to 60000".
+// repro: live /begin canary 0a83f656-469d-4aa7-be4a-fe0bef76ade5 (2026-09-04) sent 90000
+// and every fallback render 400'd. The local poll budget (config.scrapeTimeoutMs) stays
+// above this on purpose, so we outlast the server's own cap rather than racing it.
+const HYPERBROWSER_MAX_SCRAPE_TIMEOUT_MS = 60000;
+
+/** The scrape timeout actually sent to the API, clamped to the cap above. */
+export function scrapeTimeoutForApi(configuredMs: number): number {
+  return Math.min(configuredMs, HYPERBROWSER_MAX_SCRAPE_TIMEOUT_MS);
+}
+
 function isValidUrl(input: string): boolean {
   try {
     const parsed = new URL(input);
@@ -214,7 +226,7 @@ export default {
         scrapeOptions: {
           formats,
           waitUntil: config.waitUntil,
-          timeout: config.scrapeTimeoutMs,
+          timeout: scrapeTimeoutForApi(config.scrapeTimeoutMs),
           waitFor: config.waitForMs,
           screenshotOptions: includeScreenshot
             ? {
