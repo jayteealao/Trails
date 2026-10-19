@@ -7,6 +7,7 @@ import {
   ServiceCallError,
   type ServiceErrorClassification,
 } from './services.js';
+import { PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import type { RendererResponse } from './types.js';
 
 function makeJsonResponse(status: number, body: unknown): Response {
@@ -342,6 +343,56 @@ describe('getRendererFallbackReason', () => {
     );
 
     expect(getRendererFallbackReason(err)).toBe('browser_rendering_6000');
+  });
+});
+
+describe('proxy error page fallback', () => {
+  const proxyErrorBody = {
+    error: 'Browser Rendering /content returned a proxy/network error page',
+    reason: PROXY_ERROR_PAGE_REASON,
+    url: 'https://dead.example.com/post',
+  };
+
+  it('maps the renderer proxy-error-page rejection to a fallback reason', () => {
+    const err = new ServiceCallError(
+      'Service error 502: { ... }',
+      { errorCode: 'RENDER_SERVICE_ERROR', retryable: true, recommendedAction: 'retry_step' },
+      '/render',
+      502,
+      JSON.stringify(proxyErrorBody),
+    );
+
+    expect(getRendererFallbackReason(err)).toBe('browser_rendering_proxy_error_page');
+  });
+
+  it('does not map a 502 payload without the discriminator', () => {
+    const err = new ServiceCallError(
+      'Service error 502: { ... }',
+      { errorCode: 'RENDER_SERVICE_ERROR', retryable: true, recommendedAction: 'retry_step' },
+      '/render',
+      502,
+      JSON.stringify({ error: 'Browser Rendering /content returned invalid response' }),
+    );
+
+    expect(getRendererFallbackReason(err)).toBeUndefined();
+  });
+
+  it('falls back to hyperrenderer when the renderer rejects a proxy error page', async () => {
+    const rendererFetch = vi.fn().mockResolvedValueOnce(makeJsonResponse(502, proxyErrorBody));
+    const hyperrendererFetch = vi
+      .fn()
+      .mockResolvedValueOnce(makeJsonResponse(200, makeRendererSuccess('rendered-fallback.html')));
+
+    const outcome = await callRendererWith403Fallback(makeEnv(rendererFetch, hyperrendererFetch), {
+      request_id: 'req-proxy',
+      url: 'https://dead.example.com/post',
+      browser_quota_kind: 'rest_request',
+    });
+
+    expect(outcome.fallbackUsed).toBe(true);
+    expect(outcome.fallbackReason).toBe('browser_rendering_proxy_error_page');
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
   });
 });
 

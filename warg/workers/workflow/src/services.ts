@@ -9,6 +9,7 @@ import type {
   GcsResponse,
   SinglefileParams
 } from './types.js';
+import { PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
 export interface ServiceErrorClassification {
@@ -363,7 +364,8 @@ function containsRendererNetworkClosed5006(details: unknown): boolean {
 export type RendererFallbackReason =
   | 'browser_rendering_403'
   | 'browser_rendering_5006'
-  | 'browser_rendering_6000';
+  | 'browser_rendering_6000'
+  | 'browser_rendering_proxy_error_page';
 
 function ensureRendererResponseShape(
   result: RendererResponse,
@@ -403,6 +405,11 @@ export function getRendererFallbackReason(error: unknown): RendererFallbackReaso
     const parsed = JSON.parse(error.responseBody) as unknown;
     if (!parsed || typeof parsed !== 'object') return undefined;
     const record = parsed as Record<string, unknown>;
+    // The primary renderer rejected a proxy/network error page. Browser
+    // Rendering could not reach the target, but Hyperbrowser may still reach it.
+    if (record.reason === PROXY_ERROR_PAGE_REASON) {
+      return 'browser_rendering_proxy_error_page';
+    }
     if (!looksLikeRendererContentFailurePayload(record)) return undefined;
 
     const status =

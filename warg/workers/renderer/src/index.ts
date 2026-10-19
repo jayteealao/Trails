@@ -1,4 +1,4 @@
-import { storeArtifact, timingSafeEqual } from '@warg/shared';
+import { isProxyErrorPage, PROXY_ERROR_PAGE_REASON, storeArtifact, timingSafeEqual } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -127,6 +127,16 @@ export default {
       if (!contentJson.success || !contentJson.result) {
         return Response.json(
           { error: 'Browser Rendering /content returned invalid response' },
+          { status: 502 }
+        );
+      }
+      if (isProxyErrorPage(contentJson.result)) {
+        return Response.json(
+          {
+            error: 'Browser Rendering /content returned a proxy/network error page',
+            reason: PROXY_ERROR_PAGE_REASON,
+            url: targetUrl
+          },
           { status: 502 }
         );
       }
