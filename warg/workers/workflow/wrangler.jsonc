@@ -1,3 +1,6 @@
+// Deploys read cloudflare.config.ts (cf deploy); its `exports` lifecycle
+// declaration replaces the `migrations` array below. This file serves
+// `wrangler dev` and `wrangler types` only. Change a binding in both files.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "workflow",

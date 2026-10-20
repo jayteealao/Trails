@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "cf": "1.0.0-beta.17",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "wrangler": "4.148.0"
   }
 }

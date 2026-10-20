@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.28.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/link-worker-bundler.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

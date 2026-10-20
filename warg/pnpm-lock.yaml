@@ -208,6 +208,9 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0))
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1)
 
   workers/gcs:
     dependencies:
@@ -221,6 +224,9 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0))
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1)
 
   workers/hyperrenderer:
     dependencies:
@@ -234,6 +240,9 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0))
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1)
 
   workers/logger:
     dependencies:
@@ -253,6 +262,9 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0))
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1)
 
   workers/monolith:
     dependencies:
@@ -272,6 +284,9 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0))
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1)
 
   workers/readability:
     dependencies:
@@ -291,6 +306,9 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0))
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1)
 
   workers/renderer:
     dependencies:
@@ -301,6 +319,9 @@ importers:
       cf:
         specifier: 1.0.0-beta.17
         version: 1.0.0-beta.17(@types/node@26.1.1)
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0
 
   workers/singlefile:
     dependencies:
@@ -314,6 +335,9 @@ importers:
       cf:
         specifier: 1.0.0-beta.17
         version: 1.0.0-beta.17(@types/node@26.1.1)
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0
 
   workers/workflow:
     dependencies:
@@ -327,6 +351,9 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0))
+      wrangler:
+        specifier: 4.148.0
+        version: 4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1)
 
 packages:
 
@@ -5749,10 +5776,10 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  miniflare@5.20261006.0-alpha:
+  miniflare@5.20261006.0-alpha(@types/node@26.1.1):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
-      sharp: 0.35.4
+      sharp: 0.35.4(@types/node@26.1.1)
       undici: 8.7.0
       workerd: 1.20261006.1
       ws: 8.21.0
@@ -6102,7 +6129,7 @@ snapshots:
       '@img/sharp-win32-ia32': 0.34.5
       '@img/sharp-win32-x64': 0.34.5
 
-  sharp@0.35.4:
+  sharp@0.35.4(@types/node@26.1.1):
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
@@ -6133,6 +6160,7 @@ snapshots:
       '@img/sharp-win32-arm64': 0.35.4
       '@img/sharp-win32-ia32': 0.35.4
       '@img/sharp-win32-x64': 0.35.4
+      '@types/node': 26.1.1
 
   sharp@0.35.5(@types/node@26.1.1):
     dependencies:
@@ -6585,11 +6613,29 @@ snapshots:
       '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261006.1)
       blake3-wasm: 2.1.5
       esbuild: 0.28.1
-      miniflare: 5.20261006.0-alpha
+      miniflare: 5.20261006.0-alpha(@types/node@26.1.1)
       path-to-regexp: 8.4.2
       unenv: 2.0.0-rc.24
       workerd: 1.20261006.1
     optionalDependencies:
+      fsevents: 2.3.3
+    transitivePeerDependencies:
+      - '@types/node'
+      - bufferutil
+      - utf-8-validate
+
+  wrangler@4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1):
+    dependencies:
+      '@cloudflare/kv-asset-handler': 0.5.0
+      '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261006.1)
+      blake3-wasm: 2.1.5
+      esbuild: 0.28.1
+      miniflare: 5.20261006.0-alpha(@types/node@26.1.1)
+      path-to-regexp: 8.4.2
+      unenv: 2.0.0-rc.24
+      workerd: 1.20261006.1
+    optionalDependencies:
+      '@cloudflare/workers-types': 5.20260711.1
       fsevents: 2.3.3
     transitivePeerDependencies:
       - '@types/node'
