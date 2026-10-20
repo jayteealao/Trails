@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Stub of wrangler for scripts/deploy-harness/run.sh: `pages deploy` records
+# its --commit-hash for the cf stub's Pages deployment list.
+set -euo pipefail
+state="${HARNESS_STATE:?HARNESS_STATE is not set}"
+echo "wrangler $*" >>"$state/calls.log"
+if [ "${1:-} ${2:-}" = "pages deploy" ]; then
+  while [ $# -gt 0 ]; do
+    [ "$1" = "--commit-hash" ] && printf '%s\n' "${2:-}" >"$state/pages-hash"
+    shift
+  done
+  echo "Deployment complete!"
+  exit "${H_WRANGLER_RC:-0}"
+fi
+echo "wrangler stub: unhandled command" >&2
+exit 64

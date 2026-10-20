@@ -103,6 +103,15 @@ jobs:
           node scripts/check-function-bundle.mjs
           node --test scripts/__tests__/function-bundle.test.mjs
 
+      - name: Deploy script lint and harness
+        # shellcheck over deploy.sh and its stub harness, then the harness:
+        # deploy.sh runs end to end against stub cf, wrangler, firebase,
+        # gcloud and pnpm, so the secret preflight, the version, updateTime
+        # and commit_hash checks, the dirty-tree refusal and the exit summary
+        # are proven on every run without credentials.
+        timeout-minutes: 5
+        run: pnpm run deploy:check
+
   shared-types-drift:
     # Runs unconditionally when warg-ci is triggered. The workflow-level
     # paths filter already gates this to PRs that touch warg/firebase/shared-types.

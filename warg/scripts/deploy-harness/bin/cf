@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Stub of the cf CLI for scripts/deploy-harness/run.sh. Answers with the JSON
+# shapes cf 1.0.0-beta.17 prints, with synthetic ids. Scenario variables hold
+# space-separated lists:
+#   H_SECRETS_FAIL=<w>             `workers secrets list` exits 1
+#   H_SECRETS_MISSING=<w>:<NAME>   the listing omits that secret
+#   H_NO_DEPLOYMENTS=<w>           `workers deployments list` exits 1 until a deploy
+#   H_SAME_IDS=<w>                 the deployment list never shows a new id
+#   H_FOREIGN_ID=<w>               the new deployment holds an id this run did not make
+#   H_NO_PRINT=<w>                 `deploy` prints no version id
+#   H_DEPLOY_RC=<w>:<n>            `deploy` exits n
+#   H_PAGES_HASH=<hash>            commit_hash of the newest Pages deployment
+set -euo pipefail
+state="${HARNESS_STATE:?HARNESS_STATE is not set}"
+echo "cf $*" >>"$state/calls.log"
+
+in_list() { case " ${1:-} " in *" $2 "*) return 0 ;; esac; return 1; }
+flag_value() { # flag_value <flag> <args...>
+  local f="$1"; shift
+  while [ $# -gt 0 ]; do
+    [ "$1" = "$f" ] && { echo "${2:-}"; return 0; }
+    shift
+  done
+  echo ""
+}
+uuid() { # uuid <seed>
+  local n
+  n="$(printf '%s' "$1" | cksum | cut -d' ' -f1)"
+  printf '%08x-0000-4000-8000-%012x\n' "$n" "$n"
+}
+
+case "${1:-} ${2:-} ${3:-}" in
+  "workers secrets list")
+    w="$(flag_value --worker "$@")"
+    if in_list "${H_SECRETS_FAIL:-}" "$w"; then
+      echo "Authentication error [code: 10000]" >&2
+      exit 1
+    fi
+    names="INTERNAL_API_KEY PUBLIC_API_KEY CF_ACCOUNT_ID BR_API_TOKEN HYPERBROWSER_API_KEY R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY CLOUD_FN_BASE_URL"
+    out="" sep=""
+    for n in $names; do
+      in_list "${H_SECRETS_MISSING:-}" "$w:$n" && continue
+      out="$out$sep{\"name\":\"$n\",\"type\":\"secret_text\"}"
+      sep=","
+    done
+    echo "[$out]"
+    ;;
+  "workers deployments list")
+    w="$(flag_value --worker "$@")"
+    if [ ! -f "$state/deployed-$w" ] && in_list "${H_NO_DEPLOYMENTS:-}" "$w"; then
+      echo "This Worker does not exist on your account. [code: 10007]" >&2
+      exit 1
+    fi
+    old="{\"id\":\"$(uuid "dep-old-$w")\",\"source\":\"wrangler\",\"strategy\":\"percentage\",\"annotations\":{\"workers/triggered_by\":\"deployment\"},\"versions\":[{\"version_id\":\"$(uuid "old-$w")\",\"percentage\":100}],\"created_on\":\"2026-01-01T00:00:00Z\"}"
+    if [ -f "$state/deployed-$w" ] && ! in_list "${H_SAME_IDS:-}" "$w"; then
+      if in_list "${H_FOREIGN_ID:-}" "$w"; then new="$(uuid "foreign-$w")"; else new="$(uuid "new-$w")"; fi
+      echo "{\"deployments\":[{\"id\":\"$(uuid "dep-new-$w")\",\"source\":\"wrangler\",\"strategy\":\"percentage\",\"annotations\":{\"workers/triggered_by\":\"deployment\"},\"versions\":[{\"version_id\":\"$new\",\"percentage\":100}],\"created_on\":\"2026-10-20T00:00:00Z\"},$old]}"
+    else
+      echo "{\"deployments\":[$old]}"
+    fi
+    ;;
+  "workers versions get")
+    id="${4:-}"
+    w="$(flag_value --worker-id "$@")"
+    if [ "$id" = "$(uuid "new-$w")" ] && [ -f "$state/deployed-$w" ]; then
+      echo "{\"id\":\"$id\",\"annotations\":{\"workers/triggered_by\":\"version_upload\",\"workers/tag\":\"$(cat "$state/deployed-$w")\"}}"
+    else
+      echo "{\"id\":\"$id\",\"annotations\":{\"workers/triggered_by\":\"version_upload\"}}"
+    fi
+    ;;
+  "pages deployments list")
+    hash="${H_PAGES_HASH:-}"
+    [ -n "$hash" ] || hash="$(cat "$state/pages-hash" 2>/dev/null || echo 0000000000000000000000000000000000000000)"
+    echo "[{\"id\":\"$(uuid "pages-$hash")\",\"environment\":\"production\",\"deployment_trigger\":{\"type\":\"ad_hoc\",\"metadata\":{\"branch\":\"main\",\"commit_hash\":\"$hash\",\"commit_message\":\"$hash\",\"commit_dirty\":false}}}]"
+    ;;
+  deploy*)
+    w="$(basename "$PWD")"
+    echo "cf-deploy-worker $w" >>"$state/calls.log"
+    for item in ${H_DEPLOY_RC:-}; do
+      if [ "${item%%:*}" = "$w" ]; then
+        echo "✘ Deploy failed" >&2
+        exit "${item#*:}"
+      fi
+    done
+    flag_value --tag "$@" >"$state/deployed-$w"
+    echo "Uploaded $w (1.00 sec)"
+    if ! in_list "${H_NO_PRINT:-}" "$w"; then
+      echo "Current Version ID: $(uuid "new-$w")"
+    fi
+    ;;
+  *)
+    echo "cf stub: unhandled command: $*" >&2
+    exit 64
+    ;;
+esac
