@@ -10,12 +10,12 @@ if [ "$#" -ne 1 ]; then
 fi
 
 value=$1
-pattern='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\+([0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*))?$'
 
 if [[ $value =~ $pattern ]]; then
   echo "version_name $value is valid"
   exit 0
 fi
 
-printf "::error::version_name %q is not semver X.Y.Z[-pre][+build]\n" "$value"
+printf "::error::version_name %q is not SemVer 2.0.0 X.Y.Z[-pre][+build]\n" "$value"
 exit 1

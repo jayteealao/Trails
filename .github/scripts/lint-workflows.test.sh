@@ -56,10 +56,10 @@ else
   fail "real workflows: expected exit 0, got $rc"; printf '%s\n' "$out"
 fi
 
-for v in 1.11.0 1.0.0-beta 0.0.0-ci-gate; do
+for v in 1.11.0 1.0.0-beta 0.0.0-ci-gate 1.11.0+build.5; do
   if bash "$validate" "$v" >/dev/null 2>&1; then pass "version_name '$v' accepted"; else fail "version_name '$v' rejected"; fi
 done
-for v in '1.11.0; echo pwned' 1.11 v1.11.0; do
+for v in '1.11.0; echo pwned' 1.11 v1.11.0 01.2.3 1.2.3-01 1.2.3-..; do
   if bash "$validate" "$v" >/dev/null 2>&1; then fail "version_name '$v' accepted"; else pass "version_name '$v' rejected"; fi
 done
 
