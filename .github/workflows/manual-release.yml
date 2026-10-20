@@ -96,6 +96,12 @@ jobs:
           jq type android/app/google-services.json
           echo "google-services.json decoded and valid."
 
+      # Blocking: a failing unit test stops the job before any APK or AAB exists.
+      - name: Unit tests
+        timeout-minutes: 30
+        run: |
+          cd android && ./gradlew --no-daemon testDebugUnitTest
+
       - name: Build APK + AAB
         run: |
           cd android && ./gradlew --no-daemon clean assembleRelease bundleRelease

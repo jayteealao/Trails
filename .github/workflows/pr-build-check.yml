@@ -66,8 +66,16 @@ jobs:
             python3 -m json.tool app/google-services.json > /dev/null && echo "✓ JSON is valid" || echo "✗ JSON is malformed"
           fi
 
+      # Blocking: a failing unit test fails the job. The build and the PR
+      # comment below still run so the comment reports both outcomes.
+      - name: Unit tests
+        id: unit_tests
+        timeout-minutes: 30
+        run: ./gradlew --no-daemon testDebugUnitTest
+
       - name: Build debug APK
         id: build
+        if: ${{ !cancelled() && (success() || steps.unit_tests.outcome == 'failure') }}
         continue-on-error: true
         run: |
           set -o pipefail
@@ -83,17 +91,26 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD_STATUS: ${{ steps.build.outcome }}
+          TEST_STATUS: ${{ steps.unit_tests.outcome }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const buildStatus = process.env.BUILD_STATUS;
+            const testStatus = process.env.TEST_STATUS;
+            const testsFailed = testStatus === 'failure';
+            const testLine = testsFailed
+              ? 'Unit tests: failed — see the job log'
+              : testStatus === 'success'
+                ? 'Unit tests: passed'
+                : `Unit tests: ${testStatus || 'not run'}`;
             const prNumber = process.env.PR_NUMBER;
 
             // Skip commenting if no PR context (e.g., manual workflow_dispatch without PR number)
             if (!prNumber) {
               console.log('Skipping PR comment: no PR number available');
+              console.log(`Unit test status: ${testStatus}`);
               console.log(`Build status: ${buildStatus}`);
               if (buildStatus === 'failure') {
                 console.log('Build failed - check the workflow logs for details');
@@ -137,6 +154,7 @@ jobs:
               const contextLines = logLines.slice(Math.max(0, logLines.length - 50));
 
               comment = `## ❌ Build Failed\n\n`;
+              comment += `${testLine}\n\n`;
               comment += `The PR build has failed. Please review and fix the following errors:\n\n`;
 
               if (errorLines.length > 0) {
@@ -145,8 +163,10 @@ jobs:
 
               comment += `### Build Log (last 50 lines):\n<details>\n<summary>Click to expand</summary>\n\n\`\`\`\n${contextLines.join('\n')}\n\`\`\`\n</details>\n\n`;
               comment += `Please fix these issues and push your changes to re-trigger the build check.`;
+            } else if (testsFailed) {
+              comment = `## ❌ Unit tests failed\n\n${testLine}\n\nThe debug build compiled, but the check is red until the unit tests pass.`;
             } else {
-              comment = `## ✅ Build Successful\n\nThe PR build completed successfully! The code compiles without errors.`;
+              comment = `## ✅ Build Successful\n\n${testLine}\n\nThe PR build completed successfully! The code compiles without errors.`;
             }
 
             // Post comment on PR
