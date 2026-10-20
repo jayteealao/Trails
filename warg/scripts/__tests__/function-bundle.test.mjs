@@ -58,6 +58,19 @@ describe('resolveSha', () => {
   test('uses GIT_SHA from the environment when set', () => {
     assert.equal(resolveSha(tempDir(), { GIT_SHA: 'abc123-dirty' }), 'abc123-dirty');
   });
+  test('reads HEAD on a clean tree and marks a dirty tree', () => {
+    const dir = tempDir();
+    const git = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' }).trim();
+    git('init', '-q');
+    writeFileSync(join(dir, 'a.txt'), 'a');
+    git('add', 'a.txt');
+    git('commit', '-q', '-m', 'a');
+    const head = git('rev-parse', 'HEAD');
+    const env = { ...process.env, GIT_SHA: '' };
+    assert.equal(resolveSha(dir, env), head);
+    writeFileSync(join(dir, 'b.txt'), 'b');
+    assert.equal(resolveSha(dir, env), `${head}-dirty`);
+  });
   test('fails when no SHA can be determined', () => {
     const dir = tempDir();
     const { GIT_DIR: _gitDir, ...rest } = process.env;
