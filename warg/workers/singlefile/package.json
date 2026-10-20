@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",
     "update-bundle": "curl -o lib/single-file-bundle.js https://raw.githubusercontent.com/gildas-lormeau/single-file-cli/master/lib/single-file-bundle.js"
@@ -13,5 +12,8 @@
   "dependencies": {
     "@cloudflare/puppeteer": "1.1.0",
     "@warg/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "cf": "1.0.0-beta.17"
   }
 }

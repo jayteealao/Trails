@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types"
   },
   "dependencies": {
     "@warg/shared": "workspace:*"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "cf": "1.0.0-beta.17"
+  }
 }
