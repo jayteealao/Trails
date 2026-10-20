@@ -1,10 +1,11 @@
 {
   "functions": [
     {
-      "source": ".",
+      "source": "dist-deploy",
+      "configDir": ".",
       "codebase": "dashboard-api",
       "runtime": "nodejs22",
-      "predeploy": ["npm run build"]
+      "predeploy": ["pnpm run build:deploy"]
     }
   ]
 }

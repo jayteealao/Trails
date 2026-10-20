@@ -4,6 +4,10 @@ node_modules/
 # Build outputs
 dist/
 .wrangler/
+# cf build output and generated types (cf deploy)
+.cloudflare/
+# Cloud function deploy bundles (pnpm run build:deploy)
+dist-deploy/
 
 # Environment
 .env

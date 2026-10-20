@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Stub of pnpm for scripts/deploy-harness/run.sh (the typecheck and test
+# pre-checks).
+#   H_PNPM_RC=<n>   exit code (default 0)
+set -euo pipefail
+state="${HARNESS_STATE:?HARNESS_STATE is not set}"
+echo "pnpm $*" >>"$state/calls.log"
+exit "${H_PNPM_RC:-0}"

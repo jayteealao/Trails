@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.28.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/link-worker-bundler.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -15,21 +16,25 @@
     "deploy:pages": "bash scripts/deploy.sh --with-pages",
     "deploy:all": "bash scripts/deploy.sh --all",
     "deploy:quick": "bash scripts/deploy.sh --skip-checks",
-    "deploy:workers": "pnpm --filter @warg/logger deploy && pnpm --filter @warg/monolith deploy && pnpm --filter @warg/workflow deploy && pnpm --filter @warg/gateway deploy"
+    "deploy:check": "shellcheck -x scripts/deploy.sh scripts/deploy-harness/run.sh scripts/deploy-harness/bin/cf scripts/deploy-harness/bin/firebase scripts/deploy-harness/bin/gcloud scripts/deploy-harness/bin/pnpm scripts/deploy-harness/bin/wrangler && bash scripts/deploy-harness/run.sh"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "1.1.0",
     "@eslint/js": "^10.0.1",
+    "cf": "1.0.0-beta.17",
     "concurrently": "^10.0.3",
+    "esbuild": "0.28.1",
     "eslint": "^10.7.0",
+    "firebase-tools": "15.34.0",
     "globals": "17.7.0",
     "prettier": "3.9.5",
+    "semver": "7.8.5",
     "typescript": "^5.7.3",
     "typescript-eslint": "8.63.0",
-    "wrangler": "4.110.0"
+    "wrangler": "4.148.0"
   },
   "dependencies": {
-    "@cloudflare/workerd-windows-64": "1.20260711.1"
+    "@cloudflare/workerd-windows-64": "1.20261006.1"
   },
   "pnpm": {
     "overrides": {
@@ -55,7 +60,14 @@
       "@babel/core": ">=7.29.6",
       "@grpc/grpc-js": ">=1.14.4",
       "@types/request>form-data": ">=2.5.6",
+      "firebase-tools>minimatch": "3.1.5",
       "@tootallnate/once": ">=2.0.1"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-vfj7-8cjw-p6xm",
+        "GHSA-8988-4f7v-96qf"
+      ]
     }
   }
 }

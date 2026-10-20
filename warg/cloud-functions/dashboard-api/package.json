@@ -5,16 +5,20 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build:test": "tsc",
+    "build:deploy": "node ../../scripts/build-function-bundle.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm run build && node --test \"dist/__tests__/*.test.js\"",
+    "test": "pnpm run build:test && node --test \"dist/__tests__/*.test.js\"",
     "serve": "firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions --project trails-e428e"
+    "deploy": "node -e \"console.error('Deploy Cloud Functions with scripts/deploy.sh: from warg/, run pnpm deploy:all or bash scripts/deploy.sh --with-functions');process.exit(1)\""
+  },
+  "engines": {
+    "node": "22"
   },
   "dependencies": {
     "@google-cloud/storage": "7.21.0",
-    "firebase-admin": "^14.1.0",
-    "firebase-functions": "^7.2.5"
+    "firebase-admin": "14.5.0",
+    "firebase-functions": "7.4.0"
   },
   "devDependencies": {
     "@types/node": "22.20.1",

@@ -4,13 +4,14 @@ on:
   pull_request:
     branches:
       - main
-      - develop
     types: [opened, synchronize, reopened]
     paths:
       - 'warg/**'
       - 'firebase/**'
       - 'shared-types/**'
-      - '.github/workflows/warg-ci.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/**'
+      - '.github/dependabot.yml'
   push:
     branches:
       - main
@@ -18,7 +19,9 @@ on:
       - 'warg/**'
       - 'firebase/**'
       - 'shared-types/**'
-      - '.github/workflows/warg-ci.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/**'
+      - '.github/dependabot.yml'
 
 # Workspace-rooted paths throughout. `warg/` is a pnpm workspace; commands
 # run from there so `pnpm -r` picks up the workers/*, packages/*, etc.
@@ -34,16 +37,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.28.0
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: 'pnpm'
@@ -76,23 +79,96 @@ jobs:
         # pnpm workspace and is not included.
         run: pnpm -r --if-present run test
 
+      - name: cf deploy dry run (every worker)
+        # Builds and validates each worker from its cloudflare.config.ts
+        # without uploading. --dry-run needs no Cloudflare credentials; the
+        # monolith run also builds its container image with the runner's Docker.
+        # Every worker folder with a cloudflare.config.ts is covered, so a new
+        # worker needs no edit here.
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          for d in workers/*/; do
+            w="$(basename "$d")"
+            [ -f "workers/$w/cloudflare.config.ts" ] || continue
+            echo "::group::cf deploy --dry-run ($w)"
+            if ! (cd "workers/$w" && pnpm exec cf deploy --dry-run); then
+              echo "::error::cf deploy --dry-run failed for worker $w"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Worker configs agree (cloudflare.config.ts and wrangler.jsonc)
+        # cf deploy reads cloudflare.config.ts; wrangler dev and wrangler types
+        # read wrangler.jsonc. Fails when a binding, Durable Object class, cron
+        # or compatibility setting differs between the two.
+        timeout-minutes: 5
+        run: |
+          node scripts/check-worker-configs.mjs
+          node --test scripts/__tests__/worker-configs.test.mjs
+
+      - name: Cloud function bundles
+        # Builds each function's deploy folder (one esbuild bundle plus a
+        # generated package.json), then checks it as Cloud Build will use it:
+        # exact runtime pins, no workspace or file specifier, express 4.22.2 or
+        # later and the workspace overrides in the npm-resolved tree, and the
+        # commit SHA logged once when the bundle loads.
+        timeout-minutes: 5
+        run: |
+          pnpm --filter "./cloud-functions/*" --if-present run build:deploy
+          node scripts/check-function-bundle.mjs
+          node --test scripts/__tests__/function-bundle.test.mjs
+
+      - name: Deploy script lint and harness
+        # shellcheck over deploy.sh and its stub harness, then the harness:
+        # deploy.sh runs end to end against stub cf, wrangler, firebase,
+        # gcloud and pnpm, so the secret preflight, the version, updateTime
+        # and commit_hash checks, the dirty-tree refusal and the exit summary
+        # are proven on every run without credentials.
+        timeout-minutes: 5
+        run: pnpm run deploy:check
+
   shared-types-drift:
     # Runs unconditionally when warg-ci is triggered. The workflow-level
     # paths filter already gates this to PRs that touch warg/firebase/shared-types.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.28.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
       - name: Run drift check
         run: node --experimental-strip-types shared-types/check-drift.ts
+
+  workflow-lint:
+    # Every action pinned to a commit SHA with its version comment, no
+    # dispatch input interpolated into a shell line, no retired branch in a
+    # trigger, no release signing in the pull-request build, and the rules
+    # deploy on the firebase-tools version that warg/package.json pins.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Shellcheck the workflow scripts
+        run: shellcheck .github/scripts/*.sh
+
+      - name: Lint self-test
+        run: bash .github/scripts/lint-workflows.test.sh
+
+      - name: Lint workflows
+        run: bash .github/scripts/lint-workflows.sh

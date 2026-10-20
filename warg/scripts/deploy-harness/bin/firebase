@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Stub of firebase-tools for scripts/deploy-harness/run.sh: logs the arguments
+# and the GIT_SHA the bundle build would bake; runs no predeploy.
+#   H_FIREBASE_RC=<n>   exit code of `firebase deploy` (default 0)
+#   HARNESS_FIREBASE_UNAUTH=1   `login:list` reports no account (exit 0, as the real tool does)
+set -euo pipefail
+state="${HARNESS_STATE:?HARNESS_STATE is not set}"
+echo "firebase $* GIT_SHA=${GIT_SHA:-}" >>"$state/calls.log"
+if [ "${1:-}" = "login:list" ]; then
+  if [ "${HARNESS_FIREBASE_UNAUTH:-0}" = 1 ]; then
+    echo 'No authorized accounts, run "firebase login"'
+    exit 0
+  fi
+  echo "Logged in as harness@example.invalid"
+  exit 0
+fi
+echo "Deploy complete!"
+exit "${H_FIREBASE_RC:-0}"

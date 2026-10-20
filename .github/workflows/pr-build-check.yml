@@ -4,7 +4,6 @@ on:
   pull_request:
     branches:
       - main
-      - develop
     types: [opened, synchronize, reopened]
     paths:
       - 'android/**'
@@ -31,16 +30,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Gradle cache
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-provider: basic
 
       - name: Fix gradlew perms & line endings
         run: |
@@ -48,34 +49,9 @@ jobs:
           chmod +x gradlew
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
-
-      - name: check for signing secrets
-        id: has_signing
-        env:
-          B64: ${{ secrets.SIGNING_STORE_FILE_B64 }}
-        run: |
-          if [ -n "$B64" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
-
-      # --- Optional: Decode keystore & expose signing to Gradle ---
-      - name: Decode keystore (optional)
-        if: ${{ steps.has_signing.outputs.present == 'true' }}
-        env:
-          SIGNING_STORE_FILE_B64: ${{ secrets.SIGNING_STORE_FILE_B64 }}
-        run: |
-          echo "$SIGNING_STORE_FILE_B64" | base64 -d > keystore.jks
-
-      - name: Write signing properties (optional)
-        if: ${{ steps.has_signing.outputs.present == 'true' }}
-        run: |
-          {
-            echo "SIGNING_STORE_FILE=$(pwd)/keystore.jks"
-            echo "SIGNING_STORE_PASSWORD=${{ secrets.SIGNING_STORE_PASSWORD }}"
-            echo "SIGNING_KEY_ALIAS=${{ secrets.SIGNING_KEY_ALIAS }}"
-            echo "SIGNING_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}"
-          } >> $GITHUB_ENV
+          packages: platform-tools platforms;android-37.0 build-tools;37.0.0
 
       # --- Decode google-services.json ---
       - name: Decode google-services.json
@@ -90,8 +66,16 @@ jobs:
             python3 -m json.tool app/google-services.json > /dev/null && echo "✓ JSON is valid" || echo "✗ JSON is malformed"
           fi
 
+      # Blocking: a failing unit test fails the job. The build and the PR
+      # comment below still run so the comment reports both outcomes.
+      - name: Unit tests
+        id: unit_tests
+        timeout-minutes: 30
+        run: ./gradlew --no-daemon testDebugUnitTest
+
       - name: Build debug APK
         id: build
+        if: ${{ !cancelled() && (success() || steps.unit_tests.outcome == 'failure') }}
         continue-on-error: true
         run: |
           set -o pipefail
@@ -104,20 +88,29 @@ jobs:
 
       - name: Check build result and comment on PR
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD_STATUS: ${{ steps.build.outcome }}
+          TEST_STATUS: ${{ steps.unit_tests.outcome }}
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const buildStatus = process.env.BUILD_STATUS;
+            const testStatus = process.env.TEST_STATUS;
+            const testsFailed = testStatus === 'failure';
+            const testLine = testsFailed
+              ? 'Unit tests: failed — see the job log'
+              : testStatus === 'success'
+                ? 'Unit tests: passed'
+                : `Unit tests: ${testStatus || 'not run'}`;
             const prNumber = process.env.PR_NUMBER;
 
             // Skip commenting if no PR context (e.g., manual workflow_dispatch without PR number)
             if (!prNumber) {
               console.log('Skipping PR comment: no PR number available');
+              console.log(`Unit test status: ${testStatus}`);
               console.log(`Build status: ${buildStatus}`);
               if (buildStatus === 'failure') {
                 console.log('Build failed - check the workflow logs for details');
@@ -161,6 +154,7 @@ jobs:
               const contextLines = logLines.slice(Math.max(0, logLines.length - 50));
 
               comment = `## ❌ Build Failed\n\n`;
+              comment += `${testLine}\n\n`;
               comment += `The PR build has failed. Please review and fix the following errors:\n\n`;
 
               if (errorLines.length > 0) {
@@ -169,8 +163,13 @@ jobs:
 
               comment += `### Build Log (last 50 lines):\n<details>\n<summary>Click to expand</summary>\n\n\`\`\`\n${contextLines.join('\n')}\n\`\`\`\n</details>\n\n`;
               comment += `Please fix these issues and push your changes to re-trigger the build check.`;
+            } else if (testsFailed) {
+              comment = `## ❌ Unit tests failed\n\n${testLine}\n\nThe debug build compiled, but the check is red until the unit tests pass.`;
+            } else if (buildStatus !== 'success') {
+              // The build step did not run: a step before it failed or the run was cancelled.
+              comment = `## ⚠️ Build did not run\n\n${testLine}\nBuild: ${buildStatus || 'not run'}\n\nA step before the build failed or the run was cancelled, so nothing was compiled. See the job log.`;
             } else {
-              comment = `## ✅ Build Successful\n\nThe PR build completed successfully! The code compiles without errors.`;
+              comment = `## ✅ Build Successful\n\n${testLine}\n\nThe PR build completed successfully! The code compiles without errors.`;
             }
 
             // Post comment on PR
@@ -189,7 +188,7 @@ jobs:
 
       - name: Upload build outputs on success
         if: steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
