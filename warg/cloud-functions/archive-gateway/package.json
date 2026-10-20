@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build:test": "tsc",
+    "build:deploy": "node ../../scripts/build-function-bundle.mjs",
     "typecheck": "tsc --noEmit",
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions --project trails-e428e"

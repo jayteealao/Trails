@@ -91,6 +91,18 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Cloud function bundles
+        # Builds each function's deploy folder (one esbuild bundle plus a
+        # generated package.json), then checks it as Cloud Build will use it:
+        # exact runtime pins, no workspace or file specifier, express 4.22.2 or
+        # later and the workspace overrides in the npm-resolved tree, and the
+        # commit SHA logged once when the bundle loads.
+        timeout-minutes: 5
+        run: |
+          pnpm --filter "./cloud-functions/*" --if-present run build:deploy
+          node scripts/check-function-bundle.mjs
+          node --test scripts/__tests__/function-bundle.test.mjs
+
   shared-types-drift:
     # Runs unconditionally when warg-ci is triggered. The workflow-level
     # paths filter already gates this to PRs that touch warg/firebase/shared-types.

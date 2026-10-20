@@ -4,10 +4,11 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build:test": "tsc",
+    "build:deploy": "node ../../scripts/build-function-bundle.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test dist/__tests__/*.test.js",
-    "deploy": "npm run build && firebase deploy --only functions --project trails-e428e"
+    "test": "pnpm run build:test && node --test dist/__tests__/*.test.js",
+    "deploy": "firebase deploy --only functions --project trails-e428e"
   },
   "engines": {
     "node": "22"
