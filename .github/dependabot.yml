@@ -1,0 +1,13 @@
+# Refreshes the commit-SHA pins of every GitHub Action in .github/workflows.
+# Dependabot rewrites the SHA and the trailing "# vX.Y.Z" comment together;
+# the workflow lint in warg-ci fails a pull request that drops the comment.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"

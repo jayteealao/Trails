@@ -4,13 +4,14 @@ on:
   pull_request:
     branches:
       - main
-      - develop
     types: [opened, synchronize, reopened]
     paths:
       - 'warg/**'
       - 'firebase/**'
       - 'shared-types/**'
-      - '.github/workflows/warg-ci.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/**'
+      - '.github/dependabot.yml'
   push:
     branches:
       - main
@@ -18,7 +19,9 @@ on:
       - 'warg/**'
       - 'firebase/**'
       - 'shared-types/**'
-      - '.github/workflows/warg-ci.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/**'
+      - '.github/dependabot.yml'
 
 # Workspace-rooted paths throughout. `warg/` is a pnpm workspace; commands
 # run from there so `pnpm -r` picks up the workers/*, packages/*, etc.
@@ -34,16 +37,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.28.0
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: 'pnpm'
@@ -116,19 +119,42 @@ jobs:
     # Runs unconditionally when warg-ci is triggered. The workflow-level
     # paths filter already gates this to PRs that touch warg/firebase/shared-types.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.28.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
       - name: Run drift check
         run: node --experimental-strip-types shared-types/check-drift.ts
+
+  workflow-lint:
+    # Every action pinned to a commit SHA with its version comment, no
+    # dispatch input interpolated into a shell line, no retired branch in a
+    # trigger, no release signing in the pull-request build, and the rules
+    # deploy on the firebase-tools version that warg/package.json pins.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Shellcheck the workflow scripts
+        run: shellcheck .github/scripts/*.sh
+
+      - name: Lint self-test
+        run: bash .github/scripts/lint-workflows.test.sh
+
+      - name: Lint workflows
+        run: bash .github/scripts/lint-workflows.sh
