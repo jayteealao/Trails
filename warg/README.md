@@ -88,6 +88,23 @@ runs the function test suites. Each function folder needs its `.env` (copy
 Checking the deploy script: `pnpm deploy:check` runs shellcheck and a stub
 harness that drives the script end to end without credentials (CI runs it too).
 
+The `deploy` scripts of the function packages and of `pages/dashboard` only
+print a pointer to `scripts/deploy.sh` and exit 1. `pages/dashboard-v2` is not
+deployed by the script and keeps its own `deploy` script.
+
+Two configs per worker: `cloudflare.config.ts` is what `cf deploy` reads, and
+`wrangler.jsonc` still serves `wrangler dev` and `wrangler types`. Change a
+binding in both; `node scripts/check-worker-configs.mjs` (run in CI) fails when
+they disagree.
+
+Each worker's `node_modules/wrangler` is a link that the root `postinstall`
+(`scripts/link-worker-bundler.mjs`) creates, because `cf deploy` looks for the
+bundler only inside the worker folder. After an install with
+`--ignore-scripts`, run `node scripts/link-worker-bundler.mjs` before
+deploying. Remove the script and the `postinstall` entry once cf finds the
+bundler through the normal Node module lookup, or the workspace stops using the
+hoisted linker.
+
 ## Structure
 
 - `workers/` - Cloudflare Workers

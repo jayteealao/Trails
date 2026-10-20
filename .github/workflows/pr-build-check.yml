@@ -165,6 +165,9 @@ jobs:
               comment += `Please fix these issues and push your changes to re-trigger the build check.`;
             } else if (testsFailed) {
               comment = `## ❌ Unit tests failed\n\n${testLine}\n\nThe debug build compiled, but the check is red until the unit tests pass.`;
+            } else if (buildStatus !== 'success') {
+              // The build step did not run: a step before it failed or the run was cancelled.
+              comment = `## ⚠️ Build did not run\n\n${testLine}\nBuild: ${buildStatus || 'not run'}\n\nA step before the build failed or the run was cancelled, so nothing was compiled. See the job log.`;
             } else {
               comment = `## ✅ Build Successful\n\n${testLine}\n\nThe PR build completed successfully! The code compiles without errors.`;
             }

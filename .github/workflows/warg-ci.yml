@@ -83,9 +83,14 @@ jobs:
         # Builds and validates each worker from its cloudflare.config.ts
         # without uploading. --dry-run needs no Cloudflare credentials; the
         # monolith run also builds its container image with the runner's Docker.
+        # Every worker folder with a cloudflare.config.ts is covered, so a new
+        # worker needs no edit here.
+        timeout-minutes: 15
         run: |
           set -euo pipefail
-          for w in logger renderer hyperrenderer singlefile readability monolith gcs workflow gateway; do
+          for d in workers/*/; do
+            w="$(basename "$d")"
+            [ -f "workers/$w/cloudflare.config.ts" ] || continue
             echo "::group::cf deploy --dry-run ($w)"
             if ! (cd "workers/$w" && pnpm exec cf deploy --dry-run); then
               echo "::error::cf deploy --dry-run failed for worker $w"
@@ -93,6 +98,15 @@ jobs:
             fi
             echo "::endgroup::"
           done
+
+      - name: Worker configs agree (cloudflare.config.ts and wrangler.jsonc)
+        # cf deploy reads cloudflare.config.ts; wrangler dev and wrangler types
+        # read wrangler.jsonc. Fails when a binding, Durable Object class, cron
+        # or compatibility setting differs between the two.
+        timeout-minutes: 5
+        run: |
+          node scripts/check-worker-configs.mjs
+          node --test scripts/__tests__/worker-configs.test.mjs
 
       - name: Cloud function bundles
         # Builds each function's deploy folder (one esbuild bundle plus a

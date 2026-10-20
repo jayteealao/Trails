@@ -1,14 +1,14 @@
 // Links the workspace's wrangler into each worker's own node_modules.
 //
-// `cf deploy` looks for the Wrangler bundler only at
-// `<worker dir>/node_modules/wrangler` and does not walk up to the workspace
-// root (source: node_modules/cf/dist/discover-P20XeGBF.mjs, cf 1.0.0-beta.17,
-// function `f`: join(cwd, "node_modules", pkg, "package.json")). This workspace
-// installs with `node-linker=hoisted`, so pnpm puts wrangler only in the root
-// node_modules. Runs as the root postinstall, so every install (local and CI)
-// leaves each worker buildable by cf.
-// sdlc-debt: remove once cf resolves the bundler through the Node module path
-// (or the workspace moves off the hoisted linker).
+// `cf deploy` (cf 1.0.0-beta.17, its project-discovery step) looks for the
+// Wrangler bundler only at `<worker dir>/node_modules/wrangler` and does not
+// walk up to the workspace root. This workspace installs with
+// `node-linker=hoisted`, so pnpm puts wrangler only in the root node_modules.
+// Runs as the root postinstall, so every install (local and CI) leaves each
+// worker buildable by cf.
+// TODO: delete this script and the postinstall entry once cf resolves the
+// bundler through the Node module path, or the workspace moves off the
+// hoisted linker (see "Deploying" in warg/README.md).
 import { existsSync, lstatSync, mkdirSync, readdirSync, symlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

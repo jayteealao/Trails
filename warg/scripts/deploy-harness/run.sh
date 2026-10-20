@@ -12,8 +12,19 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WARG="$(cd "$HERE/../.." && pwd)"
 BIN="$HERE/bin"
-WORKERS=(logger renderer hyperrenderer singlefile readability monolith gcs workflow gateway)
-FUNCTIONS=(archive-gateway user-triggers backfill-archiver dashboard-api)
+DEPLOY_SH="$WARG/scripts/deploy.sh"
+
+# The worker and function lists, the secret table and the function table come
+# from deploy.sh itself, so the harness never keeps its own copy.
+read -r -a WORKERS <<<"$(sed -n 's/^WORKERS=(\(.*\))$/\1/p' "$DEPLOY_SH")"
+read -r -a FUNCTIONS <<<"$(sed -n 's/^CLOUD_FUNCTIONS=(\(.*\))$/\1/p' "$DEPLOY_SH")"
+if [ "${#WORKERS[@]}" -eq 0 ] || [ "${#FUNCTIONS[@]}" -eq 0 ]; then
+  echo "deploy harness: cannot read WORKERS or CLOUD_FUNCTIONS from $DEPLOY_SH" >&2
+  exit 1
+fi
+eval "$(sed -n '/^required_secrets_for() {$/,/^}$/p; /^function_names_for() {$/,/^}$/p' "$DEPLOY_SH")"
+H_ALL_SECRETS="$(for w in "${WORKERS[@]}"; do required_secrets_for "$w" | tr ' ' '\n'; done | sort -u | tr '\n' ' ')"
+export H_ALL_SECRETS
 
 if [ -n "${HARNESS_TMP:-}" ]; then
   mkdir -p "$HARNESS_TMP"
@@ -140,13 +151,13 @@ scenario_secrets_list_fails() {
   start secrets-list-fails
   run_deploy secrets-list-fails H_SECRETS_FAIL=renderer --
   expect_rc 1
-  expect_row "worker:logger" deployed "$UUID"
   expect_row "worker:renderer" failed 'secret listing failed \(exit 1\)'
   local w
-  for w in hyperrenderer singlefile readability monolith gcs workflow gateway; do
+  for w in logger hyperrenderer singlefile readability monolith gcs workflow gateway; do
     expect_row "worker:$w" skipped '-'
   done
-  expect_calls 0 '^cf-deploy-worker renderer$'
+  # The preflight covers every worker before the first deploy.
+  expect_calls 0 '^cf deploy'
   expect_out 'Authentication error'
   expect_out '^Exit code: 1$'
   finish
@@ -156,11 +167,32 @@ scenario_secret_missing() {
   start secret-missing
   run_deploy secret-missing H_SECRETS_MISSING=monolith:R2_ACCOUNT_ID --
   expect_rc 3
-  expect_row "worker:readability" deployed "$UUID"
+  expect_row "worker:readability" skipped '-'
   expect_row "worker:monolith" failed 'missing secret\(s\): R2_ACCOUNT_ID'
   expect_row "worker:gcs" skipped '-'
   expect_out 'wrangler secret put <NAME> --config workers/monolith/wrangler.jsonc'
-  expect_calls 0 '^cf-deploy-worker monolith$'
+  expect_calls 0 '^cf deploy'
+  finish
+}
+
+# A secret missing on the last worker in deploy order stops the run before any
+# worker is deployed, so the fleet is never left on mixed versions.
+scenario_secret_missing_last_worker() {
+  start secret-missing-last-worker
+  run_deploy secret-missing-last-worker H_SECRETS_MISSING=gateway:PUBLIC_API_KEY -- --all
+  expect_rc 3
+  expect_row "worker:gateway" failed 'missing secret\(s\): PUBLIC_API_KEY'
+  local w
+  for w in logger renderer hyperrenderer singlefile readability monolith gcs workflow; do
+    expect_row "worker:$w" skipped '-'
+  done
+  expect_row "function:archive-gateway" skipped '-'
+  expect_row "pages:dashboard" skipped '-'
+  expect_calls 9 '^cf workers secrets list --worker '
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^cf workers deployments list'
+  expect_calls 0 '^firebase '
+  expect_calls 0 '^wrangler '
   finish
 }
 
@@ -336,18 +368,23 @@ scenario_unknown_flag() {
   finish
 }
 
-# No package.json script deploys a worker except through deploy.sh, and no
-# script carries --allow-missing-secrets. Reads the real workspace manifests.
+# No package.json script deploys a worker, a function or the dashboard except
+# through deploy.sh, and no script carries --allow-missing-secrets. Reads the
+# real workspace manifests. pages/dashboard-v2 is not deployed by deploy.sh,
+# so its own deploy script is its only path and stays exempt.
 STATIC_CHECK='
 const fs = require("fs");
 const path = require("path");
 const root = process.argv[1];
+const exempt = new Set([path.join("pages", "dashboard-v2", "package.json")]);
 const files = [path.join(root, "package.json")];
-for (const w of fs.readdirSync(path.join(root, "workers"))) {
-  const f = path.join(root, "workers", w, "package.json");
-  if (fs.existsSync(f)) files.push(f);
+for (const dir of ["workers", "cloud-functions", "pages"]) {
+  for (const w of fs.readdirSync(path.join(root, dir))) {
+    const f = path.join(root, dir, w, "package.json");
+    if (fs.existsSync(f) && !exempt.has(path.relative(root, f))) files.push(f);
+  }
 }
-const bad = [/wrangler\s+deploy/, /\bcf\s+deploy/, /--allow-missing-secrets/, /\bpnpm\b[^&|;]*\sdeploy(\s|$)/];
+const bad = [/wrangler\s+deploy/, /\bcf\s+deploy/, /\bfirebase\s+deploy/, /\bpages\s+deploy/, /--allow-missing-secrets/, /\bpnpm\b[^&|;]*\sdeploy(\s|$)/];
 let n = 0;
 for (const f of files) {
   const scripts = JSON.parse(fs.readFileSync(f, "utf8")).scripts || {};
@@ -366,14 +403,70 @@ scenario_static_scripts() {
   RC=0
   OUT="$(node -e "$STATIC_CHECK" "$WARG" 2>&1)" || RC=$?
   expect_rc 0
-  expect_out '^checked 10 manifests, 0 offending$'
+  expect_out '^checked 1[0-9] manifests, 0 offending$'
   finish
 }
 
-ALL=(full-success secrets-list-fails secret-missing allow-missing-secrets quick-still-preflights
-  same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
+# The worker list in deploy.sh names exactly the workers that have a
+# cloudflare.config.ts, so a new worker cannot be left out of the deploy.
+scenario_worker_list_sync() {
+  start worker-list-sync
+  local listed on_disk d
+  listed="$(printf '%s\n' "${WORKERS[@]}" | sort | tr '\n' ' ')"
+  on_disk="$(for d in "$WARG"/workers/*/; do if [ -f "$d/cloudflare.config.ts" ]; then basename "$d"; fi; done | sort | tr '\n' ' ')"
+  [ "$listed" = "$on_disk" ] || fail "deploy.sh WORKERS ($listed) differ from workers with a cloudflare.config.ts ($on_disk)"
+  finish
+}
+
+# The required-secrets list in the deploy.sh header matches
+# required_secrets_for(), the list the preflight reads.
+scenario_secrets_doc_sync() {
+  start secrets-doc-sync
+  local doc w want got
+  doc="$(sed -n '/^# Required secrets per worker/,/^# A failed listing/p' "$DEPLOY_SH")"
+  for w in "${WORKERS[@]}"; do
+    want="$(required_secrets_for "$w" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+    got="$(printf '%s\n' "$doc" | sed -n "s/^#   $w: *//p" | tr ',' '\n' | tr -d ' ' | sed '/^$/d' | sort | tr '\n' ' ')"
+    [ "$want" = "$got" ] || fail "header lists '$got' for $w, required_secrets_for() has '$want'"
+  done
+  finish
+}
+
+# function_names_for() names exactly the functions each codebase exports from
+# src/index.ts, so a new or renamed export cannot deploy unverified.
+scenario_function_exports_sync() {
+  start function-exports-sync
+  local fn src want got
+  for fn in "${FUNCTIONS[@]}"; do
+    src="$WARG/cloud-functions/$fn/src/index.ts"
+    if [ ! -f "$src" ]; then
+      fail "$src is missing"
+      continue
+    fi
+    want="$(function_names_for "$fn" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+    got="$(node -e '
+      const s = require("fs").readFileSync(process.argv[1], "utf8");
+      const names = new Set();
+      for (const m of s.matchAll(/^export\s+(?:const|let|var|function|async\s+function)\s+([A-Za-z_$][\w$]*)/gm)) names.add(m[1]);
+      for (const m of s.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+        for (const part of m[1].split(",")) {
+          const name = part.trim().split(/\s+as\s+/).pop().trim();
+          if (name && !name.startsWith("type ")) names.add(name);
+        }
+      }
+      if (/^export\s+\*/m.test(s)) { console.error("export * cannot be checked"); process.exit(1); }
+      console.log([...names].sort().join(" "));
+    ' "$src" 2>&1 | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+    [ "$want" = "$got" ] || fail "$fn exports '$got', function_names_for() has '$want'"
+  done
+  finish
+}
+
+ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
+  quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed fn-old-updatetime fn-new-updatetime fn-deploy-fails
-  pages-hash-mismatch induced-failure-rc precheck-fails unknown-flag static-scripts)
+  pages-hash-mismatch induced-failure-rc precheck-fails unknown-flag static-scripts
+  worker-list-sync secrets-doc-sync function-exports-sync)
 if [ $# -gt 0 ]; then
   SELECTED=("$@")
 else

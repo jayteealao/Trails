@@ -9,7 +9,7 @@
     "build:deploy": "node ../../scripts/build-function-bundle.mjs",
     "typecheck": "tsc --noEmit",
     "serve": "firebase emulators:start --only functions",
-    "deploy": "firebase deploy --only functions --project trails-e428e"
+    "deploy": "node -e \"console.error('Deploy Cloud Functions with scripts/deploy.sh: from warg/, run pnpm deploy:all or bash scripts/deploy.sh --with-functions');process.exit(1)\""
   },
   "engines": {
     "node": "22"

@@ -36,7 +36,9 @@ case "${1:-} ${2:-} ${3:-}" in
       echo "Authentication error [code: 10000]" >&2
       exit 1
     fi
-    names="INTERNAL_API_KEY PUBLIC_API_KEY CF_ACCOUNT_ID BR_API_TOKEN HYPERBROWSER_API_KEY R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY CLOUD_FN_BASE_URL"
+    # Every secret deploy.sh requires of any worker (run.sh reads them from
+    # required_secrets_for()), so the stub never keeps its own copy.
+    names="${H_ALL_SECRETS:?H_ALL_SECRETS is not set}"
     out="" sep=""
     for n in $names; do
       in_list "${H_SECRETS_MISSING:-}" "$w:$n" && continue

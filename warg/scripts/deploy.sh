@@ -31,8 +31,10 @@ set -euo pipefail
 #                                     untracked files; every label then ends
 #                                     in -dirty
 #
-# Required secrets per worker (checked with `cf workers secrets list` before
-# every worker deploy; keep this list in sync with required_secrets_for()):
+# Required secrets per worker (checked with `cf workers secrets list` for all
+# nine workers before the first worker deploys). required_secrets_for() below
+# is the list the preflight reads; the deploy harness fails when this copy
+# differs from it:
 #   logger:        INTERNAL_API_KEY
 #   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY
 #   workflow:      INTERNAL_API_KEY
@@ -43,7 +45,8 @@ set -euo pipefail
 #   monolith:      INTERNAL_API_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 #   gcs:           INTERNAL_API_KEY, CLOUD_FN_BASE_URL
 # A failed listing (not signed in, token expired, worker not deployed yet)
-# stops the run; it is never a warning.
+# or a missing secret stops the run before any worker is deployed; it is
+# never a warning.
 #
 # Cloud Functions need a .env file with runtime secrets in each
 # cloud-functions/<fn>/ folder (copy .env.example).
@@ -356,7 +359,6 @@ deploy_worker() {
   local w="$1" target="worker:$1" rc=0 listing
   set_result "$target" running "-"
   echo "--- Worker $w"
-  preflight_secrets "$w"
 
   local before=""
   listing="$(cf workers deployments list --worker "$w" 2>"$WORK_DIR/err")" || rc=$?
@@ -413,6 +415,9 @@ deploy_worker() {
 }
 
 # --- Cloud Functions ---------------------------------------------------------
+# The functions each codebase exports, which verification reads one by one.
+# The deploy harness fails when this table differs from the exports of
+# cloud-functions/<codebase>/src/index.ts, so a new export cannot go unchecked.
 function_names_for() {
   case "$1" in
     archive-gateway)   echo "archiveGateway" ;;
@@ -494,6 +499,17 @@ if [ "$WITH_FUNCTIONS" = true ]; then
     fi
   done
 fi
+
+# --- Secret preflight for every worker, before any deploy ---------------------
+# All nine are checked first, so a missing secret on a later worker (gateway is
+# last) stops the run before any worker is live and the fleet never ends up on
+# mixed versions.
+echo "=== Secret preflight (every worker) ==="
+for w in "${WORKERS[@]}"; do
+  preflight_secrets "$w"
+done
+echo "=== Secret preflight passed ==="
+echo
 
 # --- Deploy in dependency order ----------------------------------------------
 # Tier 1: logger renderer hyperrenderer singlefile readability monolith gcs;

@@ -378,13 +378,13 @@ If a change makes the code harder to read, harder to debug, or introduces “plu
 
 ## Cloudflare Wrangler (Workers / DO / D1)
 
-- Wrangler is a workspace devDependency. Do **not** assume a global `wrangler` command exists.
+- Wrangler and the cf CLI are workspace devDependencies. Do **not** assume a global `wrangler` or `cf` command exists.
 - Always run via pnpm from the repo root:
   - `pnpm exec wrangler <cmd>` (preferred)
 - After installs, if builds were blocked by pnpm, run `pnpm approve-builds` (ensure `workerd` + `esbuild` are allowed) before running `wrangler dev/deploy`.
 - Common commands:
   - Local dev: `pnpm exec wrangler dev`
-  - Deploy: `pnpm exec wrangler deploy`
+  - Deploy: `pnpm run deploy -- [flags]` from `warg/` (runs `scripts/deploy.sh`, the only deploy path; see "Deploying" in `warg/README.md`). Never run `wrangler deploy` or `cf deploy` directly: that skips the secret preflight, the version check and the commit label. Wrangler is for local dev, types and secret management only.
   - Login: `pnpm exec wrangler login`
   - Secrets: `pnpm exec wrangler secret put <NAME>`
 - Keep `wrangler.toml` changes minimal and in-repo; avoid “quick fixes” that rely on global config/state.
