@@ -329,6 +329,51 @@ scenario_pages_hash_mismatch() {
   finish
 }
 
+# A dashboard deploy with wrangler not signed in stops before the first worker
+# upload; the same for the functions with firebase not signed in. A token in
+# the environment counts as a firebase sign-in.
+scenario_pages_unauth() {
+  start pages-unauth
+  run_deploy pages-unauth HARNESS_WRANGLER_UNAUTH=1 -- --with-pages --skip-checks
+  expect_rc 3
+  expect_row "pages:dashboard" failed 'wrangler is not signed in \(run wrangler login or set CLOUDFLARE_API_TOKEN\)'
+  local w
+  for w in "${WORKERS[@]}"; do
+    expect_row "worker:$w" skipped '-'
+  done
+  expect_no_out ' deployed '
+  expect_calls 1 '^wrangler whoami$'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^wrangler pages deploy'
+  expect_out '^Exit code: 3$'
+  finish
+}
+
+scenario_functions_unauth() {
+  start functions-unauth
+  run_deploy functions-unauth HARNESS_FIREBASE_UNAUTH=1 FIREBASE_TOKEN= GOOGLE_APPLICATION_CREDENTIALS= -- --with-functions --skip-checks
+  expect_rc 3
+  expect_row "function:archive-gateway" failed 'firebase is not signed in \(run firebase login or set FIREBASE_TOKEN\)'
+  local w fn
+  for w in "${WORKERS[@]}"; do
+    expect_row "worker:$w" skipped '-'
+  done
+  for fn in user-triggers backfill-archiver dashboard-api; do
+    expect_row "function:$fn" skipped '-'
+  done
+  expect_no_out ' deployed '
+  expect_calls 1 '^firebase login:list '
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^firebase deploy'
+  expect_out '^Exit code: 3$'
+  run_deploy functions-token HARNESS_FIREBASE_UNAUTH=1 FIREBASE_TOKEN=harness-token GOOGLE_APPLICATION_CREDENTIALS= -- --with-functions --skip-checks
+  expect_rc 0
+  expect_calls 0 '^firebase login:list '
+  expect_row "function:dashboard-api" deployed "dashboardApi@.*"
+  NAME=functions-unauth
+  finish
+}
+
 scenario_induced_failure_rc() {
   start induced-failure-rc
   run_deploy induced-failure-rc H_DEPLOY_RC=renderer:7 -- --all --skip-checks
@@ -465,7 +510,7 @@ scenario_function_exports_sync() {
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
   quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed fn-old-updatetime fn-new-updatetime fn-deploy-fails
-  pages-hash-mismatch induced-failure-rc precheck-fails unknown-flag static-scripts
+  pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync)
 if [ $# -gt 0 ]; then
   SELECTED=("$@")

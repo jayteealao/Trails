@@ -76,13 +76,18 @@ set -euo pipefail
 # reached read "skipped".
 #
 # Exit codes: the failing command's own code; 2 for a usage error or a
-# refused dirty tree; 3 when a target ran but failed verification or a
-# secret is missing; 130 / 143 on SIGINT / SIGTERM.
+# refused dirty tree; 3 when a target ran but failed verification, a
+# secret is missing or a sign-in is missing; 130 / 143 on SIGINT / SIGTERM.
 #
-# Needs: cf signed in (`cf auth login`), node, git; for --with-functions
-# gcloud signed in (`gcloud auth login`) and firebase-tools; for --with-pages
-# wrangler; Docker running for the monolith container. cf, wrangler and
-# firebase-tools resolve from warg/node_modules/.bin (the workspace pins).
+# Needs: node, git and one sign-in per target: cf signed in (`cf auth login`)
+# for the workers; for --with-functions firebase-tools signed in
+# (`firebase login`, FIREBASE_TOKEN or `gcloud auth application-default
+# login`) and gcloud signed in (`gcloud auth login`, the function
+# verification); for --with-pages wrangler signed in (`wrangler login` or
+# CLOUDFLARE_API_TOKEN; wrangler does not reuse the cf credentials). The
+# wrangler and firebase sign-ins are checked before the first upload. Docker
+# running for the monolith container. cf, wrangler and firebase-tools resolve
+# from warg/node_modules/.bin (the workspace pins).
 # ============================================================================
 
 WARG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -346,6 +351,28 @@ preflight_secrets() {
   fi
 }
 
+# --- Sign-in preflight (fail closed) -----------------------------------------
+# wrangler and firebase-tools each keep their own credentials, so a missing
+# sign-in would otherwise surface only after the workers are live. A token in
+# the environment (CI) counts as signed in for firebase.
+preflight_signins() {
+  local rc=0 listing
+  if [ "$WITH_PAGES" = true ]; then
+    wrangler whoami >"$WORK_DIR/err" 2>&1 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      cat "$WORK_DIR/err" >&2
+      fail_target "pages:dashboard" failed 3 "wrangler is not signed in (run wrangler login or set CLOUDFLARE_API_TOKEN)"
+    fi
+  fi
+  if [ "$WITH_FUNCTIONS" = true ] && [ -z "${FIREBASE_TOKEN:-}" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
+    listing="$(firebase login:list 2>&1)" || rc=$?
+    if [ "$rc" -ne 0 ] || ! printf '%s\n' "$listing" | grep -q "Logged in as"; then
+      printf '%s\n' "$listing" >&2
+      fail_target "function:${CLOUD_FUNCTIONS[0]}" failed 3 "firebase is not signed in (run firebase login or set FIREBASE_TOKEN)"
+    fi
+  fi
+}
+
 # --- Workers -----------------------------------------------------------------
 deployed_version_ids() {
   json_eval 'd.deployments.flatMap((x) => x.versions.map((v) => v.version_id))'
@@ -510,6 +537,9 @@ for w in "${WORKERS[@]}"; do
 done
 echo "=== Secret preflight passed ==="
 echo
+
+# --- Sign-in preflight for the dashboard and the functions, before any deploy -
+preflight_signins
 
 # --- Deploy in dependency order ----------------------------------------------
 # Tier 1: logger renderer hyperrenderer singlefile readability monolith gcs;

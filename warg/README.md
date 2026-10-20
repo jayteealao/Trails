@@ -49,9 +49,14 @@ secrets each worker needs, and how each target is verified.
 
 1. Commit your work. The script refuses a tree with uncommitted or untracked
    files unless you pass `--allow-dirty`, and then every label ends in `-dirty`.
-2. Sign in once: `cf auth login` (workers and the dashboard) and
-   `gcloud auth login` (Cloud Functions). Start Docker before a deploy that
-   includes `monolith` (its container image is built locally).
+2. Sign in once, one sign-in per target: `cf auth login` (workers),
+   `wrangler login` or `CLOUDFLARE_API_TOKEN` (the dashboard; wrangler does not
+   reuse the cf credentials), `firebase login`, `FIREBASE_TOKEN` or
+   `gcloud auth application-default login` (Cloud Functions) and
+   `gcloud auth login` (the function verification through gcloud). The script
+   checks the wrangler and firebase sign-ins before the first upload. Start
+   Docker before a deploy that includes `monolith` (its container image is
+   built locally).
 3. Deploy from `warg/`:
 
    ```bash
