@@ -1,0 +1,2 @@
+# Workflow scripts run under bash on Linux runners and in Git Bash; keep LF.
+*.sh text eol=lf

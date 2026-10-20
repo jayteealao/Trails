@@ -19,19 +19,21 @@ jobs:
 #      ACT: ${{ env.ACT }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-tags: true
           fetch-depth: 0  # needed to access full git history for changelog
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Gradle cache
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-provider: basic
 
           # Windows-safe guard
       - name: Fix gradlew perms & line endings (Windows devs)
@@ -40,9 +42,9 @@ jobs:
           chmod +x android/gradlew
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
-          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          packages: platform-tools platforms;android-37.0 build-tools;37.0.0
 
       - name: check for signing secrets
         id: has_signing
@@ -97,6 +99,14 @@ jobs:
 
           jq type android/app/google-services.json
           echo "google-services.json decoded and valid."
+
+      # Blocking, also under act: a failing unit test stops the job before any
+      # APK, AAB or release exists.
+      - name: Unit tests
+        timeout-minutes: 30
+        run: |
+          cd android && ./gradlew --no-daemon testDebugUnitTest
+
       # --- Build (adjust module & tasks as needed) ---
       # If you have flavors, e.g., prod, replace with assembleProdRelease/bundleProdRelease
       - name: Build APK + AAB
@@ -152,7 +162,7 @@ jobs:
         id: cliff
         if: ${{ env.ACT != 'true' }}  # Skip on ACT runs
         continue-on-error: true
-        uses: orhun/git-cliff-action@v4
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
         with:
           args: --config android/cliff.toml --tag ${{ steps.find_outputs.outputs.tag }} --verbose
         env:
@@ -178,7 +188,7 @@ jobs:
       # Create GitHub Release + upload assets
       - name: Create release & upload assets
         if: ${{ env.ACT != 'true' }}  # Skip on ACT runs
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ steps.find_outputs.outputs.tag }}
           name: ${{ steps.find_outputs.outputs.tag }}
@@ -192,7 +202,7 @@ jobs:
 
       - name: Upload release outputs
         if: ${{ env.ACT == 'true' }}   # only matters locally
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Trails-${{ steps.find_outputs.outputs.tag }}
           path: |

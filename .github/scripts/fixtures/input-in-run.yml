@@ -1,0 +1,22 @@
+# Lint fixture: a dispatch input interpolated into a run block. The workflow
+# lint must report input-in-run once, for the run line, and not for the env
+# mapping.
+name: fixture-input-in-run
+on:
+  workflow_dispatch:
+    inputs:
+      x:
+        required: true
+jobs:
+  fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Safe
+        env:
+          X: ${{ inputs.x }}
+        run: echo "$X"
+      - name: Unsafe
+        run: |
+          echo "start"
+          echo "${{ inputs.x }}"

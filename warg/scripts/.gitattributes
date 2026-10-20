@@ -1,0 +1,2 @@
+*.sh text eol=lf
+deploy-harness/bin/* text eol=lf

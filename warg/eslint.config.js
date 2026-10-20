@@ -9,6 +9,8 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/.wrangler/**',
+      '**/.cloudflare/**',
+      '**/dist-deploy/**',
       '**/.ai/**',
       '**/worker-configuration.d.ts'
     ]

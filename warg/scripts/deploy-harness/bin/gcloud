@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Stub of gcloud for scripts/deploy-harness/run.sh: `functions describe`
+# prints "<updateTime>\t<state>" as --format="value(updateTime,state)" does.
+#   H_OLD_UPDATE=<name>   that function keeps an updateTime from 2000
+set -euo pipefail
+state="${HARNESS_STATE:?HARNESS_STATE is not set}"
+echo "gcloud $*" >>"$state/calls.log"
+if [ "${1:-} ${2:-}" = "functions describe" ]; then
+  case " ${H_OLD_UPDATE:-} " in
+    *" ${3:-} "*) printf '2000-01-01T00:00:00.000000000Z\tACTIVE\n' ;;
+    *) printf '%s\tACTIVE\n' "$(node -e 'console.log(new Date(Date.now() + 1000).toISOString())')" ;;
+  esac
+  exit 0
+fi
+echo "gcloud stub: unhandled command" >&2
+exit 64

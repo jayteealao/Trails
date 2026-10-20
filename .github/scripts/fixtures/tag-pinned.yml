@@ -1,0 +1,8 @@
+# Lint fixture: a tag-pinned action. The workflow lint must report uses-pin.
+name: fixture-tag-pinned
+on: workflow_dispatch
+jobs:
+  fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
