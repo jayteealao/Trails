@@ -76,6 +76,21 @@ jobs:
         # pnpm workspace and is not included.
         run: pnpm -r --if-present run test
 
+      - name: cf deploy dry run (every worker)
+        # Builds and validates each worker from its cloudflare.config.ts
+        # without uploading. --dry-run needs no Cloudflare credentials; the
+        # monolith run also builds its container image with the runner's Docker.
+        run: |
+          set -euo pipefail
+          for w in logger renderer hyperrenderer singlefile readability monolith gcs workflow gateway; do
+            echo "::group::cf deploy --dry-run ($w)"
+            if ! (cd "workers/$w" && pnpm exec cf deploy --dry-run); then
+              echo "::error::cf deploy --dry-run failed for worker $w"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
   shared-types-drift:
     # Runs unconditionally when warg-ci is triggered. The workflow-level
     # paths filter already gates this to PRs that touch warg/firebase/shared-types.
