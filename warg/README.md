@@ -63,6 +63,7 @@ secrets each worker needs, and how each target is verified.
 
    Plain `pnpm deploy` is pnpm's own built-in command and does not run the
    script; use `pnpm run deploy` or one of the `deploy:*` scripts.
+
 4. Read the summary. The script prints one line per target on every exit:
    `deployed` (the platform shows this run's version id, update time or commit
    hash), `failed`, `unverified` (the command succeeded but the platform did not
