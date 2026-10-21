@@ -56,6 +56,13 @@ set -euo pipefail
 # `--message <label>`; functions bake GIT_SHA=<label> into the bundle; the
 # dashboard gets `--commit-hash <label>`.
 #
+# Dashboard branch: the upload goes to the Pages project's production branch,
+# read with `cf pages get <project>` (field production_branch) in the
+# sign-in preflight, before any upload. An upload to any other branch is a
+# preview deployment and never reaches production. When the read fails or
+# gives no branch, PAGES_BRANCH=<branch> from the environment is used; with
+# neither, the run stops before the first upload.
+#
 # Verification per target:
 #   worker     `cf workers deployments list` must show a new deployment whose
 #              version id was not listed before the deploy and is the id this
@@ -107,6 +114,7 @@ CLOUD_FUNCTIONS=(archive-gateway user-triggers backfill-archiver dashboard-api)
 FIREBASE_PROJECT=trails-e428e
 FUNCTION_REGION=us-central1
 PAGES_PROJECT=warg-dashboard
+PAGES_BRANCH_RESOLVED=""
 POLL_INTERVAL="${DEPLOY_POLL_INTERVAL:-5}"
 POLL_TIMEOUT="${DEPLOY_POLL_TIMEOUT:-60}"
 
@@ -351,6 +359,28 @@ preflight_secrets() {
   fi
 }
 
+# --- Dashboard production branch ---------------------------------------------
+# Sets PAGES_BRANCH_RESOLVED to the project's production branch. A wrong
+# branch makes the upload a preview, so an unknown branch stops the run.
+resolve_pages_branch() {
+  local rc=0 project branch=""
+  project="$(cf pages get "$PAGES_PROJECT" 2>"$WORK_DIR/err")" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    branch="$(printf '%s' "$project" | json_eval 'd.production_branch' 2>/dev/null || true)"
+  else
+    cat "$WORK_DIR/err" >&2
+  fi
+  if [ -z "$branch" ] && [ -n "${PAGES_BRANCH:-}" ]; then
+    branch="$PAGES_BRANCH"
+    WARNINGS+=("dashboard branch from PAGES_BRANCH=$branch (cf pages get $PAGES_PROJECT gave no production_branch)")
+  fi
+  if [ -z "$branch" ]; then
+    fail_target "pages:dashboard" failed 3 "cannot read the production branch of $PAGES_PROJECT (cf pages get exited $rc); set PAGES_BRANCH=<branch>"
+  fi
+  PAGES_BRANCH_RESOLVED="$branch"
+  echo "--- dashboard production branch: $branch"
+}
+
 # --- Sign-in preflight (fail closed) -----------------------------------------
 # wrangler and firebase-tools each keep their own credentials, so a missing
 # sign-in would otherwise surface only after the workers are live. A token in
@@ -363,6 +393,7 @@ preflight_signins() {
       cat "$WORK_DIR/err" >&2
       fail_target "pages:dashboard" failed 3 "wrangler is not signed in (run wrangler login or set CLOUDFLARE_API_TOKEN)"
     fi
+    resolve_pages_branch
   fi
   if [ "$WITH_FUNCTIONS" = true ] && [ -z "${FIREBASE_TOKEN:-}" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
     listing="$(firebase login:list 2>&1)" || rc=$?
@@ -488,7 +519,7 @@ deploy_pages() {
   local target="pages:dashboard" rc=0
   set_result "$target" running "-"
   echo "--- Pages dashboard"
-  (cd pages/dashboard && wrangler pages deploy --branch main --commit-hash "$LABEL" --commit-message "$LABEL" --commit-dirty="$DIRTY") || rc=$?
+  (cd pages/dashboard && wrangler pages deploy --branch "$PAGES_BRANCH_RESOLVED" --commit-hash "$LABEL" --commit-message "$LABEL" --commit-dirty="$DIRTY") || rc=$?
   if [ "$rc" -ne 0 ]; then
     fail_target "$target" failed "$rc" "wrangler pages deploy exited $rc"
   fi
