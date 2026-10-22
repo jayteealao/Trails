@@ -100,6 +100,83 @@ Download the latest APK from [Releases](../../releases) and install it, or build
 ./gradlew test
 ```
 
+### Release signing
+
+Release builds are signed with the release key, and the release APK also carries a key-rotation lineage from the debug key. That lineage lets a release APK install as an update over a debug build of the app, so nothing on the device is lost.
+
+**The two keystores**
+
+| Keystore | Where it lives | Role |
+|----------|----------------|------|
+| Release keystore | Outside the repository, on the maintainer's machine; the `SIGNING_STORE_FILE_B64` CI secret holds a base64 copy | Signs the AAB. It is the APK's next signer, used by Android 13 and newer |
+| Debug keystore | `~/.android/debug.keystore`, the SDK's default; the `DEBUG_KEYSTORE_B64` CI secret holds a base64 copy | The APK's original signer, used by Android 7 to 12 and as the start of the lineage |
+
+Neither keystore is ever committed. `.jks`, `.keystore` and `.p12` files are git-ignored.
+
+**The lineage file**
+
+`app/trails.lineage` is committed. It holds the two certificates and the debug key's signature over the release certificate. It contains no private key. It was created once, from the debug keystore that signed the installed app and the release keystore, with:
+
+```bash
+apksigner rotate --out app/trails.lineage \
+  --old-signer --ks ~/.android/debug.keystore --ks-key-alias androiddebugkey --ks-pass pass:android \
+  --new-signer --ks <release keystore> --ks-key-alias <release alias>
+```
+
+Every release from now on must carry this lineage. Do not regenerate or replace the file. To check it, run `apksigner lineage --in app/trails.lineage --print-certs`. It lists two signers: the debug certificate, then the release certificate.
+
+**Configuring a release build**
+
+Set these values as environment variables, as `-P` Gradle properties, or in `android/local.properties`, which is checked in that order. `local.properties.example` lists every value.
+
+- `SIGNING_STORE_FILE`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD` are the release keystore and key.
+- `SIGNING_DEBUG_STORE_FILE` is the debug keystore. It defaults to `~/.android/debug.keystore`.
+- `SIGNING_LINEAGE_FILE` is the lineage. It defaults to `app/trails.lineage`.
+
+Then build:
+
+```bash
+./gradlew assembleRelease bundleRelease
+```
+
+`assembleRelease` packages the APK and then re-signs it with `apksigner` from build-tools 36.0.0. v1, v2 and v3 are signed by the debug key, and v3.1 by the release key with the lineage. It then verifies the APK and its `.idsig` before it replaces them. If any step fails, the APK is deleted and the build fails. The AAB is signed with the release key only.
+
+`packageRelease` on its own produces an APK without the lineage, so it is not a release build. Use `assembleRelease`, or `installRelease` to install from Gradle.
+
+**The fail rule**
+
+`assembleRelease` and `bundleRelease` have no fallback signer. When a value is missing, they fail before signing with one message that names every missing value:
+
+```text
+Release signing is not configured. Missing: SIGNING_STORE_FILE, SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD. Set them as environment variables, -P properties or in android/local.properties (see android/local.properties.example).
+```
+
+Debug builds and unit tests never need these values. That covers `assembleDebug`, `testDebugUnitTest`, `test` and the pull-request check.
+
+**CI secrets**
+
+The two release workflows (`manual-release.yml`, `release-on-tag.yml`) need two groups of repository secrets:
+
+- `SIGNING_STORE_FILE_B64` holds the base64 release keystore. `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD` go with it.
+- `DEBUG_KEYSTORE_B64` holds the base64 debug keystore: the same keystore whose certificate is the lineage's first signer.
+
+To create a base64 value, run `base64 -w0 < <keystore>` (on macOS, `base64 -i <keystore>`).
+
+**Devices below Android 13**
+
+The rotated key is used from Android 13 (API 33). On Android 7 to 12 the release APK is signed by the debug key, so it installs over a debug build there too, and those devices keep trusting only the debug key. A device below Android 13 therefore needs a one-time uninstall before it can move to a build signed by the release key alone. The uninstall deletes the app's data.
+
+**Checking the signing setup without the real keys**
+
+Release builds need both keystores, so the harness generates throwaway ones under `app/build/signing-harness/` (git-ignored) and checks every case. It covers the signed outputs and their lineage, each missing or broken input, and the workflows' decode steps:
+
+```bash
+bash android/scripts/release-signing-harness.sh        # all cases
+bash android/scripts/release-signing-harness.sh pass   # one case
+```
+
+Each case prints `PASS` or `FAIL`. Logs go to `.scratch/signing-harness/` at the repository root. To build a release against the throwaway keys by hand, run `./gradlew :app:generateSigningHarness`, then `source app/build/signing-harness/harness.env`, then `./gradlew assembleRelease`. Do not add `clean` to that last command, because `clean` deletes the throwaway keys.
+
 ## Firebase Backend Setup
 
 Trails uses Firebase for authentication and cloud sync. You need your own Firebase project to build from source.

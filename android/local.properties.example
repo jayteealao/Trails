@@ -7,17 +7,38 @@
 # Android SDK (Android Studio sets this for you)
 # sdk.dir=C\:\\Users\\<user>\\AppData\\Local\\Android\\Sdk
 
-# Release signing — absolute path to your .jks/.keystore file
-# KEYSTORE_FILE=C\:\\Users\\<user>\\.android\\<your-keystore>.jks
+# ---- Release signing ----
+# Each value is looked up in this order: environment variable, then Gradle
+# project property (-PNAME=value), then this file. The first non-blank value wins.
+#
+# Release keystore: signs the AAB and is the APK's next signer (Android 13+).
+# Absolute path to the .jks/.keystore file. Alias: KEYSTORE_FILE.
+# SIGNING_STORE_FILE=C\:\\Users\\<user>\\keys\\<release-keystore>.jks
+# Keystore password. Alias: KEYSTORE_PASSWORD.
+# SIGNING_STORE_PASSWORD=<release-keystore-password>
+# SIGNING_KEY_ALIAS=<release-key-alias>
+# Key password. Falls back to KEYSTORE_PASSWORD.
+# SIGNING_KEY_PASSWORD=<release-key-password>
+#
+# Debug keystore: the APK's original signer and the first certificate of the
+# lineage. Default: <user home>/.android/debug.keystore. Its alias and password
+# are the SDK defaults (androiddebugkey / android).
+# SIGNING_DEBUG_STORE_FILE=C\:\\Users\\<user>\\.android\\debug.keystore
+#
+# Key-rotation lineage from the debug key to the release key. A path relative to
+# android/app/ or absolute. Default: app/trails.lineage (committed).
+# SIGNING_LINEAGE_FILE=trails.lineage
 
-# Release signing — keystore password and key info
-# KEYSTORE_PASSWORD=<your-keystore-password>
-# SIGNING_KEY_ALIAS=<your-key-alias>
-# SIGNING_KEY_PASSWORD=<your-key-password>
-
-# Notes:
-# - In CI we use environment variables instead (SIGNING_STORE_FILE,
-#   SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD).
-#   See .github/workflows/release-on-tag.yml for the decode step.
-# - If none of env/properties/local.properties have a valid keystore,
-#   the build silently falls back to debug signing.
+# Fail rule:
+# - assembleRelease and bundleRelease fail before signing when any of
+#   SIGNING_STORE_FILE (or the file it names), SIGNING_STORE_PASSWORD,
+#   SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD, the debug keystore or the lineage
+#   file is missing. The one error message names every missing value. There is
+#   no fallback to debug signing.
+# - Debug builds and unit tests (assembleDebug, testDebugUnitTest, test) never
+#   need these values.
+#
+# CI sets the same names as environment variables. See the decode steps in
+# .github/workflows/manual-release.yml and release-on-tag.yml, which read the
+# SIGNING_STORE_FILE_B64 and DEBUG_KEYSTORE_B64 secrets, and the
+# "Release signing" section of android/README.md.
