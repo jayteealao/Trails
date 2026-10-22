@@ -8,17 +8,11 @@ import com.google.gson.GsonBuilder
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.di.DEFAULT_DASHBOARD_API_URL
 import com.jayteealao.trails.network.ArchiveUrlService
-import com.jayteealao.trails.network.pocket.PocketService
-import com.jayteealao.trails.services.postgrest.PostgrestService
-import com.jayteealao.trails.services.semanticSearch.modal.ModalService
-import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import okhttp3.ConnectionPool
 import okhttp3.ConnectionSpec
 import okhttp3.Interceptor
@@ -27,7 +21,6 @@ import okhttp3.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
-import javax.inject.Qualifier
 import javax.inject.Singleton
 
 private const val DEFAULT_BROWSER_VERSION = "100.0.0.0"
@@ -93,42 +86,7 @@ object NetworkModule {
             .connectTimeout(90, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
             .writeTimeout(90, TimeUnit.SECONDS)
-//            .addInterceptor(CoroutineCallInterceptor())
             .build()
-    }
-
-    @Provides
-    @Singleton
-    fun providePocketService(okHttpClient: OkHttpClient): PocketService {
-        // Configure Gson for PocketService if needed, or use a shared instance
-        val gson = GsonBuilder()
-            .serializeNulls() // Example: if PocketService also needs nulls serialized
-            .create()
-        val retrofit = Retrofit.Builder()
-            .client(okHttpClient)
-            .baseUrl("https://getpocket.com/v3/")
-            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
-            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
-            .build()
-        return retrofit.create(PocketService::class.java)
-    }
-
-    @Provides
-    @Singleton
-    fun provideModalService(okHttpClient: OkHttpClient): ModalService {
-        // Configure Gson for ModalService if needed
-        val gson = GsonBuilder()
-            .serializeNulls() // Example: if ModalService also needs nulls serialized
-            .create()
-        val retrofit = Retrofit.Builder()
-            .client(okHttpClient)
-//            .baseUrl("https://jayteealao--example-get-started-app-dev.modal.run")
-//            .baseUrl("https://jayteealao--ollama-server-ollama-app-dev.modal.run")
-            .baseUrl("https://jayteealao--trails-app-ollama-app-dev.modal.run")
-            .addConverterFactory(GsonConverterFactory.create(gson)) // Use the configured Gson
-            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
-            .build()
-        return retrofit.create(ModalService::class.java)
     }
 
     @Provides
@@ -146,26 +104,6 @@ object NetworkModule {
             .build()
         return retrofit.create(ArchiveUrlService::class.java)
     }
-
-    @Provides
-    @Singleton
-    fun providePostgrestService(okHttpClient: OkHttpClient): PostgrestService {
-        val BASE_URL: String = "https://postgres-pa.graphitenerd.online/"
-
-        // Create a Gson instance configured to serialize nulls
-        val gson = GsonBuilder()
-            .serializeNulls()
-            .create()
-
-        val retrofit = Retrofit.Builder()
-            .client(okHttpClient)
-            .baseUrl(BASE_URL)
-            // Pass the configured Gson instance to the factory
-            .addConverterFactory(GsonConverterFactory.create(gson))
-            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
-            .build()
-        return retrofit.create(PostgrestService::class.java)
-    }
 }
 
 internal class HttpRequestInterceptor : Interceptor {
@@ -175,40 +113,9 @@ internal class HttpRequestInterceptor : Interceptor {
             .newBuilder().apply {
                 url(originalRequest.url)
                 headers(originalRequest.headers)
-                if (originalRequest.url.host.contains("getpocket.com") && originalRequest.url.encodedPath.contains("v3")) {
-                    addHeader("X-Accept", "application/json")
-                    addHeader("Content-Type", "application/json; charset=UTF-8")
-                }
-                if (originalRequest.url.host.contains("modal.run")) {
-                    addHeader("X-Accept", "application/json")
-                    addHeader("Content-Type", "application/json")
-                }
             }.build()
 //        Timber.d(request.toString())
 //        Timber.d(request.headers.toString())
         return chain.proceed(request)
     }
-}
-
-class CoroutineCallInterceptor : Interceptor {
-    override fun intercept(chain: Interceptor.Chain): Response {
-        val request = chain.request()
-        val response: Response
-
-        runBlocking(Dispatchers.IO) {
-            response = chain.proceed(request)
-        }
-
-        return response
-    }
-}
-
-
-@Qualifier
-@Retention(AnnotationRetention.RUNTIME)
-annotation class Services(val retrofitService: RetrofitServices)
-
-enum class RetrofitServices {
-    POCKET,
-    MODAL
 }

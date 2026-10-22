@@ -376,16 +376,6 @@ interface ArticleDao {
     )
     fun getLatestArticle(): Article?
 
-    @Query("""
-        SELECT * FROM article
-        WHERE text IS NULL
-        ORDER BY timeUpdated DESC
-        LIMIT 10
-        OFFSET :offset
-    """
-    )
-    fun getPocketsWithoutText(offset: Int): List<Article>
-
     @Query(
         """
         SELECT timeUpdated FROM article
@@ -431,15 +421,6 @@ interface ArticleDao {
      */
     @Query("SELECT COUNT(*) FROM article WHERE backed_up_at IS NULL AND deleted_at IS NULL")
     suspend fun countArticlesNeverBackedUp(): Int
-
-//    @Upsert
-//    suspend fun upsertArticleSummary(pocketSummary: PocketSummary)
-//
-//    @Upsert
-//    suspend fun upsertArticleSummaries(pocketSummaries: List<PocketSummary>)
-//
-//    @Query("SELECT * FROM pocketsummary WHERE id = :itemId")
-//    suspend fun getSummary(itemId: String): PocketSummary?
 
     /**
      * Atomically upserts a batch of articles together with all their associated data

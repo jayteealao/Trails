@@ -50,7 +50,7 @@ import org.robolectric.annotation.Config
 // onCreate eagerly initialises FirebaseFirestore and throws on the JVM). See sibling
 // ArticleListScreenKtTest for the full rationale.
 @Config(sdk = [33], qualifiers = "w400dp-h800dp", application = Application::class)
-class PocketScreenTest {
+class ArticleItemTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()

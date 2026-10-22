@@ -36,6 +36,17 @@ import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Provider
 
+/**
+ * Plants the debug log trees (logcat, then Firestore) in debug builds only; a release build
+ * plants none, so it writes no Timber output.
+ */
+internal fun plantLogTrees(debug: Boolean, firestoreLogTree: () -> Timber.Tree) {
+    if (debug) {
+        Timber.plant(Timber.DebugTree())
+        Timber.plant(firestoreLogTree())
+    }
+}
+
 @HiltAndroidApp
 class Trails @Inject constructor() : Application(), Configuration.Provider, SingletonImageLoader.Factory {
 
@@ -50,10 +61,7 @@ class Trails @Inject constructor() : Application(), Configuration.Provider, Sing
     override fun onCreate() {
         super.onCreate()
 //        Sync.initialize(context = this)
-        Timber.plant(Timber.DebugTree())
-        if (BuildConfig.DEBUG) {
-            Timber.plant(firestoreLogTreeProvider.get())
-        }
+        plantLogTrees(BuildConfig.DEBUG) { firestoreLogTreeProvider.get() }
 
         // Schedule periodic sync AFTER Hilt dependency injection completes
         // We use Handler.post to ensure this runs after onCreate() returns,

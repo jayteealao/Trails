@@ -1,0 +1,2 @@
+# The release-signing harness runs under bash on Linux and in Git Bash; keep LF.
+*.sh text eol=lf

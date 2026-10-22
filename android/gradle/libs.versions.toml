@@ -13,51 +13,36 @@ androidxTestExt = "1.3.0"
 androidxTestRunner = "1.7.0"
 coilCompose = "3.5.0"
 coilNetworkOkhttp = "3.5.0"
-landscapistCoil = "2.6.1"
 nanoid = "1.0.1"
 okio = "3.17.0"
-paletteKtx = "1.0.0"
-profileinstaller = "1.4.1"
 startupRuntime = "1.2.0"
 unfurl = "2.2.0"
-weaviateClient = "5.6.0"
 constraintLayout="1.1.1"
-chromeCustomTabs = "1.10.0"
 coroutines = "1.11.0"
+kotlinxSerializationJson = "1.11.0"
 composeIcons = "1.1.1"
-crux = "5.1.0"
-essence = "0.13.0"
 fonts = "1.9.1"
 hilt = "2.60.1"
 junit = "4.13.2"
-kotlin = "2.4.0"
-ksp = "2.3.10"
-librariesBom = "26.85.0"
-library = "4.2.0"
-libraryNoOp = "4.2.0"
+kotlin = "2.4.21"
+ksp = "2.3.12"
+library = "4.3.1"
+libraryNoOp = "4.3.1"
 markdown-renderer = "0.43.0"
 okhttp = "5.4.0"
 paging = "3.4.2"
-postgrest = "0.2.0"
-readability4j = "1.0.8"
 retrofit = "3.0.0"
 robolectric = "4.17"
 splashscreen = "1.2.0"
-supabase = "3.6.0"
 shadowsPlus = "1.0.4"
 
 tartlet = "0.4.0"
 timber = "5.0.1"
 workManager = "2.11.2"
-ktorversion = "3.3.0"
-espressoCore = "3.7.0"
-uiautomator = "2.3.0"
-benchmarkMacroJunit4 = "1.4.1"
 firebaseBom = "34.15.0"
 nav3Core = "1.0.0-rc01"
 lifecycleViewmodelNav3 = "2.10.0-rc01"
 material3AdaptiveNav3 = "1.3.0-alpha03"
-firebaseAuth = "24.0.1"
 playServicesAuth = "21.4.0"
 
 #constraintlayoutVersion = "2.1.4"
@@ -77,17 +62,15 @@ androidx-hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-com
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidxLifecycle" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "androidxNavigation" }
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidxLifecycle" }
-androidx-palette-ktx = { module = "androidx.palette:palette-ktx", version.ref = "paletteKtx" }
-androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
 androidx-startup-runtime = { module = "androidx.startup:startup-runtime", version.ref = "startupRuntime" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coilCompose" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coilNetworkOkhttp" }
 constraint-layout = { module = "androidx.constraintlayout:constraintlayout-compose", version.ref = "constraintLayout" }
 
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }
-androidx-lifecycle-livedata-ktx = { module = "androidx.lifecycle:lifecycle-livedata-ktx", version.ref = "androidxLifecycle" }
 androidx-lifecycle-viewmodel-ktx = { module = "androidx.lifecycle:lifecycle-viewmodel-ktx", version.ref = "androidxLifecycle" }
 androidx-lifecycle-viewmodel-savedstate = { module = "androidx.lifecycle:lifecycle-viewmodel-savedstate", version.ref = "androidxLifecycle" }
+androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidxLifecycle" }
 
 androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }
 androidx-paging-compose = { module = "androidx.paging:paging-compose", version = "3.4.2" }
@@ -105,46 +88,31 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest"}
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview"}
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 
 compose-icons-cssgg = { module = "br.com.devsrsouza.compose.icons:css-gg", version.ref = "composeIcons" }
 
-google-cloud-vertexai = { module = "com.google.cloud:google-cloud-vertexai" }
-landscapist-coil = { module = "com.github.skydoves:landscapist-coil", version.ref = "landscapistCoil" }
 nanoid = { module = "io.viascom.nanoid:nanoid", version.ref = "nanoid" }
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 unfurl = { module = "me.saket.unfurl:unfurl", version.ref = "unfurl" }
-weaviate-client = { module = "io.weaviate:client", version.ref = "weaviateClient" }
-google-cloud-bom = { module = "com.google.cloud:libraries-bom", version.ref = "librariesBom" }
 
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime", version.ref = "workManager" }
 androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "workManager" }
-androidx-work-multiprocess = { module = "androidx.work:work-multiprocess", version.ref = "workManager" }
-
-chromeCustomTabs = { module = "androidx.browser:browser", version.ref = "chromeCustomTabs" }
 
 chucker = { module = "com.github.chuckerteam.chucker:library", version.ref = "library" }
 chucker-no-op = { module = "com.github.chuckerteam.chucker:library-no-op", version.ref = "libraryNoOp" }
 
-crux = { module = "com.chimbori.crux:crux", version.ref = "crux" }
-essence = { module = "io.github.cdimascio:essence", version.ref = "essence" }
-readability4j = { module = "net.dankito.readability4j:readability4j", version.ref = "readability4j" }
-
 hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
-hilt-android-compiler = { module = "com.google.dagger:hilt-android-compiler", version.ref = "hilt" }
 hilt-android-testing = { module = "com.google.dagger:hilt-android-testing", version.ref = "hilt" }
 hilt-compiler = { module = "com.google.dagger:hilt-compiler", version.ref = "hilt" }
 
 androidx-hilt-work = { group = "androidx.hilt", name = "hilt-work", version = "1.3.0" }
 androidx-hilt-hilt-compiler = { group = "androidx.hilt", name = "hilt-compiler", version = "1.3.0" }
 
-hilt-gradle-plugin = { module = "com.google.dagger:hilt-android-gradle-plugin", version.ref = "hilt" }
-
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric"}
 
 retrofit-core = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit" }
 retrofit-gson = { module = "com.squareup.retrofit2:converter-gson", version.ref = "retrofit" }
-sandwich = { module = "com.github.skydoves:sandwich", version = "2.2.2" }
-retrofit-sandwich = { module = "com.github.skydoves:sandwich-retrofit", version = "2.2.2" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 
 splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "splashscreen" }
@@ -152,21 +120,12 @@ splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "spla
 tartlet = { module = "io.yumemi:tartlet", version.ref = "tartlet" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 
-supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", version.ref = "supabase" }
-supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt", version.ref = "supabase" }
-supabase-gotrue = { module = "io.github.jan-tennert.supabase:auth-kt", version.ref = "supabase" }
-#postgrest = { module = "io.supabase:postgrest-kt", version.ref = "postgrest" }
-ktor = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktorversion" }
-
 shadows-plus = { module = "com.github.GIGAMOLE:ComposeShadowsPlus", version.ref = "shadowsPlus"}
 
 markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdown-renderer"}
 markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer"}
 markdown-renderer-coil3 = { module = "com.mikepenz:multiplatform-markdown-renderer-coil3", version.ref = "markdown-renderer"}
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
-androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
-androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
-androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacroJunit4" }
 #androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayoutVersion" }
 
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
@@ -175,7 +134,6 @@ firebase-auth = { module = "com.google.firebase:firebase-auth" }
 firebase-firestore = { module = "com.google.firebase:firebase-firestore" }
 firebase-config = { module = "com.google.firebase:firebase-config" }
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
-google-signin = { group = "com.google.android.gms", name = "play-services-auth", version = "21.0.0" }
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "nav3Core" }
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "nav3Core" }
 androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycleViewmodelNav3" }
@@ -184,8 +142,8 @@ androidx-material3-adaptive-navigation3 = { group = "androidx.compose.material3.
 
 [bundles]
 #androidx-compose = ["androidx-compose-material3", "androidx-compose-ui", "androidx-compose-ui-tooling-preview",]
-retrofit = ["retrofit-core", "retrofit-gson", "retrofit-sandwich"]
-work = ["androidx-work-runtime-ktx", "androidx-work-multiprocess"]
+retrofit = ["retrofit-core", "retrofit-gson"]
+work = ["androidx-work-runtime-ktx"]
 #hilts = ["hilt-android", "hilt-android-compiler", "hilt-android-testing", "hilt-compiler", "hilt-gradle-plugin"]
 #room = ["androidx-room-runtime", "androidx-room-ktx", "androidx-room-compiler"]
 

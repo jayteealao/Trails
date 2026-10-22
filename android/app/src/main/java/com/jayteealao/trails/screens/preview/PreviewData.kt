@@ -73,9 +73,6 @@ object PreviewFixtures {
         articleId = "12345",
         resolved = 10,
     )
-
-    val authRequestToken: String = "https://getpocket.com/auth/authorize?request_token=preview-token"
-    val authAccessToken: String = "preview-access-token"
 }
 
 @Composable

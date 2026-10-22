@@ -6,7 +6,6 @@ import androidx.compose.ui.res.painterResource
 import com.jayteealao.trails.R
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
-import com.jayteealao.trails.data.models.PocketSummary
 
 /**
  * Consolidated UI state for ArticleListScreen
@@ -18,7 +17,6 @@ data class ArticleListState(
     val sortOption: ArticleSortOption = ArticleSortOption.Newest,
     val tags: List<String> = emptyList(),
     val selectedArticle: ArticleItem = EMPTYARTICLEITEM,
-    val selectedArticleSummary: PocketSummary = PocketSummary(),
     val databaseSync: Boolean = false,
     val selectedTab: ArticleListTab = ArticleListTab.HOME
 )

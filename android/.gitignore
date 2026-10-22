@@ -27,6 +27,7 @@ local.properties
 **/*.aab
 *.keystore
 *.jks
+*.p12
 mapping.txt
 *.zip
 **/google-services.json

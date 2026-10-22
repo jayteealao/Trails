@@ -23,8 +23,6 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-// TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
-// import com.jayteealao.trails.common.ContentMetricsCalculator
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.common.generateId
@@ -34,7 +32,6 @@ import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.computeNormalizedUrl
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
-import com.jayteealao.trails.data.models.PocketSummary
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CoroutineDispatcher
@@ -61,8 +58,6 @@ import javax.inject.Inject
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
     private val articleRepository: ArticleRepository,
-    // TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
-    // private val contentMetricsCalculator: ContentMetricsCalculator,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel(), Store<ArticleListState, ArticleListEvent> {
 
@@ -74,7 +69,6 @@ class ArticleListViewModel @Inject constructor(
     private val _selectedTag = MutableStateFlow<String?>(null)
     private val _sortOption = MutableStateFlow(ArticleSortOption.Newest)
     private val _selectedArticle = MutableStateFlow<ArticleItem>(EMPTYARTICLEITEM)
-    private val _selectedArticleSummary = MutableStateFlow(PocketSummary())
     private val _selectedTab = MutableStateFlow(ArticleListTab.HOME)
 
     private val tagsFlow = articleRepository.allTags()
@@ -88,16 +82,15 @@ class ArticleListViewModel @Inject constructor(
         combine(_selectedTag, _sortOption, tagsFlow) { tag, sort, tags ->
             Triple(tag, sort, tags)
         },
-        combine(_selectedArticle, _selectedArticleSummary, databaseSyncFlow, _selectedTab) { article, summary, sync, tab ->
-            Quad(article, summary, sync, tab)
+        combine(_selectedArticle, databaseSyncFlow, _selectedTab) { article, sync, tab ->
+            Triple(article, sync, tab)
         }
-    ) { (selectedTag, sortOption, tags), (selectedArticle, selectedArticleSummary, databaseSync, selectedTab) ->
+    ) { (selectedTag, sortOption, tags), (selectedArticle, databaseSync, selectedTab) ->
         ArticleListState(
             selectedTag = selectedTag,
             sortOption = sortOption,
             tags = tags,
             selectedArticle = selectedArticle,
-            selectedArticleSummary = selectedArticleSummary,
             databaseSync = databaseSync,
             selectedTab = selectedTab
         )
@@ -106,8 +99,6 @@ class ArticleListViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = ArticleListState()
     )
-
-    private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
     override val state: StateFlow<ArticleListState> = _state
 
@@ -365,10 +356,6 @@ class ArticleListViewModel @Inject constructor(
                     normalizedUrl = normalizeUrl(resolvedUrl),
                 )
 
-                // TODO: Replace with new text provider (archiver/singlefile) to extract
-                // article markdown text, then re-enable ContentMetricsCalculator to
-                // compute reading time, listening time, and word count.
-
                 // Back up immediately so the article's existence marker lands in
                 // Firestore before the detail screen opens its archive listener.
                 // The periodic background sync (syncToFirestore) is enqueued as a
@@ -454,13 +441,5 @@ class ArticleListViewModel @Inject constructor(
             null
         }
     }
-
-}
-
-
-sealed interface PocketUiState {
-    data object Loading : PocketUiState
-    data class Error(val throwable: Throwable) : PocketUiState
-    data class Success(val data: List<String>) : PocketUiState
 
 }

@@ -4,11 +4,15 @@
     <base-config cleartextTrafficPermitted="true"
         tools:ignore="InsecureBaseConfiguration" >
         <trust-anchors>
-            <!--Trust preinstalled CAs-->
+            <!--Trust preinstalled CAs only-->
             <certificates src="system" />
-            <!--Additionally trust user added CAs-->
+        </trust-anchors>
+    </base-config>
+    <!--Debuggable builds additionally trust user-added CAs (for local proxies)-->
+    <debug-overrides>
+        <trust-anchors>
             <certificates src="user"
                 tools:ignore="AcceptsUserCertificates" />
         </trust-anchors>
-    </base-config>
+    </debug-overrides>
 </network-security-config>

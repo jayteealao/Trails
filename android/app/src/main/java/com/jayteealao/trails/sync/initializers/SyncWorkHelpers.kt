@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.getSystemService
@@ -15,14 +16,19 @@ import androidx.work.WorkManager
 import com.jayteealao.trails.R
 
 /**
- * Foreground information for sync on lower API levels when sync workers are being run with a
- * foreground service.
+ * Foreground information for sync workers run with a foreground service. On API 29 and newer it
+ * carries the dataSync service type, which Android 14 and newer require of an app targeting 34+.
  */
 context(coroutineWorker: CoroutineWorker)
-fun Context.syncForegroundInfo() = ForegroundInfo(
-    SyncNotificationId,
-    syncWorkNotification()
-)
+fun Context.syncForegroundInfo() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    ForegroundInfo(
+        SyncNotificationId,
+        syncWorkNotification(),
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+    )
+} else {
+    ForegroundInfo(SyncNotificationId, syncWorkNotification())
+}
 
 
 /**
