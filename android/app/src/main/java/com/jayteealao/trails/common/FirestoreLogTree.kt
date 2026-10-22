@@ -35,7 +35,6 @@ class FirestoreLogTree @Inject constructor(
     private val relevantTags = setOf(
         "ArchiveService",
         "ArticleDetailViewModel",
-        "SyncWorker",
         "FirestoreSyncWorker",
     )
 
