@@ -1,4 +1,8 @@
+import com.android.build.api.artifact.SingleArtifact
+import java.io.ByteArrayOutputStream
 import java.util.Properties
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Release signing values come from (in order): env vars, gradle project
@@ -383,3 +387,123 @@ val checkReleaseSigning = tasks.register<CheckReleaseSigning>("checkReleaseSigni
 
 tasks.matching { it.name in setOf("validateSigningRelease", "packageRelease", "signReleaseBundle") }
     .configureEach { dependsOn(checkReleaseSigning) }
+
+// ---- Release signing: key-rotation re-sign of the APK ----
+// AGP has no signing-lineage setting, so after packageRelease this task
+// re-signs the release APK with apksigner: the debug key is the original signer
+// (v1, v2, v3), the release key is the next signer (v3.1, Android 13 and newer)
+// and the committed lineage links them, so a release installs over the debug
+// build. It verifies the result before it replaces the APK and its v4 .idsig;
+// on any failure it deletes them, so no APK without the lineage is left behind.
+// The AAB stays signed by AGP with the release key only.
+abstract class ResignReleaseApk @Inject constructor(
+    private val exec: ExecOperations,
+) : DefaultTask() {
+    @get:InputDirectory
+    abstract val apkDir: DirectoryProperty
+
+    @get:InputFile
+    abstract val debugStore: RegularFileProperty
+
+    @get:InputFile
+    abstract val releaseStore: RegularFileProperty
+
+    @get:InputFile
+    abstract val lineage: RegularFileProperty
+
+    @get:Input
+    abstract val keyAlias: Property<String>
+
+    @get:Internal
+    abstract val storePassword: Property<String>
+
+    @get:Internal
+    abstract val keyPassword: Property<String>
+
+    @get:Internal
+    abstract val apksigner: RegularFileProperty
+
+    @TaskAction
+    fun resign() {
+        val started = System.nanoTime()
+        val apks = apkDir.get().asFile.listFiles { f -> f.name.endsWith(".apk") }.orEmpty()
+        val apk = apks.singleOrNull()
+            ?: throw GradleException("Expected exactly one release APK in ${apkDir.get().asFile}, found ${apks.size}.")
+        val idsig = File(apk.path + ".idsig")
+        try {
+            val tool = apksigner.get().asFile
+            if (!tool.exists()) {
+                throw GradleException("apksigner not found at ${tool.path}; install that Android SDK build-tools version.")
+            }
+            temporaryDir.listFiles()?.forEach { it.deleteRecursively() }
+            val signed = File(temporaryDir, apk.name)
+            val signedIdsig = File(signed.path + ".idsig")
+            apksigner(
+                tool, "sign",
+                "--ks", debugStore.get().asFile.path, "--ks-key-alias", "androiddebugkey",
+                "--ks-pass", "pass:android", "--key-pass", "pass:android",
+                "--next-signer",
+                "--ks", releaseStore.get().asFile.path, "--ks-key-alias", keyAlias.get(),
+                "--ks-pass", "env:TRAILS_RELEASE_STORE_PASS", "--key-pass", "env:TRAILS_RELEASE_KEY_PASS",
+                "--lineage", lineage.get().asFile.path,
+                "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                "--v3-signing-enabled", "true", "--v4-signing-enabled", "true",
+                "--lib-page-alignment", "16384",
+                "--out", signed.path, apk.path,
+            )
+            val report = apksigner(tool, "verify", "-v", "--print-certs", signed.path)
+            if (report.lines().none { it.trim() == "Verified using v3.1 scheme (APK Signature Scheme v3.1): true" }) {
+                throw GradleException("The re-signed APK has no verified v3.1 signature:\n$report")
+            }
+            apksigner(tool, "verify", "--v4-signature-file", signedIdsig.path, signed.path)
+            signed.copyTo(apk, overwrite = true)
+            signedIdsig.copyTo(idsig, overwrite = true)
+        } catch (e: Exception) {
+            apk.delete()
+            idsig.delete()
+            throw GradleException("Re-signing ${apk.name} with the key-rotation lineage failed; the APK was deleted. ${e.message}", e)
+        }
+        logger.lifecycle("Re-signed ${apk.name} with the key-rotation lineage in ${(System.nanoTime() - started) / 1_000_000} ms.")
+    }
+
+    private fun apksigner(tool: File, vararg args: String): String {
+        val out = ByteArrayOutputStream()
+        val result = exec.exec {
+            commandLine(listOf(tool.path) + args)
+            // Release passwords reach apksigner through the environment (env:),
+            // never on its command line.
+            environment("TRAILS_RELEASE_STORE_PASS", storePassword.get())
+            environment("TRAILS_RELEASE_KEY_PASS", keyPassword.get())
+            standardOutput = out
+            errorOutput = out
+            isIgnoreExitValue = true
+        }
+        val text = out.toString()
+        if (result.exitValue != 0) {
+            throw GradleException("apksigner ${args.first()} exited with ${result.exitValue}:\n$text")
+        }
+        return text
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        val apksignerName = if (providers.systemProperty("os.name").get().startsWith("Windows")) "apksigner.bat" else "apksigner"
+        val buildTools = android.buildToolsVersion
+        val resign = tasks.register<ResignReleaseApk>("resignReleaseApk") {
+            group = "build"
+            description = "Re-signs the release APK with the debug-to-release key-rotation lineage."
+            apkDir.set(variant.artifacts.get(SingleArtifact.APK))
+            apksigner.set(sdkComponents.sdkDirectory.map { it.file("build-tools/$buildTools/$apksignerName") })
+            debugStore.set(debugStoreFile)
+            releaseStoreFile?.let { releaseStore.set(it) }
+            lineage.set(lineageFile)
+            releaseKeyAlias?.let { keyAlias.set(it) }
+            releaseStorePassword?.let { storePassword.set(it) }
+            releaseKeyPassword?.let { keyPassword.set(it) }
+            doNotTrackState("re-signs the packaged APK in place")
+        }
+        tasks.matching { it.name == "assembleRelease" || it.name == "installRelease" }
+            .configureEach { dependsOn(resign) }
+    }
+}
