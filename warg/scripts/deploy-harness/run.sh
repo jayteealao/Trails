@@ -320,6 +320,44 @@ scenario_fn_deploy_fails() {
   finish
 }
 
+# The upload goes to the project's production branch, read before any upload.
+# With --branch main on a project whose production branch is master, the
+# upload would be a preview and the production list would keep the old hash.
+scenario_pages_production_branch() {
+  start pages-production-branch
+  run_deploy pages-production-branch H_PAGES_PROD_BRANCH=master -- --with-pages --skip-checks
+  expect_rc 0
+  expect_calls 1 '^cf pages get warg-dashboard$'
+  expect_calls 1 "^wrangler pages deploy --branch master --commit-hash $SHA "
+  expect_calls 0 '^wrangler pages deploy --branch main '
+  expect_out '^--- dashboard production branch: master$'
+  expect_row "pages:dashboard" deployed "$UUID"
+  finish
+}
+
+# An unreadable production branch with no PAGES_BRANCH stops the run before
+# the first upload. PAGES_BRANCH is the fallback when the read fails.
+scenario_pages_branch_unknown() {
+  start pages-branch-unknown
+  run_deploy pages-branch-unknown H_PAGES_GET_FAIL=1 PAGES_BRANCH= -- --with-pages --skip-checks
+  expect_rc 3
+  expect_row "pages:dashboard" failed 'cannot read the production branch of warg-dashboard \(cf pages get exited 1\); set PAGES_BRANCH=<branch>'
+  local w
+  for w in "${WORKERS[@]}"; do
+    expect_row "worker:$w" skipped '-'
+  done
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^wrangler pages deploy'
+  expect_out '^Exit code: 3$'
+  run_deploy pages-branch-fallback H_PAGES_GET_FAIL=1 H_PAGES_PROD_BRANCH=master PAGES_BRANCH=master -- --with-pages --skip-checks
+  expect_rc 0
+  expect_calls 1 "^wrangler pages deploy --branch master --commit-hash $SHA "
+  expect_out '^WARNING: dashboard branch from PAGES_BRANCH=master '
+  expect_row "pages:dashboard" deployed "$UUID"
+  NAME=pages-branch-unknown
+  finish
+}
+
 scenario_pages_hash_mismatch() {
   start pages-hash-mismatch
   run_deploy pages-hash-mismatch H_PAGES_HASH=0123456789abcdef0123456789abcdef01234567 -- --with-pages --skip-checks
@@ -510,7 +548,7 @@ scenario_function_exports_sync() {
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
   quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed fn-old-updatetime fn-new-updatetime fn-deploy-fails
-  pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
+  pages-hash-mismatch pages-production-branch pages-branch-unknown pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync)
 if [ $# -gt 0 ]; then
   SELECTED=("$@")

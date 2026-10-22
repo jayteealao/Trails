@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stub of wrangler for scripts/deploy-harness/run.sh: `pages deploy` records
-# its --commit-hash for the cf stub's Pages deployment list.
+# its --commit-hash and --branch for the cf stub's Pages deployment list.
 #   HARNESS_WRANGLER_UNAUTH=1   `whoami` fails as when nobody is signed in
 set -euo pipefail
 state="${HARNESS_STATE:?HARNESS_STATE is not set}"
@@ -16,6 +16,7 @@ fi
 if [ "${1:-} ${2:-}" = "pages deploy" ]; then
   while [ $# -gt 0 ]; do
     [ "$1" = "--commit-hash" ] && printf '%s\n' "${2:-}" >"$state/pages-hash"
+    [ "$1" = "--branch" ] && printf '%s\n' "${2:-}" >"$state/pages-branch"
     shift
   done
   echo "Deployment complete!"
