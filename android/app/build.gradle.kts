@@ -223,6 +223,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.livedata.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.savedstate)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.androidx.room.runtime)
@@ -268,6 +269,7 @@ dependencies {
 
     // Retrofit
     implementation(libs.bundles.retrofit)
+    implementation(libs.kotlinx.serialization.json)
     //okhttp
     implementation(libs.okhttp)
 //    {
@@ -286,29 +288,8 @@ dependencies {
     debugImplementation(libs.chucker)
     releaseImplementation( libs.chucker.no.op)
 
-    //chrome custom tabs
-    implementation(libs.chromeCustomTabs)
-
-    //essence
-    implementation(libs.essence)
-    //crux
-    implementation(libs.crux)  // See the latest version number above.
-    //jreadability
-    implementation(libs.readability4j)
     //accompanist-webview
     implementation(libs.accompanist.webview)
-
-    //supabase
-    implementation(libs.supabase.postgrest)
-    implementation(libs.supabase.realtime)
-    implementation(libs.supabase.gotrue)
-    //ktor
-    implementation(libs.ktor)
-    //weaviate
-//    implementation(libs.weaviate.client) {
-        //noinspection DuplicatePlatformClasses
-//        exclude(group = "org.apache.httpcomponents", module = "httpcore")
-//    }
 
 //    shadowsPlus
     implementation(libs.shadows.plus)
@@ -327,24 +308,12 @@ dependencies {
     //nanoid
     implementation(libs.nanoid)
 
-//    implementation(libs.postgrest)
-    //landscapist
-//    implementation(libs.landscapist.coil)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.okio)
 
-    // jetpack pallete
-    implementation(libs.androidx.palette.ktx)
-
-    //swipe-to-reveal
-    implementation("me.saket.swipe:swipe:1.2.0")
-
     // Tartlet - Compose MVVM helper
     implementation(libs.tartlet)
-
-    //profileInstaller - TEMPORARILY DISABLED to fix baseline profile installation errors
-    // implementation(libs.androidx.profileinstaller)
 
     // Local tests: jUnit, coroutines, Android runner
     testImplementation(libs.junit)
