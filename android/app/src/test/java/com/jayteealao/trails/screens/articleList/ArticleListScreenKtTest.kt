@@ -6,12 +6,20 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
+import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleList.testfixtures.ArticleTestFixtures
 import com.jayteealao.trails.screens.articleList.testfixtures.rememberFakeLazyPagingItems
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.jayteealao.trails.testtags.ArticleListTestTags
+import io.mockk.every
+import io.mockk.mockk
 import io.yumemi.tartlet.ViewStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -49,6 +57,9 @@ import org.robolectric.annotation.Config
  *    best-effort by the instrumented `NavigationTest`, not under Robolectric.
  *  - Kept as real assertions against [ArticleListScreenContent]: empty state, data load,
  *    item content, item click identity, and all-items rendering (5 tests).
+ *  - Synchronization Status is now covered on the outer [ArticleListScreen], driven by a
+ *    real [ArticleListViewModel] over a mocked repository (no Hilt): the sync progress bar
+ *    exists while the Firestore sync state is true and is gone once it turns false.
  */
 @RunWith(RobolectricTestRunner::class)
 // Render the content composable in isolation under a plain Application. Without this
@@ -63,6 +74,66 @@ class ArticleListScreenKtTest {
     val composeTestRule = createComposeRule()
 
     private fun emptyState() = ArticleListState()
+
+    private class EmptyPagingSource : PagingSource<Int, ArticleItem>() {
+        override fun getRefreshKey(state: PagingState<Int, ArticleItem>): Int? = null
+
+        override suspend fun load(params: LoadParams<Int>): LoadResult<Int, ArticleItem> =
+            LoadResult.Page(emptyList(), prevKey = null, nextKey = null)
+    }
+
+    /** A real view model whose repository reports [syncing] as the Firestore sync state. */
+    private fun viewModelWithSyncState(syncing: MutableStateFlow<Boolean>): ArticleListViewModel {
+        val repository = mockk<ArticleRepository>(relaxed = true)
+        every { repository.isSyncing } returns syncing
+        every { repository.allTags() } returns flowOf(emptyList())
+        every { repository.pockets() } answers { EmptyPagingSource() }
+        every { repository.favoritePockets() } answers { EmptyPagingSource() }
+        every { repository.archivedPockets() } answers { EmptyPagingSource() }
+        every { repository.pocketsByTag(any()) } answers { EmptyPagingSource() }
+        return ArticleListViewModel(articleRepository = repository, ioDispatcher = Dispatchers.Unconfined)
+    }
+
+    // "Synchronization Status": the progress bar follows the Firestore sync state.
+    @Test
+    fun `sync indicator shows while a Firestore sync runs and hides after`() {
+        val syncing = MutableStateFlow(true)
+        val viewModel = viewModelWithSyncState(syncing)
+        composeTestRule.setContent {
+            TrailsTheme(darkTheme = false) {
+                ArticleListScreen(
+                    articleListViewModel = viewModel,
+                    onSelectArticle = {},
+                    onOpenTagManagement = {},
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag(ArticleListTestTags.SYNC_INDICATOR).assertExists()
+
+        syncing.value = false
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag(ArticleListTestTags.SYNC_INDICATOR).assertDoesNotExist()
+    }
+
+    @Test
+    fun `sync indicator is absent when no sync runs`() {
+        val viewModel = viewModelWithSyncState(MutableStateFlow(false))
+        composeTestRule.setContent {
+            TrailsTheme(darkTheme = false) {
+                ArticleListScreen(
+                    articleListViewModel = viewModel,
+                    onSelectArticle = {},
+                    onOpenTagManagement = {},
+                )
+            }
+        }
+
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag(ArticleListTestTags.SYNC_INDICATOR).assertDoesNotExist()
+        composeTestRule.onNodeWithTag(ArticleListTestTags.LIST_ROOT).assertExists()
+    }
 
     // 1 — "Empty Article List": the list root renders but shows no article rows.
     @Test

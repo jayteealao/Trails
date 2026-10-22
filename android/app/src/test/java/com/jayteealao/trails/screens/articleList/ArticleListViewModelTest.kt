@@ -6,6 +6,7 @@ import androidx.paging.PagingState
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -20,7 +21,9 @@ import io.mockk.verify
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -30,6 +33,7 @@ import me.saket.unfurl.Unfurler
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -37,8 +41,6 @@ import org.junit.Test
 class ArticleListViewModelTest {
 
     @MockK private lateinit var articleRepository: ArticleRepository
-    // TODO: Re-enable ContentMetricsCalculator when a new text provider replaces Jina
-    // private val contentMetricsCalculator = ContentMetricsCalculator()
 
     private lateinit var testDispatcher: CoroutineDispatcher
 
@@ -141,6 +143,36 @@ class ArticleListViewModelTest {
         assertEquals("Shared title", viewModel.intentTitle.value)
 
         coVerify(exactly = 1) { articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `databaseSync follows the Firestore sync state`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+
+        // A fake FirestoreSyncManager whose sync state the test drives; the repository
+        // stub hands its flow through, as ArticleRepositoryImpl.isSyncing does.
+        val syncing = MutableStateFlow(false)
+        val fakeSyncManager = mockk<FirestoreSyncManager>()
+        every { fakeSyncManager.isSyncing } returns syncing
+        every { articleRepository.isSyncing } returns fakeSyncManager.isSyncing
+
+        val viewModel = ArticleListViewModel(
+            articleRepository = articleRepository,
+            ioDispatcher = dispatcher,
+        )
+        // The state is shared WhileSubscribed, so keep a collector alive for the test.
+        backgroundScope.launch(dispatcher) { viewModel.state.collect {} }
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.databaseSync)
+
+        syncing.value = true
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.databaseSync)
+
+        syncing.value = false
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.databaseSync)
     }
 
     @Test

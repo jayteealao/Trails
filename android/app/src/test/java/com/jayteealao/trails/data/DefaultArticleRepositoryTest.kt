@@ -31,7 +31,6 @@ import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.network.ArticleData
 import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
-import com.jayteealao.trails.sync.SyncStatusMonitor
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -43,10 +42,15 @@ import io.mockk.verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
@@ -70,7 +74,6 @@ class DefaultArticleRepositoryTest {
 
     @MockK private lateinit var context: Context
     @MockK private lateinit var articleDao: ArticleDao
-    @MockK private lateinit var syncStatusMonitor: SyncStatusMonitor
     @MockK private lateinit var firestoreSyncManager: FirestoreSyncManager
     @MockK private lateinit var firestoreBackupService: FirestoreBackupService
     @MockK private lateinit var firestore: FirebaseFirestore
@@ -86,7 +89,6 @@ class DefaultArticleRepositoryTest {
         repository = ArticleRepositoryImpl(
             context = context,
             articleDao = articleDao,
-            syncStatusMonitor = syncStatusMonitor,
             firestoreSyncManager = firestoreSyncManager,
             firestoreBackupService = firestoreBackupService,
             coroutineScope = CoroutineScope(SupervisorJob() + testDispatcher),
@@ -109,6 +111,26 @@ class DefaultArticleRepositoryTest {
 
         assertSame(pagingSource, result)
         verify(exactly = 1) { articleDao.getArticlesWithTags() }
+    }
+
+    /**
+     * The list screen's sync indicator reads [ArticleRepositoryImpl.isSyncing]; it must
+     * follow the Firestore sync state, not a monitor of background work that never runs.
+     */
+    @Test
+    fun `isSyncing follows FirestoreSyncManager`() = runTest(testDispatcher) {
+        val syncing = MutableStateFlow(false)
+        every { firestoreSyncManager.isSyncing } returns syncing
+
+        val emitted = mutableListOf<Boolean>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            repository.isSyncing.toList(emitted)
+        }
+
+        syncing.value = true
+        syncing.value = false
+
+        assertEquals(listOf(false, true, false), emitted)
     }
 
     /**
