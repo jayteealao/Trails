@@ -53,8 +53,11 @@ jobs:
         run: |
           if [ -n "$B64" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
 
-      # --- Optional: Decode keystore & expose signing to Gradle ---
-      - name: Decode keystore (optional)
+      # --- Decode keystores & expose signing to Gradle ---
+      # Required: a release build has no fallback signer, so when the signing
+      # secrets are missing these steps are skipped and the Gradle build fails
+      # with "Release signing is not configured".
+      - name: Decode keystore
         if: ${{ steps.has_signing.outputs.present == 'true' }}
         env:
           SIGNING_STORE_FILE_B64: ${{ secrets.SIGNING_STORE_FILE_B64 }}
@@ -69,7 +72,7 @@ jobs:
           fi
           printf '%s' "$DEBUG_KEYSTORE_B64" | tr -d '\r\n\t ' | base64 -d > debug.keystore
 
-      - name: Write signing properties (optional)
+      - name: Write signing properties
         if: ${{ steps.has_signing.outputs.present == 'true' }}
         run: |
           {

@@ -166,16 +166,33 @@ To create a base64 value, run `base64 -w0 < <keystore>` (on macOS, `base64 -i <k
 
 The rotated key is used from Android 13 (API 33). On Android 7 to 12 the release APK is signed by the debug key, so it installs over a debug build there too, and those devices keep trusting only the debug key. A device below Android 13 therefore needs a one-time uninstall before it can move to a build signed by the release key alone. The uninstall deletes the app's data.
 
+**The rotation is one way**
+
+The lineage grants no rollback capability. After a release-signed build is installed on an Android 13 or newer device, an APK signed only by the debug key cannot install over it: Android refuses it with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. That covers the debug build from Android Studio, the pull-request check's debug APK and every release that was signed by the debug key before the rotation.
+
+- To run a debug build on that device again, uninstall the app first. The uninstall deletes the app's data.
+- To fix a bad release, ship a new release-signed build with a higher version code. Do not go back to an older release, and do not reinstall an APK from before the rotation.
+
 **Checking the signing setup without the real keys**
 
-Release builds need both keystores, so the harness generates throwaway ones under `app/build/signing-harness/` (git-ignored) and checks every case. It covers the signed outputs and their lineage, each missing or broken input, and the workflows' decode steps:
+Release builds need both keystores, so the harness generates throwaway ones under `app/build/signing-harness/` (git-ignored) and checks every case. It covers the signed outputs and their lineage, each missing or broken input, and the workflows' decode steps. Run it from the repository root:
 
 ```bash
 bash android/scripts/release-signing-harness.sh        # all cases
 bash android/scripts/release-signing-harness.sh pass   # one case
 ```
 
-Each case prints `PASS` or `FAIL`. Logs go to `.scratch/signing-harness/` at the repository root. To build a release against the throwaway keys by hand, run `./gradlew :app:generateSigningHarness`, then `source app/build/signing-harness/harness.env`, then `./gradlew assembleRelease`. Do not add `clean` to that last command, because `clean` deletes the throwaway keys.
+The script runs `./gradlew clean` once before it generates the keys. Each case prints `PASS` or `FAIL`. Logs go to `.scratch/signing-harness/` at the repository root.
+
+To build a release against the throwaway keys by hand, run these commands from `android/`:
+
+```bash
+./gradlew :app:generateSigningHarness
+source app/build/signing-harness/harness.env
+./gradlew assembleRelease
+```
+
+Do not add `clean` to the last command, because `clean` deletes the throwaway keys.
 
 ## Firebase Backend Setup
 
@@ -279,9 +296,9 @@ Trails follows an **offline-first MVVM** architecture with the [Tartlet](https:/
 | **UI** | Jetpack Compose + Material 3 | `ArticleListScreen`, `ArticleDetailScreen` |
 | **State** | Tartlet `ViewStore<State, Event>` | `ArticleListViewModel`, `TagManagementViewModel` |
 | **Data** | Repository + Room + Firestore | `ArticleRepositoryImpl`, `ArticleDao` |
-| **Sync** | WorkManager background jobs | `FirestoreSyncWorker`, `SyncWorker` |
+| **Sync** | WorkManager background jobs | `FirestoreSyncWorker`, `FirestoreRestoreWorker` |
 | **DI** | Hilt | `NetworkModule`, `FirebaseModule` |
-| **Content** | Readability4J + Unfurl | `GetArticleWithTextUseCase` |
+| **Content** | Unfurl | `GetArticleWithTextUseCase` |
 
 ### Project structure
 
@@ -301,7 +318,6 @@ app/src/main/java/com/jayteealao/trails/
 │   └── theme/
 ├── services/        # Firebase, Gemini, sync
 ├── sync/            # WorkManager workers
-├── usecases/        # Business logic
 ├── IntentActivity.kt
 └── MainActivity.kt
 ```
@@ -312,10 +328,10 @@ app/src/main/java/com/jayteealao/trails/
 |----------|-----------|
 | UI | Jetpack Compose, Material 3, Navigation 3, Coil 3 |
 | Local data | Room (FTS4 search), DataStore, Paging 3 |
-| Networking | Retrofit 3, OkHttp 5, Ktor (Supabase) |
+| Networking | Retrofit 3, OkHttp 5 |
 | Firebase | Auth, Firestore, Gemini AI |
 | Background | WorkManager, Hilt Worker |
-| Content extraction | Readability4J, Unfurl, Crux |
+| Content extraction | Unfurl |
 | Testing | JUnit 4, MockK, Coroutines Test |
 | Build | Gradle 9.3.1, KSP, R8 |
 

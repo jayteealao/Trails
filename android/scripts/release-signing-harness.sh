@@ -244,10 +244,7 @@ case_workflow_steps() {
   local -A h=()
   while IFS= read -r line; do h[${line%%=*}]=${line#*=}; done < <(harness_env)
   for wf in manual-release release-on-tag; do
-    case $wf in
-      manual-release) decode="Decode keystore"; export_step="Write signing properties" ;;
-      release-on-tag) decode="Decode keystore (optional)"; export_step="Write signing properties (optional)" ;;
-    esac
+    decode="Decode keystore"; export_step="Write signing properties"
     dir="$LOGS/workflow-$wf"; rm -rf "$dir"; mkdir -p "$dir"
     step_script "$REPO_DIR/.github/workflows/$wf.yml" "$decode" > "$dir/decode.sh"
     step_script "$REPO_DIR/.github/workflows/$wf.yml" "$export_step" > "$dir/export.sh"
