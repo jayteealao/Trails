@@ -35,7 +35,6 @@ import com.jayteealao.trails.network.ArticleData
 import com.jayteealao.trails.network.ArticleTags
 import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
-import com.jayteealao.trails.sync.SyncStatusMonitor
 import com.jayteealao.trails.sync.workers.FirestoreRestoreWorker
 import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -127,28 +126,14 @@ interface Syncable {
  * Default implementation of [ArticleRepository]
  * @param articleDao ArticleDao
  *    data access object
- * @param networkDataSource NetworkDataSource
- *    data source for network requests
- *    @see NetworkDataSource
- * @param articleExtractor ArticleExtractor
- *    extracts article from url
- *    @see ArticleExtractor
- * @param getSinceFromLocalUseCase GetSinceFromLocalUseCase
- *    use case for getting since from local database
- *    @see GetSinceFromLocalUseCase
- * @param syncStatusMonitor SyncStatusMonitor
- *    monitor for sync status
- *    @see SyncStatusMonitor
  * @param coroutineScope CoroutineScope
  *    application-lifetime supervised scope for background work
  */
 class ArticleRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val articleDao: ArticleDao,
-    private val syncStatusMonitor: SyncStatusMonitor,
     private val firestoreSyncManager: FirestoreSyncManager,
     private val firestoreBackupService: FirestoreBackupService,
-//    private val modalClient: ModalClient,
     @ApplicationScope private val coroutineScope: CoroutineScope,
     private val firestore: FirebaseFirestore,
     private val firebaseAuth: FirebaseAuth,
@@ -362,10 +347,10 @@ class ArticleRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Show sync status of synchronizing articles from Pocket API to local database
+     * Show the Firestore sync state
      */
     override val isSyncing: Flow<Boolean>
-        get() = syncStatusMonitor.isSyncing
+        get() = firestoreSyncManager.isSyncing
 
     /**
      * Synchronize articles - uses bidirectional Firestore sync
