@@ -69,7 +69,7 @@ android {
     defaultConfig {
         applicationId = "com.jayteealao.trails"
         minSdk = 24
-        targetSdk = 33
+        targetSdk = 36
         versionCode = 110270
         versionName = "1.10.27"
 
@@ -149,13 +149,13 @@ android {
 
         // Gradle Managed Device that AGP auto-provisions for the instrumented
         // characterization suite (Room+Hilt smoke test + NavigationTest). Creates
-        // the `pixel33DebugAndroidTest` task. API 33 matches the app's targetSdk,
+        // the `pixel36DebugAndroidTest` task. API 36 matches the app's targetSdk,
         // so regenerated Room/Hilt codegen is exercised on the same API the app ships.
         managedDevices {
             localDevices {
-                create("pixel33") {
+                create("pixel36") {
                     device = "Pixel 6"
-                    apiLevel = 33
+                    apiLevel = 36
                     systemImageSource = "aosp"
                 }
             }
