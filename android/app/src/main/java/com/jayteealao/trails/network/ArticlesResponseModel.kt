@@ -6,47 +6,6 @@ import com.google.gson.annotations.SerializedName
 import com.jayteealao.trails.data.local.database.Article
 import kotlinx.serialization.SerialName
 
-data class ArticlesResponseModel(
-    val status: Int,
-    val complete: Int,
-    val list: Map<String, ArticleResponse>,
-    val error: String?,
-    val since: Int
-)
-
-@Entity
-data class ArticleResponse(
-    @SerializedName("item_id") val itemId: String,
-    @SerializedName("resolved_id") val resolvedId: String,
-    @SerializedName("resolved_title") val title: String,
-    @SerializedName("given_title") val givenTitle: String,
-    @SerializedName("resolved_url") val url: String,
-    @SerializedName("given_url") val givenUrl: String,
-    @SerializedName("excerpt") val excerpt: String,
-    @SerializedName("word_count") val wordCount: Int,
-    @SerializedName("favorite") val favorite: String,
-    @SerializedName("status") val status: String,
-    @SerializedName("word_count_message") val wordCountMessage: String,
-    @SerializedName("image") val image: ArticleImages?,
-    @SerializedName("top_image_url") val topImageUrl: String,
-    @SerializedName("images") val images: Map<String, ArticleImages> = emptyMap(),
-    @SerializedName("has_image") val hasImage: Boolean,
-    @SerializedName("videos") val videos: Map<String, ArticleVideos> = emptyMap(),
-    @SerializedName("has_video") val hasVideo: Boolean,
-    @SerializedName("has_audio") val hasAudio: Boolean,
-    @SerializedName("tags") val tags: Map<String, ArticleTags> = emptyMap(),
-    @SerializedName("authors") val authors: Map<String, ArticleAuthors> = emptyMap(),
-    @SerializedName("list") val list: String,
-    @SerializedName("sort_id") val sortId: Int,
-    @SerializedName("time_added") val timeAdded: Long,
-    @SerializedName("time_updated") val timeUpdated: Long,
-    @SerializedName("time_read") val timeRead: Long,
-    @SerializedName("time_favorited") val timeFavorited: Long,
-    @SerializedName("time_to_read") val timeToRead: Int,
-    @SerializedName("listen_duration_estimate") val listenDurationEstimate: Int,
-    @SerializedName("domain_metadata") val domainMetadata: DomainMetadata,
-)
-
 @kotlinx.serialization.Serializable()
 @Entity(tableName = "article_images", primaryKeys = ["imageId", "itemId"])
 data class ArticleImages(
