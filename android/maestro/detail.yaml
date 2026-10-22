@@ -1,0 +1,22 @@
+# Article detail smoke flow: list -> detail -> back.
+# Fixture: a debug build installed, guest sign-in, and one article saved with
+#   adb shell am start -n com.jayteealao.trails/.IntentActivity -a android.intent.action.SEND \
+#     -t text/plain --es android.intent.extra.TEXT https://example.com
+# Run: maestro test android/maestro/detail.yaml (set ARTICLE_TITLE when the fixture differs).
+appId: com.jayteealao.trails
+env:
+  ARTICLE_TITLE: Example Domain
+---
+- launchApp
+- runFlow:
+    when:
+      visible: "Continue as Guest"
+    commands:
+      - tapOn: "Continue as Guest"
+- assertVisible: "Home"
+- tapOn: ${ARTICLE_TITLE}
+- assertVisible: "Article"
+- assertVisible: "Reader"
+- takeScreenshot: detail
+- back
+- assertVisible: "Home"
