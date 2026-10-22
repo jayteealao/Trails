@@ -14,6 +14,30 @@ fun signingValue(key: String): String? =
         ?: (project.findProperty(key) as? String)?.takeIf { it.isNotBlank() }
         ?: signingProps.getProperty(key)?.takeIf { it.isNotBlank() }
 
+// Release signing inputs. The release keystore signs the AAB and is the next
+// signer of the APK; the debug keystore is the APK's original signer, and the
+// committed lineage proves the rotation from the debug key to the release key.
+val releaseStoreFile = (signingValue("SIGNING_STORE_FILE") ?: signingValue("KEYSTORE_FILE"))
+    ?.let { project.file(it) }
+val releaseStorePassword = signingValue("SIGNING_STORE_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingValue("SIGNING_KEY_ALIAS")
+val releaseKeyPassword = signingValue("SIGNING_KEY_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD")
+val debugStoreFile = project.file(
+    signingValue("SIGNING_DEBUG_STORE_FILE")
+        ?: "${providers.systemProperty("user.home").get()}/.android/debug.keystore"
+)
+val lineageFile = project.file(signingValue("SIGNING_LINEAGE_FILE") ?: "trails.lineage")
+
+// Every value a release build needs that is absent, by the name to set.
+val missingReleaseSigning: List<String> = buildList {
+    if (releaseStoreFile?.exists() != true) add("SIGNING_STORE_FILE")
+    if (releaseStorePassword == null) add("SIGNING_STORE_PASSWORD")
+    if (releaseKeyAlias == null) add("SIGNING_KEY_ALIAS")
+    if (releaseKeyPassword == null) add("SIGNING_KEY_PASSWORD")
+    if (!debugStoreFile.exists()) add("SIGNING_DEBUG_STORE_FILE")
+    if (!lineageFile.exists()) add("SIGNING_LINEAGE_FILE")
+}
+
 /*
  * Copyright (C) 2022 The Android Open Source Project
  *
@@ -50,11 +74,10 @@ android {
             // Values are set only when present. A missing value fails the
             // release build in checkReleaseSigning (below) with one message
             // naming every missing value; there is no fallback to debug signing.
-            val storeFilePath = signingValue("SIGNING_STORE_FILE") ?: signingValue("KEYSTORE_FILE")
-            storeFilePath?.let { project.file(it) }?.takeIf { it.exists() }?.let { storeFile = it }
-            (signingValue("SIGNING_STORE_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD"))?.let { storePassword = it }
-            signingValue("SIGNING_KEY_ALIAS")?.let { keyAlias = it }
-            (signingValue("SIGNING_KEY_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD"))?.let { keyPassword = it }
+            releaseStoreFile?.takeIf { it.exists() }?.let { storeFile = it }
+            releaseStorePassword?.let { storePassword = it }
+            releaseKeyAlias?.let { keyAlias = it }
+            releaseKeyPassword?.let { keyPassword = it }
 
             enableV3Signing = true
             enableV4Signing = true
@@ -329,3 +352,34 @@ dependencies {
 //        }
 //    }
 }
+
+// ---- Release signing: fail-closed check ----
+// Release builds have no fallback signer: when any signing value is missing,
+// the release APK and AAB tasks fail before signing and name every missing
+// value. The check hangs on the signing tasks, not on preReleaseBuild, so unit
+// tests, debug builds and the pull-request check never need the keys.
+abstract class CheckReleaseSigning : DefaultTask() {
+    @get:Input
+    abstract val missing: ListProperty<String>
+
+    @TaskAction
+    fun check() {
+        val names = missing.get()
+        if (names.isNotEmpty()) {
+            throw GradleException(
+                "Release signing is not configured. Missing: ${names.joinToString(", ")}. " +
+                    "Set them as environment variables, -P properties or in android/local.properties " +
+                    "(see android/local.properties.example)."
+            )
+        }
+    }
+}
+
+val checkReleaseSigning = tasks.register<CheckReleaseSigning>("checkReleaseSigning") {
+    group = "verification"
+    description = "Fails when a release signing value is missing."
+    missing.set(missingReleaseSigning)
+}
+
+tasks.matching { it.name in setOf("validateSigningRelease", "packageRelease", "signReleaseBundle") }
+    .configureEach { dependsOn(checkReleaseSigning) }
