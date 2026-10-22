@@ -15,6 +15,9 @@ object ArticleListTestTags {
 
     /** Per-item tag, keyed by the article's stable [itemId]. */
     fun item(itemId: String): String = "articleList_item_$itemId"
+
+    /** Progress bar shown under the top bar while a Firestore sync runs. */
+    const val SYNC_INDICATOR = "articleList_syncIndicator"
 }
 
 /**
