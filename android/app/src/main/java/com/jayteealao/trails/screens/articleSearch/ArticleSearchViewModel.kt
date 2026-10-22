@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
-import com.jayteealao.trails.services.semanticSearch.modal.ModalClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CoroutineDispatcher
@@ -21,7 +20,6 @@ import javax.inject.Inject
 
 @HiltViewModel
 class ArticleSearchViewModel @Inject constructor(
-    private val modalClient: ModalClient,
     private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel(), Store<ArticleSearchState, ArticleSearchEvent> {
