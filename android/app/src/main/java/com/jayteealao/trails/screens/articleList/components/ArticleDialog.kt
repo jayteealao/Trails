@@ -21,7 +21,6 @@ import androidx.compose.ui.window.Dialog
 import com.jayteealao.trails.data.models.ArticleItem
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.Menu
-import compose.icons.cssggicons.Pocket
 import compose.icons.cssggicons.Share
 import compose.icons.cssggicons.Website
 
@@ -53,24 +52,11 @@ fun ArticleDialog(
                         Text(text = "2 mins")
                         Text(text = " 3600 words")
                     }
-                    Text(modifier = Modifier.align(Alignment.CenterHorizontally), text = "Summary")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = article.snippet ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Justify
-                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { /*TODO*/ }) {
-                            Icon(
-                                imageVector = CssGgIcons.Pocket,
-                                contentDescription = "Save to Pocket"
-                            )
-                        }
                         IconButton(onClick = { /*TODO*/ }) {
                             Icon(
                                 imageVector = CssGgIcons.Website,

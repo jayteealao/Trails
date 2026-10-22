@@ -193,7 +193,7 @@ fun ArticleListScreen(
                 )
             }
             ArticleDialog( // remove dialog or add to swipe buttons
-                article = viewStore.state.selectedArticle.copy(snippet = viewStore.state.selectedArticleSummary.summary),
+                article = viewStore.state.selectedArticle,
                 showDialog = viewStore.state.selectedArticle != EMPTYARTICLEITEM,
                 onDismissRequest = { viewStore.action { selectArticle(EMPTYARTICLEITEM) } }
             )
