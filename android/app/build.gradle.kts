@@ -207,10 +207,13 @@ dependencies {
     // Hilt Dependency Injection
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
-    // Hilt's annotation processor runs via KSP (above) for every source set,
-    // including androidTest and test. Registering it again through kapt for the
-    // test source sets made KSP and kapt each emit the Hilt factories, causing
-    // "duplicate class" build failures as soon as a test @Module is present.
+    // The `ksp` configuration covers the main source set only: without the
+    // kspAndroidTest line, kspDebugAndroidTestKotlin is skipped and every
+    // @HiltAndroidTest fails at runtime with a missing
+    // <Test>_TestComponentDataSupplier class. Do not register the processor
+    // through kapt as well: KSP and kapt would each emit the Hilt factories and
+    // fail the build with "duplicate class" errors.
+    kspAndroidTest(libs.hilt.compiler)
     androidTestImplementation(libs.hilt.android.testing)
     testImplementation(libs.hilt.android.testing)
 
