@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -69,6 +70,7 @@ import com.jayteealao.trails.screens.articleList.components.ArticleDialog
 import com.jayteealao.trails.screens.articleList.components.ArticleListItem
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import com.jayteealao.trails.testtags.ArticleListTestTags
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 import kotlinx.coroutines.launch
@@ -150,7 +152,8 @@ fun ArticleListScreen(
             LinearProgressIndicator(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(0.dp),
+                    .padding(0.dp)
+                    .testTag(ArticleListTestTags.SYNC_INDICATOR),
                 strokeCap = StrokeCap.Square,
             )
         }
@@ -193,7 +196,7 @@ fun ArticleListScreen(
                 )
             }
             ArticleDialog( // remove dialog or add to swipe buttons
-                article = viewStore.state.selectedArticle.copy(snippet = viewStore.state.selectedArticleSummary.summary),
+                article = viewStore.state.selectedArticle,
                 showDialog = viewStore.state.selectedArticle != EMPTYARTICLEITEM,
                 onDismissRequest = { viewStore.action { selectArticle(EMPTYARTICLEITEM) } }
             )

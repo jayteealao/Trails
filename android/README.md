@@ -11,7 +11,7 @@
 <p align="center">
   <img alt="Min SDK" src="https://img.shields.io/badge/min%20SDK-24-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-green" />
-  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white" />
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.4-7F52FF?logo=kotlin&logoColor=white" />
   <img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white" />
 </p>
 
@@ -71,8 +71,9 @@ Download the latest APK from [Releases](../../releases) and install it, or build
 | Tool | Version |
 |------|---------|
 | Android Studio | Ladybug or later |
-| JDK | 17 |
-| Gradle | 8.13 (wrapper included) |
+| JDK | 21 |
+| Gradle | 9.3.1 (wrapper included) |
+| Kotlin | 2.4.21 |
 
 ### Setup
 
@@ -98,6 +99,100 @@ Download the latest APK from [Releases](../../releases) and install it, or build
 # All tests
 ./gradlew test
 ```
+
+### Release signing
+
+Release builds are signed with the release key, and the release APK also carries a key-rotation lineage from the debug key. That lineage lets a release APK install as an update over a debug build of the app, so nothing on the device is lost.
+
+**The two keystores**
+
+| Keystore | Where it lives | Role |
+|----------|----------------|------|
+| Release keystore | Outside the repository, on the maintainer's machine; the `SIGNING_STORE_FILE_B64` CI secret holds a base64 copy | Signs the AAB. It is the APK's next signer, used by Android 13 and newer |
+| Debug keystore | `~/.android/debug.keystore`, the SDK's default; the `DEBUG_KEYSTORE_B64` CI secret holds a base64 copy | The APK's original signer, used by Android 7 to 12 and as the start of the lineage |
+
+Neither keystore is ever committed. `.jks`, `.keystore` and `.p12` files are git-ignored.
+
+**The lineage file**
+
+`app/trails.lineage` is committed. It holds the two certificates and the debug key's signature over the release certificate. It contains no private key. It was created once, from the debug keystore that signed the installed app and the release keystore, with:
+
+```bash
+apksigner rotate --out app/trails.lineage \
+  --old-signer --ks ~/.android/debug.keystore --ks-key-alias androiddebugkey --ks-pass pass:android \
+  --new-signer --ks <release keystore> --ks-key-alias <release alias>
+```
+
+Every release from now on must carry this lineage. Do not regenerate or replace the file. To check it, run `apksigner lineage --in app/trails.lineage --print-certs`. It lists two signers: the debug certificate, then the release certificate.
+
+**Configuring a release build**
+
+Set these values as environment variables, as `-P` Gradle properties, or in `android/local.properties`, which is checked in that order. `local.properties.example` lists every value.
+
+- `SIGNING_STORE_FILE`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD` are the release keystore and key.
+- `SIGNING_DEBUG_STORE_FILE` is the debug keystore. It defaults to `~/.android/debug.keystore`.
+- `SIGNING_LINEAGE_FILE` is the lineage. It defaults to `app/trails.lineage`.
+
+Then build:
+
+```bash
+./gradlew assembleRelease bundleRelease
+```
+
+`assembleRelease` packages the APK and then re-signs it with `apksigner` from build-tools 36.0.0. v1, v2 and v3 are signed by the debug key, and v3.1 by the release key with the lineage. It then verifies the APK and its `.idsig` before it replaces them. If any step fails, the APK is deleted and the build fails. The AAB is signed with the release key only.
+
+`packageRelease` on its own produces an APK without the lineage, so it is not a release build. Use `assembleRelease`, or `installRelease` to install from Gradle.
+
+**The fail rule**
+
+`assembleRelease` and `bundleRelease` have no fallback signer. When a value is missing, they fail before signing with one message that names every missing value:
+
+```text
+Release signing is not configured. Missing: SIGNING_STORE_FILE, SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD. Set them as environment variables, -P properties or in android/local.properties (see android/local.properties.example).
+```
+
+Debug builds and unit tests never need these values. That covers `assembleDebug`, `testDebugUnitTest`, `test` and the pull-request check.
+
+**CI secrets**
+
+The two release workflows (`manual-release.yml`, `release-on-tag.yml`) need two groups of repository secrets:
+
+- `SIGNING_STORE_FILE_B64` holds the base64 release keystore. `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD` go with it.
+- `DEBUG_KEYSTORE_B64` holds the base64 debug keystore: the same keystore whose certificate is the lineage's first signer.
+
+To create a base64 value, run `base64 -w0 < <keystore>` (on macOS, `base64 -i <keystore>`).
+
+**Devices below Android 13**
+
+The rotated key is used from Android 13 (API 33). On Android 7 to 12 the release APK is signed by the debug key, so it installs over a debug build there too, and those devices keep trusting only the debug key. A device below Android 13 therefore needs a one-time uninstall before it can move to a build signed by the release key alone. The uninstall deletes the app's data.
+
+**The rotation is one way**
+
+The lineage grants no rollback capability. After a release-signed build is installed on an Android 13 or newer device, an APK signed only by the debug key cannot install over it: Android refuses it with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. That covers the debug build from Android Studio, the pull-request check's debug APK and every release that was signed by the debug key before the rotation.
+
+- To run a debug build on that device again, uninstall the app first. The uninstall deletes the app's data.
+- To fix a bad release, ship a new release-signed build with a higher version code. Do not go back to an older release, and do not reinstall an APK from before the rotation.
+
+**Checking the signing setup without the real keys**
+
+Release builds need both keystores, so the harness generates throwaway ones under `app/build/signing-harness/` (git-ignored) and checks every case. It covers the signed outputs and their lineage, each missing or broken input, and the workflows' decode steps. Run it from the repository root:
+
+```bash
+bash android/scripts/release-signing-harness.sh        # all cases
+bash android/scripts/release-signing-harness.sh pass   # one case
+```
+
+The script runs `./gradlew clean` once before it generates the keys. Each case prints `PASS` or `FAIL`. Logs go to `.scratch/signing-harness/` at the repository root.
+
+To build a release against the throwaway keys by hand, run these commands from `android/`:
+
+```bash
+./gradlew :app:generateSigningHarness
+source app/build/signing-harness/harness.env
+./gradlew assembleRelease
+```
+
+Do not add `clean` to the last command, because `clean` deletes the throwaway keys.
 
 ## Firebase Backend Setup
 
@@ -201,9 +296,9 @@ Trails follows an **offline-first MVVM** architecture with the [Tartlet](https:/
 | **UI** | Jetpack Compose + Material 3 | `ArticleListScreen`, `ArticleDetailScreen` |
 | **State** | Tartlet `ViewStore<State, Event>` | `ArticleListViewModel`, `TagManagementViewModel` |
 | **Data** | Repository + Room + Firestore | `ArticleRepositoryImpl`, `ArticleDao` |
-| **Sync** | WorkManager background jobs | `FirestoreSyncWorker`, `SyncWorker` |
+| **Sync** | WorkManager background jobs | `FirestoreSyncWorker`, `FirestoreRestoreWorker` |
 | **DI** | Hilt | `NetworkModule`, `FirebaseModule` |
-| **Content** | Readability4J + Unfurl | `GetArticleWithTextUseCase` |
+| **Content** | Unfurl | `GetArticleWithTextUseCase` |
 
 ### Project structure
 
@@ -223,7 +318,6 @@ app/src/main/java/com/jayteealao/trails/
 │   └── theme/
 ├── services/        # Firebase, Gemini, sync
 ├── sync/            # WorkManager workers
-├── usecases/        # Business logic
 ├── IntentActivity.kt
 └── MainActivity.kt
 ```
@@ -234,12 +328,12 @@ app/src/main/java/com/jayteealao/trails/
 |----------|-----------|
 | UI | Jetpack Compose, Material 3, Navigation 3, Coil 3 |
 | Local data | Room (FTS4 search), DataStore, Paging 3 |
-| Networking | Retrofit 3, OkHttp 5, Ktor (Supabase) |
+| Networking | Retrofit 3, OkHttp 5 |
 | Firebase | Auth, Firestore, Gemini AI |
 | Background | WorkManager, Hilt Worker |
-| Content extraction | Readability4J, Unfurl, Crux |
+| Content extraction | Unfurl |
 | Testing | JUnit 4, MockK, Coroutines Test |
-| Build | Gradle 8.13, KSP, R8 |
+| Build | Gradle 9.3.1, KSP, R8 |
 
 ## Contributing
 

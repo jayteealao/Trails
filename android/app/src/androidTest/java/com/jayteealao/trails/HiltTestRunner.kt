@@ -38,8 +38,9 @@ class HiltTestRunner : AndroidJUnitRunner() {
      * The app removes the default `androidx.work.WorkManagerInitializer` from its manifest
      * and relies on on-demand initialization via `Trails : Configuration.Provider`
      * (see Trails.kt). Under `HiltTestApplication` that provider is absent, so the first
-     * `WorkManager.getInstance()` — reached transitively when the graph resolves
-     * `WorkManagerSyncStatusMonitor` — throws "WorkManager is not initialized properly".
+     * `WorkManager.getInstance()` — reached when `FirestoreSyncManager` or
+     * `ArticleRepositoryImpl.syncToFirestore` schedules background sync — throws
+     * "WorkManager is not initialized properly".
      * `initializeTestWorkManager` seeds a test WorkManager instance (its own default
      * Configuration, SynchronousExecutor) so `getInstance()` succeeds for both the
      * `@Before` graph build (ArticleGraphSmokeTest) and the activity-launch graph build

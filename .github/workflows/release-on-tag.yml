@@ -44,7 +44,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
-          packages: platform-tools platforms;android-37.0 build-tools;37.0.0
+          packages: platform-tools platforms;android-37.0 build-tools;37.0.0 build-tools;36.0.0
 
       - name: check for signing secrets
         id: has_signing
@@ -53,15 +53,26 @@ jobs:
         run: |
           if [ -n "$B64" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
 
-      # --- Optional: Decode keystore & expose signing to Gradle ---
-      - name: Decode keystore (optional)
+      # --- Decode keystores & expose signing to Gradle ---
+      # Required: a release build has no fallback signer, so when the signing
+      # secrets are missing these steps are skipped and the Gradle build fails
+      # with "Release signing is not configured".
+      - name: Decode keystore
         if: ${{ steps.has_signing.outputs.present == 'true' }}
         env:
           SIGNING_STORE_FILE_B64: ${{ secrets.SIGNING_STORE_FILE_B64 }}
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         run: |
           echo "$SIGNING_STORE_FILE_B64" | base64 -d > keystore.jks
+          # The release APK is re-signed with a key-rotation lineage whose
+          # original signer is the debug keystore, so CI needs it as well.
+          if [ -z "$DEBUG_KEYSTORE_B64" ]; then
+            echo "DEBUG_KEYSTORE_B64 is empty; the release signing lineage needs the debug keystore."
+            exit 1
+          fi
+          printf '%s' "$DEBUG_KEYSTORE_B64" | tr -d '\r\n\t ' | base64 -d > debug.keystore
 
-      - name: Write signing properties (optional)
+      - name: Write signing properties
         if: ${{ steps.has_signing.outputs.present == 'true' }}
         run: |
           {
@@ -69,6 +80,7 @@ jobs:
             echo "SIGNING_STORE_PASSWORD=${{ secrets.SIGNING_STORE_PASSWORD }}"
             echo "SIGNING_KEY_ALIAS=${{ secrets.SIGNING_KEY_ALIAS }}"
             echo "SIGNING_KEY_PASSWORD=${{ secrets.SIGNING_KEY_PASSWORD }}"
+            echo "SIGNING_DEBUG_STORE_FILE=$(pwd)/debug.keystore"
           } >> $GITHUB_ENV
 
       # --- Decode google-services.json ---

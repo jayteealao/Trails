@@ -14,11 +14,11 @@
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+-keepattributes SourceFile,LineNumberTable
 
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
-#-renamesourcefileattribute SourceFile
+-renamesourcefileattribute SourceFile
 
 #-keep class org.bouncycastle.** { *; }
 #-keep class org.conscrypt.** { *; }
@@ -37,10 +37,6 @@
 -dontwarn org.openjsse.net.ssl.OpenJSSE
 
 -dontwarn org.slf4j.impl.StaticLoggerBinder
-#-keep class com.jayteealao.trails.network.** { *; }
-#-keep interface com.jayteealao.trails.network.pocket.PocketService {
-#  *;
-#}
 #keep rules for the Retrofit 2.0 implementation
 #-keep class retrofit2.** { *; }
 #-keep class com.google.gson.** { *; }
@@ -128,10 +124,6 @@
 -keepclassmembers class com.jayteealao.trails.services.** { *; }
 
 # Retain service method parameters when optimizing.
--keep class com.skydoves.sandwich.adapters.ApiResponseCallAdapterFactory
--keep class com.skydoves.sandwich.** { *; }
--keep interface com.skydoves.sandwich.** { *; }
-
 -keepclassmembers,allowshrinking,allowobfuscation interface * {
     @retrofit2.http.* <methods>;
 }
