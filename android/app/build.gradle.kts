@@ -453,11 +453,13 @@ abstract class ResignReleaseApk @Inject constructor(
                 "--lib-page-alignment", "16384",
                 "--out", signed.path, apk.path,
             )
-            val report = apksigner(tool, "verify", "-v", "--print-certs", signed.path)
-            if (report.lines().none { it.trim() == "Verified using v3.1 scheme (APK Signature Scheme v3.1): true" }) {
-                throw GradleException("The re-signed APK has no verified v3.1 signature:\n$report")
+            // One verify run covers every scheme, the v4 .idsig included.
+            val report = apksigner(tool, "verify", "-v", "--print-certs", "--v4-signature-file", signedIdsig.path, signed.path)
+            for (scheme in listOf("v3.1 scheme (APK Signature Scheme v3.1)", "v4 scheme (APK Signature Scheme v4)")) {
+                if (report.lines().none { it.trim() == "Verified using $scheme: true" }) {
+                    throw GradleException("The re-signed APK is not verified using $scheme:\n$report")
+                }
             }
-            apksigner(tool, "verify", "--v4-signature-file", signedIdsig.path, signed.path)
             signed.copyTo(apk, overwrite = true)
             signedIdsig.copyTo(idsig, overwrite = true)
         } catch (e: Exception) {

@@ -261,14 +261,16 @@ case_workflow_steps() {
       export SIGNING_STORE_FILE_B64; SIGNING_STORE_FILE_B64=$(base64 -w0 < "${h[SIGNING_STORE_FILE]}")
       export DEBUG_KEYSTORE_B64; DEBUG_KEYSTORE_B64=$(base64 -w0 < "${h[SIGNING_DEBUG_STORE_FILE]}")
       export SIGNING_STORE_PASSWORD="${h[SIGNING_STORE_PASSWORD]}" SIGNING_KEY_ALIAS="${h[SIGNING_KEY_ALIAS]}" SIGNING_KEY_PASSWORD="${h[SIGNING_KEY_PASSWORD]}"
-      bash -e decode.sh && bash -e export.sh
+      # GitHub Actions runs bash steps as `bash -eo pipefail`.
+      bash -eo pipefail decode.sh && bash -eo pipefail export.sh
     ) >> "$LOG" 2>&1 || fail "$wf: the decode or export step failed"
     cmp -s "$dir/keystore.jks" "${h[SIGNING_STORE_FILE]}" || fail "$wf: keystore.jks differs from the harness release keystore"
     cmp -s "$dir/debug.keystore" "${h[SIGNING_DEBUG_STORE_FILE]}" || fail "$wf: debug.keystore differs from the harness debug keystore"
     grep -qx "SIGNING_DEBUG_STORE_FILE=$dir/debug.keystore" "$dir/github.env" || fail "$wf: SIGNING_DEBUG_STORE_FILE not exported"
     note "--- $wf exported names: $(sed 's/=.*//' "$dir/github.env" | tr '\n' ' ')"
     # Caught: an empty debug-keystore secret stops the decode step.
-    if (cd "$dir" && SIGNING_STORE_FILE_B64=x DEBUG_KEYSTORE_B64='' bash -e decode.sh) > "$dir/empty.out" 2>&1; then
+    if (cd "$dir" && SIGNING_STORE_FILE_B64=$(base64 -w0 < "${h[SIGNING_STORE_FILE]}") DEBUG_KEYSTORE_B64='' \
+        bash -eo pipefail decode.sh) > "$dir/empty.out" 2>&1; then
       fail "$wf: the decode step passed with an empty DEBUG_KEYSTORE_B64"
     fi
     grep -q 'DEBUG_KEYSTORE_B64 is empty' "$dir/empty.out" || fail "$wf: no message for an empty DEBUG_KEYSTORE_B64"
