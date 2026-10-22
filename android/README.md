@@ -11,7 +11,7 @@
 <p align="center">
   <img alt="Min SDK" src="https://img.shields.io/badge/min%20SDK-24-blue" />
   <img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-green" />
-  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white" />
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-2.4-7F52FF?logo=kotlin&logoColor=white" />
   <img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white" />
 </p>
 
@@ -71,8 +71,9 @@ Download the latest APK from [Releases](../../releases) and install it, or build
 | Tool | Version |
 |------|---------|
 | Android Studio | Ladybug or later |
-| JDK | 17 |
-| Gradle | 8.13 (wrapper included) |
+| JDK | 21 |
+| Gradle | 9.3.1 (wrapper included) |
+| Kotlin | 2.4.21 |
 
 ### Setup
 
@@ -239,7 +240,7 @@ app/src/main/java/com/jayteealao/trails/
 | Background | WorkManager, Hilt Worker |
 | Content extraction | Readability4J, Unfurl, Crux |
 | Testing | JUnit 4, MockK, Coroutines Test |
-| Build | Gradle 8.13, KSP, R8 |
+| Build | Gradle 9.3.1, KSP, R8 |
 
 ## Contributing
 
