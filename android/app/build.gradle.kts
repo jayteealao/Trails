@@ -47,19 +47,14 @@ android {
 
     signingConfigs {
         create("release") {
+            // Values are set only when present. A missing value fails the
+            // release build in checkReleaseSigning (below) with one message
+            // naming every missing value; there is no fallback to debug signing.
             val storeFilePath = signingValue("SIGNING_STORE_FILE") ?: signingValue("KEYSTORE_FILE")
-            val keystoreFile = storeFilePath?.let { project.file(it) }
-
-            if (keystoreFile != null && keystoreFile.exists()) {
-                storeFile = keystoreFile
-                storePassword = signingValue("SIGNING_STORE_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD")
-                keyAlias = signingValue("SIGNING_KEY_ALIAS")
-                keyPassword = signingValue("SIGNING_KEY_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD")
-            } else {
-                // Tried env vars, gradle properties, and android/local.properties.
-                println("WARNING: No release keystore configured. Using debug signing. See android/local.properties.example.")
-                storeFile = null
-            }
+            storeFilePath?.let { project.file(it) }?.takeIf { it.exists() }?.let { storeFile = it }
+            (signingValue("SIGNING_STORE_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD"))?.let { storePassword = it }
+            signingValue("SIGNING_KEY_ALIAS")?.let { keyAlias = it }
+            (signingValue("SIGNING_KEY_PASSWORD") ?: signingValue("KEYSTORE_PASSWORD"))?.let { keyPassword = it }
 
             enableV3Signing = true
             enableV4Signing = true
@@ -90,16 +85,7 @@ android {
             isShrinkResources = true
             isDebuggable = false
 //            isProfileable = true
-            signingConfig = signingConfigs.getByName("debug")
-//             Use release signing if available, otherwise fall back to debug signing
-//            val releaseSigningConfig = signingConfigs.findByName("release")
-//            if (releaseSigningConfig?.storeFile != null) {
-//                signingConfig = releaseSigningConfig
-//                println("Using release signing configuration")
-//            } else {
-//                signingConfig = signingConfigs.getByName("debug")
-//                println("WARNING: Using debug signing for release build")
-//            }
+            signingConfig = signingConfigs.getByName("release")
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
