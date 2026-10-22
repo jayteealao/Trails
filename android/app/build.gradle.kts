@@ -1,5 +1,7 @@
 import com.android.build.api.artifact.SingleArtifact
 import java.io.ByteArrayOutputStream
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.Properties
 import javax.inject.Inject
 import org.gradle.process.ExecOperations
@@ -506,4 +508,93 @@ androidComponents {
         tasks.matching { it.name == "assembleRelease" || it.name == "installRelease" }
             .configureEach { dependsOn(resign) }
     }
+}
+
+// ---- Release signing: throwaway-key harness ----
+// Generates a debug-like keystore (androiddebugkey / android, like the SDK's
+// debug keystore), a release-like and an unrelated keystore with random
+// passwords, the lineages debug-like -> release-like (harness.lineage) and
+// debug-like -> other (other.lineage), and harness.env with the SIGNING_*
+// exports for the harness keys. Everything stays under app/build/ and is
+// regenerated on each run; android/scripts/release-signing-harness.sh drives
+// the release build against it. The real keystores are never needed.
+abstract class GenerateSigningHarness @Inject constructor(
+    private val exec: ExecOperations,
+) : DefaultTask() {
+    @get:OutputDirectory
+    abstract val outDir: DirectoryProperty
+
+    @get:Internal
+    abstract val keytool: RegularFileProperty
+
+    @get:Internal
+    abstract val apksigner: RegularFileProperty
+
+    @TaskAction
+    fun generate() {
+        val dir = outDir.get().asFile
+        dir.listFiles()?.forEach { it.deleteRecursively() }
+        val random = SecureRandom()
+        fun password() = ByteArray(18).also { random.nextBytes(it) }
+            .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
+        val passwords = mapOf(
+            "HARNESS_DEBUG_PASS" to "android",
+            "HARNESS_RELEASE_PASS" to password(),
+            "HARNESS_OTHER_PASS" to password(),
+        )
+        fun run(tool: File, vararg args: String) {
+            exec.exec {
+                commandLine(listOf(tool.path) + args)
+                environment(passwords)
+            }
+        }
+        fun keystore(name: String, alias: String, passVar: String, cn: String) = File(dir, name).also {
+            run(
+                keytool.get().asFile, "-genkeypair", "-noprompt",
+                "-keystore", it.path, "-storetype", "PKCS12", "-alias", alias,
+                "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-dname", "CN=$cn",
+                "-storepass:env", passVar, "-keypass:env", passVar,
+            )
+        }
+        val debugLike = keystore("debug-like.keystore", "androiddebugkey", "HARNESS_DEBUG_PASS", "Harness Debug")
+        val releaseLike = keystore("release-like.jks", "release-like", "HARNESS_RELEASE_PASS", "Harness Release")
+        val other = keystore("other.jks", "other", "HARNESS_OTHER_PASS", "Harness Other")
+        fun rotate(out: String, next: File, alias: String, passVar: String) = run(
+            apksigner.get().asFile, "rotate", "--out", File(dir, out).path,
+            "--old-signer", "--ks", debugLike.path, "--ks-key-alias", "androiddebugkey",
+            "--ks-pass", "env:HARNESS_DEBUG_PASS", "--key-pass", "env:HARNESS_DEBUG_PASS",
+            "--new-signer", "--ks", next.path, "--ks-key-alias", alias,
+            "--ks-pass", "env:$passVar", "--key-pass", "env:$passVar",
+        )
+        rotate("harness.lineage", releaseLike, "release-like", "HARNESS_RELEASE_PASS")
+        rotate("other.lineage", other, "other", "HARNESS_OTHER_PASS")
+        fun path(f: File) = f.absolutePath.replace('\\', '/')
+        File(dir, "harness.env").writeText(
+            """
+            export SIGNING_STORE_FILE='${path(releaseLike)}'
+            export SIGNING_STORE_PASSWORD='${passwords.getValue("HARNESS_RELEASE_PASS")}'
+            export SIGNING_KEY_ALIAS='release-like'
+            export SIGNING_KEY_PASSWORD='${passwords.getValue("HARNESS_RELEASE_PASS")}'
+            export SIGNING_DEBUG_STORE_FILE='${path(debugLike)}'
+            export SIGNING_LINEAGE_FILE='${path(File(dir, "harness.lineage"))}'
+            """.trimIndent() + "\n"
+        )
+        logger.lifecycle("Signing harness written to ${path(dir)}")
+    }
+}
+
+tasks.register<GenerateSigningHarness>("generateSigningHarness") {
+    group = "verification"
+    description = "Generates throwaway debug-like and release-like keystores and a lineage under app/build/signing-harness."
+    val windows = providers.systemProperty("os.name").get().startsWith("Windows")
+    val buildTools = android.buildToolsVersion
+    outDir.set(layout.buildDirectory.dir("signing-harness"))
+    keytool.set(
+        layout.file(providers.systemProperty("java.home").map { File(it, if (windows) "bin/keytool.exe" else "bin/keytool") })
+    )
+    apksigner.set(
+        androidComponents.sdkComponents.sdkDirectory
+            .map { it.file("build-tools/$buildTools/${if (windows) "apksigner.bat" else "apksigner"}") }
+    )
+    doNotTrackState("throwaway keys are regenerated on every run")
 }
