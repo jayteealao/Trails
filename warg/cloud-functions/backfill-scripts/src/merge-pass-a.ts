@@ -37,6 +37,8 @@ export interface MergeOptions {
   readonly pageSize?: number;
   /** Test hook: stop after this write phase, as a crash would. */
   readonly stopAfterPhase?: 1 | 2;
+  /** Test hook: runs after the winner markers are flushed and before any link moves. */
+  readonly afterMarkers?: () => Promise<void>;
 }
 
 export interface MergeResult {
@@ -142,8 +144,8 @@ export function toSharedDocView(snap: QueryDocumentSnapshot<DocumentData>): Shar
  *
  * Reads every shared article and, when any group has a loser, every user
  * article; plans every change in memory; and, with `apply`, writes it in three
- * phases: (1) winner archives and every `normalizedUrl`, (2) user
- * `canonicalId` and winner markers, (3) loser `mergedInto`. Each planned write
+ * phases: (1) winner archives and every `normalizedUrl`, (2) winner markers,
+ * then user `canonicalId`, (3) loser `mergedInto`. Each planned write
  * differs from the stored value, so a re-run writes nothing and a stopped run
  * is finished by running it again. Never deletes.
  */
@@ -191,6 +193,7 @@ export async function runMergePassA(db: Firestore, options: MergeOptions): Promi
         linkMoves,
         markerAdds,
         options.stopAfterPhase,
+        options.afterMarkers,
       )
     : 0;
 
@@ -259,6 +262,7 @@ async function writePlan(
   linkMoves: readonly LinkMove[],
   markerAdds: readonly MarkerNeed[],
   stopAfterPhase: 1 | 2 | undefined,
+  afterMarkers: (() => Promise<void>) | undefined,
 ): Promise<number> {
   let errors = 0;
   const writer: BulkWriter = db.bulkWriter();
@@ -290,12 +294,8 @@ async function writePlan(
     await writer.flush();
     if (stopAfterPhase === 1) return errors;
 
-    // Phase 2: user links move to the winner, with a winner marker.
-    for (const move of linkMoves) {
-      writer
-        .update(userArticlesCollection(db, move.uid).doc(move.itemId), 'canonicalId', move.to)
-        .catch(ignore);
-    }
+    // Phase 2: winner markers first, flushed, then the user links move, so no
+    // link names a winner its user holds no marker for.
     for (const add of markerAdds) {
       writer
         .set(
@@ -303,6 +303,13 @@ async function writePlan(
           markerBody(add.key, add.itemId, MERGE_MARKER_SOURCE),
           { merge: true },
         )
+        .catch(ignore);
+    }
+    await writer.flush();
+    if (afterMarkers) await afterMarkers();
+    for (const move of linkMoves) {
+      writer
+        .update(userArticlesCollection(db, move.uid).doc(move.itemId), 'canonicalId', move.to)
         .catch(ignore);
     }
     await writer.flush();
