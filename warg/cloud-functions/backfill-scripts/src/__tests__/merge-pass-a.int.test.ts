@@ -305,6 +305,60 @@ describe('duplicate merge (emulator)', () => {
     expect(await comparableState()).toEqual(oneShot);
   });
 
+  it('writes every winner marker before any user link moves', async () => {
+    await seed();
+    await runMergePassA(db, { apply: true });
+    const oneShot = await comparableState();
+
+    await clearEmulator();
+    await seed();
+    const planned = await runMergePassA(db, { apply: false });
+    expect(planned.markerAdds.length).toBeGreaterThan(0);
+    expect(planned.linkMoves.length).toBeGreaterThan(0);
+    const linkBefore = new Map<string, unknown>();
+    for (const move of planned.linkMoves) {
+      const snap = await userArticlesCollection(db, move.uid).doc(move.itemId).get();
+      linkBefore.set(`${move.uid}/${move.itemId}`, snap.get('canonicalId'));
+    }
+
+    const seen: { markers: Array<[string, string, unknown]>; links: Array<[string, unknown]> } = {
+      markers: [],
+      links: [],
+    };
+    const result = await runMergePassA(db, {
+      apply: true,
+      afterMarkers: async () => {
+        for (const add of planned.markerAdds) {
+          const marker = await markersCollection(db, add.uid).doc(add.key).get();
+          seen.markers.push([add.uid, add.key, marker.exists ? marker.get('source') : undefined]);
+        }
+        for (const move of planned.linkMoves) {
+          const snap = await userArticlesCollection(db, move.uid).doc(move.itemId).get();
+          seen.links.push([`${move.uid}/${move.itemId}`, snap.get('canonicalId')]);
+        }
+      },
+    });
+    expect(result.errors).toBe(0);
+
+    // Between the two flushes: every planned winner marker exists, and no link has moved yet.
+    expect(seen.markers).toHaveLength(planned.markerAdds.length);
+    expect(seen.markers).toEqual(
+      expect.arrayContaining([
+        [USER_A, 'g1old', MERGE_MARKER_SOURCE],
+        [USER_A, 'g2old', MERGE_MARKER_SOURCE],
+        [USER_B, 'g2old', MERGE_MARKER_SOURCE],
+      ]),
+    );
+    for (const [, , source] of seen.markers) expect(source).toBe(MERGE_MARKER_SOURCE);
+    expect(seen.links).toHaveLength(planned.linkMoves.length);
+    for (const [path, link] of seen.links) expect(link).toBe(linkBefore.get(path));
+    expect(linkBefore.get(`${USER_A}/a-g2`)).toBe('g2young');
+    expect(linkBefore.get(`${USER_A}/a-g1`)).toBeUndefined();
+    expect(linkBefore.get(`${USER_B}/g2mid`)).toBeUndefined();
+
+    expect(await comparableState()).toEqual(oneShot);
+  });
+
   it('adds a missing winner marker for an article already linked to the winner', async () => {
     await seed();
     await userArticlesCollection(db, USER_B).doc('b-g1').set({ itemId: 'b-g1', canonicalId: 'g1old' });
