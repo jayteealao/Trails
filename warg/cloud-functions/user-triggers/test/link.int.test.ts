@@ -3,7 +3,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { handleUserArticleCreated } from '../src/handler.js';
+import { handleUserArticleCreated, RETRY_WINDOW_MS } from '../src/handler.js';
 import type { BeginArchive } from '../src/handler.js';
 import { clearEmulator, createTestDb, destroyTestDb } from './emulator.js';
 import type { TestDb } from './emulator.js';
@@ -60,7 +60,7 @@ async function sharedByNormalizedUrl(normalizedUrl: string) {
 }
 
 describe('server-owned link trigger', () => {
-  it('links a second user to an existing shared article without touching its archives (AC-6)', async () => {
+  it('links a second user to an existing shared article without touching its archives', async () => {
     const url = 'https://example.com/ac6-story?utm_source=newsletter';
     const n = normalizeUrl(url);
     const archives = {
@@ -95,7 +95,7 @@ describe('server-owned link trigger', () => {
     expect(await db.collection('articles').get()).toHaveProperty('size', 1);
   });
 
-  it('gives one shared article, one marker and one archive start for a retried event (AC-7, sequential)', async () => {
+  it('gives one shared article, one marker and one archive start for a retried event, run one after the other', async () => {
     const url = 'https://example.com/ac7-sequential';
     const begin = beginStub();
     const data = await seedUserArticle(USER_A, 'itemAAAA0007', url);
@@ -114,7 +114,7 @@ describe('server-owned link trigger', () => {
     expect((await userArticle(USER_A, 'itemAAAA0007').get()).get('archival_triggered')).toBe(true);
   });
 
-  it('gives one shared article, one marker and one archive start for a retried event (AC-7, concurrent)', async () => {
+  it('gives one shared article, one marker and one archive start for a retried event, run at the same time', async () => {
     const url = 'https://example.com/ac7-concurrent';
     const begin = beginStub();
     const data = await seedUserArticle(USER_A, 'itemAAAA0077', url);
@@ -158,7 +158,7 @@ describe('server-owned link trigger', () => {
   });
 
   it.each([['short01'], ['bad.id.with.dots']])(
-    'creates nothing and records an error for the invalid id %s (AC-8)',
+    'creates nothing and records an error for the invalid id %s',
     async (itemId) => {
       const begin = beginStub();
       const data = await seedUserArticle(USER_A, itemId, 'https://example.com/ac8');
@@ -261,5 +261,50 @@ describe('server-owned link trigger', () => {
     expect((await userArticle(USER_A, 'itemNoUrl001').get()).get('error')).toBe('Missing URL');
     expect((await db.collection('articles').get()).size).toBe(0);
     expect(begin.calls).toHaveLength(0);
+  });
+
+  it('throws inside the retry window when the archive start fails, and the retried event starts it', async () => {
+    const data = await seedUserArticle(USER_A, 'itemRetry001', 'https://example.com/retry');
+    const failing: BeginArchive = async () => {
+      throw new Error('gateway unavailable');
+    };
+    const now = Date.now();
+
+    await expect(
+      handleUserArticleCreated(
+        { db, userId: USER_A, itemId: 'itemRetry001', data, eventTimeMs: now },
+        { beginArchive: failing, nowMs: () => now },
+      ),
+    ).rejects.toThrow('gateway unavailable');
+    const pending = (await db.collection('articles').doc('itemRetry001').get()).data()!;
+    expect(pending['status']).toBe('pending');
+    expect((await userArticle(USER_A, 'itemRetry001').get()).get('canonicalId')).toBe('itemRetry001');
+
+    const begin = beginStub();
+    expect(
+      await handleUserArticleCreated(
+        { db, userId: USER_A, itemId: 'itemRetry001', data, eventTimeMs: now },
+        { beginArchive: begin, nowMs: () => now + 1000 },
+      ),
+    ).toBe('already-linked');
+    expect(begin.calls).toEqual([{ request_id: 'itemRetry001' }]);
+    expect((await db.collection('articles').doc('itemRetry001').get()).get('status')).toBe('processing');
+  });
+
+  it('records the failure once the retry window has passed', async () => {
+    const data = await seedUserArticle(USER_A, 'itemRetry002', 'https://example.com/retry-late');
+    const failing: BeginArchive = async () => {
+      throw new Error('gateway unavailable');
+    };
+    const eventTimeMs = Date.now();
+
+    expect(
+      await handleUserArticleCreated(
+        { db, userId: USER_A, itemId: 'itemRetry002', data, eventTimeMs },
+        { beginArchive: failing, nowMs: () => eventTimeMs + RETRY_WINDOW_MS },
+      ),
+    ).toBe('error');
+    expect((await db.collection('articles').doc('itemRetry002').get()).get('status')).toBe('failed');
+    expect((await userArticle(USER_A, 'itemRetry002').get()).get('error')).toBe('gateway unavailable');
   });
 });

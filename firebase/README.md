@@ -25,8 +25,11 @@ The rules deploy only through the Warg deploy script, from `warg/`:
 ```bash
 pnpm run deploy -- --functions-only --with-rules   # the functions, then the rules
 pnpm run deploy -- --rules-only                    # the rules and nothing else
-pnpm deploy:all                                    # workers, functions, rules and the dashboard
+pnpm run deploy -- --all --with-rules              # workers, functions, rules and the dashboard
 ```
+
+`--all` (and `pnpm deploy:all`) never deploys the rules; they go out only with
+an explicit `--with-rules`.
 
 The rules step reads the grace end from the released Firestore rules and keeps
 it; on the first stamped deploy (the released rules hold no stamped grace end)
@@ -43,6 +46,29 @@ Never deploy these rules by hand, from the Firebase Console or from CI: the
 released Firestore rules carry the grace end, and a deploy of the unstamped
 file would lose it (the next scripted deploy would then start a new 30-day
 period).
+
+### Ship order for the server-owned links
+
+The rules that refuse client `canonicalId` writes and tie a marker to the
+server's link must go out in this order:
+
+1. **The app release that no longer writes markers** reaches the phones first.
+   An older build backs up a new article and its marker in one batch; the rules
+   check the marker against the user article as it was before the batch, where
+   the article does not exist yet, so they refuse the marker and with it the
+   whole batch. An older build therefore stops backing up new articles once
+   these rules are live, for as long as it stays installed (the grace period
+   does not help it).
+2. **The functions** (save trigger, readers), then the duplicate merge
+   (`merge-pass-a`) and the link re-derive (`rederive-pass-b`), each after its
+   reviewed dry run (`../warg/README.md`).
+3. **The rules**, with `pnpm run deploy -- --functions-only --with-rules`.
+
+The link re-derive is a required step, not a clean-up: the read rule only asks
+that a marker exists, and markers that older rules let any signed-in user write
+under any key keep opening their shared article until the re-derive removes
+them. Run it (step 2) before the rules deploy, and run its dry run again after
+the rules deploy to check that it plans no marker removal.
 
 ## Article markers & sequenced read tightening
 
@@ -79,22 +105,22 @@ write too; this already happens during the grace period for any article whose
 end. Updating the app is the only fix; the rules keep no path for older builds.
 See [`shared-types/MarkerSchema.md`](../shared-types/MarkerSchema.md#grace-period-for-older-app-builds).
 
-### Two-push deploy sequence (load-bearing — the tightening is fail-safe only in this order)
+### Two-push deploy sequence (historical, shipped 2026-06)
 
-This is how the read-flip shipped, when CI still deployed the rules on
-every push to `main`. Rules now deploy only through `warg/scripts/deploy.sh`
-(see Deploying); CI runs the tests and deploys nothing, so "push" below reads
-"deploy with the script" today.
+This records how the marker-gated read first shipped, when CI still deployed
+the rules on every push to `main` and the app still wrote markers. Neither is
+true today: rules deploy only through `warg/scripts/deploy.sh` (see Deploying)
+and markers are server-written (see Ship order above). Do not follow these
+steps for a new deploy.
 
-The marker infrastructure (the `articleMarkers` / owner-scoped `debug_logs`
-rules, the Android marker writes + self-heal, and the emulator harness) is
-**additive and deploy-safe**: it leaves the `articles` read permissive. The
-read-flip is the only breaking change, so it is split off as its own push:
+The marker infrastructure of that release (the `articleMarkers` and
+owner-scoped `debug_logs` rules and the emulator harness) was additive and
+deploy-safe: it left the `articles` read permissive. The read-flip was the only
+breaking change, so it was split off as its own push:
 
-1. **Push 1 — additive infrastructure.** Merge everything *except* the read-flip
-   commit. `firebase-rules.yml` runs the emulator suite then deploys the
-   still-permissive ruleset (`articles` read = `isAuthenticated()`). No reads
-   break.
+1. **Push 1 — additive infrastructure.** Everything except the read-flip
+   commit, with the still-permissive ruleset (`articles` read =
+   `isAuthenticated()`). No reads broke.
 2. **Run the prod backfill + wait for the coverage gate to go green** against the
    deployed infra (runbook:
    [`../warg/cloud-functions/backfill-scripts/README.md`](../warg/cloud-functions/backfill-scripts/README.md)):
@@ -103,10 +129,9 @@ read-flip is the only breaking change, so it is split off as its own push:
    coverage-gate   --user <uid>             # must exit 0 (markers ≥ every derived article key)
    ```
    The gate is a **hard precondition**: do not proceed until it exits 0.
-3. **Push 2 — the read-flip commit alone.** Merge the `firestore.rules` flip.
-   `firebase-rules.yml` runs the suite (now including the tightened `articles`
-   matrix) then deploys the tightened rule. Propagation: ~1 min for new requests,
-   up to ~10 min for active listeners.
+3. **Push 2 — the read-flip commit alone.** The `firestore.rules` flip, after
+   the suite (including the tightened `articles` matrix) passed. Propagation:
+   ~1 min for new requests, up to ~10 min for active listeners.
 
 ### Prior-ruleset snapshot (rollback reference)
 
@@ -147,8 +172,8 @@ service cloud.firestore {
 
 ### Rollback
 
-Firestore rules have **no native rollback** — redeploy the prior ruleset by
-reverting and deploying again with the script (from `warg/`):
+Firestore rules have **no native rollback** — redeploy an earlier rule with the
+script (from `warg/`, ~1 min for new requests, ~10 min for active listeners):
 
 ```bash
 git revert <commit>                                  # restores the previous rules file
@@ -159,13 +184,17 @@ pnpm run deploy -- --rules-only                      # the rules only: no worker
 firebase and gcloud sign-in checks and the released-ruleset hash check still run.
 Add `--skip-checks` to skip the workspace typecheck and tests in an emergency.
 
-The deploy reuses the grace end of the released rules, so a rollback never
-moves it.
+The script refuses a `firestore.rules` that does not hold the grace placeholder
+(`timestamp.value(0); // __GRACE_END_MS__`) exactly once, and a file from before
+the server-owned links has none. So when the commit to revert is older than the
+server-owned links, roll back by editing the current file, not by reverting it
+whole: to let older app builds back up again, restore the earlier body of the
+`articleMarkers` write rule (an owner may write a marker whose `itemId` names one
+of their articles) and keep the `markerGraceEnd()` line as it is. The deploy
+reuses the grace end of the released rules, so a rollback never moves it.
 
-`git revert` of the flip commit restores the **push-1** ruleset (additive infra
-present, `articles` read permissive) — the correct fail-safe state, since markers
-remain in place. The snapshot above is the deeper pre-branch baseline, kept only
-as a recovery reference if a full rollback is ever needed.
+The snapshot above is the deeper pre-marker baseline, kept only as a recovery
+reference; it holds no placeholder, so the script will not deploy it as is.
 
 ## Archive content reads (GCS bucket lockdown)
 
@@ -177,7 +206,8 @@ public bucket binding:
 - The app calls `GET /app/signed-url?itemId=…&archiveKey=…` on the `dashboardApi`
   Cloud Function with an `Authorization: Bearer <Firebase ID token>` header.
 - The endpoint verifies the token (anonymous sign-ins rejected), confirms the
-  caller owns `users/{uid}/articles/{itemId}`, and returns a short-lived
+  caller owns `users/{uid}/articles/{itemId}` and holds the server marker of
+  the shared article that article links to, and returns a short-lived
   (15-minute) V4 signed read URL. The app then GETs the object directly — no
   Google-account / GCS OAuth scope is involved anymore.
 - The bucket no longer grants `allAuthenticatedUsers → roles/storage.objectViewer`,

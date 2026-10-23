@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Timestamp } from 'firebase-admin/firestore';
 import { chooseSharedCandidate, isValidSharedId, withAlreadyExistsRetry } from '../link.js';
 import { onUserArticleSave } from '../index.js';
+import { RETRY_WINDOW_MS, withinRetryWindow } from '../handler.js';
 
 test('isValidSharedId accepts 8 to 40 safe characters only', () => {
   assert.equal(isValidSharedId('a'.repeat(7)), false);
@@ -101,4 +102,16 @@ test('onUserArticleSave fires on the creation of a user article', () => {
   assert.ok(trigger);
   assert.equal(trigger.eventType, 'google.cloud.firestore.document.v1.created');
   assert.equal(trigger.eventFilterPathPatterns?.['document'], 'users/{userId}/articles/{itemId}');
+});
+
+test('onUserArticleSave is deployed with retry on', () => {
+  assert.equal(onUserArticleSave.__endpoint.eventTrigger?.retry, true);
+});
+
+test('withinRetryWindow retries a recent event only', () => {
+  const now = 10 * RETRY_WINDOW_MS;
+  assert.equal(withinRetryWindow(now - 1000, now), true);
+  assert.equal(withinRetryWindow(now - RETRY_WINDOW_MS, now), false);
+  assert.equal(withinRetryWindow(undefined, now), false);
+  assert.equal(withinRetryWindow(Number.NaN, now), false);
 });

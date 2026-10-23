@@ -230,3 +230,48 @@ test('isDeleted: deletedAt or the legacy deleted_at, when non-null', () => {
   assert.equal(isDeleted({ deletedAt: 5 }), true);
   assert.equal(isDeleted({ deleted_at: 5 }), true);
 });
+
+test('planUser: an id conflict keeps the itemId marker of the user\'s own legacy shared article', () => {
+  // articles/itemAAAA1 was created for the first URL; the user article's URL changed since.
+  const index = buildIndex([shared('itemAAAA1', 'https://ex.com/first', 1, { hasSuccessArchive: true })]);
+  const plan = planUser(
+    index,
+    user([article('itemAAAA1', 'https://ex.com/second')], [{ key: 'itemAAAA1', source: 'sync', itemId: 'itemAAAA1' }]),
+  );
+  assert.deepEqual(plan.anomalies.map((a) => a.kind), ['id-conflict']);
+  assert.deepEqual(plan.markerRemovals, []);
+  assert.deepEqual(plan.creates, []);
+});
+
+test('planUser: an invalid id keeps a marker keyed by that id', () => {
+  const plan = planUser(
+    buildIndex([]),
+    user([article('short01', 'https://ex.com/z')], [{ key: 'short01', source: 'sync', itemId: 'short01' }]),
+  );
+  assert.deepEqual(plan.anomalies.map((a) => a.kind), ['invalid-id']);
+  assert.deepEqual(plan.markerRemovals, []);
+});
+
+test('planUser: a removed marker on a shared article with a finished archive is flagged archiveLoss', () => {
+  const index = buildIndex([
+    shared('foreignAA3', 'https://ex.com/f', 1, { hasSuccessArchive: true }),
+    shared('foreignAA4', 'https://ex.com/g', 1),
+  ]);
+  const plan = planUser(
+    index,
+    user(
+      [],
+      [
+        { key: 'foreignAA3', source: 'sync', itemId: 'nothing01' },
+        { key: 'foreignAA4', source: 'sync', itemId: 'nothing01' },
+      ],
+    ),
+  );
+  assert.deepEqual(
+    plan.markerRemovals.map((m) => [m.key, m.archiveLoss]),
+    [
+      ['foreignAA3', true],
+      ['foreignAA4', false],
+    ],
+  );
+});

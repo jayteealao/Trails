@@ -1,11 +1,13 @@
 # @warg/backfill-scripts
 
-Operator-run Admin-SDK maintenance CLIs that make the tightened top-level
-`articles` read rule safe to deploy. The Admin SDK bypasses Firestore security
+Operator-run Admin-SDK maintenance CLIs for the shared articles, their links
+and the markers that open them. The Admin SDK bypasses Firestore security
 rules, so these run as a trusted operator (via ADC), never as the app.
 
-Three independent scripts share a small pure core (`keys` / `coverage` /
-`classify`):
+Five scripts. Three are per-user (`marker-backfill`, `coverage-gate`,
+`debug-logs-cleanup`) and share a small pure core (`keys` / `coverage` /
+`classify`); two run over the whole project (`merge-pass-a`,
+`rederive-pass-b`):
 
 | Script | What it does | Destructive? |
 | ------ | ------------ | ------------ |
@@ -66,7 +68,10 @@ want the emulator.
 
 ## CLI flags
 
-All three scripts accept:
+The three per-user scripts (`marker-backfill`, `coverage-gate`,
+`debug-logs-cleanup`) accept the flags below. `merge-pass-a` and
+`rederive-pass-b` take no `--user` and no `--limit`; their flags are listed in
+their own sections above.
 
 - `--user <uid>` — target user (**required** — no default). Pass the uid
   explicitly, or export `BACKFILL_USER_ID=<uid>` in the environment. Omitting
@@ -105,7 +110,7 @@ node dist/debug-logs-cleanup.js              # dry-run again: expect 0
 Merging `firebase/**` deploys nothing: the rules deploy only through the Warg
 deploy script, `pnpm run deploy -- --functions-only --with-rules` (or
 `--rules-only`) from `warg/`; see [`firebase/README.md`](../../../firebase/README.md#deploying).
-The tightened `articles` read rule is already live. A rules change that relies on
+The tightened `articles` read rule is already live.  A rules change that relies on
 the server-owned link (`canonicalId`) or its marker must deploy after
 `rederive-pass-b --apply` has written them for existing articles; the scripts
 here are safe to run at any time. The same holds for the `dashboardApi` reads,

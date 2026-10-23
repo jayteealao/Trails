@@ -26,7 +26,7 @@ import type {
   SharedDocView,
   UserArticleView,
 } from './merge.js';
-import { userLabel, writeJsonReport } from './report.js';
+import { labelPath, userLabel, writeJsonReport } from './report.js';
 
 /** Provenance recorded on the winner markers the merge adds. */
 export const MERGE_MARKER_SOURCE = 'merge';
@@ -272,7 +272,7 @@ async function writePlan(
     if (error.failedAttempts < 10) return true;
     errors += 1;
     console.error(
-      `[merge] write failed (${error.failedAttempts} attempts) ${error.documentRef.path}: ${error.message}`,
+      `[merge] write failed (${error.failedAttempts} attempts) ${labelPath(error.documentRef.path)}: ${error.message}`,
     );
     return false;
   });
@@ -292,7 +292,10 @@ async function writePlan(
       writer.update(shared.doc(write.id), 'normalizedUrl', write.normalizedUrl).catch(ignore);
     }
     await writer.flush();
-    if (stopAfterPhase === 1) return errors;
+    // A failed write stops the run before the next phase: a winner that lost an
+    // archive copy must not take a loser's links, and no link may move to a
+    // winner whose marker did not land. A re-run plans the rest.
+    if (errors > 0 || stopAfterPhase === 1) return errors;
 
     // Phase 2: winner markers first, flushed, then the user links move, so no
     // link names a winner its user holds no marker for.
@@ -306,6 +309,7 @@ async function writePlan(
         .catch(ignore);
     }
     await writer.flush();
+    if (errors > 0) return errors;
     if (afterMarkers) await afterMarkers();
     for (const move of linkMoves) {
       writer
@@ -313,7 +317,7 @@ async function writePlan(
         .catch(ignore);
     }
     await writer.flush();
-    if (stopAfterPhase === 2) return errors;
+    if (errors > 0 || stopAfterPhase === 2) return errors;
 
     // Phase 3: losers become stubs, last, so a stopped run leaves every reader working.
     for (const group of groups) {

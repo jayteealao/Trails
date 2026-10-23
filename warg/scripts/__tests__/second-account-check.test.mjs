@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { runCharterCheck } from '../charter-second-account-check.mjs';
+import { runSecondAccountCheck } from '../second-account-check.mjs';
 
 // A stubbed fetch answers by URL. The token, uid and key are stub values; the
 // test asserts none of them reaches the output.
@@ -36,7 +36,7 @@ function stubFetch(overrides = {}) {
 async function run(overrides) {
   const lines = [];
   const { fetchImpl, calls } = stubFetch(overrides);
-  const code = await runCharterCheck({
+  const code = await runSecondAccountCheck({
     fetchImpl,
     apiKey: KEY,
     projectId: 'demo-project',

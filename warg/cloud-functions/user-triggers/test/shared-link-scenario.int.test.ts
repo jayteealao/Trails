@@ -11,16 +11,16 @@ import { clearEmulator, createTestDb, destroyTestDb } from './emulator.js';
 import type { TestDb } from './emulator.js';
 
 /**
- * The charter scenario through step 2: a share of a link, then a share of the
+ * The shared-link scenario: a share of a link, then a share of the
  * same link with ?utm_source=x. Each user article gets a server-written
  * canonicalId and marker, both name one shared article, and no second shared
- * article exists. Set CHARTER_DUMP to a file path to write the resulting data
+ * article exists. Set SCENARIO_DUMP to a file path to write the resulting data
  * as JSON.
  */
 
-const USER = 'charter-user';
-const FIRST = { itemId: 'charterItem0001', url: 'https://example.com/story' };
-const SECOND = { itemId: 'charterItem0002', url: 'https://example.com/story?utm_source=x' };
+const USER = 'scenario-user';
+const FIRST = { itemId: 'scenarioItem0001', url: 'https://example.com/story' };
+const SECOND = { itemId: 'scenarioItem0002', url: 'https://example.com/story?utm_source=x' };
 
 let testDb: TestDb;
 let db: Firestore;
@@ -47,7 +47,7 @@ function plain(value: unknown): unknown {
 
 const dumpOf = (snap: QuerySnapshot) => Object.fromEntries(snap.docs.map((d) => [d.id, plain(d.data())]));
 
-describe('charter scenario through step 2', () => {
+describe('shared-link scenario: two shares of one link', () => {
   it('links a share and its utm_source variant to one shared article with server-written links', async () => {
     let begins = 0;
     const beginArchive = async () => ({ requestId: `req-${++begins}` });
@@ -65,7 +65,7 @@ describe('charter scenario through step 2', () => {
       db.collection('articles').get(),
     ]);
 
-    const dumpPath = process.env['CHARTER_DUMP'];
+    const dumpPath = process.env['SCENARIO_DUMP'];
     if (dumpPath) {
       await mkdir(dirname(dumpPath), { recursive: true });
       const dump = {

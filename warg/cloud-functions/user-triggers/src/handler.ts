@@ -9,6 +9,18 @@ export interface BeginArchive {
   }>;
 }
 
+/**
+ * How long a failed save keeps being retried. The trigger is deployed with
+ * retry on, so a thrown error re-delivers the event with backoff; after this
+ * window the handler records the failure instead of throwing again.
+ */
+export const RETRY_WINDOW_MS = 60 * 60 * 1000;
+
+/** True while an event of this age should still be retried by throwing. */
+export function withinRetryWindow(eventTimeMs: number | undefined, nowMs: number): boolean {
+  return eventTimeMs !== undefined && Number.isFinite(eventTimeMs) && nowMs - eventTimeMs < RETRY_WINDOW_MS;
+}
+
 export type HandleResult = 'missing-url' | 'invalid-id' | 'conflict' | 'linked' | 'created' | 'already-linked' | 'error';
 
 /**
@@ -21,8 +33,15 @@ export type HandleResult = 'missing-url' | 'invalid-id' | 'conflict' | 'linked' 
  * Log lines name the item id only, never the user id.
  */
 export async function handleUserArticleCreated(
-  input: { db: Firestore; userId: string; itemId: string; data: Record<string, unknown> },
-  deps: { beginArchive: BeginArchive }
+  input: {
+    db: Firestore;
+    userId: string;
+    itemId: string;
+    data: Record<string, unknown>;
+    /** When the save event happened; set by the trigger so a failure inside the retry window throws. */
+    eventTimeMs?: number;
+  },
+  deps: { beginArchive: BeginArchive; nowMs?: () => number }
 ): Promise<HandleResult> {
   const { db, userId, itemId, data } = input;
   const userRef = db.collection('users').doc(userId).collection('articles').doc(itemId);
@@ -90,6 +109,14 @@ export async function handleUserArticleCreated(
 
     console.error(`[onUserArticleSave] Error processing ${itemId}:`, error);
     const message = error instanceof Error ? error.message : String(error);
+
+    // Inside the retry window, throw so the event is delivered again. The link
+    // is idempotent (an existing canonicalId stops it) and a retried event
+    // starts an archive that is still pending, so nothing is marked failed yet.
+    if (withinRetryWindow(input.eventTimeMs, (deps.nowMs ?? Date.now)())) {
+      console.error(`[onUserArticleSave] ${itemId} will be retried`);
+      throw error;
+    }
 
     // Mark the shared article this user article created as failed while it is still pending.
     const articleDoc = await articleRef.get();

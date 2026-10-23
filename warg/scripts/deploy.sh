@@ -21,8 +21,11 @@ set -euo pipefail
 #   --with-functions                  also deploy the four Cloud Functions
 #   --with-rules                      deploy the Firestore and Storage rules
 #                                     after the functions; verified by the
-#                                     released ruleset hash
-#   --all                             workers + functions + rules + dashboard
+#                                     released ruleset hash. Never implied by
+#                                     --all: the app release that stops writing
+#                                     markers ships first (firebase/README.md)
+#   --all                             workers + functions + dashboard
+#                                     (combinable with --with-rules)
 #   --functions-only                  deploy the four Cloud Functions and
 #                                     nothing else (no worker, no dashboard,
 #                                     no worker secret preflight); used to
@@ -271,7 +274,7 @@ while [ $# -gt 0 ]; do
     --with-pages) WITH_PAGES=true ;;
     --with-functions) WITH_FUNCTIONS=true ;;
     --with-rules) WITH_RULES=true ;;
-    --all) WITH_PAGES=true; WITH_FUNCTIONS=true; WITH_RULES=true; ALL_FLAG=true ;;
+    --all) WITH_PAGES=true; WITH_FUNCTIONS=true; ALL_FLAG=true ;;
     --functions-only) WITH_FUNCTIONS=true; FUNCTIONS_ONLY=true ;;
     --rules-only) WITH_RULES=true; RULES_ONLY=true ;;
     --skip-checks) SKIP_CHECKS=true ;;
@@ -726,7 +729,7 @@ RELEASED_RULESET=""
 # rules_api_get <path> <out>: writes the response body to <out>, prints the
 # HTTP status.
 rules_api_get() {
-  curl -sS -o "$2" -w '%{http_code}' -H @"$WORK_DIR/rules-headers" "$RULES_API/$1"
+  curl -sS --connect-timeout 10 --max-time 60 --retry 2 -o "$2" -w '%{http_code}' -H @"$WORK_DIR/rules-headers" "$RULES_API/$1"
 }
 
 # fetch_released <release> <out> <target> <failed|unverified>: writes the

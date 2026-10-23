@@ -118,6 +118,13 @@ jobs:
           node scripts/check-keys-and-uid.mjs
           node --test scripts/__tests__/keys-and-uid.test.mjs
 
+      - name: Copied function helpers agree
+        # Each function bundles alone, so the shared-id shapes, the link
+        # resolution, the key compare and the rotation switch are copied; this
+        # fails when one copy changes and the others do not.
+        timeout-minutes: 5
+        run: node --test scripts/__tests__/function-copies.test.mjs
+
       - name: Cloud function bundles
         # Builds each function's deploy folder (one esbuild bundle plus a
         # generated package.json), then checks it as Cloud Build will use it:

@@ -14,12 +14,14 @@ state="${HARNESS_STATE:?HARNESS_STATE is not set}"
 out=""
 format=""
 header_file=""
+timeouts=""
 url=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="${2:-}"; shift ;;
     -w) format="${2:-}"; shift ;;
     -H) header_file="${2#@}"; shift ;;
+    --connect-timeout | --max-time | --retry) timeouts="${timeouts}${1}=${2:-} "; shift ;;
     -*) ;;
     *) url="$1" ;;
   esac
@@ -32,7 +34,7 @@ if [ -n "$header_file" ] && [ -f "$header_file" ] &&
   grep -qx 'x-goog-user-project: trails-e428e' "$header_file"; then
   headers=ok
 fi
-echo "curl GET $url headers=$headers" >>"$state/calls.log"
+echo "curl GET $url headers=$headers ${timeouts:-no-timeouts}" >>"$state/calls.log"
 
 base="https://firebaserules.googleapis.com/v1/projects/trails-e428e"
 source=""
