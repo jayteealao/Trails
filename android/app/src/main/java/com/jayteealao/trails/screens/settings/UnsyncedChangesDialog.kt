@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
@@ -38,7 +40,10 @@ import com.jayteealao.trails.data.account.unsyncedChangesText
  * The dialog of a local-data wipe: backing up pending changes, the push-failed question
  * (clear data or account switch), and the wipe itself. Renders nothing when [state] is
  * [Hidden]. Colours come from the theme only: the container is the theme's dialog role and
- * the destructive action uses `colorScheme.error`.
+ * the destructive action uses `colorScheme.error`. On an account switch the safe action reads
+ * "Cancel sign-in" (the previous library stays and the new account is signed out), with a hint
+ * to back the changes up by signing in as the previous account first. Each body scrolls, so a
+ * large font scale never pushes an action out of view.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -55,7 +60,7 @@ fun UnsyncedChangesDialog(
             properties = DialogProperties(dismissOnClickOutside = false),
             title = { Text("Backing up changes") },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(countText("Sending ", state.count, " to your account before clearing this device."))
                     WipeProgress(description = "Backing up")
                     Text(
@@ -85,7 +90,7 @@ fun UnsyncedChangesDialog(
                     )
                 },
                 text = {
-                    Column {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         val consequence = if (switch) {
                             " Signing in to another account clears this device and deletes $pronoun."
                         } else {
@@ -93,14 +98,22 @@ fun UnsyncedChangesDialog(
                         }
                         Text(countText("", state.count, " on this device$verb not backed up.$consequence"))
                         if (switch) CurrentAccount(state.ownerLabel)
+                        // A guest session cannot be signed back into, so a guest owner gets no hint.
+                        if (switch && state.ownerLabel != null) {
+                            Text(
+                                text = "Sign in as ${state.ownerLabel} to back $pronoun up first.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                        }
                     }
                 },
-                // Both actions in one flow row: "Keep data" comes first, so it sits on the left
+                // Both actions in one flow row: the safe action comes first, so it sits on the left
                 // and, when the buttons stack at a large font scale, on top (the safe choice
                 // reads as the default). The dialog's own button row stacks confirm first.
                 confirmButton = {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                        DialogTextButton("Keep data", onClick = onKeep)
+                        DialogTextButton(if (switch) "Cancel sign-in" else "Keep data", onClick = onKeep)
                         DialogTextButton(
                             text = if (switch) "Switch anyway" else "Clear anyway",
                             onClick = onConfirm,
@@ -116,7 +129,7 @@ fun UnsyncedChangesDialog(
             properties = DialogProperties(dismissOnClickOutside = false, dismissOnBackPress = false),
             title = { Text("Clearing data") },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text("Deleting articles, tags and archived pages from this device.")
                     WipeProgress(description = "Clearing")
                 }
