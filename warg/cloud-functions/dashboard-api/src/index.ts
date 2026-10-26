@@ -1,6 +1,8 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { onRequest } from 'firebase-functions/v2/https';
 import { verifyApiKey } from './auth.js';
+import { dashboardUserConfigured } from './config.js';
+import { functionSecrets } from './secrets.js';
 import { verifyFirebaseToken } from './firebase-auth.js';
 import { handleListArticles } from './list-articles.js';
 import { handleGetArticle } from './get-article.js';
@@ -28,7 +30,8 @@ if (getApps().length === 0) {
  *   GET /app/signed-url     → per-user signed GCS download URL (Firebase ID token auth)
  */
 export const dashboardApi = onRequest(
-  { cors: true, memory: '1GiB', maxInstances: 20, timeoutSeconds: 120 },
+  // The old shared key is bound only while the key-rotation switch is on.
+  { cors: true, memory: '1GiB', maxInstances: 20, timeoutSeconds: 120, secrets: functionSecrets() },
   async (req, res) => {
     // Per-user signed-URL lane (Firebase ID token, NOT the internal API key).
     // Matched ahead of the verifyApiKey wrapper so app users never need the
@@ -47,6 +50,8 @@ export const dashboardApi = onRequest(
 
     // Auth middleware
     verifyApiKey(req, res, () => {
+      if (!dashboardUserConfigured(res)) return;
+
       void (async () => {
         const path = req.path.replace(/^\/+|\/+$/g, '');
         const segments = path.split('/');

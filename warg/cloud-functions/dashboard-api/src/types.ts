@@ -95,4 +95,6 @@ export interface ArticleListResponse {
   page: number;
   limit: number;
   hasMore: boolean;
+  /** Cursor for the next page of the unfiltered list; null on the last page and for a filtered list. */
+  nextCursor: string | null;
 }

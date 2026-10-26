@@ -1,7 +1,8 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { Storage } from '@google-cloud/storage';
+import { SignedLinkCache, sharedSignedLinkCache } from './signed-link-cache.js';
 import { ALL_ARCHIVE_KEYS } from './types.js';
-import { resolveCanonicalItemId } from './util.js';
+import { readSharedArticle, resolveCanonicalItemId } from './util.js';
 
 const GCS_BUCKET = process.env['GCS_BUCKET'] || 'htbase-archives-standard';
 const GCS_PROJECT_ID = process.env['GCS_PROJECT_ID'] || 'trails-414917';
@@ -93,11 +94,10 @@ function resolveArchiveWithAlias(
 /**
  * Strip the gs://bucket-name/ prefix to get the object path within the bucket.
  *
- * CR-2 (cross-stack contract note): this module trims the resolved canonical id
- * (`resolvedId`) when looking up the top-level articles doc. The backfill script's
- * `deriveMarkerKeys` preserves the raw value for Android parity — the divergence is
- * intentional (two separate read paths with different normalization needs) and is NOT
- * a bug.
+ * CR-2 (cross-stack contract note): the shared article id comes from the
+ * server-written `canonicalId` on the user article (else the item id itself), and
+ * a merged duplicate is followed to its winner once. The app-written `resolvedId`
+ * is never read, so a client cannot choose which shared article gets signed.
  *
  * M2 (bucket assertion): if the path includes an explicit bucket segment we verify it
  * matches the configured GCS_BUCKET so a doc whose gcs_path points at a different
@@ -127,6 +127,15 @@ function toObjectPath(gcsPath: string): string {
  * dashboard user vs. the verified Firebase token uid); the signing, resolution,
  * and validation contract live here exactly once.
  *
+ * Unless `skipMarkerCheck` is set, the caller must also hold the server-written
+ * marker `users/{ownerUid}/articleMarkers/{id}` for the linked shared article (or
+ * for the winner it was merged into). Without one the answer is the same 404 as
+ * for an article the caller does not own, before any archive lookup or signing.
+ *
+ * A signed link is reused from `cache` while more than 5 minutes of it are left.
+ * When `cache` is not passed, the shared cache applies to the production signer
+ * only; an injected signer is uncached.
+ *
  * `itemId` and `archiveKey` must already be format-validated by the caller.
  */
 export async function resolveAndSignArchive(params: {
@@ -135,8 +144,18 @@ export async function resolveAndSignArchive(params: {
   itemId: string;
   archiveKey: string;
   sign?: ArchiveSigner;
+  skipMarkerCheck?: boolean;
+  cache?: SignedLinkCache | null;
+  now?: () => number;
 }): Promise<ResolveAndSignResult> {
-  const { db, ownerUid, itemId, archiveKey, sign = defaultSigner } = params;
+  const {
+    db,
+    ownerUid,
+    itemId,
+    archiveKey,
+    sign = defaultSigner,
+    skipMarkerCheck = false,
+  } = params;
 
   const userSnap = await db
     .collection('users')
@@ -149,18 +168,27 @@ export async function resolveAndSignArchive(params: {
     return { ok: false, status: 404, error: 'Article not found' };
   }
 
-  const canonicalItemId = resolveCanonicalItemId(
-    itemId,
-    userSnap.data() as Record<string, unknown>
-  );
-  const docSnap = await db.collection('articles').doc(canonicalItemId).get();
+  const linkId = resolveCanonicalItemId(itemId, userSnap.data() as Record<string, unknown>);
+  const shared = await readSharedArticle(db, linkId);
 
-  if (!docSnap.exists) {
+  if (!skipMarkerCheck) {
+    const markers = db.collection('users').doc(ownerUid).collection('articleMarkers');
+    const hasMarker =
+      (await markers.doc(linkId).get()).exists ||
+      (shared !== undefined &&
+        shared.id !== linkId &&
+        (await markers.doc(shared.id).get()).exists);
+    if (!hasMarker) {
+      console.warn(`[signed-url] refused: no link marker itemId=${itemId} sharedId=${linkId}`);
+      return { ok: false, status: 404, error: 'Article not found' };
+    }
+  }
+
+  if (!shared) {
     return { ok: false, status: 404, error: 'Canonical article not found' };
   }
 
-  const doc = docSnap.data()!;
-  const archives = doc['archives'] as Record<string, ArchiveRecord> | undefined;
+  const archives = shared.data['archives'] as Record<string, ArchiveRecord> | undefined;
   const resolved = resolveArchiveWithAlias(archives, archiveKey);
   const archive = resolved?.archive;
 
@@ -173,21 +201,33 @@ export async function resolveAndSignArchive(params: {
   }
 
   const objectPath = toObjectPath(archive.gcs_path);
-  const expiresAt = new Date(Date.now() + SIGNED_URL_EXPIRY_MINUTES * 60 * 1000);
+  const nowMs = (params.now ?? Date.now)();
+  const cache =
+    params.cache !== undefined ? params.cache : params.sign ? null : sharedSignedLinkCache;
 
-  // M4: catch IAM / network failures from the GCS sign() call so they produce a
-  // structured 502 rather than propagating to the generic top-level 500 handler.
+  // The cache is consulted only here, after ownership, the link marker (when
+  // checked) and the archive were checked for this caller.
+  const hit = cache?.get(objectPath, nowMs);
   let signedUrl: string;
-  try {
-    signedUrl = await sign(objectPath, expiresAt);
-  } catch (err) {
-    console.error('GCS sign() failed', {
-      objectPath,
-      archiveKey,
-      ownerUid,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return { ok: false, status: 502, error: 'Failed to generate signed URL' };
+  let expiresAt: Date;
+  if (hit) {
+    signedUrl = hit.url;
+    expiresAt = new Date(hit.expiresAtMs);
+  } else {
+    expiresAt = new Date(nowMs + SIGNED_URL_EXPIRY_MINUTES * 60 * 1000);
+    // M4: catch IAM / network failures from the GCS sign() call so they produce a
+    // structured 502 rather than propagating to the generic top-level 500 handler.
+    try {
+      signedUrl = await sign(objectPath, expiresAt);
+    } catch (err) {
+      console.error('GCS sign() failed', {
+        objectPath,
+        archiveKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { ok: false, status: 502, error: 'Failed to generate signed URL' };
+    }
+    cache?.set(objectPath, signedUrl, expiresAt.getTime(), nowMs);
   }
 
   return {
@@ -197,7 +237,7 @@ export async function resolveAndSignArchive(params: {
       url: signedUrl,
       expires_at: expiresAt.toISOString(),
       item_id: itemId,
-      canonical_item_id: canonicalItemId,
+      canonical_item_id: shared.id,
       archive_key: archiveKey,
       archive_source_key: resolved?.sourceKey ?? archiveKey,
     },

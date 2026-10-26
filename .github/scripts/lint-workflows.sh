@@ -6,7 +6,9 @@
 #   develop-branch      a `- develop` branch entry
 #   pr-signing          keystore or signing secrets named in pr-build-check.yml
 #   firebase-tools-pin  firebase-rules.yml installs a firebase-tools version other than the
-#                       exact one warg/package.json declares
+#                       exact one warg/package.json declares (checked when it installs one)
+#   rules-deploy-in-ci  firebase-rules.yml runs a firebase deploy (rules deploy only through
+#                       warg/scripts/deploy.sh)
 # Usage: lint-workflows.sh [workflow-dir] [warg-package-json]
 set -euo pipefail
 
@@ -95,13 +97,16 @@ for f in "${files[@]}"; do
     done < <(grep -inE 'keystore|SIGNING_STORE|SIGNING_KEY' "$f" || true)
   fi
 
-  # firebase-tools-pin
   if [ "$base" = "firebase-rules.yml" ]; then
+    # rules-deploy-in-ci
+    while IFS= read -r hit; do
+      [ -n "$hit" ] || continue
+      report "$f:${hit%%:*}: rules-deploy-in-ci: ${hit#*:}"
+    done < <(grep -nE 'firebase[[:space:]]+deploy' "$f" || true)
+
+    # firebase-tools-pin
     install=$(grep -nE 'npm (install|i) .*firebase-tools' "$f" || true)
-    if [ -z "$install" ]; then
-      report "$f: firebase-tools-pin: no firebase-tools install line found"
-      continue
-    fi
+    [ -n "$install" ] || continue
     line=${install%%:*}
     used=$(printf '%s' "$install" | sed -nE 's/.*firebase-tools@([^[:space:]]+).*/\1/p')
     declared=""

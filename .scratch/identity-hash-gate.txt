@@ -1,0 +1,6 @@
+Identity-hash gate (plan step 6), run 2026-10-22T19:05:40Z on HEAD f8627f7bd4b788545dd91c88e9393b22d6a6e5a9
+Room 2 carried 7.json: "identityHash":"12cf53ec77d151fc68b6b3bfc4374234"
+Room 3 regenerated 7.json (deleted, then kspDebugKotlin --rerun + copyRoomSchemas): "identityHash":"12cf53ec77d151fc68b6b3bfc4374234"
+Generated AppDatabase_Impl RoomOpenDelegate: RoomOpenDelegate(7, "12cf53ec77d151fc68b6b3bfc4374234", "3774f9a55eaac23feee57e973f46e9b1")
+diff pristine vs regenerated: identical
+git diff of 7.json after regeneration: 0 changed files

@@ -1,0 +1,2 @@
+step 11 at 38037f7aa74d5a4e32e234f3ee0e1444d3f6923d: compileDebugKotlin compileDebugUnitTestKotlin compileDebugAndroidTestKotlin testDebugUnitTest -> BUILD SUCCESSFUL; suites=18 tests=143 failures=0 errors=0 skipped=0
+step 12: BundledDriverJvmHarnessTest 3/3 pass (bundledEngine_hasFts5, articles_roundTripThroughTheDao, fts4Search_matchesTheAppSearchPattern); full testDebugUnitTest suites=19 tests=146 failures=0 errors=0 skipped=0; AMB-9 stays JVM Room tests, no classpath exclusion needed

@@ -59,13 +59,11 @@ class ArticleListViewModelTest {
         every { articleRepository.pocketsByTag(any()) } answers { TestPagingSource() }
         every { articleRepository.allTags() } returns flowOf(emptyList())
         coEvery { articleRepository.searchLocal(any()) } returns emptyList()
-        coEvery { articleRepository.searchHybrid(any()) } returns emptyList()
         coEvery { articleRepository.getTags(any()) } returns emptyList()
         coEvery { articleRepository.setFavorite(any(), any()) } returns Unit
         coEvery { articleRepository.addTag(any(), any()) } returns Unit
         coEvery { articleRepository.removeTag(any(), any()) } returns Unit
         coEvery { articleRepository.updateExcerpt(any(), any()) } returns Unit
-        every { articleRepository.getLastUpdatedArticleTime() } returns 0L
         coEvery { articleRepository.backupArticleNow(any()) } returns Result.success(Unit)
         coEvery { articleRepository.saveNewArticle(any()) } answers {
             firstArg<Article>().itemId

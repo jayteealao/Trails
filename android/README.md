@@ -60,7 +60,7 @@ Download the latest APK from [Releases](../../releases) and install it, or build
 - **Tags** — Long-press an article to manage tags. Trails can suggest tags using Gemini AI.
 - **Favorites** — Star articles you want to revisit
 - **Archive** — Move read articles out of your main list
-- **Search** — Tap the search bar to find any article by title or content
+- **Search** — Tap the search bar to find articles by title or content. Any typed word matches, "quoted phrases" match exactly, and the best 100 matches come first
 
 ---
 
@@ -327,7 +327,7 @@ app/src/main/java/com/jayteealao/trails/
 | Category | Libraries |
 |----------|-----------|
 | UI | Jetpack Compose, Material 3, Navigation 3, Coil 3 |
-| Local data | Room (FTS4 search), DataStore, Paging 3 |
+| Local data | Room 3 on bundled SQLite (FTS5 search), DataStore, Paging 3 |
 | Networking | Retrofit 3, OkHttp 5 |
 | Firebase | Auth, Firestore, Gemini AI |
 | Background | WorkManager, Hilt Worker |

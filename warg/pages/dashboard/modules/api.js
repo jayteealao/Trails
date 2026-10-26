@@ -9,7 +9,7 @@ import { CONFIG } from './state.js';
  * @typedef {{ requestId: string, url: string, createdAt: string, derived?: { stage?: string }, events?: Array<Object>, artifacts?: Array<Object> }} RequestDetail
  * @typedef {{ total: number, byStage: Record<string, number>, successRate: number, failureRate: number, activeCount: number, stuckCount: number, recentActivity: { last1h: number, last24h: number }, topDomains: Array<{domain: string, count: number}>, recentFailures: Array<{requestId: string, url: string, createdAt: string}> }} StatsResponse
  * @typedef {{ status?: string, search?: string }} ArticleFilters
- * @typedef {{ page: number, limit: number, total?: number, hasMore?: boolean }} ArticlePagination
+ * @typedef {{ page: number, limit: number, total?: number, hasMore?: boolean, cursors?: Record<number, string> }} ArticlePagination
  */
 
 /**
@@ -123,7 +123,7 @@ export async function fetchInbox() {
 /**
  * @param {ArticleFilters} articleFilters
  * @param {ArticlePagination} articlePagination
- * @returns {Promise<{ articles: any[], total: number, hasMore: boolean }>}
+ * @returns {Promise<{ articles: any[], total: number, hasMore: boolean, nextCursor?: string|null }>}
  */
 export async function fetchArticles(articleFilters, articlePagination) {
   const params = new URLSearchParams();
@@ -131,6 +131,12 @@ export async function fetchArticles(articleFilters, articlePagination) {
   params.set('limit', String(articlePagination.limit));
   if (articleFilters.status) params.set('filter', articleFilters.status);
   if (articleFilters.search) params.set('search', articleFilters.search);
+  // The unfiltered list pages on the server; the cursor saved from the previous
+  // page lets it start there without skipping documents.
+  const cursor = articlePagination.cursors?.[articlePagination.page];
+  if (!articleFilters.status && !articleFilters.search && articlePagination.page > 1 && cursor) {
+    params.set('cursor', cursor);
+  }
   return apiRequest(`/articles?${params}`);
 }
 

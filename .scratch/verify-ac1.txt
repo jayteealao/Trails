@@ -1,0 +1,24 @@
+1/4 install the old build and let it create its database
+2/4 seed the library
+.ai/workflows/android-data-integrity/verify-evidence/room3-bundled-driver/ac1/work/Pocket: 1 file pushed, 0 skipped. 213.1 MB/s (110592 bytes in 0.000s)
+3/4 record the library before the update
+user_version 7
+article 24
+article_tags 36
+article_images 6
+article_authors 3
+article_videos 0
+local_archive 1
+DomainMetadata 0
+search "roses": seed-04,seed-16
+4/4 install the new build over it
+user_version 7
+article 24
+article_tags 36
+article_images 6
+article_authors 3
+article_videos 0
+local_archive 1
+DomainMetadata 0
+search "roses": seed-04,seed-16
+PASS: every count and the search result are unchanged

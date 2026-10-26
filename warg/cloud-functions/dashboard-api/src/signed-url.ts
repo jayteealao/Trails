@@ -23,6 +23,8 @@ export async function handleSignedUrl(
     ownerUid: getDashboardUserId(),
     itemId: query.itemId,
     archiveKey: query.archiveKey,
+    // The single dashboard user behind its own key; its older articles may have no server marker yet.
+    skipMarkerCheck: true,
   });
 
   if (!result.ok) {

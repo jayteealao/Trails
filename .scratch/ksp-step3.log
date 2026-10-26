@@ -1,0 +1,48 @@
+Calculating task graph as no cached configuration is available for tasks: :app:kspDebugKotlin
+Type-safe project accessors is an incubating feature.
+
+> Configure project :app
+WARNING: The option setting 'android.r8.optimizedResourceShrinking=false' is deprecated.
+The current default is 'true'.
+It will be removed in version 10.0 of the Android Gradle plugin.
+WARNING: The option setting 'android.nonFinalResIds=false' is deprecated.
+The current default is 'true'.
+It will be removed in version 10.0 of the Android Gradle plugin.
+w: file:///C:/Users/jayte/.sdlc/cw/tn74m9/w3-2/android/app/build.gradle.kts:180:9: 'var renderScript: Boolean?' is deprecated. This property and renderScript support will be removed in AGP 10.0.
+Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:processDebugGoogleServices
+> Task :app:generateDebugResources
+> Task :app:generateDebugBuildConfig
+> Task :app:packageDebugResources
+> Task :app:processDebugNavigationResources
+> Task :app:parseDebugLocalResources
+> Task :app:generateDebugRFile
+> Task :app:kspDebugKotlin
+e: [ksp] C:/Users/jayte/.sdlc/cw/tn74m9/w3-2/android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt:32: Not sure how to convert the query result to this function's return type (androidx.paging.PagingSource<kotlin.Int, com.jayteealao.trails.`data`.models.ArticleItem>). Did you forget to provide a @DaoReturnTypeConverter to your @Database or @Dao via @DaoReturnTypeConverters? If you are using a @DaoReturnTypeConverter, you must also verify that the converter function's return type matches the DAO function by raw type and type arguments.
+e: [ksp] C:/Users/jayte/.sdlc/cw/tn74m9/w3-2/android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt:77: Not sure how to convert the query result to this function's return type (androidx.paging.PagingSource<kotlin.Int, com.jayteealao.trails.`data`.models.ArticleItem>). Did you forget to provide a @DaoReturnTypeConverter to your @Database or @Dao via @DaoReturnTypeConverters? If you are using a @DaoReturnTypeConverter, you must also verify that the converter function's return type matches the DAO function by raw type and type arguments.
+e: [ksp] C:/Users/jayte/.sdlc/cw/tn74m9/w3-2/android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt:91: Not sure how to convert the query result to this function's return type (androidx.paging.PagingSource<kotlin.Int, com.jayteealao.trails.`data`.models.ArticleItem>). Did you forget to provide a @DaoReturnTypeConverter to your @Database or @Dao via @DaoReturnTypeConverters? If you are using a @DaoReturnTypeConverter, you must also verify that the converter function's return type matches the DAO function by raw type and type arguments.
+e: [ksp] C:/Users/jayte/.sdlc/cw/tn74m9/w3-2/android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt:105: Not sure how to convert the query result to this function's return type (androidx.paging.PagingSource<kotlin.Int, com.jayteealao.trails.`data`.models.ArticleItem>). Did you forget to provide a @DaoReturnTypeConverter to your @Database or @Dao via @DaoReturnTypeConverters? If you are using a @DaoReturnTypeConverter, you must also verify that the converter function's return type matches the DAO function by raw type and type arguments.
+e: [ksp] C:/Users/jayte/.sdlc/cw/tn74m9/w3-2/android/app/src/main/java/com/jayteealao/trails/data/local/database/ArticleDao.kt:123: Not sure how to convert the query result to this function's return type (androidx.paging.PagingSource<kotlin.Int, com.jayteealao.trails.`data`.models.ArticleItem>). Did you forget to provide a @DaoReturnTypeConverter to your @Database or @Dao via @DaoReturnTypeConverters? If you are using a @DaoReturnTypeConverter, you must also verify that the converter function's return type matches the DAO function by raw type and type arguments.
+
+> Task :app:kspDebugKotlin FAILED
+> Task :app:copyRoomSchemas NO-SOURCE
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:kspDebugKotlin'.
+> A failure occurred while executing com.google.devtools.ksp.gradle.KspAAWorkerAction
+   > KSP failed with exit code: PROCESSING_ERROR
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 2m 28s
+8 actionable tasks: 8 executed
+Configuration cache entry stored.

@@ -479,7 +479,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         markCheckpointStepStarted(checkpoint, 'readability', { resumed: resumeEnabled });
         runTasks.push({
           stepName: 'readability',
-          promise: this.runReadabilityOnly(step, request_id, renderResult.renderedHtmlKey).then((result) =>
+          promise: this.runReadabilityOnly(step, request_id, renderResult.renderedHtmlKey, url).then((result) =>
             [result.readabilityJson, result.readabilityMd].filter(
               (artifact): artifact is ArtifactMeta => Boolean(artifact)
             )
@@ -1160,7 +1160,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           async () => {
             return await callReadability(this.env, {
               request_id: requestId,
-              rendered_html_key: renderedHtmlKey
+              rendered_html_key: renderedHtmlKey,
+              url
             });
           }
         ),
@@ -1229,7 +1230,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   private async runReadabilityOnly(
     step: WorkflowStep,
     requestId: string,
-    renderedHtmlKey: string
+    renderedHtmlKey: string,
+    url: string
   ): Promise<{ readabilityJson?: ArtifactMeta; readabilityMd?: ArtifactMeta }> {
     const startedAt = Date.now();
     await step.do('log-readability-start', async () => {
@@ -1245,7 +1247,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       async () => {
         return await callReadability(this.env, {
           request_id: requestId,
-          rendered_html_key: renderedHtmlKey
+          rendered_html_key: renderedHtmlKey,
+          url
         });
       }
     );

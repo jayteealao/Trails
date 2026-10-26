@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Stub of curl for scripts/deploy-harness/run.sh: answers the Firebase Rules
+# API reads of deploy.sh's rules step from the state folder. Handles
+# `-sS -o <file> -w '%{http_code}' -H @<file> <url>`; logs the URL and whether
+# the header file holds the bearer and quota-project headers, never a value.
+#   releases/cloud.firestore            served from released-firestore.rules,
+#                                       else from the file H_RELEASED_FIRESTORE names
+#   releases/firebase.storage/<bucket>  served from released-storage.rules
+#   rulesets/<firestore|storage>-<n>    the ruleset body of that file
+# A release with no source answers 404.
+set -euo pipefail
+state="${HARNESS_STATE:?HARNESS_STATE is not set}"
+
+out=""
+format=""
+header_file=""
+url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="${2:-}"; shift ;;
+    -w) format="${2:-}"; shift ;;
+    -H) header_file="${2#@}"; shift ;;
+    -*) ;;
+    *) url="$1" ;;
+  esac
+  shift
+done
+
+headers=missing
+if [ -n "$header_file" ] && [ -f "$header_file" ] &&
+  grep -q '^Authorization: Bearer ' "$header_file" &&
+  grep -qx 'x-goog-user-project: trails-e428e' "$header_file"; then
+  headers=ok
+fi
+echo "curl GET $url headers=$headers" >>"$state/calls.log"
+
+base="https://firebaserules.googleapis.com/v1/projects/trails-e428e"
+source=""
+kind=""
+code=200
+body=""
+case "$url" in
+  "$base/releases/cloud.firestore")
+    kind=firestore
+    source="$state/released-firestore.rules"
+    [ -f "$source" ] || source="${H_RELEASED_FIRESTORE:-}"
+    ;;
+  "$base/releases/firebase.storage/"*)
+    kind=storage
+    source="$state/released-storage.rules"
+    ;;
+  "$base/rulesets/firestore-"*)
+    source="$state/released-firestore.rules"
+    [ -f "$source" ] || source="${H_RELEASED_FIRESTORE:-}"
+    body="$(node -e '
+      const fs = require("fs");
+      console.log(JSON.stringify({ name: process.argv[1], source: { files: [{ name: "firestore.rules", content: fs.readFileSync(process.argv[2], "utf8") }] } }));
+    ' "${url#https://firebaserules.googleapis.com/v1/}" "$source")"
+    ;;
+  "$base/rulesets/storage-"*)
+    source="$state/released-storage.rules"
+    body="$(node -e '
+      const fs = require("fs");
+      console.log(JSON.stringify({ name: process.argv[1], source: { files: [{ name: "storage.rules", content: fs.readFileSync(process.argv[2], "utf8") }] } }));
+    ' "${url#https://firebaserules.googleapis.com/v1/}" "$source")"
+    ;;
+  *)
+    code=404
+    ;;
+esac
+
+if [ -n "$kind" ]; then
+  if [ -n "$source" ] && [ -f "$source" ]; then
+    id="$kind-$(cksum <"$source" | cut -d' ' -f1)"
+    body="{\"name\":\"${url#https://firebaserules.googleapis.com/v1/}\",\"rulesetName\":\"projects/trails-e428e/rulesets/$id\"}"
+  else
+    code=404
+  fi
+fi
+[ "$code" = 200 ] || body='{"error":{"code":404}}'
+
+if [ -n "$out" ]; then
+  printf '%s\n' "$body" >"$out"
+else
+  printf '%s\n' "$body"
+fi
+if [ "$format" = '%{http_code}' ]; then
+  printf '%s' "$code"
+fi
+exit 0

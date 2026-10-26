@@ -20,6 +20,13 @@
       from `Trails.onCreate()`; only the initializer's auth-state listener/logging is skipped.
     -->
     <application>
+        <!-- Debug only: holds one Settings sync or unsynced-changes dialog state for device
+             captures (adb shell am start -n <app>/.debug.DesignStatesActivity ...). -->
+        <activity
+            android:name="com.jayteealao.trails.debug.DesignStatesActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Trails" />
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"

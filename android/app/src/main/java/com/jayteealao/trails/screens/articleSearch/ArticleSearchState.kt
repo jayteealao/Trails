@@ -6,17 +6,11 @@ import com.jayteealao.trails.data.models.ArticleItem
  * Consolidated UI state for ArticleSearchScreen
  */
 data class ArticleSearchState(
-    val searchResultsLocal: List<ArticleItem> = emptyList(),
-    val searchResultsHybrid: List<ArticleItem> = emptyList(),
+    /** The newest search's results, best first. */
+    val searchResults: List<ArticleItem> = emptyList(),
     val isSearching: Boolean = false,
     val tags: List<String> = emptyList()
-) {
-    /**
-     * Combined deduplicated search results (hybrid + local)
-     */
-    val combinedResults: List<ArticleItem>
-        get() = linkedSetOf(searchResultsHybrid, searchResultsLocal).flatten()
-}
+)
 
 /**
  * One-time events for ArticleSearchScreen

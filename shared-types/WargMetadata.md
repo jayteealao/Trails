@@ -19,6 +19,7 @@ same commit.**
 | `word_count`   | number (int)     | required        | optional read     | Kotlin maps to camelCase `wordCount` |
 | `published_time` | string \| null | required        | not consumed yet  | Warg-only for now |
 | `site_name`    | string \| null   | required        | not consumed yet  | Warg-only for now |
+| `lead_image`   | string \| null   | required        | optional read     | Page `og:image` (or `og:image:url`), resolved against the page URL; `null` when missing, invalid or not http(s). Docs written before this field have no key. Trails stores it as the article's lead-image row and uses it as the article image. |
 
 ## Producer
 
@@ -28,7 +29,8 @@ The Firestore document shape is also typed there as `ArticleDocument`.
 
 ## Consumer
 
-Trails reads four of these fields via `WargMetadata` defined in
+Trails reads five of these fields (`title`, `excerpt`, `byline`, `word_count`
+and `lead_image`) via `WargMetadata` defined in
 [`android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt`](../android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt).
 Trails treats all of them as nullable in case the Warg pipeline hasn't
 finalized yet.

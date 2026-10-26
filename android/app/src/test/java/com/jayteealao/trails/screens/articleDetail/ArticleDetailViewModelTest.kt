@@ -14,8 +14,11 @@ import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
+import io.mockk.just
+import io.mockk.Runs
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -74,6 +77,7 @@ class ArticleDetailViewModelTest {
         coEvery { localArchiveDao.getArchivesForArticle(any()) } returns emptyList()
         every { localArchiveDao.observeArchives(any()) } returns emptyFlow()
         every { archiveService.observeRemoteArchives(any()) } returns emptyFlow()
+        coEvery { archiveService.applyWargMetadata(any()) } just Runs
     }
 
     @After
@@ -307,6 +311,67 @@ class ArticleDetailViewModelTest {
         advanceUntilIdle()
 
         coVerify(atLeast = 1) { archiveService.readArchiveText("a5", ArchiveType.MARKDOWN) }
+        collectJob.cancel()
+    }
+
+    // ----- Warg metadata is applied after the archives sync -----
+
+    private fun archivedArticle(itemId: String) = Article(
+        itemId = itemId,
+        url = "https://example.com/$itemId",
+        givenUrl = "https://example.com/$itemId",
+        text = "already populated",
+    )
+
+    @Test
+    fun remoteArchives_syncThenApplyWargMetadata() = runTest(scheduler) {
+        coEvery { articleRepository.getArticleById("a9") } returns archivedArticle("a9")
+        every { archiveService.observeRemoteArchives("a9") } returns
+            flowOf(mapOf("readability" to ArchiveStatus("success", "gs://x")))
+        coEvery { archiveService.syncArchives(any(), any()) } just Runs
+        coEvery { archiveService.applyWargMetadata("a9") } just Runs
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        viewModel.getArticle("a9")
+        advanceUntilIdle()
+
+        coVerifyOrder {
+            archiveService.syncArchives("a9", any())
+            archiveService.applyWargMetadata("a9")
+        }
+        collectJob.cancel()
+    }
+
+    @Test
+    fun remoteArchives_applyWargMetadataFailure_doesNotCrashOrStaySyncing() = runTest(scheduler) {
+        coEvery { articleRepository.getArticleById("a10") } returns archivedArticle("a10")
+        every { archiveService.observeRemoteArchives("a10") } returns
+            flowOf(mapOf("readability" to ArchiveStatus("success", "gs://x")))
+        coEvery { archiveService.syncArchives(any(), any()) } just Runs
+        coEvery { archiveService.applyWargMetadata("a10") } throws IllegalStateException("boom")
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        viewModel.getArticle("a10")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { archiveService.applyWargMetadata("a10") }
+        assertFalse(viewModel.state.value.archiveSyncing)
+        assertEquals("a10", viewModel.state.value.article?.itemId)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun noRemoteArchives_doesNotApplyWargMetadata() = runTest(scheduler) {
+        coEvery { articleRepository.getArticleById("a11") } returns archivedArticle("a11")
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        viewModel.getArticle("a11")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { archiveService.applyWargMetadata(any()) }
         collectJob.cancel()
     }
 }

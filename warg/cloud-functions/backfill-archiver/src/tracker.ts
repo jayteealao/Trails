@@ -3,8 +3,10 @@ import type { DocumentData } from 'firebase-admin/firestore';
 import type {
   BackfillTracker,
   BatchEntry,
+  ChangeMarker,
   DomainBackoffState,
   FailureClass,
+  RetryEntry,
   RunSummary,
 } from './types.js';
 
@@ -88,7 +90,51 @@ export function createDefaultTracker(now = Timestamp.now()): BackfillTracker {
     run_lease: null,
     domain_backoff: {},
     last_run_summary: createDefaultRunSummary(),
+    pass_label: null,
+    pass_started_at: null,
+    pass_completed_at: null,
+    change_marker: null,
+    retry_queue: [],
   };
+}
+
+function normalizeChangeMarker(raw: unknown): ChangeMarker | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const timeUpdated = rec['time_updated'];
+  const itemId = rec['item_id'];
+  if (typeof timeUpdated !== 'number' || !Number.isFinite(timeUpdated)) return null;
+  if (typeof itemId !== 'string') return null;
+  return { time_updated: timeUpdated, item_id: itemId };
+}
+
+function normalizeRetryQueue(raw: unknown): RetryEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RetryEntry[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const rec = entry as Record<string, unknown>;
+    const itemId = typeof rec['item_id'] === 'string' ? rec['item_id'] : '';
+    const url = typeof rec['url'] === 'string' ? rec['url'] : '';
+    if (!itemId || !url) continue;
+
+    out.push({
+      item_id: itemId,
+      url,
+      domain:
+        typeof rec['domain'] === 'string' && rec['domain'].length > 0
+          ? rec['domain']
+          : extractDomain(url),
+      retry_count:
+        typeof rec['retry_count'] === 'number' && Number.isFinite(rec['retry_count'])
+          ? rec['retry_count']
+          : 0,
+      not_before: asTimestamp(rec['not_before']) ?? Timestamp.fromMillis(0),
+    });
+  }
+
+  return out;
 }
 
 function normalizeDomainBackoff(
@@ -182,7 +228,51 @@ export function normalizeTracker(raw: DocumentData | undefined): BackfillTracker
             ...(tracker['last_run_summary'] as Record<string, unknown>),
           }
         : createDefaultRunSummary(),
+    pass_label:
+      typeof tracker['pass_label'] === 'string' ? tracker['pass_label'] : null,
+    pass_started_at: asTimestamp(tracker['pass_started_at']),
+    pass_completed_at: asTimestamp(tracker['pass_completed_at']),
+    change_marker: normalizeChangeMarker(tracker['change_marker']),
+    retry_queue: normalizeRetryQueue(tracker['retry_queue']),
   };
+}
+
+/**
+ * Adds a retry entry, keeping one entry per shared article (the higher
+ * retry_count wins). Beyond `max` entries the oldest is dropped; returns
+ * whether one was dropped.
+ */
+export function enqueueRetry(
+  tracker: BackfillTracker,
+  entry: RetryEntry,
+  max = 200
+): boolean {
+  const existing = tracker.retry_queue.findIndex((e) => e.item_id === entry.item_id);
+  if (existing >= 0) {
+    const current = tracker.retry_queue[existing]!;
+    tracker.retry_queue[existing] =
+      entry.retry_count >= current.retry_count ? entry : current;
+    return false;
+  }
+
+  tracker.retry_queue.push(entry);
+  if (tracker.retry_queue.length > max) {
+    tracker.retry_queue.shift();
+    return true;
+  }
+  return false;
+}
+
+/** Returns up to `max` due entries in not_before order, without removing them. */
+export function takeDueRetries(
+  tracker: BackfillTracker,
+  nowMs: number,
+  max: number
+): RetryEntry[] {
+  return tracker.retry_queue
+    .filter((e) => e.not_before.toMillis() <= nowMs)
+    .sort((a, b) => a.not_before.toMillis() - b.not_before.toMillis())
+    .slice(0, max);
 }
 
 export function isDomainBackedOff(

@@ -62,4 +62,6 @@ export interface ReadabilityResult {
   excerpt: string | null;
   siteName: string | null;
   publishedTime: string | null;
+  /** Page og:image resolved against the page URL; null when missing or invalid. */
+  leadImage?: string | null;
 }

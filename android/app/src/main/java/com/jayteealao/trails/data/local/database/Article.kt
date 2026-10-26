@@ -16,17 +16,37 @@
 
 package com.jayteealao.trails.data.local.database
 
-import androidx.room.ColumnInfo
-import androidx.room.Embedded
-import androidx.room.Entity
-import androidx.room.Fts4
-import androidx.room.Index
-import androidx.room.PrimaryKey
-import com.jayteealao.trails.data.models.ArticleItem
+import androidx.room3.ColumnInfo
+import androidx.room3.Entity
+import androidx.room3.Fts5
+import androidx.room3.FtsOptions
+import androidx.room3.Index
+import androidx.room3.PrimaryKey
 import kotlinx.serialization.Serializable
 
+/**
+ * Indexes, each for named queries (equality columns first, the ORDER BY column last):
+ * - deleted_at, archived_at, timeAdded: the library list and the archive list.
+ * - deleted_at, archived_at, timeFavorited, timeAdded: the favourite list (live and not
+ *   archived first, so the planner seeks and reads in favourite order without a sort).
+ * - timeUpdated, itemId: the sync push pages and their count (keyset order).
+ * - backed_up_at, deleted_at, timeAdded: the never-backed-up sweep and its count.
+ * - resolvedId: the tag view and tag list matched by resolved id, getArticleByResolvedId.
+ * - normalized_url: getArticleByNormalizedUrl (the save dedup). Not unique: existing
+ *   libraries may hold duplicates.
+ */
 @Serializable
-@Entity(tableName = "article")
+@Entity(
+    tableName = "article",
+    indices = [
+        Index(value = ["deleted_at", "archived_at", "timeAdded"]),
+        Index(value = ["deleted_at", "archived_at", "timeFavorited", "timeAdded"]),
+        Index(value = ["timeUpdated", "itemId"]),
+        Index(value = ["backed_up_at", "deleted_at", "timeAdded"]),
+        Index(value = ["resolvedId"]),
+        Index(value = ["normalized_url"]),
+    ],
+)
 data class Article(
     @PrimaryKey val itemId: String = "",
     val resolvedId: String? = null,
@@ -59,39 +79,29 @@ data class Article(
     @ColumnInfo(name = "text_source", defaultValue = "") val textSource: String = "",
     /** Epoch-millis when this article was successfully backed up to Firestore (null = never). */
     @ColumnInfo(name = "backed_up_at", defaultValue = "NULL") val backedUpAt: Long? = null,
+    /**
+     * Failed push runs for this row; at MAX_SYNC_FAILURES the sync skips it.
+     * Device-local: never backed up, 0 on restore.
+     */
+    @ColumnInfo(name = "sync_failures", defaultValue = "0") val syncFailures: Int = 0,
 )
 
+/**
+ * The search index: an external-content FTS5 table over [Article]'s title and text. Room
+ * keeps it in step with `article` through content-sync triggers keyed on `article`'s rowid.
+ * Porter stemming over unicode61 with diacritics removed, so "running" finds "run" and
+ * "cafe" finds "Café".
+ */
 @Entity(tableName = "article_fts")
-@Fts4(contentEntity = Article::class)
-data class ArticleFts(
-    val itemId: String,
-    val title: String,
-    var text : String? = null,
+@Fts5(
+    contentEntity = Article::class,
+    tokenizer = FtsOptions.TOKENIZER_PORTER,
+    tokenizerArgs = ["unicode61", "remove_diacritics", "2"],
 )
-
-data class ArticleWithMatchInfo(
-    @Embedded val article: ArticleItem,
-    @ColumnInfo(name = "matchInfo")
-    val matchInfo: ByteArray
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as ArticleWithMatchInfo
-
-        if (article != other.article) return false
-        if (!matchInfo.contentEquals(other.matchInfo)) return false
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = article.hashCode()
-        result = 31 * result + matchInfo.contentHashCode()
-        return result
-    }
-}
+data class ArticleFts(
+    val title: String,
+    val text: String?,
+)
 
 @Entity(
     indices = [Index(value = ["modalId"], unique = true)]

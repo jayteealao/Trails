@@ -1,8 +1,8 @@
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import type { ArticleDetail } from './types.js';
 import { getDashboardUserId } from './config.js';
-import { resolveCanonicalItemId, timestampToIso } from './util.js';
+import { readSharedArticle, resolveCanonicalItemId, timestampToIso } from './util.js';
 import { mergeArticle } from './list-articles.js';
 
 /**
@@ -12,10 +12,11 @@ import { mergeArticle } from './list-articles.js';
 export async function handleGetArticle(
   req: Request,
   res: Response,
-  itemId: string
+  itemId: string,
+  deps: { db?: Firestore; userId?: string } = {}
 ): Promise<void> {
-  const db = getFirestore();
-  const userId = getDashboardUserId();
+  const db = deps.db ?? getFirestore();
+  const userId = deps.userId ?? getDashboardUserId();
 
   const userSnap = await db
     .collection('users')
@@ -30,12 +31,11 @@ export async function handleGetArticle(
   }
 
   const userDoc = userSnap.data()!;
-  const canonicalItemId = resolveCanonicalItemId(
-    itemId,
-    userDoc as Record<string, unknown>
+  const shared = await readSharedArticle(
+    db,
+    resolveCanonicalItemId(itemId, userDoc as Record<string, unknown>)
   );
-  const canonicalSnap = await db.collection('articles').doc(canonicalItemId).get();
-  const canonicalDoc = canonicalSnap.exists ? canonicalSnap.data()! : undefined;
+  const canonicalDoc = shared?.data;
 
   // Reuse base fields from mergeArticle
   const base = mergeArticle(itemId, userDoc, canonicalDoc);

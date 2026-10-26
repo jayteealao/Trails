@@ -141,6 +141,7 @@ describe('begin proxy', () => {
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
       PUBLIC_API_KEY: 'pub-key',
     } as any;
@@ -150,7 +151,7 @@ describe('begin proxy', () => {
       if (url === 'https://dashboard-api.example.com/articles/enqueue') {
         expect(init?.method).toBe('POST');
         const headers = new Headers(init?.headers as HeadersInit);
-        expect(headers.get('X-Internal-API-Key')).toBe('internal-key');
+        expect(headers.get('X-Internal-API-Key')).toBe('dash-key');
         expect(JSON.parse(String(init?.body))).toEqual({ url: 'https://example.com' });
         return jsonResponse({ itemId: 'item12345', queued: true, existed: false }, 201);
       }
@@ -183,6 +184,7 @@ describe('begin proxy', () => {
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
       PUBLIC_API_KEY: 'pub-key',
     } as any;
@@ -242,6 +244,7 @@ describe('begin proxy', () => {
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
       PUBLIC_API_KEY: 'pub-key',
     } as any;
@@ -300,6 +303,7 @@ describe('begin proxy', () => {
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
       PUBLIC_API_KEY: 'pub-key',
     } as any;
@@ -357,6 +361,7 @@ describe('begin proxy', () => {
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
       PUBLIC_API_KEY: 'pub-key',
     } as any;
@@ -504,6 +509,7 @@ describe('inbox proxy', () => {
     const env = {
       LOGGER: mockLogger,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
     } as any;
 
@@ -550,6 +556,7 @@ describe('article retry endpoints', () => {
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
       PUBLIC_API_KEY: 'public-key',
     } as any;
@@ -590,6 +597,7 @@ describe('article retry endpoints', () => {
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
       PUBLIC_API_KEY: 'public-key',
     } as any;
@@ -625,6 +633,7 @@ describe('article retry endpoints', () => {
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
       PUBLIC_API_KEY: '',
     } as any;
@@ -665,6 +674,7 @@ describe('archive-content proxy', () => {
   it('fetches signed url via dashboard-api and streams archive bytes', async () => {
     const env = {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
     } as any;
 
@@ -697,10 +707,11 @@ describe('archive-content proxy', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('returns 500 when INTERNAL_API_KEY is not configured', async () => {
+  it('returns 500 when DASHBOARD_API_KEY is not configured', async () => {
     const env = {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
-      INTERNAL_API_KEY: '',
+      DASHBOARD_API_KEY: '',
+      INTERNAL_API_KEY: 'internal-key',
     } as any;
 
     const { onRequestGet } = await import('../archive-content.js');
@@ -711,6 +722,159 @@ describe('archive-content proxy', () => {
     const response = await onRequestGet({ env, request, params: {} } as any);
     expect(response.status).toBe(500);
     const body = (await response.json()) as { error?: string };
-    expect(String(body.error || '')).toContain('INTERNAL_API_KEY');
+    expect(String(body.error || '')).toContain('DASHBOARD_API_KEY');
+  });
+
+  it('sends the dashboard key to dashboard-api, never the logger key', async () => {
+    const env = {
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
+      INTERNAL_API_KEY: 'internal-key',
+    } as any;
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url.startsWith('https://dashboard-api.example.com/signed-url')) {
+        return jsonResponse({ url: 'https://signed.example.com/archive' });
+      }
+      return new Response('archive-content', { status: 200 });
+    });
+
+    const { onRequestGet } = await import('../archive-content.js');
+    const request = createRequest(
+      'https://dashboard.example.com/api/archive-content?itemId=abc12345&archiveKey=readability'
+    );
+
+    await onRequestGet({ env, request, params: {} } as any);
+    const [, init] = mockCall(fetchMock);
+    const headers = init.headers as Record<string, string>;
+    expect(headers['X-Internal-API-Key']).toBe('dash-key');
+    expect(Object.values(headers)).not.toContain('internal-key');
+  });
+});
+
+// --- Dashboard list proxy (dashboard-api) ---
+
+describe('dashboard-api proxy', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends the dashboard key, never the logger key', async () => {
+    const env = {
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
+      INTERNAL_API_KEY: 'internal-key',
+    } as any;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ articles: [] })
+    );
+
+    const { proxyToApi } = await import('../_proxy.js');
+    const response = await proxyToApi(env, 'articles', '?page=1');
+
+    expect(response.status).toBe(200);
+    const [url, init] = mockCall(fetchMock);
+    expect(String(url)).toBe('https://dashboard-api.example.com/articles?page=1');
+    expect(init.headers['X-Internal-API-Key']).toBe('dash-key');
+    expect(Object.values(init.headers)).not.toContain('internal-key');
+  });
+
+  it('returns 500 naming DASHBOARD_API_KEY when it is empty', async () => {
+    const env = {
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: '',
+      INTERNAL_API_KEY: 'internal-key',
+    } as any;
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const { proxyToApi } = await import('../_proxy.js');
+    const response = await proxyToApi(env, 'articles');
+
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as { error?: string };
+    expect(String(body.error || '')).toContain('DASHBOARD_API_KEY');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// --- Inbox key split ---
+
+describe('inbox key split', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends the dashboard key to dashboard-api and the internal key to the logger', async () => {
+    const mockLogger = createMockFetcher(async () => jsonResponse({ requests: [] }));
+    const env = {
+      LOGGER: mockLogger,
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
+      INTERNAL_API_KEY: 'internal-key',
+    } as any;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ articles: [] })
+    );
+
+    const { onRequestGet } = await import('../inbox.js');
+    const request = createRequest('https://dashboard.example.com/api/inbox');
+    const response = await onRequestGet({ env, request, params: {} } as any);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
+    for (const [, init] of fetchMock.mock.calls as [unknown, any][]) {
+      expect(init.headers['X-Internal-API-Key']).toBe('dash-key');
+    }
+    const [, loggerInit] = mockCall(mockLogger.fetch);
+    expect(loggerInit.headers['X-Internal-API-Key']).toBe('internal-key');
+  });
+});
+
+// --- Backfill status proxy ---
+
+describe('backfill proxy', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends the backfill status key, never the logger key', async () => {
+    const env = {
+      BACKFILL_STATUS_URL: 'https://fn.example.com/backfillStatus',
+      BACKFILL_STATUS_KEY: 'status-key',
+      INTERNAL_API_KEY: 'internal-key',
+    } as any;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ processed: 1 })
+    );
+
+    const { onRequestGet } = await import('../backfill.js');
+    const request = createRequest('https://dashboard.example.com/api/backfill');
+    const response = await onRequestGet({ env, request, params: {} } as any);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ processed: 1 });
+    const [url, init] = mockCall(fetchMock);
+    expect(String(url)).toBe('https://fn.example.com/backfillStatus');
+    expect(init.headers['X-Internal-API-Key']).toBe('status-key');
+    expect(Object.values(init.headers)).not.toContain('internal-key');
+  });
+
+  it('returns 500 naming BACKFILL_STATUS_KEY when it is empty', async () => {
+    const env = {
+      BACKFILL_STATUS_URL: 'https://fn.example.com/backfillStatus',
+      BACKFILL_STATUS_KEY: '',
+      INTERNAL_API_KEY: 'internal-key',
+    } as any;
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const { onRequestGet } = await import('../backfill.js');
+    const request = createRequest('https://dashboard.example.com/api/backfill');
+    const response = await onRequestGet({ env, request, params: {} } as any);
+
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as { error?: string };
+    expect(String(body.error || '')).toContain('BACKFILL_STATUS_KEY');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

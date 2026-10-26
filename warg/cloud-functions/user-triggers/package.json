@@ -5,8 +5,12 @@
   "main": "dist/index.js",
   "scripts": {
     "build:test": "tsc",
+    "build:link": "tsc -p tsconfig.link.json",
     "build:deploy": "node ../../scripts/build-function-bundle.mjs",
     "typecheck": "tsc --noEmit",
+    "test": "pnpm run build:test && node --test \"dist/__tests__/*.test.js\"",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:emulator": "firebase emulators:exec --only firestore --project demo-trails --config firebase.emulator.json \"pnpm run test:integration\"",
     "dev": "pnpm run build:deploy && firebase emulators:start --only functions,firestore",
     "deploy": "node -e \"console.error('Deploy Cloud Functions with scripts/deploy.sh: from warg/, run pnpm deploy:all or bash scripts/deploy.sh --with-functions');process.exit(1)\""
   },
@@ -19,6 +23,8 @@
   },
   "devDependencies": {
     "@types/node": "22.20.1",
-    "typescript": "^5.7.0"
+    "@warg/url-normalizer": "workspace:*",
+    "typescript": "^5.7.0",
+    "vitest": "4.1.10"
   }
 }

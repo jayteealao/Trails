@@ -161,6 +161,9 @@ fun MainNavigation(
             entry<Screen.Settings> {
                 SettingsScreen(
                     onLogout = {
+                        // "Clear data" signs out only after its wipe; this updates the
+                        // auth state for both logout choices.
+                        authViewModel.signOut()
                         appBackStack.logout()
                     },
                     onShowLogoutDialog = {
@@ -182,7 +185,8 @@ fun MainNavigation(
                     },
                     onLogoutAndClear = {
                         appBackStack.remove() // Close dialog
-                        authViewModel.signOut() // Update auth state immediately
+                        // No sign-out here: pending changes are pushed with the owner's
+                        // session before the wipe; Settings signs out when it finishes.
                         settingsViewModel.logout(clearData = true)
                     },
                     onDismiss = {

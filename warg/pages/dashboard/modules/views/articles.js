@@ -29,7 +29,11 @@ export async function loadArticles() {
   setLoading(true);
   clearError();
   try {
-    const data = await fetchArticles(state.articles.filters, state.articles.pagination);
+    const pagination = state.articles.pagination;
+    // Page 1 starts a fresh walk, so cursors from an older list are dropped.
+    if (pagination.page === 1) pagination.cursors = {};
+    const data = await fetchArticles(state.articles.filters, pagination);
+    if (data.nextCursor) pagination.cursors[pagination.page + 1] = data.nextCursor;
     state.articles.items = data.articles || [];
     state.articles.pagination.total = data.total || 0;
     state.articles.pagination.hasMore = data.hasMore || false;

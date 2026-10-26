@@ -1,0 +1,6 @@
+connectedDebugAndroidTest on emulator-5554 (Medium_Phone_API_36.0, headless): 13 tests, 0 failures
+<testsuite name="com.jayteealao.trails.ForegroundWorkerTest" tests="2" failures="0" errors="0" skipped="0" time="6.028" timestamp="2026-10-22T19:50:25" hostname="localhost">
+<testsuite name="com.jayteealao.trails.data.local.database.MigrationTest" tests="7" failures="0" errors="0" skipped="0" time="0.9" timestamp="2026-10-22T19:50:25" hostname="localhost">
+<testsuite name="com.jayteealao.trails.data.local.database.UpgradeFromVersion7Test" tests="1" failures="0" errors="0" skipped="0" time="0.109" timestamp="2026-10-22T19:50:25" hostname="localhost">
+<testsuite name="com.jayteealao.trails.screens.ArticleGraphSmokeTest" tests="2" failures="0" errors="0" skipped="0" time="0.005" timestamp="2026-10-22T19:50:25" hostname="localhost">
+<testsuite name="com.jayteealao.trails.screens.NavigationTest" tests="1" failures="0" errors="0" skipped="0" time="5.01" timestamp="2026-10-22T19:50:25" hostname="localhost">

@@ -54,6 +54,8 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = TrailsMist,
     surfaceVariant = TrailsMidnightVariant,
     onSurfaceVariant = TrailsOutlineBright,
+    // The alert dialog container role.
+    surfaceContainerHigh = TrailsMidnightVariant,
     outline = TrailsOutline,
     outlineVariant = TrailsOutlineDark,
     inverseSurface = TrailsMist,
@@ -61,8 +63,8 @@ private val DarkColorScheme = darkColorScheme(
     inversePrimary = TrailsIndigo,
     surfaceTint = TrailsSky,
     scrim = Color(0xCC000000),
-    error = TrailsError,
-    onError = TrailsOnError,
+    error = TrailsErrorDark,
+    onError = TrailsOnErrorDark,
     errorContainer = TrailsErrorContainer,
     onErrorContainer = TrailsOnErrorContainer,
 )
@@ -86,6 +88,8 @@ private val LightColorScheme = lightColorScheme(
     onSurface = TrailsNavy,
     surfaceVariant = TrailsIce,
     onSurfaceVariant = TrailsIndigo,
+    // The alert dialog container role.
+    surfaceContainerHigh = TrailsIce,
     outline = TrailsOutline,
     outlineVariant = TrailsOutlineBright,
     inverseSurface = TrailsInk,

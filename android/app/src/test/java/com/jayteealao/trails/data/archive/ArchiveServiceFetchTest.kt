@@ -10,7 +10,6 @@ import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.di.ARCHIVE_SIGNED_URL_BASE_KEY
 import com.jayteealao.trails.network.ArchiveUrlService
-import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
 import io.mockk.every
@@ -52,7 +51,6 @@ class ArchiveServiceFetchTest {
 
     @MockK private lateinit var firestore: FirebaseFirestore
     @MockK private lateinit var auth: FirebaseAuth
-    @MockK(relaxed = true) private lateinit var backupService: FirestoreBackupService
     @MockK private lateinit var remoteConfig: FirebaseRemoteConfig
     @MockK(relaxed = true) private lateinit var localArchiveDao: LocalArchiveDao
     @MockK(relaxed = true) private lateinit var articleDao: ArticleDao
@@ -108,7 +106,6 @@ class ArchiveServiceFetchTest {
         service = ArchiveService(
             firestore = firestore,
             auth = auth,
-            backupService = backupService,
             okHttpClient = client,
             archiveUrlService = archiveUrlService,
             remoteConfig = remoteConfig,
@@ -139,6 +136,7 @@ class ArchiveServiceFetchTest {
         assertEquals("/app/signed-url", signedReq.url.encodedPath)
         assertEquals("api.example", signedReq.url.host)
         assertEquals("Bearer idtoken", signedReq.header("Authorization"))
+        // The app sends its own itemId; the server resolves the shared article id.
         assertEquals("item1234", signedReq.url.queryParameter("itemId"))
         assertEquals("readability", signedReq.url.queryParameter("archiveKey"))
 

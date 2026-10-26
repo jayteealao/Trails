@@ -67,6 +67,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.androidx.room3)
     id("com.google.gms.google-services")
 //    id("land.sungbin.composeinvestigator") version "1.5.10-0.1.0"
 }
@@ -102,10 +103,10 @@ android {
             useSupportLibrary = true
         }
 
-        // Enable room auto-migrations
-        ksp {
-            arg("room.schemaLocation", "$projectDir/schemas")
-        }
+        // Debug-only local test endpoints; always empty outside the debug build type.
+        buildConfigField("String", "SIGNED_URL_BASE_OVERRIDE", "\"\"")
+        buildConfigField("String", "FIRESTORE_EMULATOR", "\"\"")
+        buildConfigField("String", "AUTH_EMULATOR", "\"\"")
     }
 
     buildTypes {
@@ -135,6 +136,25 @@ android {
             isMinifyEnabled = false
             // Always use debug signing for debug builds
             signingConfig = signingConfigs.getByName("debug")
+            // -Ptrails.signedUrlBase=http://10.0.2.2:<port> points archive downloads
+            // at a local signed-link stub for emulator runs. Empty by default.
+            buildConfigField(
+                "String",
+                "SIGNED_URL_BASE_OVERRIDE",
+                "\"${providers.gradleProperty("trails.signedUrlBase").getOrElse("")}\""
+            )
+            // -Ptrails.firestoreEmulator=<host:port> and -Ptrails.authEmulator=<host:port>
+            // point the debug build at the local Firebase emulators. Empty by default.
+            buildConfigField(
+                "String",
+                "FIRESTORE_EMULATOR",
+                "\"${providers.gradleProperty("trails.firestoreEmulator").getOrElse("")}\""
+            )
+            buildConfigField(
+                "String",
+                "AUTH_EMULATOR",
+                "\"${providers.gradleProperty("trails.authEmulator").getOrElse("")}\""
+            )
         }
 //        create("benchmark") {
 //            initWith(buildTypes.getByName("release"))
@@ -177,6 +197,14 @@ android {
         }
     }
 
+    // The URL normalization cases shared with the Warg functions are read by
+    // UrlNormalizerTest straight from the Warg package; no copy is kept here.
+    sourceSets {
+        getByName("test") {
+            resources.directories += rootProject.file("../warg/packages/url-normalizer/fixtures").path
+        }
+    }
+
     buildFeatures {
         compose = true
         aidl = false
@@ -191,6 +219,10 @@ android {
 //            excludes += "META-INF/DEPENDENCIES"
         }
     }
+}
+
+room3 {
+    schemaDirectory("$projectDir/schemas")
 }
 
 kotlin {
@@ -239,12 +271,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    implementation(libs.androidx.room.paging)
+    implementation(libs.androidx.room3.runtime)
+    implementation(libs.androidx.room3.paging)
+    implementation(libs.androidx.sqlite.bundled)
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
-    ksp(libs.androidx.room.compiler)
+    ksp(libs.androidx.room3.compiler)
     implementation(libs.androidx.startup.runtime)
 
     //firebase
@@ -336,6 +368,7 @@ dependencies {
     // isolation — no emulator, no Hilt). ui-test-manifest supplies the activity that
     // createComposeRule() hosts under Robolectric.
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.sqlite.bundled.jvm)
     testImplementation(libs.androidx.compose.ui.test.junit4)
     testImplementation(libs.androidx.compose.ui.test.manifest)
     // Provides Tasks + Task.await() on the unit-test classpath (version-aligned
@@ -347,6 +380,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.room3.testing)
 
 //    implementation("org.apache.httpcomponents:httpclient:4.5.14")
 //    implementation("org.apache.httpcomponents:httpcore:4.4.16")

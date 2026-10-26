@@ -38,15 +38,17 @@ printf '{"devDependencies":{"firebase-tools":"15.34.0"}}' > "$good_pkg"
 nokey_pkg="$tmp/nokey-package.json"
 printf '{"devDependencies":{}}' > "$nokey_pkg"
 
-mkdir "$tmp/tag-pinned" "$tmp/input-in-run" "$tmp/fb-mismatch"
+mkdir "$tmp/tag-pinned" "$tmp/input-in-run" "$tmp/fb-mismatch" "$tmp/fb-deploy"
 cp "$here/fixtures/tag-pinned.yml" "$tmp/tag-pinned/"
 cp "$here/fixtures/input-in-run.yml" "$tmp/input-in-run/"
 cp "$here/fixtures/firebase-rules-mismatch.yml" "$tmp/fb-mismatch/firebase-rules.yml"
+cp "$here/fixtures/firebase-rules-deploy.yml" "$tmp/fb-deploy/firebase-rules.yml"
 
 expect_lint_failure "tag-pinned fixture" "$tmp/tag-pinned" "$good_pkg" uses-pin
 expect_lint_failure "input-in-run fixture" "$tmp/input-in-run" "$good_pkg" input-in-run 1
 expect_lint_failure "firebase-tools mismatch fixture" "$tmp/fb-mismatch" "$good_pkg" firebase-tools-pin
 expect_lint_failure "firebase-tools missing key" "$tmp/fb-mismatch" "$nokey_pkg" firebase-tools-pin
+expect_lint_failure "rules deploy in CI fixture" "$tmp/fb-deploy" "$good_pkg" rules-deploy-in-ci 1
 
 rc=0
 out=$(bash "$lint" "$repo/.github/workflows" "$repo/warg/package.json" 2>&1) || rc=$?

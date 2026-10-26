@@ -1,6 +1,6 @@
 export interface ActionEnv {
   DASHBOARD_API_URL: string;
-  INTERNAL_API_KEY: string;
+  DASHBOARD_API_KEY: string;
   GATEWAY: Fetcher;
   PUBLIC_API_KEY: string;
 }
@@ -84,8 +84,8 @@ function assertDashboardApiConfigured(env: ActionEnv): void {
   if (!env.DASHBOARD_API_URL) {
     throw new ActionError('Dashboard API URL is not configured', 500);
   }
-  if (!env.INTERNAL_API_KEY) {
-    throw new ActionError('Dashboard INTERNAL_API_KEY is not configured', 500);
+  if (!env.DASHBOARD_API_KEY) {
+    throw new ActionError('Dashboard DASHBOARD_API_KEY is not configured', 500);
   }
 }
 
@@ -127,7 +127,7 @@ async function requestDashboardApi<T>(
   assertDashboardApiConfigured(env);
 
   const headers = new Headers(init?.headers);
-  headers.set('X-Internal-API-Key', env.INTERNAL_API_KEY);
+  headers.set('X-Internal-API-Key', env.DASHBOARD_API_KEY);
 
   const response = await fetch(buildApiUrl(env.DASHBOARD_API_URL, path), {
     ...init,
@@ -142,7 +142,7 @@ async function requestDashboardApi<T>(
     );
     if (response.status === 401 || response.status === 403) {
       throw new ActionError(
-        'Dashboard API authentication failed. Check INTERNAL_API_KEY.',
+        'Dashboard API authentication failed. Check DASHBOARD_API_KEY.',
         502
       );
     }

@@ -1,7 +1,7 @@
-import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import { getDashboardUserId } from './config.js';
-import { extractDomain, resolveCanonicalItemId } from './util.js';
+import { extractDomain, readSharedArticle, resolveCanonicalItemId } from './util.js';
 
 const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
 
@@ -56,15 +56,16 @@ function buildPocket(
 export async function handleBootstrapArticle(
   _req: Request,
   res: Response,
-  itemId: string
+  itemId: string,
+  deps: { db?: Firestore; userId?: string } = {}
 ): Promise<void> {
   if (!SAFE_ID_RE.test(itemId)) {
     res.status(400).json({ error: 'Invalid itemId format' });
     return;
   }
 
-  const db = getFirestore();
-  const userId = getDashboardUserId();
+  const db = deps.db ?? getFirestore();
+  const userId = deps.userId ?? getDashboardUserId();
   const userRef = db.collection('users').doc(userId).collection('articles').doc(itemId);
   const userSnap = await userRef.get();
 
@@ -80,32 +81,13 @@ export async function handleBootstrapArticle(
     return;
   }
 
-  let canonicalItemId = resolveCanonicalItemId(itemId, userDoc);
-  let linkedExisting = canonicalItemId !== itemId;
-
-  // If resolvedId is missing, mirror onUserArticleSave URL de-dupe behavior.
-  if (canonicalItemId === itemId) {
-    const existingQuery = await db
-      .collection('articles')
-      .where('url', '==', url)
-      .limit(1)
-      .get();
-    if (!existingQuery.empty) {
-      const existingDoc = existingQuery.docs[0]!;
-      if (existingDoc.id !== itemId) {
-        canonicalItemId = existingDoc.id;
-        linkedExisting = true;
-        await existingDoc.ref.set(
-          {
-            'stats.total_saves': FieldValue.increment(1),
-            'stats.last_saved_at': Timestamp.now(),
-            updated_at: Timestamp.now(),
-          },
-          { merge: true }
-        );
-      }
-    }
-  }
+  // The shared article is the server-written link (else this item's own id), with a
+  // merged duplicate followed once. Linking an unlinked article is the server's job,
+  // so there is no URL lookup here: every dashboard path names the same shared doc.
+  const linkId = resolveCanonicalItemId(itemId, userDoc);
+  const shared = await readSharedArticle(db, linkId);
+  const canonicalItemId = shared?.id ?? linkId;
+  const linkedExisting = canonicalItemId !== itemId;
 
   const pocket = buildPocket(userDoc, canonicalItemId);
   const stats = {
@@ -115,12 +97,11 @@ export async function handleBootstrapArticle(
   };
 
   const articleRef = db.collection('articles').doc(canonicalItemId);
-  const articleSnap = await articleRef.get();
   const now = Timestamp.now();
   let created = false;
   let patched = false;
 
-  if (!articleSnap.exists) {
+  if (!shared) {
     await articleRef.set({
       item_id: canonicalItemId,
       url,
@@ -134,7 +115,7 @@ export async function handleBootstrapArticle(
     });
     created = true;
   } else {
-    const canonicalDoc = articleSnap.data() as Record<string, unknown>;
+    const canonicalDoc = shared.data;
     const update: Record<string, unknown> = { updated_at: now };
 
     if (!canonicalDoc['item_id']) {
@@ -180,9 +161,7 @@ export async function handleBootstrapArticle(
     await userRef.set(userPatch, { merge: true });
   }
 
-  const canonicalData = articleSnap.exists
-    ? (articleSnap.data() as Record<string, unknown>)
-    : undefined;
+  const canonicalData = shared?.data;
   const existingRequestId =
     typeof canonicalData?.['warg_request_id'] === 'string'
       ? (canonicalData['warg_request_id'] as string)

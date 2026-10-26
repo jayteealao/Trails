@@ -8,6 +8,7 @@ export type { ReadabilityResult };
 export interface ReadabilityRequest {
   request_id: string;
   rendered_html_key: string; // R2 key to fetch HTML from
+  url?: string; // page URL, resolves a relative og:image
 }
 
 /**

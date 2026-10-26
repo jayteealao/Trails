@@ -108,6 +108,16 @@ jobs:
           node scripts/check-worker-configs.mjs
           node --test scripts/__tests__/worker-configs.test.mjs
 
+      - name: Keys are secrets and no user id is tracked
+        # Fails when a cloud function declares a key with defineString or reads
+        # one from process.env at module load, or when a tracked text file
+        # holds a token shaped like a Firebase user id. Hits print the shape
+        # of the token, never the token.
+        timeout-minutes: 5
+        run: |
+          node scripts/check-keys-and-uid.mjs
+          node --test scripts/__tests__/keys-and-uid.test.mjs
+
       - name: Cloud function bundles
         # Builds each function's deploy folder (one esbuild bundle plus a
         # generated package.json), then checks it as Cloud Build will use it:
