@@ -71,11 +71,11 @@ class Migration8To9JvmTest {
             assertEquals(24, db.articleDao().countAllArticles())
 
             db.useReaderConnection { connection ->
-                assertEquals(listOf("10"), connection.usePrepared("PRAGMA user_version") { it.texts() })
+                assertEquals(listOf("11"), connection.usePrepared("PRAGMA user_version") { it.texts() })
                 // Every column of every row reads back unchanged.
                 for ((table, rows) in before) {
                     val columns = columns(table)
-                    val after = connection.usePrepared(selectAll(table, columns)) { it.rows(columns.size) }
+                    val after = connection.usePrepared(selectAllAfter(table, columns)) { it.rows(columns.size) }
                     assertEquals("rows of $table", rows, after)
                 }
                 assertEquals(
@@ -83,7 +83,7 @@ class Migration8To9JvmTest {
                         "index_article_deleted_at_archived_at_timeAdded",
                         "index_article_deleted_at_archived_at_timeFavorited_timeAdded",
                         "index_article_timeUpdated_itemId",
-                        "index_article_backed_up_at_deleted_at_timeAdded",
+                        // index_article_backed_up_at_deleted_at_timeAdded: moved to sync_state at version 11.
                         "index_article_resolvedId",
                         "index_article_normalized_url",
                         "sqlite_autoindex_article_1",
@@ -191,6 +191,23 @@ class Migration8To9JvmTest {
     private fun selectAll(table: String, columns: List<String>): String {
         val list = columns.joinToString(", ") { "`$it`" }
         return "SELECT $list FROM `$table` ORDER BY $list"
+    }
+
+    /**
+     * [selectAll] on the current schema: the sync stamp and the counter of `article` are read
+     * from `sync_state` (moved there at version 11), in the same column order, so the rows
+     * compare with the dump taken before the migration.
+     */
+    private fun selectAllAfter(table: String, columns: List<String>): String {
+        if (table != "article") return selectAll(table, columns)
+        val list = columns.joinToString(", ") {
+            when (it) {
+                "backed_up_at" -> "s.backed_up_at"
+                "sync_failures" -> "IFNULL(s.sync_failures, 0)"
+                else -> "article.`$it`"
+            }
+        }
+        return "SELECT $list FROM article LEFT JOIN sync_state AS s ON s.itemId = article.itemId ORDER BY $list"
     }
 
     private fun SQLiteStatement.rows(columnCount: Int): List<List<String?>> = buildList {

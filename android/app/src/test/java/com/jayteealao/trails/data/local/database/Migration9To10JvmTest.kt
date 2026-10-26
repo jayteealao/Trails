@@ -74,11 +74,11 @@ class Migration9To10JvmTest {
             assertEquals(32, db.articleDao().countAllArticles())
 
             db.useReaderConnection { connection ->
-                assertEquals(listOf("10"), connection.usePrepared("PRAGMA user_version") { it.texts() })
+                assertEquals(listOf("11"), connection.usePrepared("PRAGMA user_version") { it.texts() })
                 // Every column of every row reads back unchanged.
                 for ((table, rows) in before) {
                     val columns = columns(table)
-                    val after = connection.usePrepared(selectAll(table, columns)) { it.rows(columns.size) }
+                    val after = connection.usePrepared(selectAllAfter(table, columns)) { it.rows(columns.size) }
                     assertEquals("rows of $table", rows, after)
                 }
                 assertEquals(
@@ -188,6 +188,23 @@ class Migration9To10JvmTest {
     private fun selectAll(table: String, columns: List<String>): String {
         val list = columns.joinToString(", ") { "`$it`" }
         return "SELECT $list FROM `$table` ORDER BY $list"
+    }
+
+    /**
+     * [selectAll] on the current schema: the sync stamp and the counter of `article` are read
+     * from `sync_state` (moved there at version 11), in the same column order, so the rows
+     * compare with the dump taken before the migration.
+     */
+    private fun selectAllAfter(table: String, columns: List<String>): String {
+        if (table != "article") return selectAll(table, columns)
+        val list = columns.joinToString(", ") {
+            when (it) {
+                "backed_up_at" -> "s.backed_up_at"
+                "sync_failures" -> "IFNULL(s.sync_failures, 0)"
+                else -> "article.`$it`"
+            }
+        }
+        return "SELECT $list FROM article LEFT JOIN sync_state AS s ON s.itemId = article.itemId ORDER BY $list"
     }
 
     private fun SQLiteStatement.rows(columnCount: Int): List<List<String?>> = buildList {
