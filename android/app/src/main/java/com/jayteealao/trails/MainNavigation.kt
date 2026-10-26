@@ -180,7 +180,8 @@ fun MainNavigation(
                 LogoutConfirmationDialog(
                     onLogoutOnly = {
                         appBackStack.remove() // Close dialog
-                        authViewModel.signOut() // Update auth state immediately
+                        // No sign-out here: pending changes are pushed with the owner's
+                        // session first; Settings signs out when it finishes.
                         settingsViewModel.logout(clearData = false)
                     },
                     onLogoutAndClear = {
