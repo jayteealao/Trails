@@ -30,7 +30,7 @@ import kotlinx.serialization.Serializable
  * - deleted_at, archived_at, timeFavorited, timeAdded: the favourite list (live and not
  *   archived first, so the planner seeks and reads in favourite order without a sort).
  * - timeUpdated, itemId: the sync push pages and their count (keyset order).
- * - backed_up_at, deleted_at, timeAdded: the never-backed-up sweep and its count.
+ * - the never-backed-up sweep reads `timeUpdated, itemId` and joins `sync_state`.
  * - resolvedId: the tag view and tag list matched by resolved id, getArticleByResolvedId.
  * - normalized_url: getArticleByNormalizedUrl (the save dedup). Not unique: existing
  *   libraries may hold duplicates.
@@ -42,7 +42,6 @@ import kotlinx.serialization.Serializable
         Index(value = ["deleted_at", "archived_at", "timeAdded"]),
         Index(value = ["deleted_at", "archived_at", "timeFavorited", "timeAdded"]),
         Index(value = ["timeUpdated", "itemId"]),
-        Index(value = ["backed_up_at", "deleted_at", "timeAdded"]),
         Index(value = ["resolvedId"]),
         Index(value = ["normalized_url"]),
     ],
@@ -77,13 +76,6 @@ data class Article(
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "archived_at") val archivedAt: Long? = null,
     @ColumnInfo(name = "text_source", defaultValue = "") val textSource: String = "",
-    /** Epoch-millis when this article was successfully backed up to Firestore (null = never). */
-    @ColumnInfo(name = "backed_up_at", defaultValue = "NULL") val backedUpAt: Long? = null,
-    /**
-     * Failed push runs for this row; at MAX_SYNC_FAILURES the sync skips it.
-     * Device-local: never backed up, 0 on restore.
-     */
-    @ColumnInfo(name = "sync_failures", defaultValue = "0") val syncFailures: Int = 0,
 )
 
 /**
