@@ -28,6 +28,7 @@ import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import com.google.firebase.auth.FirebaseAuth
 import com.jayteealao.trails.common.FirestoreLogTree
+import com.jayteealao.trails.data.local.LocalFolders
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.Dispatchers
@@ -86,7 +87,7 @@ class Trails @Inject constructor() : Application(), Configuration.Provider, Sing
             .diskCache {
                 DiskCache.Builder()
                     .maxSizePercent(0.10) // Adjust as needed
-                    .directory(context.cacheDir.resolve("image_cache").toOkioPath())
+                    .directory(context.cacheDir.resolve(LocalFolders.IMAGE_CACHE_DIR).toOkioPath())
                     .build()
             }
             .memoryCache {

@@ -1,7 +1,7 @@
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import { getDashboardUserId } from './config.js';
-import { extractDomain, resolveCanonicalItemId } from './util.js';
+import { extractDomain, readSharedArticle, resolveCanonicalItemId } from './util.js';
 
 const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
 
@@ -16,7 +16,8 @@ interface MarkProcessingBody {
 export async function handleMarkProcessing(
   req: Request,
   res: Response,
-  itemId: string
+  itemId: string,
+  deps: { db?: Firestore; userId?: string } = {}
 ): Promise<void> {
   if (!SAFE_ID_RE.test(itemId)) {
     res.status(400).json({ error: 'Invalid itemId format' });
@@ -32,8 +33,8 @@ export async function handleMarkProcessing(
     return;
   }
 
-  const db = getFirestore();
-  const userId = getDashboardUserId();
+  const db = deps.db ?? getFirestore();
+  const userId = deps.userId ?? getDashboardUserId();
   const userRef = db.collection('users').doc(userId).collection('articles').doc(itemId);
   const userSnap = await userRef.get();
 
@@ -43,7 +44,9 @@ export async function handleMarkProcessing(
   }
 
   const userDoc = userSnap.data() as Record<string, unknown>;
-  const canonicalItemId = resolveCanonicalItemId(itemId, userDoc);
+  const linkId = resolveCanonicalItemId(itemId, userDoc);
+  const shared = await readSharedArticle(db, linkId);
+  const canonicalItemId = shared?.id ?? linkId;
   const url = typeof userDoc['url'] === 'string' ? userDoc['url'] : '';
   const now = Timestamp.now();
 

@@ -16,6 +16,8 @@ class SharedPreferencesManager @Inject constructor(
     companion object {
         const val PREFERENCES_NAME = "com.jayteealao.trails"
         const val PREFERENCES_KEY = "com.jayteealao.trails.key"
+        const val LOCAL_DATA_OWNER_UID = "local_data_owner_uid"
+        const val LOCAL_DATA_OWNER_LABEL = "local_data_owner_label"
     }
 
     private val sharedPreferences: SharedPreferences = context.getSharedPreferences(
@@ -75,8 +77,28 @@ class SharedPreferencesManager @Inject constructor(
         awaitClose { sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
+    /** The uid that owns the local library, or null when none is stored. */
+    fun getLocalDataOwnerUid(): String? = sharedPreferences.getString(LOCAL_DATA_OWNER_UID, null)
+
+    /** The owner's display label (the email; null for a guest). */
+    fun getLocalDataOwnerLabel(): String? = sharedPreferences.getString(LOCAL_DATA_OWNER_LABEL, null)
+
+    fun setLocalDataOwner(uid: String, label: String?) {
+        sharedPreferences.edit().apply {
+            putString(LOCAL_DATA_OWNER_UID, uid)
+            if (label != null) putString(LOCAL_DATA_OWNER_LABEL, label) else remove(LOCAL_DATA_OWNER_LABEL)
+        }.apply()
+    }
+
+    fun clearLocalDataOwner() {
+        sharedPreferences.edit()
+            .remove(LOCAL_DATA_OWNER_UID)
+            .remove(LOCAL_DATA_OWNER_LABEL)
+            .apply()
+    }
+
     /**
-     * Clear all preferences
+     * Clear all preferences (the local data owner included)
      */
     fun clear() {
         val editor = sharedPreferences.edit()

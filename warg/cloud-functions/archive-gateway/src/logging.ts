@@ -1,10 +1,6 @@
 import type { LogEvent, EventType, LogLevel, EventSource } from './types.js';
 import { postGatewayInternalLog } from './gateway-client.js';
-
-const GATEWAY_URL = process.env['GATEWAY_URL'] ?? 'https://gateway.jayteealao.workers.dev';
-const INTERNAL_API_KEY = process.env['INTERNAL_API_KEY'] ?? '';
-const CF_ACCESS_CLIENT_ID = process.env['CF_ACCESS_CLIENT_ID'] ?? '';
-const CF_ACCESS_CLIENT_SECRET = process.env['CF_ACCESS_CLIENT_SECRET'] ?? '';
+import { GATEWAY_LOG_KEY, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET } from './secrets.js';
 
 /**
  * Log an event to the gateway's internal log endpoint.
@@ -33,10 +29,13 @@ export async function logEvent(
   try {
     await postGatewayInternalLog(
       {
-        gatewayUrl: GATEWAY_URL,
-        internalApiKey: INTERNAL_API_KEY,
-        cfAccessClientId: CF_ACCESS_CLIENT_ID,
-        cfAccessClientSecret: CF_ACCESS_CLIENT_SECRET,
+        // Read per call: secrets are bound at run time, not at module load.
+        gatewayUrl: process.env['GATEWAY_URL'] ?? 'https://gateway.jayteealao.workers.dev',
+        // The gateway worker's own internal key, held under its own name so
+        // the old shared function key can be destroyed without cutting logging.
+        internalApiKey: GATEWAY_LOG_KEY.value(),
+        cfAccessClientId: CF_ACCESS_CLIENT_ID.value(),
+        cfAccessClientSecret: CF_ACCESS_CLIENT_SECRET.value(),
       },
       { requestId, event }
     );

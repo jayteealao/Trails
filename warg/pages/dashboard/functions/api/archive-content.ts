@@ -1,6 +1,6 @@
 interface Env {
   DASHBOARD_API_URL: string;
-  INTERNAL_API_KEY: string;
+  DASHBOARD_API_KEY: string;
 }
 
 interface SignedUrlPayload {
@@ -93,8 +93,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   if (!env.DASHBOARD_API_URL) {
     return jsonError('DASHBOARD_API_URL is not configured', 500);
   }
-  if (!env.INTERNAL_API_KEY) {
-    return jsonError('INTERNAL_API_KEY is not configured', 500);
+  if (!env.DASHBOARD_API_KEY) {
+    return jsonError('DASHBOARD_API_KEY is not configured', 500);
   }
   if (!SAFE_ID_RE.test(itemId)) {
     return jsonError('Invalid itemId format', 400);
@@ -111,7 +111,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         new URLSearchParams({ itemId, archiveKey })
       ),
       {
-        headers: { 'X-Internal-API-Key': env.INTERNAL_API_KEY },
+        headers: { 'X-Internal-API-Key': env.DASHBOARD_API_KEY },
         signal: AbortSignal.timeout(30000),
       }
     );

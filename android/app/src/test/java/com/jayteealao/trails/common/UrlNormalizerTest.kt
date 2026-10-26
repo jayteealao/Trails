@@ -2,144 +2,49 @@ package com.jayteealao.trails.common
 
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.computeNormalizedUrl
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UrlNormalizerTest {
 
+    // The cases live in warg/packages/url-normalizer/fixtures and are shared with the
+    // TypeScript normalizer the Warg functions use; build.gradle.kts adds that folder
+    // to the unit-test resources.
     @Test
-    fun `normalizeUrl lowercases scheme and host but preserves path case`() {
-        assertEquals(
-            "https://example.com/Article",
-            normalizeUrl("HTTPS://EXAMPLE.COM/Article")
+    fun `normalizeUrl matches every shared fixture`() {
+        val stream = javaClass.classLoader?.getResourceAsStream(FIXTURE)
+        assertNotNull(
+            "$FIXTURE is missing from the unit-test resources; check the test sourceSets block in app/build.gradle.kts",
+            stream,
         )
-    }
+        val text = stream!!.use { it.readBytes().toString(Charsets.UTF_8) }
+        val cases = Json.parseToJsonElement(text).jsonObject.getValue("cases").jsonArray
 
-    @Test
-    fun `normalizeUrl strips utm tracking params`() {
-        assertEquals(
-            "https://example.com/article",
-            normalizeUrl("https://example.com/article?utm_source=twitter&utm_medium=social&utm_campaign=launch")
+        val mismatches = mutableListOf<String>()
+        for (case in cases) {
+            val row = case.jsonObject
+            val name = row.getValue("name").jsonPrimitive.content
+            val input = row.getValue("input").jsonPrimitive.content
+            val expected = row.getValue("expected").jsonPrimitive.content
+            val actual = normalizeUrl(input)
+            if (actual != expected) {
+                mismatches += "$name: ${JsonPrimitive(input)} -> ${JsonPrimitive(actual)} " +
+                    "(expected ${JsonPrimitive(expected)})"
+            }
+        }
+
+        assertTrue(
+            "${mismatches.size} of ${cases.size} fixture rows differ:\n" + mismatches.joinToString("\n"),
+            mismatches.isEmpty(),
         )
-    }
-
-    @Test
-    fun `normalizeUrl strips fbclid and gclid`() {
-        assertEquals(
-            "https://example.com/post",
-            normalizeUrl("https://example.com/post?fbclid=abc123&gclid=xyz789")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl strips msclkid and dclid`() {
-        assertEquals(
-            "https://example.com/page",
-            normalizeUrl("https://example.com/page?msclkid=abc&dclid=def")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl preserves non-tracking query params`() {
-        assertEquals(
-            "https://example.com/search?page=2&q=kotlin",
-            normalizeUrl("https://example.com/search?q=kotlin&page=2")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl strips fragment`() {
-        assertEquals(
-            "https://example.com/page",
-            normalizeUrl("https://example.com/page#section-1")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl removes trailing slash for non-root paths`() {
-        assertEquals(
-            "https://example.com/article",
-            normalizeUrl("https://example.com/article/")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl preserves trailing slash for root path`() {
-        assertEquals(
-            "https://example.com/",
-            normalizeUrl("https://example.com/")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl preserves ref param`() {
-        assertEquals(
-            "https://github.com/user/repo?ref=main",
-            normalizeUrl("https://github.com/user/repo?ref=main")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl strips ref_src tracking param`() {
-        assertEquals(
-            "https://example.com/article",
-            normalizeUrl("https://example.com/article?ref_src=twsrc")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl strips ref_url tracking param`() {
-        assertEquals(
-            "https://example.com/article",
-            normalizeUrl("https://example.com/article?ref_url=https%3A%2F%2Ft.co%2Ffoo")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl sorts query params by name`() {
-        assertEquals(
-            "https://example.com/search?a=1&b=2",
-            normalizeUrl("https://example.com/search?b=2&a=1")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl returns unparseable string unchanged`() {
-        assertEquals("not-a-url", normalizeUrl("not-a-url"))
-        assertEquals("", normalizeUrl(""))
-        assertEquals("ftp://files.example.com/data", normalizeUrl("ftp://files.example.com/data"))
-    }
-
-    @Test
-    fun `normalizeUrl handles mixed tracking and non-tracking params`() {
-        assertEquals(
-            "https://example.com/page?id=42",
-            normalizeUrl("https://example.com/page?utm_campaign=launch&id=42&gclid=xyz")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl handles url with no query params`() {
-        assertEquals(
-            "https://example.com/article",
-            normalizeUrl("https://example.com/article")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl handles url with only tracking params`() {
-        assertEquals(
-            "https://example.com/article",
-            normalizeUrl("https://example.com/article?utm_source=google&fbclid=abc")
-        )
-    }
-
-    @Test
-    fun `normalizeUrl handles complex url with multiple features`() {
-        assertEquals(
-            "https://example.com/path/to/article?id=123&page=2",
-            normalizeUrl("HTTPS://EXAMPLE.COM/path/to/article/?id=123&utm_source=email&page=2#comments")
-        )
+        assertTrue("expected at least 50 fixture rows, found ${cases.size}", cases.size >= 50)
     }
 
     // Article.computeNormalizedUrl() extension tests — assert byte-for-byte parity with
@@ -171,5 +76,9 @@ class UrlNormalizerTest {
         val article = Article(itemId = "a4", url = null, givenUrl = null)
         assertEquals(normalizeUrl(article.url ?: article.givenUrl ?: ""), article.computeNormalizedUrl())
         assertEquals("", article.computeNormalizedUrl())
+    }
+
+    private companion object {
+        const val FIXTURE = "url-normalizer-cases.json"
     }
 }

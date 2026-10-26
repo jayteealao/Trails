@@ -1,0 +1,4 @@
+Release APK size, both built with the project's throwaway signing harness (generateSigningHarness), same keys for both
+base 9fa51ed: file-size 5372401 download-size 4858427; classes.dex 8891048 classes2.dex 863584 (uncompressed)
+branch: file-size 10312839 download-size 7427877; classes.dex 8864020 classes2.dex 973484; libsqliteJni.so arm64-v8a 1281456 armeabi-v7a 1254892 x86 1140764 x86_64 1189688 (stored, total 4866800)
+delta: file-size +4940438 (+92.0%), download-size +2569450 (+52.9%), dex +82872 uncompressed

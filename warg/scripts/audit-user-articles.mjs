@@ -4,9 +4,9 @@
 //
 // Usage:
 //   gcloud auth login        (once)
-//   node warg/scripts/audit-user-articles.mjs [USER_ID] [GCS_IDS_FILE] [OUTPUT_CSV]
+//   node warg/scripts/audit-user-articles.mjs <USER_ID> [GCS_IDS_FILE] [OUTPUT_CSV]
 //
-// Defaults: USER_ID=TGtRF6GrQaSmfjGk9GEYJ8YZc0v1, GCS file beside this script.
+// USER_ID is required. Defaults: GCS file and output CSV beside this script.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -15,7 +15,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const USER_ID = process.argv[2] ?? 'TGtRF6GrQaSmfjGk9GEYJ8YZc0v1';
+const USAGE = 'usage: node warg/scripts/audit-user-articles.mjs <USER_ID> [GCS_IDS_FILE] [OUTPUT_CSV]';
+const USER_ID = process.argv[2];
+if (!USER_ID) {
+  console.error(USAGE);
+  process.exit(2);
+}
 const GCS_FILE = process.argv[3] ?? resolve(__dirname, 'gcs-ids.txt');
 const OUT = process.argv[4] ?? resolve(__dirname, `user-${USER_ID}-audit.csv`);
 

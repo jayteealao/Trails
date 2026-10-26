@@ -17,10 +17,8 @@
 package com.jayteealao.trails.data
 
 import android.content.Context
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import com.jayteealao.trails.data.local.database.ArticleDao
-import com.jayteealao.trails.data.local.database.ArticleWithMatchInfo
+import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import io.mockk.MockKAnnotations
@@ -40,18 +38,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Unit tests for the FTS search sanitization fix in [ArticleRepositoryImpl.searchLocal].
- *
- * Pins the post-fix behaviour: the DAO receives the **sanitized** query (not the raw input)
- * for every input category. The sanitization wraps the input in a phrase-prefix-suffix
- * FTS4 pattern: `*"*<escaped-input>*"*`.
- *
- * Each test calls [ArticleRepositoryImpl.searchLocal] and asserts via
- * [coVerify] that [ArticleDao.searchArticlesWithMatchInfo] was called with the
- * expected sanitized string — not the raw input.
- *
- * Pre-fix: these tests would all fail because the raw query reached the DAO.
- * Post-fix: all 7 cases pass.
+ * [ArticleRepositoryImpl.searchLocal] hands the DAO the match string built from the typed
+ * words (any word matches) and the result limit, and returns the DAO's ranked list as it is.
+ * The query behaviour itself is pinned on a real database by Fts5SearchQueryTest.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class FtsSearchTest {
@@ -60,13 +49,8 @@ class FtsSearchTest {
     @MockK private lateinit var articleDao: ArticleDao
     @MockK private lateinit var firestoreSyncManager: FirestoreSyncManager
     @MockK private lateinit var firestoreBackupService: FirestoreBackupService
-    @MockK private lateinit var firestore: FirebaseFirestore
-    @MockK private lateinit var firebaseAuth: FirebaseAuth
 
     private lateinit var repository: ArticleRepositoryImpl
-
-    /** Reusable empty-results stub for the DAO — most tests don't care about results. */
-    private val emptyResults: List<ArticleWithMatchInfo> = emptyList()
 
     @Before
     fun setUp() {
@@ -77,8 +61,6 @@ class FtsSearchTest {
             firestoreSyncManager = firestoreSyncManager,
             firestoreBackupService = firestoreBackupService,
             coroutineScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher()),
-            firestore = firestore,
-            firebaseAuth = firebaseAuth,
         )
     }
 
@@ -87,105 +69,33 @@ class FtsSearchTest {
         clearAllMocks()
     }
 
-    /**
-     * TC-1: plain word — baseline
-     * Input "hello" → sanitized to `*"*hello*"*`
-     */
     @Test
-    fun `searchLocal passes sanitized query to DAO for plain word`() = runTest {
-        val sanitized = """*"*hello*"*"""
-        coEvery { articleDao.searchArticlesWithMatchInfo(sanitized) } returns emptyResults
+    fun `searchLocal sends each word as a quoted OR term with the limit of 100`() = runTest {
+        coEvery { articleDao.searchArticlesRanked(any(), any()) } returns emptyList()
 
-        repository.searchLocal("hello")
+        repository.searchLocal("river mill")
 
-        coVerify(exactly = 1) { articleDao.searchArticlesWithMatchInfo(sanitized) }
+        coVerify(exactly = 1) { articleDao.searchArticlesRanked("\"river\" OR \"mill\"", 100) }
+        assertEquals(100, SEARCH_RESULT_LIMIT)
     }
 
-    /**
-     * TC-2: unbalanced/embedded quotes escaped
-     * Input `say "hi"` → the intermediate `*say "hi"*` has `"` replaced with `""`,
-     * then wrapped → `*"*say ""hi""*"*`
-     */
     @Test
-    fun `searchLocal escapes embedded double-quotes`() = runTest {
-        val sanitized = """*"*say ""hi""*"*"""
-        coEvery { articleDao.searchArticlesWithMatchInfo(sanitized) } returns emptyResults
+    fun `searchLocal runs no query for empty or blank input`() = runTest {
+        assertTrue(repository.searchLocal("").isEmpty())
+        assertTrue(repository.searchLocal("   ").isEmpty())
 
-        repository.searchLocal("""say "hi"""")
-
-        coVerify(exactly = 1) { articleDao.searchArticlesWithMatchInfo(sanitized) }
+        coVerify(exactly = 0) { articleDao.searchArticlesRanked(any(), any()) }
     }
 
-    /**
-     * TC-3: lone `*` stays literal inside phrase quotes
-     * Input `*` → intermediate `***` → no `"` → wrapped → `*"***"*`
-     */
     @Test
-    fun `searchLocal treats lone asterisk as literal in phrase quotes`() = runTest {
-        val sanitized = """*"***"*"""
-        coEvery { articleDao.searchArticlesWithMatchInfo(sanitized) } returns emptyResults
+    fun `searchLocal returns the ranked list unchanged`() = runTest {
+        val ranked = listOf(
+            ArticleItem(itemId = "b", title = "Best", url = "https://example.com/b"),
+            ArticleItem(itemId = "a", title = "Second", url = "https://example.com/a"),
+            ArticleItem(itemId = "c", title = "Third", url = "https://example.com/c"),
+        )
+        coEvery { articleDao.searchArticlesRanked("\"river\"", 100) } returns ranked
 
-        repository.searchLocal("*")
-
-        coVerify(exactly = 1) { articleDao.searchArticlesWithMatchInfo(sanitized) }
-    }
-
-    /**
-     * TC-4: FTS operators neutralised in phrase
-     * Input `AND OR NEAR` → intermediate `*AND OR NEAR*` → wrapped → `*"*AND OR NEAR*"*`
-     * Operators lose their special meaning inside phrase quotes.
-     */
-    @Test
-    fun `searchLocal neutralises FTS operators inside phrase quotes`() = runTest {
-        val sanitized = """*"*AND OR NEAR*"*"""
-        coEvery { articleDao.searchArticlesWithMatchInfo(sanitized) } returns emptyResults
-
-        repository.searchLocal("AND OR NEAR")
-
-        coVerify(exactly = 1) { articleDao.searchArticlesWithMatchInfo(sanitized) }
-    }
-
-    /**
-     * TC-5: empty query — early return guard
-     * [ArticleRepositoryImpl.searchWithScore] returns emptyList() immediately;
-     * the DAO must never be called.
-     */
-    @Test
-    fun `searchLocal returns empty list and never calls DAO for empty query`() = runTest {
-        val result = repository.searchLocal("")
-
-        assertTrue(result.isEmpty())
-        coVerify(exactly = 0) { articleDao.searchArticlesWithMatchInfo(any()) }
-    }
-
-    /**
-     * TC-6: whitespace-only query — non-crashing path
-     * The whitespace string is non-empty so it passes the early-return guard;
-     * the DAO receives a sanitized expression and must not crash.
-     */
-    @Test
-    fun `searchLocal passes whitespace query sanitized to DAO without crashing`() = runTest {
-        val sanitized = """*"*   *"*"""
-        coEvery { articleDao.searchArticlesWithMatchInfo(sanitized) } returns emptyResults
-
-        val result = repository.searchLocal("   ")
-
-        coVerify(exactly = 1) { articleDao.searchArticlesWithMatchInfo(sanitized) }
-        assertEquals(emptyList<Any>(), result)
-    }
-
-    /**
-     * TC-7: non-ASCII passes through unchanged
-     * Input `café résumé` → intermediate `*café résumé*` → no `"` → wrapped →
-     * `*"*café résumé*"*`
-     */
-    @Test
-    fun `searchLocal passes non-ASCII query through sanitization unchanged`() = runTest {
-        val sanitized = """*"*café résumé*"*"""
-        coEvery { articleDao.searchArticlesWithMatchInfo(sanitized) } returns emptyResults
-
-        repository.searchLocal("café résumé")
-
-        coVerify(exactly = 1) { articleDao.searchArticlesWithMatchInfo(sanitized) }
+        assertEquals(ranked, repository.searchLocal("river"))
     }
 }

@@ -12,6 +12,26 @@ Three independent scripts share a small pure core (`keys` / `coverage` /
 | `marker-backfill` | Writes a `users/{uid}/articleMarkers/{key}` doc for every key of every one of the user's articles (`itemId`, plus `resolvedId` when present and distinct). Writes **only missing** keys; preserves any existing marker's `source`/`createdAt`. | No — never deletes. |
 | `coverage-gate` | Asserts a marker exists for every derived key. Prints the headline counts and exits non-zero on any gap. This is the precondition that authorizes the read-rule flip. | No — read-only. |
 | `debug-logs-cleanup` | Deletes the legacy flat `debug_logs/{id}` docs left unreadable after the uid-scoped `debug_logs/{uid}/sessions/*` migration. Classifies by field shape **and** the absence of a `sessions` subcollection. | Yes — only on `--apply`, only on `legacy-flat` docs. |
+| `merge-pass-a` | Merges shared articles that hold the same normalized URL: the oldest wins, takes the finished archives it lacks, and every user link moves to it; the others stay as stubs with `mergedInto`. Writes `normalizedUrl` on every shared article. Project-wide; takes no `--user`. See [Duplicate merge](#duplicate-merge). | No — never deletes. |
+| `rederive-pass-b` | Re-derives the link (`canonicalId`) and the server marker of every non-deleted user article from its URL, with the save trigger's rule; creates a missing shared article through the trigger's link function. Skips deleted user articles. Project-wide; takes no `--user`. See [Link re-derive](#link-re-derive). | Deletes only markers no own URL derives, on `--apply`. |
+
+## Duplicate merge
+
+`merge-pass-a` runs over the whole project, so it takes no `--user`. Its flags
+are `--apply` (real run; omitted = dry run), `--yes`, `--report <path>` (default
+`tmp/merge-pass-a-<UTC time>.json`, ignored by git) and `--page-size <n>`. The
+report names users only by a short hash. The how-to, with what to check in the
+report, is in [Merging duplicate shared articles](../../README.md#merging-duplicate-shared-articles).
+
+## Link re-derive
+
+`rederive-pass-b` also runs over the whole project and takes no `--user`. Run it
+only after the duplicate merge: `--apply` refuses with exit code 2 until the
+merge has finished. Its flags are `--apply` (real run; omitted = dry run),
+`--yes`, `--report <path>` (default `tmp/rederive-pass-b-<UTC time>.json`,
+ignored by git) and `--page-size <n>`. Exit code 1 means some writes met a
+document that changed while it ran; run it again. The how-to, with what to check
+in the report, is in [Re-deriving article links](../../README.md#re-deriving-article-links-after-the-merge).
 
 ## Preconditions
 

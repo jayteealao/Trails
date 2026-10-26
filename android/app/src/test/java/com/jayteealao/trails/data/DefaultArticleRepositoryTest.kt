@@ -18,13 +18,6 @@ package com.jayteealao.trails.data
 
 import android.content.Context
 import androidx.paging.PagingSource
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.firestore.CollectionReference
-import com.google.firebase.firestore.DocumentReference
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
-import com.google.android.gms.tasks.Tasks
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
@@ -66,7 +59,7 @@ import org.junit.Test
  * by the slices that change it.
  *
  * Extended with two tests for the repository cleanup (B3):
- * - [delete uses injected FirebaseAuth and FirebaseFirestore] — no raw getInstance() call
+ * - [delete marks the row deleted and triggers a sync, and writes nothing to Firestore directly]
  * - [add performs single bulk article upsert] — single upsertArticles() call, not per-item upsertArticle()
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -76,8 +69,6 @@ class DefaultArticleRepositoryTest {
     @MockK private lateinit var articleDao: ArticleDao
     @MockK private lateinit var firestoreSyncManager: FirestoreSyncManager
     @MockK private lateinit var firestoreBackupService: FirestoreBackupService
-    @MockK private lateinit var firestore: FirebaseFirestore
-    @MockK private lateinit var firebaseAuth: FirebaseAuth
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -92,8 +83,6 @@ class DefaultArticleRepositoryTest {
             firestoreSyncManager = firestoreSyncManager,
             firestoreBackupService = firestoreBackupService,
             coroutineScope = CoroutineScope(SupervisorJob() + testDispatcher),
-            firestore = firestore,
-            firebaseAuth = firebaseAuth,
         )
     }
 
@@ -134,32 +123,19 @@ class DefaultArticleRepositoryTest {
     }
 
     /**
-     * B3 — delete() must use the injected [FirebaseAuth] and [FirebaseFirestore] handles,
-     * not raw [FirebaseAuth.getInstance()] / [FirebaseFirestore.getInstance()].
-     *
-     * Because no mockkStatic(FirebaseAuth::class) is registered, any call to the raw
-     * getInstance() would throw an unmocked-static exception, serving as a negative
-     * assertion that the static call path is gone.
+     * A delete is an ordinary local change: the row is marked deleted and the normal
+     * sync pushes it (as `deletedAt`). The repository never writes Firestore itself —
+     * it has no Firestore handle to write with.
      */
     @Test
-    fun `delete uses injected FirebaseAuth and FirebaseFirestore`() = runTest(testDispatcher) {
-        val mockUser = mockk<FirebaseUser> { every { uid } returns "uid1" }
-        every { firebaseAuth.currentUser } returns mockUser
-
-        val mockCollection = mockk<CollectionReference>(relaxed = true)
-        val mockDocument = mockk<DocumentReference>(relaxed = true)
-        every { firestore.collection("users") } returns mockCollection
-        every { mockCollection.document("uid1") } returns mockDocument
-        every { mockDocument.collection("articles") } returns mockCollection
-        every { mockCollection.document("item1") } returns mockDocument
-        every { mockDocument.set(any(), any<SetOptions>()) } returns Tasks.forResult(null)
+    fun `delete marks the row deleted and triggers a sync, and writes nothing to Firestore directly`() = runTest(testDispatcher) {
         coEvery { articleDao.updateDeleted(any(), any()) } returns Unit
 
         repository.delete("item1")
         advanceUntilIdle()
 
-        verify { firebaseAuth.currentUser }
-        verify { firestore.collection("users") }
+        coVerify(exactly = 1) { articleDao.updateDeleted("item1", any()) }
+        coVerify(exactly = 1) { firestoreSyncManager.syncLocalChanges() }
     }
 
     /**

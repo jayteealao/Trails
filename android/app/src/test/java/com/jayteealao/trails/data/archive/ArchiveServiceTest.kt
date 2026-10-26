@@ -12,11 +12,8 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArchiveUrlService
-import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
@@ -26,24 +23,25 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
 /**
- * Verifies the read-path self-heal: a PERMISSION_DENIED on the top-level
- * articles/{itemId} read triggers a one-shot marker write + retry, retries at
- * most once, and never lets the exception escape (the archive UI must not crash).
+ * Verifies the one-shot shared-article read used for metadata and the screenshot
+ * image: the shared id comes from the server-written `canonicalId` on
+ * users/{uid}/articles/{itemId}, falls back to the itemId, and a denied read
+ * returns null with one attempt and no write.
  *
  * Exercised via the public fetchWargMetadata(), which routes its read through
- * the private getArticleDocWithSelfHeal() helper.
+ * the private getSharedArticleDoc() helper.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ArchiveServiceTest {
 
     @MockK private lateinit var firestore: FirebaseFirestore
     @MockK private lateinit var auth: FirebaseAuth
-    @MockK private lateinit var backupService: FirestoreBackupService
     @MockK(relaxed = true) private lateinit var okHttpClient: OkHttpClient
     @MockK(relaxed = true) private lateinit var archiveUrlService: ArchiveUrlService
     @MockK(relaxed = true) private lateinit var remoteConfig: FirebaseRemoteConfig
@@ -51,7 +49,9 @@ class ArchiveServiceTest {
     @MockK(relaxed = true) private lateinit var articleDao: ArticleDao
     @MockK(relaxed = true) private lateinit var application: Application
 
-    private lateinit var docRef: DocumentReference
+    private lateinit var userArticleDoc: DocumentReference
+    private lateinit var item1Doc: DocumentReference
+    private lateinit var shared1Doc: DocumentReference
     private lateinit var service: ArchiveService
 
     private val denied = FirebaseFirestoreException(
@@ -67,23 +67,25 @@ class ArchiveServiceTest {
         every { user.uid } returns "u1"
         every { auth.currentUser } returns user
 
-        val articlesCollection = mockk<CollectionReference>()
-        docRef = mockk()
-        every { firestore.collection("articles") } returns articlesCollection
-        every { articlesCollection.document("item1") } returns docRef
+        val usersCollection = mockk<CollectionReference>()
+        val userDoc = mockk<DocumentReference>()
+        val userArticles = mockk<CollectionReference>()
+        userArticleDoc = mockk()
+        every { firestore.collection("users") } returns usersCollection
+        every { usersCollection.document("u1") } returns userDoc
+        every { userDoc.collection("articles") } returns userArticles
+        every { userArticles.document("item1") } returns userArticleDoc
 
-        // Service now always calls writeArticleMarker(key, itemId) with both args explicit;
-        // stub the two-arg form so the relaxed default (null) on articleDao causes owningItemId
-        // to fall back to key, making key == itemId for standard itemId-keyed tests.
-        coEvery { backupService.writeArticleMarker(any(), any()) } returns Result.success(Unit)
-        // owningItemId() falls back to `key` when the DAO returns null for both lookups.
-        coEvery { articleDao.getArticleById(any()) } returns null
-        coEvery { articleDao.getArticleByResolvedId(any()) } returns null
+        val articlesCollection = mockk<CollectionReference>()
+        item1Doc = mockk()
+        shared1Doc = mockk()
+        every { firestore.collection("articles") } returns articlesCollection
+        every { articlesCollection.document("item1") } returns item1Doc
+        every { articlesCollection.document("shared1") } returns shared1Doc
 
         service = ArchiveService(
             firestore = firestore,
             auth = auth,
-            backupService = backupService,
             okHttpClient = okHttpClient,
             archiveUrlService = archiveUrlService,
             remoteConfig = remoteConfig,
@@ -99,61 +101,57 @@ class ArchiveServiceTest {
         clearAllMocks()
     }
 
-    @Test
-    fun `self-heals once on PERMISSION_DENIED then retries the read`() = runTest {
+    private fun userSnapshot(canonicalId: String?): DocumentSnapshot {
         val snapshot = mockk<DocumentSnapshot>()
-        every { snapshot.exists() } returns false
-        every { docRef.get() } returnsMany listOf(Tasks.forException(denied), Tasks.forResult(snapshot))
+        every { snapshot.get("canonicalId") } returns canonicalId
+        return snapshot
+    }
 
-        val result = service.fetchWargMetadata("item1")
-
-        // Doc absent after the retry → graceful null, no exception escapes.
-        // articleDao is relaxed so owningItemId("item1") falls back to "item1";
-        // both key and itemId are "item1" for standard itemId-keyed articles.
-        assertNull(result)
-        coVerify(exactly = 1) { backupService.writeArticleMarker("item1", "item1") }
-        verify(exactly = 2) { docRef.get() }
+    private fun metadataSnapshot(title: String): DocumentSnapshot {
+        val snapshot = mockk<DocumentSnapshot>()
+        every { snapshot.exists() } returns true
+        every { snapshot.get("metadata") } returns mapOf("title" to title, "word_count" to 42L)
+        return snapshot
     }
 
     @Test
-    fun `retries at most once and never crashes on repeated denial`() = runTest {
-        every { docRef.get() } returns Tasks.forException(denied)
+    fun `reads the shared article named by canonicalId`() = runTest {
+        every { userArticleDoc.get() } returns Tasks.forResult(userSnapshot("shared1"))
+        every { shared1Doc.get() } returns Tasks.forResult(metadataSnapshot("Shared title"))
+
+        val result = service.fetchWargMetadata("item1")
+
+        assertEquals("Shared title", result?.title)
+        assertEquals(42, result?.wordCount)
+        verify(exactly = 1) { shared1Doc.get() }
+        verify(exactly = 0) { item1Doc.get() }
+    }
+
+    @Test
+    fun `reads by itemId when canonicalId is absent or the user doc read fails`() = runTest {
+        every { item1Doc.get() } returns Tasks.forResult(metadataSnapshot("Own title"))
+
+        every { userArticleDoc.get() } returns Tasks.forResult(userSnapshot(null))
+        assertEquals("Own title", service.fetchWargMetadata("item1")?.title)
+
+        every { userArticleDoc.get() } returns Tasks.forException(denied)
+        assertEquals("Own title", service.fetchWargMetadata("item1")?.title)
+
+        verify(exactly = 2) { item1Doc.get() }
+        verify(exactly = 0) { shared1Doc.get() }
+    }
+
+    @Test
+    fun `denied shared read returns null with one attempt and no write`() = runTest {
+        every { userArticleDoc.get() } returns Tasks.forResult(userSnapshot("shared1"))
+        every { shared1Doc.get() } returns Tasks.forException(denied)
 
         val result = service.fetchWargMetadata("item1")
 
         assertNull(result)
-        coVerify(exactly = 1) { backupService.writeArticleMarker("item1", "item1") }
-        verify(exactly = 2) { docRef.get() }
-    }
-
-    /**
-     * TST-03 — ownership scoping: the self-heal writes the marker keyed by the
-     * article's own itemId (not any other id), and the call is delegated entirely
-     * to backupService (which routes under users/{uid}/articleMarkers/{key}).
-     * A second article's self-heal must NOT write a marker for the first article's
-     * key, confirming per-item isolation.
-     */
-    @Test
-    fun `self-heal marker is written only for the denied item, not for other items`() = runTest {
-        // Set up a second document reference for "item2".
-        val articlesCollection = mockk<CollectionReference>()
-        val docRef2 = mockk<DocumentReference>()
-        every { firestore.collection("articles") } returns articlesCollection
-        every { articlesCollection.document("item1") } returns docRef
-        every { articlesCollection.document("item2") } returns docRef2
-
-        val snapshot = mockk<DocumentSnapshot>()
-        every { snapshot.exists() } returns false
-        // item1: denied then succeeds; item2: immediately succeeds (no denial).
-        every { docRef.get() } returnsMany listOf(Tasks.forException(denied), Tasks.forResult(snapshot))
-        every { docRef2.get() } returns Tasks.forResult(snapshot)
-
-        service.fetchWargMetadata("item1")
-        service.fetchWargMetadata("item2")
-
-        // Self-heal must have been invoked exactly once, and only for item1.
-        // owningItemId falls back to the key for both items (relaxed articleDao → null).
-        coVerify(exactly = 1) { backupService.writeArticleMarker("item1", "item1") }
-        coVerify(exactly = 0) { backupService.writeArticleMarker("item2", any()) }
+        verify(exactly = 1) { shared1Doc.get() }
+        verify(exactly = 0) { userArticleDoc.set(any()) }
+        verify(exactly = 0) { userArticleDoc.set(any(), any()) }
+        verify(exactly = 0) { userArticleDoc.collection(any()) }
     }
 }

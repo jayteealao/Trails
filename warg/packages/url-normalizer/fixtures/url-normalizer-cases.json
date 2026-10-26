@@ -1,0 +1,400 @@
+{
+  "$comment": "Parity contract between the app's Kotlin normalizeUrl and @warg/url-normalizer: both test suites assert every row; expected values are proven by the Android test.",
+  "cases": [
+    {
+      "name": "lowercases scheme and host, keeps path case",
+      "input": "HTTPS://EXAMPLE.COM/Article",
+      "expected": "https://example.com/Article"
+    },
+    {
+      "name": "strips utm parameters",
+      "input": "https://example.com/article?utm_source=twitter&utm_medium=social&utm_campaign=launch",
+      "expected": "https://example.com/article"
+    },
+    {
+      "name": "strips fbclid and gclid",
+      "input": "https://example.com/post?fbclid=abc123&gclid=xyz789",
+      "expected": "https://example.com/post"
+    },
+    {
+      "name": "strips msclkid and dclid",
+      "input": "https://example.com/page?msclkid=abc&dclid=def",
+      "expected": "https://example.com/page"
+    },
+    {
+      "name": "keeps and sorts non-tracking parameters",
+      "input": "https://example.com/search?q=kotlin&page=2",
+      "expected": "https://example.com/search?page=2&q=kotlin"
+    },
+    {
+      "name": "strips the fragment",
+      "input": "https://example.com/page#section-1",
+      "expected": "https://example.com/page"
+    },
+    {
+      "name": "drops the trailing slash of a non-root path",
+      "input": "https://example.com/article/",
+      "expected": "https://example.com/article"
+    },
+    {
+      "name": "keeps the root slash",
+      "input": "https://example.com/",
+      "expected": "https://example.com/"
+    },
+    {
+      "name": "keeps ref",
+      "input": "https://github.com/user/repo?ref=main",
+      "expected": "https://github.com/user/repo?ref=main"
+    },
+    {
+      "name": "strips ref_src",
+      "input": "https://example.com/article?ref_src=twsrc",
+      "expected": "https://example.com/article"
+    },
+    {
+      "name": "strips ref_url",
+      "input": "https://example.com/article?ref_url=https%3A%2F%2Ft.co%2Ffoo",
+      "expected": "https://example.com/article"
+    },
+    {
+      "name": "sorts parameters by name",
+      "input": "https://example.com/search?b=2&a=1",
+      "expected": "https://example.com/search?a=1&b=2"
+    },
+    {
+      "name": "unparsable: no scheme",
+      "input": "not-a-url",
+      "expected": "not-a-url"
+    },
+    {
+      "name": "unparsable: empty string",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "name": "unparsable: ftp scheme",
+      "input": "ftp://files.example.com/data",
+      "expected": "ftp://files.example.com/data"
+    },
+    {
+      "name": "mixed tracking and kept parameters",
+      "input": "https://example.com/page?utm_campaign=launch&id=42&gclid=xyz",
+      "expected": "https://example.com/page?id=42"
+    },
+    {
+      "name": "no query",
+      "input": "https://example.com/article",
+      "expected": "https://example.com/article"
+    },
+    {
+      "name": "only tracking parameters",
+      "input": "https://example.com/article?utm_source=google&fbclid=abc",
+      "expected": "https://example.com/article"
+    },
+    {
+      "name": "several features at once",
+      "input": "HTTPS://EXAMPLE.COM/path/to/article/?id=123&utm_source=email&page=2#comments",
+      "expected": "https://example.com/path/to/article?id=123&page=2"
+    },
+    {
+      "name": "drops http default port",
+      "input": "HTTP://Example.COM:80/a",
+      "expected": "http://example.com/a"
+    },
+    {
+      "name": "drops https default port",
+      "input": "https://example.com:443/",
+      "expected": "https://example.com/"
+    },
+    {
+      "name": "keeps a non-default port",
+      "input": "https://example.com:8443/a",
+      "expected": "https://example.com:8443/a"
+    },
+    {
+      "name": "keeps 443 on http",
+      "input": "http://example.com:443/",
+      "expected": "http://example.com:443/"
+    },
+    {
+      "name": "empty port means default",
+      "input": "https://example.com:/a",
+      "expected": "https://example.com/a"
+    },
+    {
+      "name": "unparsable: port zero",
+      "input": "https://example.com:0/",
+      "expected": "https://example.com:0/"
+    },
+    {
+      "name": "unparsable: port too large",
+      "input": "https://example.com:99999/",
+      "expected": "https://example.com:99999/"
+    },
+    {
+      "name": "no path gets a root slash",
+      "input": "https://example.com",
+      "expected": "https://example.com/"
+    },
+    {
+      "name": "no slashes after the scheme",
+      "input": "http:example.com",
+      "expected": "http://example.com/"
+    },
+    {
+      "name": "double trailing slash loses one",
+      "input": "https://example.com/a//",
+      "expected": "https://example.com/a/"
+    },
+    {
+      "name": "double root slash becomes root",
+      "input": "https://example.com//",
+      "expected": "https://example.com/"
+    },
+    {
+      "name": "dot segments resolve",
+      "input": "https://example.com/a/b/../c/./d",
+      "expected": "https://example.com/a/c/d"
+    },
+    {
+      "name": "encoded dot-dot segment resolves",
+      "input": "https://example.com/a/%2E%2e/b",
+      "expected": "https://example.com/b"
+    },
+    {
+      "name": "backslashes count as slashes",
+      "input": "https:\\\\example.com\\a\\b",
+      "expected": "https://example.com/a/b"
+    },
+    {
+      "name": "trailing slash dropped before a query",
+      "input": "https://example.com/a/?x=1",
+      "expected": "https://example.com/a?x=1"
+    },
+    {
+      "name": "path encodes pipe, caret and space",
+      "input": "https://example.com/a|b^c d",
+      "expected": "https://example.com/a%7Cb%5Ec%20d"
+    },
+    {
+      "name": "path keeps lower-case percent escapes",
+      "input": "https://example.com/a%2fb",
+      "expected": "https://example.com/a%2fb"
+    },
+    {
+      "name": "path keeps an invalid percent escape",
+      "input": "https://example.com/a%zzb",
+      "expected": "https://example.com/a%zzb"
+    },
+    {
+      "name": "path encodes non-ASCII",
+      "input": "https://example.com/café",
+      "expected": "https://example.com/caf%C3%A9"
+    },
+    {
+      "name": "tab inside the path is skipped",
+      "input": "https://example.com/a\tb",
+      "expected": "https://example.com/ab"
+    },
+    {
+      "name": "leading and trailing spaces are trimmed",
+      "input": "  https://example.com/a  ",
+      "expected": "https://example.com/a"
+    },
+    {
+      "name": "plus in a value becomes %20",
+      "input": "https://example.com/s?q=a+b",
+      "expected": "https://example.com/s?q=a%20b"
+    },
+    {
+      "name": "encoded plus stays %2B",
+      "input": "https://example.com/s?q=a%2Bb",
+      "expected": "https://example.com/s?q=a%2Bb"
+    },
+    {
+      "name": "raw space in a value becomes %20",
+      "input": "https://example.com/s?q=a b",
+      "expected": "https://example.com/s?q=a%20b"
+    },
+    {
+      "name": "encoded UTF-8 value kept",
+      "input": "https://example.com/s?q=caf%C3%A9",
+      "expected": "https://example.com/s?q=caf%C3%A9"
+    },
+    {
+      "name": "raw non-ASCII value encoded",
+      "input": "https://example.com/s?q=café",
+      "expected": "https://example.com/s?q=caf%C3%A9"
+    },
+    {
+      "name": "invalid UTF-8 becomes the replacement character",
+      "input": "https://example.com/s?q=%FF",
+      "expected": "https://example.com/s?q=%EF%BF%BD"
+    },
+    {
+      "name": "lone percent in a value",
+      "input": "https://example.com/s?q=100%",
+      "expected": "https://example.com/s?q=100%25"
+    },
+    {
+      "name": "needless escape is decoded",
+      "input": "https://example.com/s?q=%41",
+      "expected": "https://example.com/s?q=A"
+    },
+    {
+      "name": "equals sign inside a value",
+      "input": "https://example.com/s?a=b=c",
+      "expected": "https://example.com/s?a=b%3Dc"
+    },
+    {
+      "name": "encoded ampersand inside a value",
+      "input": "https://example.com/s?a=x%26y",
+      "expected": "https://example.com/s?a=x%26y"
+    },
+    {
+      "name": "special characters in a value",
+      "input": "https://example.com/s?q=~!*'()$,;:@/?",
+      "expected": "https://example.com/s?q=%7E%21*%27%28%29%24%2C%3B%3A%40%2F%3F"
+    },
+    {
+      "name": "emoji value",
+      "input": "https://example.com/s?q=😀",
+      "expected": "https://example.com/s?q=%F0%9F%98%80"
+    },
+    {
+      "name": "no-value parameter kept",
+      "input": "https://example.com/s?flag",
+      "expected": "https://example.com/s?flag"
+    },
+    {
+      "name": "empty-value parameter kept",
+      "input": "https://example.com/s?flag=",
+      "expected": "https://example.com/s?flag="
+    },
+    {
+      "name": "lone question mark kept",
+      "input": "https://example.com/a?",
+      "expected": "https://example.com/a?"
+    },
+    {
+      "name": "repeated names keep their order",
+      "input": "https://example.com/s?b=2&a=1&b=1",
+      "expected": "https://example.com/s?a=1&b=2&b=1"
+    },
+    {
+      "name": "tracking names match case-insensitively",
+      "input": "https://example.com/s?UTM_SOURCE=x&id=1",
+      "expected": "https://example.com/s?id=1"
+    },
+    {
+      "name": "sort uses code-unit order",
+      "input": "https://example.com/s?a=1&A=2",
+      "expected": "https://example.com/s?A=2&a=1"
+    },
+    {
+      "name": "plus in a valued name becomes %20",
+      "input": "https://example.com/s?a+b=1",
+      "expected": "https://example.com/s?a%20b=1"
+    },
+    {
+      "name": "encoded plus in a no-value name becomes plus",
+      "input": "https://example.com/s?x%2By",
+      "expected": "https://example.com/s?x+y"
+    },
+    {
+      "name": "encoded percent in a no-value name",
+      "input": "https://example.com/s?100%25",
+      "expected": "https://example.com/s?100%"
+    },
+    {
+      "name": "special characters in a no-value name",
+      "input": "https://example.com/s?a~b(c)!",
+      "expected": "https://example.com/s?a~b(c)!"
+    },
+    {
+      "name": "non-ASCII no-value name",
+      "input": "https://example.com/s?café",
+      "expected": "https://example.com/s?caf%C3%A9"
+    },
+    {
+      "name": "fragment holding a tracking parameter",
+      "input": "https://example.com/a#x?utm_source=1",
+      "expected": "https://example.com/a"
+    },
+    {
+      "name": "userinfo kept",
+      "input": "https://user:pass@example.com/p",
+      "expected": "https://user:pass@example.com/p"
+    },
+    {
+      "name": "IDN host to punycode",
+      "input": "https://BÜCHER.example/",
+      "expected": "https://xn--bcher-kva.example/"
+    },
+    {
+      "name": "percent-encoded host decoded",
+      "input": "https://ex%41mple.com/",
+      "expected": "https://example.com/"
+    },
+    {
+      "name": "trailing dot host kept",
+      "input": "https://example.com./",
+      "expected": "https://example.com./"
+    },
+    {
+      "name": "IPv6 loopback with port",
+      "input": "http://[::1]:8080/x",
+      "expected": "http://[::1]:8080/x"
+    },
+    {
+      "name": "IPv6 lower-cased and compressed",
+      "input": "http://[2001:DB8::1]/",
+      "expected": "http://[2001:db8::1]/"
+    },
+    {
+      "name": "IPv4-mapped IPv6 becomes IPv4",
+      "input": "http://[::ffff:127.0.0.1]/",
+      "expected": "http://127.0.0.1/"
+    },
+    {
+      "name": "numeric IPv4 form not rewritten",
+      "input": "http://0x7f.1/",
+      "expected": "http://0x7f.1/"
+    },
+    {
+      "name": "IPv4 with port",
+      "input": "http://192.168.0.1:8080/",
+      "expected": "http://192.168.0.1:8080/"
+    },
+    {
+      "name": "unparsable: javascript scheme",
+      "input": "javascript:alert(1)",
+      "expected": "javascript:alert(1)"
+    },
+    {
+      "name": "unparsable: mailto scheme",
+      "input": "mailto:a@b.c",
+      "expected": "mailto:a@b.c"
+    },
+    {
+      "name": "unparsable: host without scheme",
+      "input": "example.com/path",
+      "expected": "example.com/path"
+    },
+    {
+      "name": "unparsable: empty host",
+      "input": "https://",
+      "expected": "https://"
+    },
+    {
+      "name": "unparsable: space in host",
+      "input": "http://exa mple.com/",
+      "expected": "http://exa mple.com/"
+    },
+    {
+      "name": "unparsable: empty label",
+      "input": "https://a..b/",
+      "expected": "https://a..b/"
+    }
+  ]
+}

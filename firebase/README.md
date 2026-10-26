@@ -16,15 +16,32 @@ Project ID: `trails-e428e` (also referenced from `warg/scripts/deploy.sh`).
 | `firebase.json` | Hosting/Firestore/Storage config |
 | `firestore.rules` | Security rules for the Firestore documents Trails reads and Warg writes |
 | `storage.rules` | Security rules for the GCS bucket Warg uses for archive artifacts |
-| `test/` | Standalone `@firebase/rules-unit-testing` suite run against the Firestore emulator; gates deploy in CI (`firebase-rules.yml`). `cd test && npm install && npm test`. |
+| `test/` | Standalone `@firebase/rules-unit-testing` suite run against the Firestore and Storage emulators (emulator-only config in `test/emulators.json`; the suite loads `firestore.rules` and `storage.rules` itself); runs in CI (`firebase-rules.yml`). `cd test && npm install && npm test`. |
 
 ## Deploying
 
-From this directory:
+The rules deploy only through the Warg deploy script, from `warg/`:
 
 ```bash
-firebase deploy --only firestore:rules,storage
+pnpm run deploy -- --functions-only --with-rules   # the functions, then the rules
+pnpm deploy:all                                    # workers, functions, rules and the dashboard
 ```
+
+The rules step reads the grace end from the released Firestore rules and keeps
+it; on the first stamped deploy (the released rules hold no stamped grace end)
+it sets the end to 30 days after the deploy and prints a warning saying so. It
+writes a build copy of this folder with LF line endings and the placeholder
+replaced by the grace end, deploys it with
+`firebase deploy --only firestore:rules,storage --non-interactive`, and then
+reads each released ruleset (Firestore and every storage bucket) through the
+Firebase Rules API and compares its SHA-256 with the build copy. A mismatch,
+including a deploy that exits 0 and changes nothing, stops the run with exit 3.
+It needs `gcloud auth login` as well as the firebase sign-in.
+
+Never deploy these rules by hand, from the Firebase Console or from CI: the
+released Firestore rules carry the grace end, and a deploy of the unstamped
+file would lose it (the next scripted deploy would then start a new 30-day
+period).
 
 ## Article markers & sequenced read tightening
 
@@ -43,13 +60,23 @@ match /articles/{itemId} {
 }
 ```
 
-Markers are written by the Android client on every sync/backup and on
-read-denial self-heal; historical articles are covered by a one-off backfill
-(`@warg/backfill-scripts`). Because rules auto-deploy on push to `main`, this
-tightening **must be the last change to merge**, and only after every saved
-article for the active user has a marker — otherwise reads break.
+Markers are written by the server: the user-article trigger writes the marker
+and a server-owned `canonicalId` on `users/{uid}/articles/{itemId}` naming the
+shared article, and the backfill scripts (`@warg/backfill-scripts`) do the same
+for existing articles. The rules refuse client writes to `canonicalId`. During
+a grace period after the rules release, an app-written marker is still
+accepted, but only when its key equals the `canonicalId` of the user article its
+`itemId` names; after the grace end every client marker write is refused. The
+grace end is a timestamp in `firestore.rules` that the deploy script stamps into
+the deployed copy; the committed file holds a placeholder that means "no grace",
+so an unstamped file refuses every client marker write.
 
 ### Two-push deploy sequence (load-bearing — the tightening is fail-safe only in this order)
+
+This is how the read-flip shipped, when CI still deployed the rules on
+every push to `main`. Rules now deploy only through `warg/scripts/deploy.sh`
+(see Deploying); CI runs the tests and deploys nothing, so "push" below reads
+"deploy with the script" today.
 
 The marker infrastructure (the `articleMarkers` / owner-scoped `debug_logs`
 rules, the Android marker writes + self-heal, and the emulator harness) is
@@ -113,12 +140,15 @@ service cloud.firestore {
 ### Rollback
 
 Firestore rules have **no native rollback** — redeploy the prior ruleset by
-reverting and re-pushing:
+reverting and deploying again with the script (from `warg/`):
 
 ```bash
-git revert <read-flip-commit>   # restores the post-push-1 ruleset (articles read permissive again)
-git push origin main            # firebase-rules.yml redeploys it (~1 min new / ~10 min listeners)
+git revert <commit>                                  # restores the previous rules file
+pnpm run deploy -- --functions-only --with-rules     # or pnpm deploy:all (~1 min new / ~10 min listeners)
 ```
+
+The deploy reuses the grace end of the released rules, so a rollback never
+moves it.
 
 `git revert` of the flip commit restores the **push-1** ruleset (additive infra
 present, `articles` read permissive) — the correct fail-safe state, since markers
@@ -196,4 +226,4 @@ rules at this level lets all three ship in one PR.
 > Note: `firestore.rules` was historically gitignored in the Trails repo
 > (drift between repo and Firebase Console). With the monorepo migration,
 > this file is now the source of truth — keep it in sync with the Console
-> using `firebase deploy` rather than editing in the Console.
+> using `warg/scripts/deploy.sh --with-rules` rather than editing in the Console.

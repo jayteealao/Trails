@@ -31,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +50,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.GoogleAuthProvider
 import com.jayteealao.trails.R
+import com.jayteealao.trails.screens.settings.UnsyncedChangesDialog
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.Danger
 import io.yumemi.tartlet.ViewStore
@@ -57,9 +60,11 @@ import io.yumemi.tartlet.rememberViewStore
 fun AuthScreen(
     modifier: Modifier = Modifier,
     onLoginSuccess: () -> Unit,
-    viewStore: ViewStore<AuthUiState, AuthEvent, AuthViewModel> = rememberViewStore { hiltViewModel() }
+    authViewModel: AuthViewModel = hiltViewModel(),
+    viewStore: ViewStore<AuthUiState, AuthEvent, AuthViewModel> = rememberViewStore { authViewModel }
 ) {
     val context = LocalContext.current
+    val unsyncedChangesDialog by authViewModel.unsyncedChangesDialog.collectAsState()
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -249,6 +254,14 @@ fun AuthScreen(
             }
         }
     }
+
+    // Shown while another account's library is cleared, before this sign-in completes.
+    UnsyncedChangesDialog(
+        state = unsyncedChangesDialog,
+        onKeep = { viewStore.action { keepPreviousAccountData() } },
+        onConfirm = { viewStore.action { switchAccountAnyway() } },
+        onCancelPush = { viewStore.action { keepPreviousAccountData() } },
+    )
 }
 
 @Composable

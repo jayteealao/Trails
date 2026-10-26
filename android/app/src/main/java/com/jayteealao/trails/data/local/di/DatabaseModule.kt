@@ -17,17 +17,11 @@
 package com.jayteealao.trails.data.local.di
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
 import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.archive.LocalArchiveDao
-import com.jayteealao.trails.data.local.database.MIGRATION_1_2
-import com.jayteealao.trails.data.local.database.MIGRATION_2_3
-import com.jayteealao.trails.data.local.database.MIGRATION_3_4
-import com.jayteealao.trails.data.local.database.MIGRATION_4_5
-import com.jayteealao.trails.data.local.database.MIGRATION_5_6
-import com.jayteealao.trails.data.local.database.MIGRATION_6_7
-import com.jayteealao.trails.data.local.database.UrlNormalizationCallback
+import com.jayteealao.trails.data.local.database.configureAppDatabase
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -57,8 +51,7 @@ class DatabaseModule {
             AppDatabase::class.java,
             "Pocket"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
-            .addCallback(UrlNormalizationCallback(appContext))
+            .configureAppDatabase(appContext)
             .build()
     }
 }

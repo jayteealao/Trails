@@ -8,19 +8,24 @@
     "node": "22"
   },
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "build:deps": "pnpm --filter @warg/user-triggers run build:link",
+    "build": "pnpm run build:deps && tsc",
+    "typecheck": "pnpm run build:deps && tsc --noEmit",
     "test": "pnpm run build && node --test \"dist/__tests__/*.unit.test.js\"",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration": "pnpm run build:deps && vitest run --config vitest.integration.config.ts",
     "backfill": "node dist/marker-backfill.js",
     "gate": "node dist/coverage-gate.js",
-    "cleanup": "node dist/debug-logs-cleanup.js"
+    "cleanup": "node dist/debug-logs-cleanup.js",
+    "merge": "node dist/merge-pass-a.js",
+    "rederive": "node dist/rederive-pass-b.js"
   },
   "dependencies": {
-    "firebase-admin": "^14.1.0"
+    "firebase-admin": "14.5.0"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
+    "@warg/url-normalizer": "workspace:*",
+    "@warg/user-triggers": "workspace:*",
     "typescript": "^5.7.0",
     "vitest": "4.1.10"
   }

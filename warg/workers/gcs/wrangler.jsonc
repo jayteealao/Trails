@@ -12,4 +12,5 @@
 }
 // Secrets (via `wrangler secret put`):
 // - INTERNAL_API_KEY: shared key for internal worker auth
+// - ARCHIVE_GATEWAY_KEY: this worker's own key for the archive-gateway cloud function
 // - CLOUD_FN_BASE_URL: base URL for the Cloud Function (e.g., https://us-central1-trails-e428e.cloudfunctions.net/archive-gateway)

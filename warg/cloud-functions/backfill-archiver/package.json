@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "22.20.1",
+    "@warg/url-normalizer": "workspace:*",
     "typescript": "^5.7.0"
   }
 }

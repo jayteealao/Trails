@@ -1,4 +1,4 @@
-name: Deploy Firebase rules
+name: Firebase rules tests
 
 on:
   push:
@@ -14,9 +14,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Validate the ruleset against the Firestore emulator before it can be
-  # deployed. This job gates deploy-rules and also runs on pull requests so a
-  # broken ruleset is caught before merge.
+  # Runs the Firestore and Storage rules tests on the emulators. Rules deploy
+  # only through warg/scripts/deploy.sh.
   rules-test:
     runs-on: ubuntu-latest
     permissions:
@@ -53,43 +52,3 @@ jobs:
 
       - name: Run Firestore rules tests (emulator)
         run: npm test
-
-  deploy-rules:
-    runs-on: ubuntu-latest
-    # Never deploy from a pull request; only push-to-main and manual dispatch.
-    if: github.event_name != 'pull_request'
-    needs: rules-test
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: firebase
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Check for Firebase token
-        env:
-          TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::error::FIREBASE_TOKEN required to deploy on push/dispatch but secret is not set."
-            exit 1
-          fi
-
-      - name: Setup Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-
-      - name: Install firebase-tools
-        # The one version warg/package.json pins; the workflow lint fails when
-        # the two differ.
-        run: npm install -g firebase-tools@15.34.0
-
-      - name: Deploy Firestore + Storage rules
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: |
-          firebase deploy --only firestore:rules,storage --non-interactive

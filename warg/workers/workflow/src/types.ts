@@ -100,6 +100,7 @@ export interface RendererParams {
 export interface DerivativeParams {
   request_id: string;
   rendered_html_key: string;
+  url?: string; // page URL, resolves a relative og:image
 }
 
 /**

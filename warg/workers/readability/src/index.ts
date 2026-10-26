@@ -7,6 +7,7 @@ import type {
   ReadabilitySuccessResponse
 } from './types.js';
 import { toMarkdown } from './markdown.js';
+import { extractLeadImage } from './lead-image.js';
 
 export default {
   async fetch(
@@ -35,7 +36,7 @@ export default {
         return Response.json({ error: 'Invalid JSON' }, { status: 400 });
       }
 
-      const { request_id, rendered_html_key } = body;
+      const { request_id, rendered_html_key, url: pageUrl } = body;
       if (!request_id || !rendered_html_key) {
         return Response.json(
           { error: 'Missing required fields: request_id, rendered_html_key' },
@@ -67,6 +68,9 @@ export default {
       console.log('[readability] Parsing HTML with linkedom...');
       const { document } = parseHTML(html);
 
+      // Read og:image before Readability: parse() rewrites the document in place.
+      const leadImage = extractLeadImage(document, pageUrl);
+
       // Run Readability
       console.log('[readability] Running Readability extraction...');
       const reader = new Readability(document);
@@ -82,7 +86,8 @@ export default {
       console.log('[readability] Extraction complete:', {
         title: article.title,
         byline: article.byline,
-        length: article.length
+        length: article.length,
+        leadImage
       });
 
       // Prepare outputs
@@ -98,7 +103,8 @@ export default {
         length: article.length ?? 0,
         excerpt: article.excerpt ?? null,
         siteName: article.siteName ?? null,
-        publishedTime: article.publishedTime ?? null
+        publishedTime: article.publishedTime ?? null,
+        leadImage
       };
 
       const jsonContent = JSON.stringify(readabilityResult, null, 2);

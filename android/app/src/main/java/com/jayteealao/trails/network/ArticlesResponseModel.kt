@@ -1,13 +1,15 @@
 package com.jayteealao.trails.network
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
+import androidx.room3.Entity
+import androidx.room3.Index
+import androidx.room3.PrimaryKey
 import com.google.gson.annotations.SerializedName
 import com.jayteealao.trails.data.local.database.Article
 import kotlinx.serialization.SerialName
 
+/** Indexed by itemId: the sync push and restore read an article's rows by itemId alone. */
 @kotlinx.serialization.Serializable()
-@Entity(tableName = "article_images", primaryKeys = ["imageId", "itemId"])
+@Entity(tableName = "article_images", primaryKeys = ["imageId", "itemId"], indices = [Index(value = ["itemId"])])
 data class ArticleImages(
     @SerialName("image_id") val imageId: String,
     @SerialName("item_id") val itemId: String,
@@ -18,8 +20,9 @@ data class ArticleImages(
     @SerializedName("caption") val caption: String,
 )
 
+/** Indexed by itemId: the sync push and restore read an article's rows by itemId alone. */
 @kotlinx.serialization.Serializable()
-@Entity(tableName = "article_videos", primaryKeys = ["videoId", "itemId"])
+@Entity(tableName = "article_videos", primaryKeys = ["videoId", "itemId"], indices = [Index(value = ["itemId"])])
 data class ArticleVideos(
     @SerialName("video_id") val videoId: String,
     @SerialName("item_id") val itemId: String,
@@ -32,8 +35,9 @@ data class ArticleVideos(
     @SerializedName("image") val image: String?,
 )
 
+/** Indexed by tag for the tag view and the tag list; the primary key serves lookups by itemId. */
 @kotlinx.serialization.Serializable()
-@Entity(tableName = "article_tags", primaryKeys = ["itemId", "tag"])
+@Entity(tableName = "article_tags", primaryKeys = ["itemId", "tag"], indices = [Index(value = ["tag"])])
 data class ArticleTags(
     @SerialName("item_id") val itemId: String,
     @SerializedName("tag") val tag: String,
@@ -41,8 +45,9 @@ data class ArticleTags(
     @SerializedName("type") val type: String?,
 )
 
+/** Indexed by itemId: the sync push and restore read an article's rows by itemId alone. */
 @kotlinx.serialization.Serializable()
-@Entity(tableName = "article_authors")
+@Entity(tableName = "article_authors", indices = [Index(value = ["itemId"])])
 data class ArticleAuthors(
     @SerialName("author_id") @PrimaryKey  val authorId: String,
     @SerialName("item_id")val itemId: String,

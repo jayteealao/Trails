@@ -1,15 +1,59 @@
 #!/usr/bin/env bash
 # Stub of gcloud for scripts/deploy-harness/run.sh: `functions describe`
-# prints "<updateTime>\t<state>" as --format="value(updateTime,state)" does.
-#   H_OLD_UPDATE=<name>   that function keeps an updateTime from 2000
+# prints "<updateTime>\t<state>" as --format="value(updateTime,state)" does;
+# `secrets versions describe latest --secret <NAME>` prints the version state;
+# `run services get-iam-policy <svc>` prints a policy with one private invoker;
+# `auth print-access-token` prints a fake token. Scenario variables hold
+# space-separated lists:
+#   H_OLD_UPDATE=<name>                that function keeps an updateTime from 2000
+#   H_FN_SECRETS_MISSING=<NAME>        that secret does not exist (exit 1)
+#   H_FN_SECRETS_DISABLED=<NAME>       its latest version is DISABLED
+#   H_PUBLIC_INVOKER=<svc>:<member>    that service's invoker role also holds <member>
+#   HARNESS_GCLOUD_UNAUTH=1            `auth print-access-token` fails as when signed out
 set -euo pipefail
 state="${HARNESS_STATE:?HARNESS_STATE is not set}"
 echo "gcloud $*" >>"$state/calls.log"
+
+in_list() { case " ${1:-} " in *" $2 "*) return 0 ;; esac; return 1; }
+
 if [ "${1:-} ${2:-}" = "functions describe" ]; then
-  case " ${H_OLD_UPDATE:-} " in
-    *" ${3:-} "*) printf '2000-01-01T00:00:00.000000000Z\tACTIVE\n' ;;
-    *) printf '%s\tACTIVE\n' "$(node -e 'console.log(new Date(Date.now() + 1000).toISOString())')" ;;
-  esac
+  if in_list "${H_OLD_UPDATE:-}" "${3:-}"; then
+    printf '2000-01-01T00:00:00.000000000Z\tACTIVE\n'
+  else
+    printf '%s\tACTIVE\n' "$(node -e 'console.log(new Date(Date.now() + 1000).toISOString())')"
+  fi
+  exit 0
+fi
+if [ "${1:-} ${2:-}" = "auth print-access-token" ]; then
+  if [ "${HARNESS_GCLOUD_UNAUTH:-0}" = 1 ]; then
+    echo "ERROR: (gcloud.auth.print-access-token) You do not currently have an active account selected." >&2
+    exit 1
+  fi
+  echo "harness-token"
+  exit 0
+fi
+if [ "${1:-} ${2:-} ${3:-} ${4:-} ${5:-}" = "secrets versions describe latest --secret" ]; then
+  name="${6:-}"
+  if in_list "${H_FN_SECRETS_MISSING:-}" "$name"; then
+    echo "ERROR: (gcloud.secrets.versions.describe) NOT_FOUND: Secret [$name] not found or has no versions." >&2
+    exit 1
+  fi
+  if in_list "${H_FN_SECRETS_DISABLED:-}" "$name"; then
+    echo "DISABLED"
+  else
+    echo "ENABLED"
+  fi
+  exit 0
+fi
+if [ "${1:-} ${2:-} ${3:-}" = "run services get-iam-policy" ]; then
+  svc="${4:-}"
+  members='"serviceAccount:invoker@harness.invalid"'
+  for entry in ${H_PUBLIC_INVOKER:-}; do
+    if [ "${entry%%:*}" = "$svc" ]; then
+      members="$members,\"${entry#*:}\""
+    fi
+  done
+  printf '{"bindings":[{"role":"roles/run.invoker","members":[%s]}],"etag":"x"}\n' "$members"
   exit 0
 fi
 echo "gcloud stub: unhandled command" >&2

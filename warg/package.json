@@ -16,7 +16,7 @@
     "deploy:pages": "bash scripts/deploy.sh --with-pages",
     "deploy:all": "bash scripts/deploy.sh --all",
     "deploy:quick": "bash scripts/deploy.sh --skip-checks",
-    "deploy:check": "shellcheck -x scripts/deploy.sh scripts/deploy-harness/run.sh scripts/deploy-harness/bin/cf scripts/deploy-harness/bin/firebase scripts/deploy-harness/bin/gcloud scripts/deploy-harness/bin/pnpm scripts/deploy-harness/bin/wrangler && bash scripts/deploy-harness/run.sh"
+    "deploy:check": "shellcheck -x scripts/deploy.sh scripts/deploy-harness/run.sh scripts/deploy-harness/bin/cf scripts/deploy-harness/bin/firebase scripts/deploy-harness/bin/gcloud scripts/deploy-harness/bin/pnpm scripts/deploy-harness/bin/wrangler scripts/deploy-harness/bin/curl && bash scripts/deploy-harness/run.sh"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "1.1.0",

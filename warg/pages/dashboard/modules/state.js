@@ -50,7 +50,7 @@ export const VIEW_TITLES = {
 };
 
 /**
- * @typedef {{ currentView: string, previousView: string|null, requests: any[], selectedRequest: any, stats: any, infra: any, errors: any, inbox: any, filters: { domain: string, status: string, q: string, dateRange: string }, pagination: { offset: number, total: number|string, hasMore: boolean }, settings: { autoRefresh: boolean, refreshInterval: number }, presets: { selected: string, items: Record<string, { requests: { domain: string, status: string, q: string, dateRange: string }, articles: { status: string, search: string } }> }, loading: boolean, error: string|null, feed: { items: any[], knownIds: Set<string>, newCount: number, polling: boolean }, backfill: any, articles: { items: any[], selectedArticle: any, filters: { status: string, search: string }, pagination: { page: number, limit: number, total: number, hasMore: boolean } }, sort: { column: string, direction: string }, selectedRowIndex: number }} AppState
+ * @typedef {{ currentView: string, previousView: string|null, requests: any[], selectedRequest: any, stats: any, infra: any, errors: any, inbox: any, filters: { domain: string, status: string, q: string, dateRange: string }, pagination: { offset: number, total: number|string, hasMore: boolean }, settings: { autoRefresh: boolean, refreshInterval: number }, presets: { selected: string, items: Record<string, { requests: { domain: string, status: string, q: string, dateRange: string }, articles: { status: string, search: string } }> }, loading: boolean, error: string|null, feed: { items: any[], knownIds: Set<string>, newCount: number, polling: boolean }, backfill: any, articles: { items: any[], selectedArticle: any, filters: { status: string, search: string }, pagination: { page: number, limit: number, total: number, hasMore: boolean, cursors: Record<number, string> } }, sort: { column: string, direction: string }, selectedRowIndex: number }} AppState
  */
 
 /**
@@ -79,7 +79,7 @@ export const state = {
     items: [],
     selectedArticle: null,
     filters: { status: '', search: '' },
-    pagination: { page: 1, limit: 50, total: 0, hasMore: false },
+    pagination: { page: 1, limit: 50, total: 0, hasMore: false, cursors: {} },
   },
   sort: { column: 'created', direction: 'desc' },
   selectedRowIndex: -1,

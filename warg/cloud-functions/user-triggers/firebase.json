@@ -8,9 +8,6 @@
       "predeploy": ["pnpm run build:deploy"]
     }
   ],
-  "firestore": {
-    "rules": "firestore.rules"
-  },
   "emulators": {
     "functions": {
       "port": 5001

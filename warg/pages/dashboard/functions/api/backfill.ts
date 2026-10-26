@@ -2,7 +2,7 @@
 
 interface Env {
   BACKFILL_STATUS_URL: string;
-  INTERNAL_API_KEY: string;
+  BACKFILL_STATUS_KEY: string;
 }
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
@@ -15,11 +15,17 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
+  if (!env.BACKFILL_STATUS_KEY) {
+    return new Response(
+      JSON.stringify({ error: 'BACKFILL_STATUS_KEY not configured' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 
   try {
     const response = await fetch(url, {
       headers: {
-        'X-Internal-API-Key': env.INTERNAL_API_KEY,
+        'X-Internal-API-Key': env.BACKFILL_STATUS_KEY,
       },
     });
 

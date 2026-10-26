@@ -131,6 +131,7 @@ export interface FinalizeRequest {
     site_name: string | null;
     title: string;
     word_count: number;
+    lead_image: string | null;
   };
   images?: Array<{ src: string; height?: number; width?: number }>;
 }
@@ -189,6 +190,8 @@ export interface ArticleDocument {
     site_name: string | null;
     title: string;
     word_count: number;
+    // Absent on docs finalized before the field existed.
+    lead_image?: string | null;
   };
   archives: Record<string, ArchiveEntry>;
   stats: {
