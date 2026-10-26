@@ -212,7 +212,9 @@ class HonestSyncTest {
 
     @Test
     fun editWhileItsPushIsInFlight_staysUnsynced_andTheNextRunSendsIt() = runTest {
-        dao.upsertArticles(listOf(article("good1"), article("good2")))
+        // Both rows were backed up at an earlier version, so only the edit is unsent
+        // (a never-stamped row would be sent again by the same run's sweep).
+        dao.upsertArticles(listOf(article("good1").copy(backedUpAt = 1_000), article("good2").copy(backedUpAt = 1_000)))
         var edited = false
         coEvery { backup.backupArticlesPaginated(any(), any(), any()) } coAnswers {
             val articles = firstArg<List<Article>>()

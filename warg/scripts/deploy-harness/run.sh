@@ -798,6 +798,43 @@ scenario_functions_only_usage() {
   finish
 }
 
+# --rules-only deploys the Firestore and Storage rules and nothing else: no
+# worker, no function, no secret preflight; the released-hash check still runs.
+scenario_rules_only() {
+  start rules-only
+  run_deploy rules-only -- --rules-only --skip-checks
+  expect_rc 0
+  expect_row "rules:firestore" deployed "firestore-[0-9]+ sha256:[0-9a-f]{12} grace 20.*"
+  expect_row "rules:storage" deployed ".*"
+  expect_no_out '^worker:'
+  expect_no_out '^function:'
+  expect_no_out '^pages:dashboard '
+  expect_out '^=== Secret preflight skipped \(--rules-only\) ===$'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^cf workers secrets list'
+  expect_calls 0 '^firebase deploy --only functions:'
+  expect_calls 1 '^firebase deploy --only firestore:rules,storage --project trails-e428e --non-interactive --config firebase.json'
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_rules_only_usage() {
+  start rules-only-usage
+  run_deploy rules-only-all -- --rules-only --all
+  expect_rc 2
+  expect_out 'cannot be combined with --all'
+  expect_calls 0 '^firebase '
+  run_deploy rules-only-functions -- --rules-only --with-functions
+  expect_rc 2
+  expect_out 'cannot be combined with --with-functions'
+  expect_calls 0 '^firebase '
+  run_deploy rules-only-functions-only -- --rules-only --functions-only
+  expect_rc 2
+  expect_out 'cannot be combined with --functions-only'
+  NAME=rules-only-usage
+  finish
+}
+
 # A function .env that does not state the dual-accept switch stops the run
 # before any function deploys.
 scenario_dual_accept_unset() {
@@ -832,7 +869,7 @@ ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker a
   dirty-refused dirty-allowed fn-old-updatetime fn-new-updatetime fn-deploy-fails
   pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync
-  functions-only functions-only-usage dual-accept-unset secret-in-env
+  functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env
   rules-first-stamp rules-reused-stamp rules-released-zero rules-hash-mismatch rules-storage-drift
   rules-placeholder-missing rules-gcloud-unauth rules-release-unit
   fn-secret-missing fn-secret-disabled fn-param-missing fn-public-invoker

@@ -9,6 +9,8 @@ on:
       - 'android/**'
       - 'firebase/**'
       - 'shared-types/**'
+      # The Android URL normalizer tests read their cases from the Warg package's fixtures.
+      - 'warg/packages/url-normalizer/**'
       - '.github/workflows/pr-build-check.yml'
   workflow_dispatch:
     inputs:

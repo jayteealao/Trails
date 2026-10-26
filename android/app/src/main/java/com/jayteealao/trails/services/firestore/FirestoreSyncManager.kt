@@ -33,6 +33,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -101,9 +102,39 @@ class FirestoreSyncManager @Inject constructor(
         internal const val PUSH_TIMEOUT_MS = 120_000L
     }
 
-    // Serialises push runs: the repository launches pushes directly while the workers
-    // run, and overlapping runs would strike an article twice for one failure.
-    private val pushMutex = Mutex()
+    // One gate for every push, restore and wipe. The repository launches pushes directly
+    // while the workers run, and overlapping runs would strike an article twice for one
+    // failure; a wipe must never interleave with a run that writes the old library back.
+    private val syncGate = Mutex()
+
+    // Wipes waiting for, or holding, the gate. A restore stops at its next page while one
+    // waits, so the wipe does not wait for a whole library to download.
+    private val pendingWipes = AtomicInteger(0)
+
+    /**
+     * Run [block] while no push or restore runs, and start none until it returns. A
+     * restore in progress stops at its next page. "Clear data" and the account-switch
+     * wipe run inside it, so no run can write the cleared library back.
+     */
+    suspend fun <T> runExclusive(block: suspend () -> T): T {
+        pendingWipes.incrementAndGet()
+        try {
+            return syncGate.withLock { block() }
+        } finally {
+            pendingWipes.decrementAndGet()
+        }
+    }
+
+    /**
+     * Stop a run before it writes another page: a wipe is waiting, the user changed, or
+     * the user no longer owns the local library.
+     */
+    private fun checkStillOwnedBy(uid: String) {
+        if (pendingWipes.get() > 0) throw SyncAbortedException("Local data is being cleared")
+        if (auth.currentUser?.uid != uid || !localDataOwner.isOwnedBy(uid)) {
+            throw SyncAbortedException("Signed-in account changed during sync")
+        }
+    }
 
     /**
      * Handle remote article change with conflict resolution.
@@ -169,9 +200,9 @@ class FirestoreSyncManager @Inject constructor(
 
                     Timber.d("Updated article ${remoteArticle.itemId} from remote (remote newer)")
                 } else {
+                    // Local is newer. The row stays unstamped, so the push that follows
+                    // the restore sends it, with its stamp and strike accounting.
                     Timber.d("Kept local version of ${remoteArticle.itemId} (local newer)")
-                    // Local is newer, push to Firestore
-                    pushLocalArticle(localArticle)
                 }
             }
             return true
@@ -262,44 +293,6 @@ class FirestoreSyncManager @Inject constructor(
     }
 
     /**
-     * Push local article with related data to Firestore
-     */
-    private suspend fun pushLocalArticle(article: Article) {
-        val user = auth.currentUser ?: return
-
-        try {
-            // Fetch related data
-            val tags = articleDao.getArticleTags(article.itemId).map { tag ->
-                ArticleTags(
-                    itemId = article.itemId,
-                    tag = tag,
-                    sortId = null,
-                    type = null
-                )
-            }
-
-            val ids = listOf(article.itemId)
-            val images = articleDao.getImagesForArticles(ids)
-            val authors = articleDao.getAuthorsForArticles(ids)
-            val videos = articleDao.getVideosForArticles(ids)
-
-            // Backup article with related data
-            firestoreBackupService.backupArticle(
-                article = article,
-                tags = tags,
-                images = images,
-                videos = videos,
-                authors = authors,
-                domainMetadata = null // TODO: fetch metadata when needed
-            )
-
-            Timber.d("Pushed local article ${article.itemId} with ${tags.size} tags, ${images.size} images and ${authors.size} authors to Firestore")
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to push article ${article.itemId}")
-        }
-    }
-
-    /**
      * Push one chunk of changed articles and record what happened to each.
      *
      * The chunk goes out through one [FirestoreBackupService.backupArticlesPaginated] call.
@@ -309,19 +302,17 @@ class FirestoreSyncManager @Inject constructor(
      * gets the strike and the others are stamped. Stamps and strikes are written in one
      * transaction ([ArticleDao.recordPushResults]).
      *
-     * [readAt] is a time taken before [chunk] was read from the database, and it is the
-     * stamp written as `backed_up_at`. An edit made while the chunk is in flight then
-     * has a later `timeUpdated` than the stamp, so it still counts as unsynced and the
-     * next run sends it; a stamp taken after the upload would hide that edit.
+     * The stamp is the version that was sent: an article is stamped with the
+     * `timeUpdated` it was read with, and only while its row still has that version
+     * ([ArticleDao.recordPushResults]). An edit committed while the chunk is in flight
+     * changes the version, so the row stays unsynced and the next run sends it.
      *
-     * Each article's image, author and video rows are loaded here and ride in its batch, so
-     * the push loop, the per-article retry and the reconcile sweep all send them. A
-     * failed local read of the rows stops the run with nothing recorded.
+     * Each article's tags and image, author and video rows are loaded here and ride in its
+     * batch, so the push loop, the per-article retry and the reconcile sweep all send
+     * them. A failed local read stops the run with nothing recorded.
      */
     private suspend fun pushChunk(
         chunk: List<Article>,
-        tagsById: Map<String, List<ArticleTags>>,
-        readAt: Long,
         onProgress: (current: Int, total: Int) -> Unit = { _, _ -> },
     ): SyncRunResult {
         if (chunk.isEmpty()) return SyncRunResult(0, 0)
@@ -329,8 +320,10 @@ class FirestoreSyncManager @Inject constructor(
         val failed = mutableListOf<String>()
         var interruptedBy: Throwable? = null
 
+        val tagsById: Map<String, List<ArticleTags>>
         val rowsById = try {
             val ids = chunk.map { it.itemId }
+            tagsById = articleDao.getTagsForArticles(ids).groupBy { it.itemId }
             groupRows(
                 articleDao.getImagesForArticles(ids),
                 articleDao.getAuthorsForArticles(ids),
@@ -339,7 +332,7 @@ class FirestoreSyncManager @Inject constructor(
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             // A local read failure is not the article's fault: stop, no strike.
-            Timber.e(e, "Error reading image, author and video rows for a push chunk")
+            Timber.e(e, "Error reading tags, image, author and video rows for a push chunk")
             return SyncRunResult(0, 0, interruptedBy = e)
         }
 
@@ -373,9 +366,45 @@ class FirestoreSyncManager @Inject constructor(
         }
 
         if (succeeded.isNotEmpty() || failed.isNotEmpty()) {
-            articleDao.recordPushResults(succeeded, failed, readAt)
+            val versions = chunk.associate { it.itemId to it.timeUpdated }
+            articleDao.recordPushResults(succeeded.associateWith { versions.getValue(it) }, failed)
         }
         return SyncRunResult(succeeded.size, failed.size, interruptedBy)
+    }
+
+    /**
+     * Back up one article now (the save flow calls this right after a save), with its
+     * tags and rows, through the same stamp as a push run. It runs only when the
+     * signed-in user owns the local library, and only when no other run holds the
+     * gate: a busy gate leaves the article unsynced, and the running or next push sends
+     * it. A failure here gives the article no strike; push runs count those.
+     */
+    suspend fun backupArticleNow(itemId: String): Result<Unit> {
+        if (!syncGate.tryLock()) {
+            return Result.failure(IllegalStateException("A sync is running; the next push sends $itemId"))
+        }
+        try {
+            val user = auth.currentUser
+                ?: return Result.failure(IllegalStateException("Not authenticated"))
+            if (!localDataOwner.isOwnedBy(user.uid)) {
+                return Result.failure(SyncAbortedException("Signed-in user does not own the local data"))
+            }
+            val article = articleDao.getArticleById(itemId)
+                ?: return Result.failure(NoSuchElementException("Article $itemId not found locally"))
+            val ids = listOf(itemId)
+            val tags = articleDao.getTagsForArticles(ids).groupBy { it.itemId }
+            val rows = groupRows(
+                articleDao.getImagesForArticles(ids),
+                articleDao.getAuthorsForArticles(ids),
+                articleDao.getVideosForArticles(ids),
+            )
+            val error = backupWithTimeout(listOf(article), tags, rows).exceptionOrNull()
+            if (error != null) return Result.failure(error)
+            articleDao.recordPushResults(mapOf(itemId to article.timeUpdated), emptyList())
+            return Result.success(Unit)
+        } finally {
+            syncGate.unlock()
+        }
     }
 
     /** A failure that says nothing about the article: retry the run later, no strike. */
@@ -420,7 +449,7 @@ class FirestoreSyncManager @Inject constructor(
      * skip it. A transient failure stops the run. Last sync moves to the run's start
      * time only when the run is [SyncRunStatus.SUCCESS]. Safe to call while a worker runs.
      */
-    suspend fun pushLocalChanges(): SyncRunResult = pushMutex.withLock { pushLocalChangesLocked() }
+    suspend fun pushLocalChanges(): SyncRunResult = syncGate.withLock { pushLocalChangesLocked() }
 
     private suspend fun pushLocalChangesLocked(): SyncRunResult {
         val user = auth.currentUser
@@ -458,14 +487,16 @@ class FirestoreSyncManager @Inject constructor(
             val lastSync = meta.lastSyncTimestamp ?: 0L
 
             // One "since" value for every branch, so the count and the pages agree and
-            // deleted rows (tombstones) are pushed on a first sync as well.
+            // deleted rows (tombstones) are pushed on a first sync as well. Last sync is
+            // account-wide (another device moves it), so it never decides which rows are
+            // unsent: after a first sync a run selects every row whose current version
+            // this device has not backed up, however old the edit.
             if (isFirstSync) {
                 Timber.d("First sync detected - counting all existing articles")
             }
             val pushSince = if (!isFirstSync && lastSync > 0) lastSync else PUSH_ALL_SINCE
 
-            // The run's window is (pushSince, runStartedAt]: a row changed after the run
-            // started is left to the next run, whose window starts at this run's start.
+            // A row changed after the run started is left to the next run.
             val totalCount = articleDao.countArticlesModifiedSince(pushSince, runStartedAt)
 
             if (totalCount == 0) {
@@ -476,8 +507,11 @@ class FirestoreSyncManager @Inject constructor(
                 // safety-net sweep must run even when there is nothing else to push.
                 result += reconcileNeverBackedUpArticles()
 
-                // As before, only a first sync records the timestamp when nothing changed.
-                if (isFirstSync && result.status == SyncRunStatus.SUCCESS) {
+                // Last sync moves when nothing is left to push and something changed since
+                // it (an earlier run sent it), or on a first sync; an idle run writes nothing.
+                if (result.status == SyncRunStatus.SUCCESS &&
+                    (isFirstSync || articleDao.countArticlesChangedInWindow(pushSince, runStartedAt) > 0)
+                ) {
                     result += recordLastSync(runStartedAt)
                 }
                 if (result.status == SyncRunStatus.SUCCESS) {
@@ -499,23 +533,18 @@ class FirestoreSyncManager @Inject constructor(
 
             // Keyset pages in (timeUpdated, itemId) order: each page starts after the last
             // row read, so a row that changes or drops out during the run shifts no page.
-            var afterTime = pushSince
+            var afterTime = PUSH_ALL_SINCE
             var afterId = ""
             var read = 0
             while (true) {
+                // A waiting wipe ends the run between chunks; what is left stays unsynced.
+                if (pendingWipes.get() > 0) {
+                    result += SyncRunResult(0, 0, interruptedBy = SyncAbortedException("Local data is being cleared"))
+                    break
+                }
                 val chunk: List<Article>
-                val chunkTagsMap: Map<String, List<ArticleTags>>
-                val readAt = System.currentTimeMillis()
                 try {
                     chunk = articleDao.getArticlesModifiedSinceKeyset(pushSince, runStartedAt, afterTime, afterId, chunkSize)
-                    // Pre-fetch tags for this chunk in one bulk IN-query so they fold into
-                    // the chunk batch (efficiency-2). Uses getTagsForArticles to avoid N
-                    // serial DAO reads (review fix CR-1).
-                    chunkTagsMap = if (chunk.isEmpty()) {
-                        emptyMap()
-                    } else {
-                        articleDao.getTagsForArticles(chunk.map { it.itemId }).groupBy { it.itemId }
-                    }
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     // A local read failure is not the article's fault: stop, no strike.
@@ -526,7 +555,7 @@ class FirestoreSyncManager @Inject constructor(
                 if (chunk.isEmpty()) break
 
                 val readBefore = read
-                val chunkResult = pushChunk(chunk, chunkTagsMap, readAt) { current, _ ->
+                val chunkResult = pushChunk(chunk) { current, _ ->
                     _syncStatus.value = SyncStatus.Syncing
                     Timber.d("Syncing ${readBefore + current} / $totalCount articles")
                 }
@@ -662,7 +691,9 @@ class FirestoreSyncManager @Inject constructor(
      * A failed restore, or a remote article that fails to apply, makes the run fail;
      * otherwise the result is the push result.
      */
-    suspend fun fullSync(): SyncRunResult {
+    suspend fun fullSync(): SyncRunResult = syncGate.withLock { fullSyncLocked() }
+
+    private suspend fun fullSyncLocked(): SyncRunResult {
         val user = auth.currentUser
         if (user == null) {
             Timber.w("Cannot perform full sync - user not authenticated")
@@ -692,7 +723,18 @@ class FirestoreSyncManager @Inject constructor(
 
                 // Get counts to determine strategy (without loading all articles)
                 val localCount = articleDao.countAllArticles()
-                val remoteCount = firestoreBackupService.getRemoteArticleCount().getOrNull() ?: 0
+                // A failed count read stops the run, as a failed meta read does: read as
+                // zero it would take the "no data on either side" path and use up the
+                // first sync without restoring anything.
+                val remoteCountResult = firestoreBackupService.getRemoteArticleCount()
+                val remoteCount = remoteCountResult.getOrNull()
+                if (remoteCount == null) {
+                    val error = remoteCountResult.exceptionOrNull()
+                        ?: IllegalStateException("Remote article count unavailable")
+                    Timber.w(error, "Cannot sync - remote article count read failed")
+                    reportRunFailure(error)
+                    return SyncRunResult(0, 0, interruptedBy = error)
+                }
 
                 Timber.d("First sync counts - Local: $localCount, Remote: $remoteCount")
 
@@ -701,7 +743,7 @@ class FirestoreSyncManager @Inject constructor(
                         // Scenario 1: Existing user upgrading - backup local data
                         Timber.d("First sync: Backup scenario (existing user upgrading)")
                         _syncStatus.value = SyncStatus.Syncing
-                        result = pushLocalChanges() // This will backup all local articles
+                        result = pushLocalChangesLocked() // This will backup all local articles
                     }
                     localCount == 0 && remoteCount > 0 -> {
                         // Scenario 2: New device - restore from remote
@@ -709,7 +751,7 @@ class FirestoreSyncManager @Inject constructor(
                         _syncStatus.value = SyncStatus.Syncing
 
                         // A failed restore sets the error status itself.
-                        result = restoreRemoteArticles()
+                        result = restoreRemoteArticles(user.uid)
                         if (result.interruptedBy == null) {
                             // Mark as synced only when every remote article applied.
                             if (result.failed == 0) {
@@ -729,7 +771,7 @@ class FirestoreSyncManager @Inject constructor(
                     localCount > 0 && remoteCount > 0 -> {
                         // Scenario 3: Both have data - full bidirectional sync
                         Timber.d("First sync: Bidirectional scenario (both have data)")
-                        result = performBidirectionalSync()
+                        result = performBidirectionalSync(user.uid)
                     }
                     else -> {
                         // Scenario 4: Neither has data - just mark as synced
@@ -746,7 +788,7 @@ class FirestoreSyncManager @Inject constructor(
             } else {
                 // Regular sync - always bidirectional
                 Timber.d("Regular sync - performing bidirectional sync")
-                result = performBidirectionalSync()
+                result = performBidirectionalSync(user.uid)
             }
 
             Timber.d("Full sync finished: ${result.status} (pushed=${result.pushed}, failed=${result.failed})")
@@ -767,9 +809,10 @@ class FirestoreSyncManager @Inject constructor(
     /**
      * Pull every remote article page by page, writing each page to Room on arrival.
      * A failed restore interrupts the run and sets [syncStatus] to an error; remote
-     * articles that fail to apply are counted as failed.
+     * articles that fail to apply are counted as failed. Each page is written only while
+     * [uid] is still the signed-in owner and no wipe waits ([checkStillOwnedBy]).
      */
-    private suspend fun restoreRemoteArticles(): SyncRunResult {
+    private suspend fun restoreRemoteArticles(uid: String): SyncRunResult {
         var failedApplies = 0
         val restoreError = firestoreBackupService.restoreAllArticlesPaginated(
             onProgress = { current, total ->
@@ -777,6 +820,7 @@ class FirestoreSyncManager @Inject constructor(
                 Timber.d("Restoring $current / $total articles")
             },
             onPage = { pageArticles ->
+                checkStillOwnedBy(uid)
                 failedApplies += applyRemoteArticles(pageArticles)
             }
         ).exceptionOrNull()
@@ -797,13 +841,13 @@ class FirestoreSyncManager @Inject constructor(
     /**
      * Perform bidirectional sync (pull remote, push local)
      */
-    private suspend fun performBidirectionalSync(): SyncRunResult {
+    private suspend fun performBidirectionalSync(uid: String): SyncRunResult {
         // First, pull remote changes with pagination — each page written to Room on arrival.
-        val restore = restoreRemoteArticles()
+        val restore = restoreRemoteArticles(uid)
         if (restore.interruptedBy != null) return restore
 
-        // Then push local changes with pagination
-        return restore + pushLocalChanges()
+        // Then push local changes with pagination (the gate is already held).
+        return restore + pushLocalChangesLocked()
     }
 
     /**
@@ -834,7 +878,6 @@ class FirestoreSyncManager @Inject constructor(
             // Always the first page: stamping backed_up_at removes rows from the
             // WHERE backed_up_at IS NULL predicate, so the next first page is
             // always the next unswept batch.
-            val readAt = System.currentTimeMillis()
             val chunk = articleDao.getArticlesNeverBackedUp(RECONCILE_CHUNK_SIZE)
             if (chunk.isEmpty()) break
             // Stall guard: the same rows coming back means stamping is not removing
@@ -849,7 +892,7 @@ class FirestoreSyncManager @Inject constructor(
             prevChunkIds = chunkIds
             // Same per-article path as the push loop: stamps on success and strikes on an
             // article's own failure, in one transaction.
-            val result = pushChunk(chunk, emptyMap(), readAt)
+            val result = pushChunk(chunk)
             total += result
             if (result.failed > 0 || result.interruptedBy != null) {
                 Timber.w(result.interruptedBy, "reconcile: chunk did not fully back up, stopping sweep")

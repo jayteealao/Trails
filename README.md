@@ -59,8 +59,8 @@ firebase deploy --only firestore:rules,storage
 - `pr-build-check.yml` — Android debug APK on PRs touching `android/` / `firebase/` / `shared-types/`
 - `release-on-tag.yml` — Android release build + GitHub Release on `v*` tags
 - `manual-release.yml` — Android release build via workflow_dispatch
-- `warg-ci.yml` — pnpm install + lint + typecheck on PRs touching `warg/` / `firebase/` / `shared-types/`
-- `firebase-rules.yml` — `firebase deploy --only firestore:rules,storage` on main pushes touching `firebase/` (gated on `FIREBASE_TOKEN` secret)
+- `warg-ci.yml` — on PRs and main pushes touching `warg/` / `firebase/` / `shared-types/` / `.github/`: pnpm install, lint, typecheck, unit tests, the worker dry-run deploys, the worker-config, key and function-bundle checks, the deploy-script harness, the shared-types drift check, the workflow lint, and the Firestore-emulator integration suites (link triggers, merge and re-derive passes)
+- `firebase-rules.yml` — Firestore and Storage rules tests on the emulators, on PRs and main pushes touching `firebase/`. It deploys nothing: the rules deploy only through `warg/scripts/deploy.sh` (`--with-rules` or `--rules-only`; see `firebase/README.md`)
 
 ## Git history
 

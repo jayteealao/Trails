@@ -339,23 +339,31 @@ internal fun SettingsScreenContent(
         )
 
         // When the failure row goes away (its articles synced), focus moves to Sync Now
-        // so a screen reader is not left on a removed control.
+        // so a screen reader is not left on a removed control. A disabled button cannot
+        // take focus (the retry's own sync may still run), so the move waits until Sync
+        // Now is enabled again.
         val syncNowFocus = remember { FocusRequester() }
+        // No sync while the local data is being cleared.
+        val syncNowEnabled = !viewStore.state.isSyncing &&
+            viewStore.state.unsyncedChangesDialog == UnsyncedChangesDialogState.Hidden
         var hadSyncFailures by remember { mutableStateOf(false) }
+        var focusSyncNowWhenEnabled by remember { mutableStateOf(false) }
         LaunchedEffect(viewStore.state.syncFailureCount) {
             val hasFailures = viewStore.state.syncFailureCount > 0
-            if (hadSyncFailures && !hasFailures) {
-                runCatching { syncNowFocus.requestFocus() }
-            }
+            if (hadSyncFailures && !hasFailures) focusSyncNowWhenEnabled = true
             hadSyncFailures = hasFailures
+        }
+        LaunchedEffect(focusSyncNowWhenEnabled, syncNowEnabled) {
+            if (focusSyncNowWhenEnabled && syncNowEnabled) {
+                runCatching { syncNowFocus.requestFocus() }
+                focusSyncNowWhenEnabled = false
+            }
         }
 
         // Manual Sync Button with Loading Indicator
         Button(
             onClick = { viewStore.action { performManualSync() } },
-            // No sync while the local data is being cleared.
-            enabled = !viewStore.state.isSyncing &&
-                viewStore.state.unsyncedChangesDialog == UnsyncedChangesDialogState.Hidden,
+            enabled = syncNowEnabled,
             modifier = Modifier
                 .focusRequester(syncNowFocus)
                 .fillMaxWidth()

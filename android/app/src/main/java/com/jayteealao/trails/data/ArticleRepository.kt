@@ -31,7 +31,6 @@ import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.search.FtsMatchQuery
 import com.jayteealao.trails.network.ArticleData
 import com.jayteealao.trails.network.ArticleTags
-import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.sync.workers.FirestoreRestoreWorker
 import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
@@ -127,7 +126,6 @@ class ArticleRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val articleDao: ArticleDao,
     private val firestoreSyncManager: FirestoreSyncManager,
-    private val firestoreBackupService: FirestoreBackupService,
     @ApplicationScope private val coroutineScope: CoroutineScope,
 ) : ArticleRepository {
 
@@ -332,27 +330,16 @@ class ArticleRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Backs up [itemId] to Firestore (article doc + existence marker) immediately,
-     * then stamps [backedUpAt] in Room on success so the reconciliation sweep can
-     * skip it.
+     * Backs up [itemId] to Firestore immediately, with its tags and image, author and
+     * video rows, and stamps the sent version as backed up, through the sync manager:
+     * its owner check and stamp are the ones every push uses.
      *
      * Fires synchronously on the caller's coroutine — the ViewModel calls this
      * inline in `saveUrl` after the unfurl, before handing off to the periodic
      * background sync. A failure here is not fatal: the periodic sync will retry.
      */
-    override suspend fun backupArticleNow(itemId: String): Result<Unit> {
-        // Stamp with a time taken before the read, so an edit made during the upload
-        // still counts as unsynced.
-        val readAt = System.currentTimeMillis()
-        val article = articleDao.getArticleById(itemId)
-            ?: return Result.failure(NoSuchElementException("Article $itemId not found locally"))
-        val result = firestoreBackupService.backupArticle(article)
-        if (result.isSuccess) {
-            // A successful push also clears any failed-push count on the row.
-            articleDao.markBackedUp(listOf(itemId), readAt)
-        }
-        return result
-    }
+    override suspend fun backupArticleNow(itemId: String): Result<Unit> =
+        firestoreSyncManager.backupArticleNow(itemId)
 
     override suspend fun saveNewArticle(article: Article): String =
         articleDao.upsertNewArticle(article)

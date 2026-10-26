@@ -24,6 +24,7 @@ The rules deploy only through the Warg deploy script, from `warg/`:
 
 ```bash
 pnpm run deploy -- --functions-only --with-rules   # the functions, then the rules
+pnpm run deploy -- --rules-only                    # the rules and nothing else
 pnpm deploy:all                                    # workers, functions, rules and the dashboard
 ```
 
@@ -144,8 +145,12 @@ reverting and deploying again with the script (from `warg/`):
 
 ```bash
 git revert <commit>                                  # restores the previous rules file
-pnpm run deploy -- --functions-only --with-rules     # or pnpm deploy:all (~1 min new / ~10 min listeners)
+pnpm run deploy -- --rules-only                      # the rules only: no worker or function redeploy
 ```
+
+`--rules-only` skips every worker and function and their secret checks; the
+firebase and gcloud sign-in checks and the released-ruleset hash check still run.
+Add `--skip-checks` to skip the workspace typecheck and tests in an emergency.
 
 The deploy reuses the grace end of the released rules, so a rollback never
 moves it.

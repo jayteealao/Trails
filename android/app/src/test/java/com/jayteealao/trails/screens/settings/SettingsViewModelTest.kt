@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.settings
 
+import com.jayteealao.trails.services.firestore.SyncFailures
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.data.AuthRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
@@ -93,7 +94,7 @@ class SettingsViewModelTest {
     }
 
     private fun viewModel() = SettingsViewModel(
-        articleDao = articleDao,
+        syncFailures = SyncFailures(articleDao, syncManager),
         sharedPreferencesManager = prefs,
         firestoreSyncManager = syncManager,
         authRepository = authRepository,

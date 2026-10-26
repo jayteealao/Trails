@@ -31,6 +31,15 @@ set -euo pipefail
 #                                     --with-pages, --all or
 #                                     --allow-missing-secrets; combinable
 #                                     with --with-rules.
+#   --rules-only                      deploy the Firestore and Storage rules
+#                                     and nothing else (no worker, no
+#                                     function, no dashboard, no worker or
+#                                     function secret preflight); the rollback
+#                                     path for a bad ruleset. The firebase,
+#                                     gcloud and released-hash checks still
+#                                     run. Not combinable with --with-pages,
+#                                     --with-functions, --functions-only,
+#                                     --all or --allow-missing-secrets.
 #   --skip-checks                     skip typecheck and tests (the secret
 #                                     preflight still runs)
 #   --allow-missing-secrets <worker>  skip the secret preflight for that one
@@ -159,6 +168,7 @@ WITH_PAGES=false
 WITH_FUNCTIONS=false
 WITH_RULES=false
 FUNCTIONS_ONLY=false
+RULES_ONLY=false
 SKIP_CHECKS=false
 ALLOW_DIRTY=false
 DIRTY=false
@@ -263,6 +273,7 @@ while [ $# -gt 0 ]; do
     --with-rules) WITH_RULES=true ;;
     --all) WITH_PAGES=true; WITH_FUNCTIONS=true; WITH_RULES=true; ALL_FLAG=true ;;
     --functions-only) WITH_FUNCTIONS=true; FUNCTIONS_ONLY=true ;;
+    --rules-only) WITH_RULES=true; RULES_ONLY=true ;;
     --skip-checks) SKIP_CHECKS=true ;;
     --allow-dirty) ALLOW_DIRTY=true ;;
     --allow-missing-secrets)
@@ -280,6 +291,18 @@ if [ "$FUNCTIONS_ONLY" = true ]; then
   [ "$WITH_PAGES" = false ] || usage_error "--functions-only cannot be combined with --with-pages or --all"
   [ "$ALL_FLAG" = false ] || usage_error "--functions-only cannot be combined with --all"
   [ "${#ALLOW_MISSING[@]}" -eq 0 ] || usage_error "--functions-only cannot be combined with --allow-missing-secrets"
+fi
+if [ "$RULES_ONLY" = true ]; then
+  [ "$ALL_FLAG" = false ] || usage_error "--rules-only cannot be combined with --all"
+  [ "$WITH_PAGES" = false ] || usage_error "--rules-only cannot be combined with --with-pages"
+  [ "$FUNCTIONS_ONLY" = false ] || usage_error "--rules-only cannot be combined with --functions-only"
+  [ "$WITH_FUNCTIONS" = false ] || usage_error "--rules-only cannot be combined with --with-functions"
+  [ "${#ALLOW_MISSING[@]}" -eq 0 ] || usage_error "--rules-only cannot be combined with --allow-missing-secrets"
+fi
+# No worker is deployed (or preflighted) by --functions-only or --rules-only.
+SKIP_WORKERS=false
+if [ "$FUNCTIONS_ONLY" = true ] || [ "$RULES_ONLY" = true ]; then
+  SKIP_WORKERS=true
 fi
 
 require_tool() {
@@ -328,7 +351,7 @@ export GIT_SHA="$LABEL"
 echo "Deploying label: $LABEL"
 echo
 
-if [ "$FUNCTIONS_ONLY" = false ]; then
+if [ "$SKIP_WORKERS" = false ]; then
   for w in "${WORKERS[@]}"; do
     register_target "worker:$w"
   done
@@ -885,6 +908,8 @@ fi
 # mixed versions.
 if [ "$FUNCTIONS_ONLY" = true ]; then
   echo "=== Secret preflight skipped (--functions-only) ==="
+elif [ "$RULES_ONLY" = true ]; then
+  echo "=== Secret preflight skipped (--rules-only) ==="
 else
   echo "=== Secret preflight (every worker) ==="
   for w in "${WORKERS[@]}"; do
@@ -904,7 +929,7 @@ preflight_signins
 # --- Deploy in dependency order ----------------------------------------------
 # Tier 1: logger renderer hyperrenderer singlefile readability monolith gcs;
 # tier 2: workflow (binds tier 1); tier 3: gateway (binds logger and workflow).
-if [ "$FUNCTIONS_ONLY" = false ]; then
+if [ "$SKIP_WORKERS" = false ]; then
   for w in "${WORKERS[@]}"; do
     deploy_worker "$w"
   done

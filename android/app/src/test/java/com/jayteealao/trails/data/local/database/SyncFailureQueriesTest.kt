@@ -67,17 +67,51 @@ class SyncFailureQueriesTest {
     fun recordPushResults_stampsSuccessesAndStrikesFailures() = runTest {
         dao.upsertArticles(listOf(article("a", syncFailures = 2), article("b"), article("c", backedUpAt = 100)))
 
-        dao.recordPushResults(listOf("a", "b"), listOf("c"), 500)
+        dao.recordPushResults(mapOf("a" to 2_000L, "b" to 2_000L), listOf("c"))
 
         val a = dao.getArticleById("a")!!
         val b = dao.getArticleById("b")!!
         val c = dao.getArticleById("c")!!
-        assertEquals(500L, a.backedUpAt)
+        // The stamp is the version that was sent.
+        assertEquals(2_000L, a.backedUpAt)
         assertEquals(0, a.syncFailures)
-        assertEquals(500L, b.backedUpAt)
+        assertEquals(2_000L, b.backedUpAt)
         assertEquals(0, b.syncFailures)
         assertEquals(1, c.syncFailures)
         assertEquals(100L, c.backedUpAt)
+    }
+
+    @Test
+    fun recordPushResults_leavesARowEditedAfterThePushReadItUnstamped() = runTest {
+        // The push read version 2_000; an edit stamped 1_500 by a clock read taken before
+        // the push read the row, but committed after it, moved the row to a new version.
+        dao.upsertArticles(listOf(article("a", timeUpdated = 2_000, syncFailures = 1)))
+        dao.upsertArticles(listOf(article("a", timeUpdated = 1_500, syncFailures = 1)))
+
+        dao.recordPushResults(mapOf("a" to 2_000L), emptyList())
+
+        val a = dao.getArticleById("a")!!
+        assertEquals(null, a.backedUpAt)
+        assertEquals(1, a.syncFailures)
+        assertEquals(listOf("a"), dao.getArticlesModifiedSinceKeyset(0, Long.MAX_VALUE, -1, "", 50).map { it.itemId })
+    }
+
+    @Test
+    fun regularPush_selectsUnsentRowsOlderThanLastSync_andSkipsSentOnes() = runTest {
+        // Last sync is account-wide: another device moved it to 5_000, past this
+        // device's unsent edit at 3_000.
+        dao.upsertArticles(
+            listOf(
+                article("unsent", timeUpdated = 3_000, backedUpAt = 2_000),
+                article("never", timeUpdated = 2_500, backedUpAt = null),
+                article("sent", timeUpdated = 3_000, backedUpAt = 3_000),
+            )
+        )
+
+        val selected = dao.getArticlesModifiedSinceKeyset(5_000, 9_000, -1, "", 50).map { it.itemId }
+
+        assertEquals(listOf("never", "unsent"), selected)
+        assertEquals(2, dao.countArticlesModifiedSince(5_000, 9_000))
     }
 
     @Test
@@ -113,7 +147,7 @@ class SyncFailureQueriesTest {
             try {
                 withTimeout(5_000) {
                     assertEquals(0, emissions.receive())
-                    dao.recordPushResults(emptyList(), listOf("c"), 500)
+                    dao.recordPushResults(emptyMap(), listOf("c"))
                     while (emissions.receive() != 1) Unit
                     dao.resetSyncFailures(now = 9_000)
                     while (emissions.receive() != 0) Unit

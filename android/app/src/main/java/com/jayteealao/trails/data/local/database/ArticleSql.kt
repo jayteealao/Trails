@@ -77,17 +77,18 @@ internal object ArticleSql {
     """
 
     /**
-     * One keyset page of the push window (since, until]: rows after the cursor
+     * One keyset page of the rows to push, changed up to :until: rows after the cursor
      * (afterTimeUpdated, afterItemId) in (timeUpdated, itemId) order. Includes deleted rows
      * (a deletion is pushed as `deletedAt`); skips rows at MAX_SYNC_FAILURES. When since is
-     * 0 or more it also skips rows whose current version is already backed up (an earlier run
-     * that did not finish cleanly stamped them), so a retried run sends only what is still
-     * unsent; a full push (since below 0, a first sync) sends every row. The cursor is a
-     * key, not a row count: a row that changes or drops out during the run moves no later page.
+     * 0 or more (a regular push) it selects only rows whose current version this device has
+     * not backed up, whatever their age: last sync is account-wide, so another device can
+     * move it past an edit this device never sent. A full push (since below 0, a first sync)
+     * sends every row. The cursor is a key, not a row count: a row that changes or drops out
+     * during the run moves no later page.
      */
     const val CHANGED_SINCE_KEYSET = """
         SELECT * FROM article
-        WHERE timeUpdated > :since AND timeUpdated <= :until
+        WHERE timeUpdated <= :until
           AND sync_failures < $MAX_SYNC_FAILURES
           AND (:since < 0 OR backed_up_at IS NULL OR backed_up_at < timeUpdated)
           AND (timeUpdated, itemId) > (:afterTimeUpdated, :afterItemId)
@@ -96,14 +97,22 @@ internal object ArticleSql {
     """
 
     /**
-     * Rows in the push window (since, until] below MAX_SYNC_FAILURES, already backed-up rows
-     * included: a window whose rows were all sent by an earlier run still counts, so the run
-     * goes through the loop (which skips them) and records last sync when it succeeds.
+     * Rows changed in the window (since, until] below MAX_SYNC_FAILURES, sent or not. A run
+     * with nothing left to push still records last sync when this is above zero, so last
+     * sync moves after a run that finished what an earlier run left.
      */
-    const val COUNT_CHANGED_SINCE = """
+    const val COUNT_CHANGED_IN_WINDOW = """
         SELECT COUNT(*) FROM article
         WHERE timeUpdated > :since AND timeUpdated <= :until
           AND sync_failures < $MAX_SYNC_FAILURES
+    """
+
+    /** Rows [CHANGED_SINCE_KEYSET] selects, so the run's count and its pages agree. */
+    const val COUNT_CHANGED_SINCE = """
+        SELECT COUNT(*) FROM article
+        WHERE timeUpdated <= :until
+          AND sync_failures < $MAX_SYNC_FAILURES
+          AND (:since < 0 OR backed_up_at IS NULL OR backed_up_at < timeUpdated)
     """
 
     /**

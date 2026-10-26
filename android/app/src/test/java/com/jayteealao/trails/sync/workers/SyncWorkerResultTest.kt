@@ -167,7 +167,7 @@ class SyncWorkerResultTest {
         assertTrue(result.interruptedBy is SyncTimeoutException)
         assertEquals(0, result.pushed)
         assertEquals(0, result.failed)
-        coVerify(exactly = 0) { dao.recordPushResults(any(), any(), any()) }
+        coVerify(exactly = 0) { dao.recordPushResults(any(), any()) }
         coVerify(exactly = 0) { backup.updateLastSyncTimestamp(any()) }
     }
 

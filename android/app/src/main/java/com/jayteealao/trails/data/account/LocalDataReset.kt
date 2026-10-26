@@ -6,6 +6,7 @@ import androidx.work.await
 import coil3.SingletonImageLoader
 import com.jayteealao.trails.data.local.LocalFolders
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.services.firestore.FirestoreCacheReset
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.services.firestore.SyncRunStatus
 import com.jayteealao.trails.sync.workers.FirestoreRestoreWorker
@@ -51,17 +52,25 @@ class LocalDataReset @Inject constructor(
 
     /**
      * Stop sync work, delete every table, then delete the archive folder and the cached
-     * images (thumbnails and lead images of the cleared library).
+     * images (thumbnails and lead images of the cleared library), and ask for the Firestore
+     * on-device cache to be cleared. The whole wipe holds the sync gate, so no push or
+     * restore in this process runs during it or writes the old library back after it.
+     *
+     * The Firestore cache can only be cleared before the client starts, so it is cleared
+     * at the next app start ([FirestoreCacheReset]).
      */
     suspend fun wipeLocalData() {
-        cancelSyncWork()
-        articleDao.wipeAllLocalData()
-        withContext(Dispatchers.IO) {
-            val archives = File(context.filesDir, ARCHIVES_DIR)
-            if (!archives.deleteRecursively() && archives.exists()) {
-                Timber.w("Archive folder not fully deleted; the next wipe removes the rest")
+        firestoreSyncManager.runExclusive {
+            cancelSyncWork()
+            articleDao.wipeAllLocalData()
+            withContext(Dispatchers.IO) {
+                val archives = File(context.filesDir, ARCHIVES_DIR)
+                if (!archives.deleteRecursively() && archives.exists()) {
+                    Timber.w("Archive folder not fully deleted; the next wipe removes the rest")
+                }
+                clearImageCache()
+                FirestoreCacheReset.request(context)
             }
-            clearImageCache()
         }
     }
 

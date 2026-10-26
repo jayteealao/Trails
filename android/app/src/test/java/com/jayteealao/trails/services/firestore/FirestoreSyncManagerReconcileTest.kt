@@ -57,6 +57,8 @@ class FirestoreSyncManagerReconcileTest {
         coEvery { articleDao.getImagesForArticles(any()) } returns emptyList()
         coEvery { articleDao.getAuthorsForArticles(any()) } returns emptyList()
         coEvery { articleDao.getVideosForArticles(any()) } returns emptyList()
+        // Every push chunk reads its articles' tags; none here.
+        coEvery { articleDao.getTagsForArticles(any()) } returns emptyList()
         manager = FirestoreSyncManager(
             context = context,
             firestore = firestore,
@@ -101,7 +103,7 @@ class FirestoreSyncManagerReconcileTest {
         manager.reconcileNeverBackedUpArticles()
 
         coVerify(exactly = 0) { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) }
-        coVerify(exactly = 0) { articleDao.recordPushResults(any(), any(), any()) }
+        coVerify(exactly = 0) { articleDao.recordPushResults(any(), any()) }
     }
 
     // ── single page of never-backed-up articles ──────────────────────────────
@@ -114,13 +116,13 @@ class FirestoreSyncManagerReconcileTest {
         // predicate, so the second call at offset 0 returns empty.
         coEvery { articleDao.getArticlesNeverBackedUp(any()) } returnsMany listOf(articles, emptyList())
         coEvery { firestoreBackupService.backupArticlesPaginated(articles, any(), any()) } returns Result.success(3)
-        coEvery { articleDao.recordPushResults(any(), any(), any()) } returns Unit
+        coEvery { articleDao.recordPushResults(any(), any()) } returns Unit
 
         manager.reconcileNeverBackedUpArticles()
 
         // The chunk's articles are stamped together, exactly once, with no failure.
-        coVerify(exactly = 1) { articleDao.recordPushResults(listOf("art1", "art2", "art3"), emptyList(), any()) }
-        coVerify(exactly = 1) { articleDao.recordPushResults(any(), any(), any()) }
+        coVerify(exactly = 1) { articleDao.recordPushResults(match { it.keys.toList() == listOf("art1", "art2", "art3") }, emptyList()) }
+        coVerify(exactly = 1) { articleDao.recordPushResults(any(), any()) }
     }
 
     // ── multi-page sweep ─────────────────────────────────────────────────────
@@ -141,7 +143,7 @@ class FirestoreSyncManagerReconcileTest {
         coEvery { firestoreBackupService.backupArticlesPaginated(page1, any(), any()) } returns Result.success(20)
         coEvery { firestoreBackupService.backupArticlesPaginated(page2, any(), any()) } returns Result.success(20)
         coEvery { firestoreBackupService.backupArticlesPaginated(page3, any(), any()) } returns Result.success(5)
-        coEvery { articleDao.recordPushResults(any(), any(), any()) } returns Unit
+        coEvery { articleDao.recordPushResults(any(), any()) } returns Unit
 
         manager.reconcileNeverBackedUpArticles()
 
@@ -151,9 +153,9 @@ class FirestoreSyncManagerReconcileTest {
         coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(page3, any(), any()) }
         // backed_up_at stamped for all 45 articles, one record per page.
         listOf(page1, page2, page3).forEach { page ->
-            coVerify(exactly = 1) { articleDao.recordPushResults(page.map { it.itemId }, emptyList(), any()) }
+            coVerify(exactly = 1) { articleDao.recordPushResults(match { it.keys.toList() == page.map { it.itemId } }, emptyList()) }
         }
-        coVerify(exactly = 3) { articleDao.recordPushResults(any(), any(), any()) }
+        coVerify(exactly = 3) { articleDao.recordPushResults(any(), any()) }
     }
 
     // ── genuine stall terminates ──────────────────────────────────────────────
@@ -168,7 +170,7 @@ class FirestoreSyncManagerReconcileTest {
         coEvery { articleDao.countArticlesNeverBackedUp() } returns 20
         coEvery { articleDao.getArticlesNeverBackedUp(any()) } returns samePage
         coEvery { firestoreBackupService.backupArticlesPaginated(samePage, any(), any()) } returns Result.success(20)
-        coEvery { articleDao.recordPushResults(any(), any(), any()) } returns Unit
+        coEvery { articleDao.recordPushResults(any(), any()) } returns Unit
 
         manager.reconcileNeverBackedUpArticles()
 
@@ -186,7 +188,7 @@ class FirestoreSyncManagerReconcileTest {
         every { auth.currentUser } returns signedInUser()
         coEvery { articleDao.getArticlesNeverBackedUp(any()) } returns articles
         coEvery { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) } returns Result.failure(Exception("network error"))
-        coEvery { articleDao.recordPushResults(any(), any(), any()) } returns Unit
+        coEvery { articleDao.recordPushResults(any(), any()) } returns Unit
 
         // Must not throw — a failed backup is a deferral, not a crash.
         manager.reconcileNeverBackedUpArticles()
@@ -196,8 +198,8 @@ class FirestoreSyncManagerReconcileTest {
         coVerify(exactly = 3) { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) }
         coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(listOf(articles[0]), any(), any()) }
         coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(listOf(articles[1]), any(), any()) }
-        coVerify(exactly = 1) { articleDao.recordPushResults(emptyList(), listOf("art1", "art2"), any()) }
-        coVerify(exactly = 1) { articleDao.recordPushResults(any(), any(), any()) }
+        coVerify(exactly = 1) { articleDao.recordPushResults(emptyMap(), listOf("art1", "art2")) }
+        coVerify(exactly = 1) { articleDao.recordPushResults(any(), any()) }
         // Second page must not be fetched after the first failed (only one call at offset 0).
         coVerify(exactly = 1) { articleDao.getArticlesNeverBackedUp(any()) }
     }

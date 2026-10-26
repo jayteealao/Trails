@@ -11,8 +11,8 @@ import com.jayteealao.trails.data.account.PushThenWipe
 import com.jayteealao.trails.data.account.PushThenWipeResult
 import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.data.account.WipeReason
-import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
+import com.jayteealao.trails.services.firestore.SyncFailures
 import com.jayteealao.trails.services.firestore.SyncRunStatus
 import com.jayteealao.trails.services.firestore.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -53,7 +53,7 @@ private data class LocalDataStateData(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val articleDao: ArticleDao,
+    private val syncFailures: SyncFailures,
     private val sharedPreferencesManager: SharedPreferencesManager,
     private val firestoreSyncManager: FirestoreSyncManager,
     private val authRepository: com.jayteealao.trails.data.AuthRepository,
@@ -93,7 +93,7 @@ class SettingsViewModel @Inject constructor(
 
     // The retry resets the counters first, so the row keeps the tapped count while it runs.
     private val localDataStateFlow = combine(
-        articleDao.observeSyncFailureCount(),
+        syncFailures.observeCount(),
         retryingFailureCount,
         unsyncedChangesDialog,
     ) { failureCount, retryingCount, dialog ->
@@ -102,6 +102,9 @@ class SettingsViewModel @Inject constructor(
 
     /** The "Clear data" run, so Cancel can stop it while pending changes are pushed. */
     private var clearDataJob: Job? = null
+
+    /** The manual "Sync now" run; "Clear data" cancels it before it pushes and wipes. */
+    private var manualSyncJob: Job? = null
 
     /** The person's answer to the push-failed dialog: true clears the device. */
     private var clearAnswer: CompletableDeferred<Boolean>? = null
@@ -174,10 +177,12 @@ class SettingsViewModel @Inject constructor(
     fun performManualSync() {
         // No sync while the local data is being cleared.
         if (unsyncedChangesDialog.value != UnsyncedChangesDialogState.Hidden) return
-        viewModelScope.launch(ioDispatcher) {
+        manualSyncJob = viewModelScope.launch(ioDispatcher) {
             try {
                 firestoreSyncManager.performFullSync()
                 _event.emit(SettingsEvent.SyncCompleted)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _event.emit(SettingsEvent.ShowToast("Sync failed: ${e.message}"))
             }
@@ -199,29 +204,43 @@ class SettingsViewModel @Inject constructor(
             return
         }
         if (clearDataJob?.isActive == true) return
+        manualSyncJob?.cancel()
         clearDataJob = viewModelScope.launch(ioDispatcher) {
-            val user = authRepository.getCurrentUser()
-            val result = pushThenWipe.run(
-                reason = WipeReason.CLEAR_DATA,
-                ownerLabel = localDataOwner.label(),
-                canPush = user != null && localDataOwner.isOwnedBy(user.uid),
-                onState = { unsyncedChangesDialog.value = it },
-                confirm = {
-                    val answer = CompletableDeferred<Boolean>()
-                    clearAnswer = answer
-                    try {
-                        answer.await()
-                    } finally {
-                        clearAnswer = null
-                    }
-                },
-            )
-            if (result == PushThenWipeResult.WIPED) {
-                // Also clears the owner, so the next sign-in takes the empty device.
-                sharedPreferencesManager.clear()
-                authRepository.signOut()
-                _event.emit(SettingsEvent.LoggedOut)
+            try {
+                clearData()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A failed wipe, preferences clear or sign-out must not end the app; the
+                // person is told and can try again.
+                unsyncedChangesDialog.value = UnsyncedChangesDialogState.Hidden
+                _event.emit(SettingsEvent.ShowToast("Clear data failed: ${e.message}"))
             }
+        }
+    }
+
+    private suspend fun clearData() {
+        val user = authRepository.getCurrentUser()
+        val result = pushThenWipe.run(
+            reason = WipeReason.CLEAR_DATA,
+            ownerLabel = localDataOwner.label(),
+            canPush = user != null && localDataOwner.isOwnedBy(user.uid),
+            onState = { unsyncedChangesDialog.value = it },
+            confirm = {
+                val answer = CompletableDeferred<Boolean>()
+                clearAnswer = answer
+                try {
+                    answer.await()
+                } finally {
+                    clearAnswer = null
+                }
+            },
+        )
+        if (result == PushThenWipeResult.WIPED) {
+            // Also clears the owner, so the next sign-in takes the empty device.
+            sharedPreferencesManager.clear()
+            authRepository.signOut()
+            _event.emit(SettingsEvent.LoggedOut)
         }
     }
 
@@ -244,8 +263,7 @@ class SettingsViewModel @Inject constructor(
         retryingFailureCount.value = state.value.syncFailureCount
         viewModelScope.launch(ioDispatcher) {
             try {
-                articleDao.resetSyncFailures(System.currentTimeMillis())
-                if (firestoreSyncManager.pushLocalChanges().status != SyncRunStatus.SUCCESS) {
+                if (syncFailures.retry().status != SyncRunStatus.SUCCESS) {
                     _event.emit(SettingsEvent.ShowToast(RETRY_FAILED_MESSAGE))
                 }
             } catch (e: CancellationException) {

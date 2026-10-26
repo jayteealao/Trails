@@ -49,6 +49,7 @@ class ArticleQueryPlanTest {
         Case("ALL_TAGS", ArticleSql.ALL_TAGS, listOf("index_article_resolvedId"), noSort = false),
         Case("CHANGED_SINCE_KEYSET", ArticleSql.CHANGED_SINCE_KEYSET, listOf("index_article_timeUpdated_itemId"), noSort = true),
         Case("COUNT_CHANGED_SINCE", ArticleSql.COUNT_CHANGED_SINCE, listOf("index_article_timeUpdated_itemId"), noSort = false),
+        Case("COUNT_CHANGED_IN_WINDOW", ArticleSql.COUNT_CHANGED_IN_WINDOW, listOf("index_article_timeUpdated_itemId"), noSort = false),
         Case("NEVER_BACKED_UP", ArticleSql.NEVER_BACKED_UP, listOf("index_article_backed_up_at_deleted_at_timeAdded"), noSort = false),
         Case(
             "COUNT_NEVER_BACKED_UP",

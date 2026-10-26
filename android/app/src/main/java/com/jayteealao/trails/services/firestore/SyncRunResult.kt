@@ -79,3 +79,9 @@ private fun Throwable.isTransientItself(): Boolean = when (this) {
     is SyncTimeoutException -> true
     else -> false
 }
+
+/**
+ * A run stopped because the local library is being cleared, or because the signed-in
+ * account no longer owns it. Nothing more is written for the old account.
+ */
+class SyncAbortedException(message: String) : Exception(message)

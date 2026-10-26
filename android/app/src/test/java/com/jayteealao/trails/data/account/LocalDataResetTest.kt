@@ -16,6 +16,7 @@ import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.local.database.MAX_SYNC_FAILURES
+import com.jayteealao.trails.services.firestore.FirestoreCacheReset
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.services.firestore.SyncRunResult
 import com.jayteealao.trails.services.firestore.SyncTimeoutException
@@ -23,6 +24,7 @@ import com.jayteealao.trails.sync.workers.FirestoreRestoreWorker
 import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import com.jayteealao.trails.testing.JvmRoomDatabase
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -65,6 +67,8 @@ class LocalDataResetTest {
         db = JvmRoomDatabase.create(context)
         dao = db.articleDao()
         syncManager = mockk()
+        // The wipe holds the sync gate; the stub runs the block as the gate does.
+        coEvery { syncManager.runExclusive<Unit>(any()) } coAnswers { firstArg<suspend () -> Unit>().invoke() }
         reset = LocalDataReset(context, dao, syncManager)
         File(context.filesDir, LocalDataReset.ARCHIVES_DIR).deleteRecursively()
     }
@@ -158,6 +162,19 @@ class LocalDataResetTest {
     }
 
     @Test
+    fun wipe_runsInsideTheSyncGate_andAsksForTheFirestoreCacheToBeCleared() = runTest {
+        dao.upsertArticles(listOf(article("a1")))
+        assertFalse(FirestoreCacheReset.isRequested(context))
+
+        reset.wipeLocalData()
+
+        coVerify(exactly = 1) { syncManager.runExclusive<Unit>(any()) }
+        assertEquals(0L, count("SELECT COUNT(*) FROM article"))
+        // The previous account's cached Firestore documents are cleared at the next start.
+        assertTrue(FirestoreCacheReset.isRequested(context))
+    }
+
+    @Test
     fun wipe_emptiesTheImageDiskCache() = runTest {
         val diskCache = SingletonImageLoader.get(context).diskCache!!
         diskCache.openEditor("thumbnail")!!.let { editor ->
@@ -197,7 +214,7 @@ class LocalDataResetTest {
         assertEquals(1, reset.pendingChangeCount())
         assertEquals(listOf("old"), dao.getArticlesNeverBackedUp(50).map { it.itemId })
 
-        dao.recordPushResults(listOf("old"), emptyList(), 4_000)
+        dao.recordPushResults(mapOf("old" to 3_000L), emptyList())
 
         assertEquals(0, reset.pendingChangeCount())
     }
@@ -226,7 +243,7 @@ class LocalDataResetTest {
         dao.upsertArticles(listOf(article("a"), article("b", timeUpdated = 3_000, backedUpAt = 1_000)))
         assertEquals(2, reset.pendingChangeCount())
 
-        dao.recordPushResults(listOf("a", "b"), emptyList(), 9_000)
+        dao.recordPushResults(mapOf("a" to 2_000L, "b" to 3_000L), emptyList())
 
         assertEquals(0, reset.pendingChangeCount())
     }

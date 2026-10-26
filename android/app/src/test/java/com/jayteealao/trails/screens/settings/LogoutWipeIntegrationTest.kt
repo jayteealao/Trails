@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.settings
 
+import com.jayteealao.trails.services.firestore.SyncFailures
 import android.app.Application
 import android.content.Context
 import androidx.room3.executeSQL
@@ -100,10 +101,11 @@ class LogoutWipeIntegrationTest {
         every { syncManager.syncStatus } returns MutableStateFlow<SyncStatus>(SyncStatus.Idle)
         every { syncManager.lastError } returns MutableStateFlow<String?>(null)
         coEvery { syncManager.pushLocalChanges() } returns SyncRunResult(0, 0)
+        coEvery { syncManager.runExclusive<Unit>(any()) } coAnswers { firstArg<suspend () -> Unit>().invoke() }
         val owner = LocalDataOwner(prefs).also { it.adopt("owner-a", "a@example.com") }
         val reset = LocalDataReset(context, db.articleDao(), syncManager)
         return SettingsViewModel(
-            articleDao = db.articleDao(),
+            syncFailures = SyncFailures(db.articleDao(), syncManager),
             sharedPreferencesManager = prefs,
             firestoreSyncManager = syncManager,
             authRepository = authRepository,

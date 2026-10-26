@@ -29,9 +29,11 @@ interface ArticleDao {
     suspend fun countAllArticles(): Int
 
     /**
-     * Keyset page of the run window (since, until]: up to [limit] rows after
-     * ([afterTimeUpdated], [afterItemId]) in (timeUpdated, itemId) order. Includes deleted
-     * rows (a deletion is pushed as `deletedAt`); skips rows at MAX_SYNC_FAILURES.
+     * Keyset page of the rows a push run sends, changed up to [until]: up to [limit] rows
+     * after ([afterTimeUpdated], [afterItemId]) in (timeUpdated, itemId) order. A [since] of
+     * 0 or more selects only rows not backed up at their current version; a negative one
+     * selects every row. Includes deleted rows (a deletion is pushed as `deletedAt`); skips
+     * rows at MAX_SYNC_FAILURES.
      */
     @Query(ArticleSql.CHANGED_SINCE_KEYSET)
     suspend fun getArticlesModifiedSinceKeyset(
@@ -42,9 +44,13 @@ interface ArticleDao {
         limit: Int,
     ): List<Article>
 
-    /** Rows in the run window (since, until], deleted rows included, skipped rows left out. */
+    /** Rows [getArticlesModifiedSinceKeyset] selects, deleted rows included, skipped rows left out. */
     @Query(ArticleSql.COUNT_CHANGED_SINCE)
     suspend fun countArticlesModifiedSince(since: Long, until: Long): Int
+
+    /** Rows changed in the window (since, until], sent or not, skipped rows left out. */
+    @Query(ArticleSql.COUNT_CHANGED_IN_WINDOW)
+    suspend fun countArticlesChangedInWindow(since: Long, until: Long): Int
 
     @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
     @Query(ArticleSql.MAIN_LIST)
@@ -368,23 +374,30 @@ interface ArticleDao {
     suspend fun countArticlesNeverBackedUp(): Int
 
     /**
-     * Stamp a successful push: [now] as `backed_up_at`, and the failed-push counter back to 0.
-     * Callers pass a time taken before the pushed rows were read, so a later edit stays unsynced.
+     * Stamp a successful push of the version [pushedTimeUpdated]: it becomes `backed_up_at`,
+     * and the failed-push counter goes back to 0, only while the row still has that version.
+     * An edit committed after the push read the row changed `timeUpdated`, so the row stays
+     * unsynced and the next push sends the edit. Returns the number of rows stamped (0 or 1).
      */
-    @Query("UPDATE article SET backed_up_at = :now, sync_failures = 0 WHERE itemId IN (:itemIds)")
-    suspend fun markBackedUp(itemIds: List<String>, now: Long)
+    @Query(
+        "UPDATE article SET backed_up_at = :pushedTimeUpdated, sync_failures = 0 " +
+            "WHERE itemId = :itemId AND timeUpdated = :pushedTimeUpdated"
+    )
+    suspend fun markBackedUpIfUnchanged(itemId: String, pushedTimeUpdated: Long): Int
 
     /** Count one more failed push run for each of [itemIds]. */
     @Query("UPDATE article SET sync_failures = sync_failures + 1 WHERE itemId IN (:itemIds)")
     suspend fun incrementSyncFailures(itemIds: List<String>)
 
     /**
-     * Record the outcome of one push in one transaction: stamp the [succeeded] rows
-     * and add a strike to the [failed] rows. The only place a push run stamps `backed_up_at`.
+     * Record the outcome of one push in one transaction: stamp each [succeeded] row with the
+     * version that was sent (itemId to the `timeUpdated` it was pushed with, see
+     * [markBackedUpIfUnchanged]) and add a strike to the [failed] rows. The only place a
+     * push stamps `backed_up_at`.
      */
     @Transaction
-    suspend fun recordPushResults(succeeded: List<String>, failed: List<String>, now: Long) {
-        if (succeeded.isNotEmpty()) markBackedUp(succeeded, now)
+    suspend fun recordPushResults(succeeded: Map<String, Long>, failed: List<String>) {
+        for ((itemId, pushedTimeUpdated) in succeeded) markBackedUpIfUnchanged(itemId, pushedTimeUpdated)
         if (failed.isNotEmpty()) incrementSyncFailures(failed)
     }
 

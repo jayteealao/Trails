@@ -5,8 +5,10 @@ import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.test.junit4.createComposeRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,5 +56,25 @@ class TrailsThemeColorsTest {
         assertEquals(scheme.surfaceContainerHigh, dialogContainer)
         assertEquals(Color(0xFFFFB4AB), scheme.error)
         assertEquals(Color(0xFF690005), scheme.onError)
+    }
+
+    // The sign-in error card draws error-coloured text and icon on errorContainer.
+    @Test
+    fun light_errorTextOnErrorContainer_isReadable() = assertErrorContainerReadable(dark = false)
+
+    @Test
+    fun dark_errorTextOnErrorContainer_isReadable() = assertErrorContainerReadable(dark = true)
+
+    private fun assertErrorContainerReadable(dark: Boolean) {
+        val (scheme, _) = capture(dark)
+        assertReadable("error on errorContainer, dark=$dark", scheme.error, scheme.errorContainer)
+        assertReadable("onErrorContainer on errorContainer, dark=$dark", scheme.onErrorContainer, scheme.errorContainer)
+    }
+
+    private fun assertReadable(label: String, foreground: Color, background: Color) {
+        val lighter = maxOf(foreground.luminance(), background.luminance())
+        val darker = minOf(foreground.luminance(), background.luminance())
+        val ratio = (lighter + 0.05f) / (darker + 0.05f)
+        assertTrue("$label contrast $ratio is below 4.5:1", ratio >= 4.5f)
     }
 }

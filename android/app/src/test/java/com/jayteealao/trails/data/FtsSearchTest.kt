@@ -19,7 +19,6 @@ package com.jayteealao.trails.data
 import android.content.Context
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
@@ -48,7 +47,6 @@ class FtsSearchTest {
     @MockK private lateinit var context: Context
     @MockK private lateinit var articleDao: ArticleDao
     @MockK private lateinit var firestoreSyncManager: FirestoreSyncManager
-    @MockK private lateinit var firestoreBackupService: FirestoreBackupService
 
     private lateinit var repository: ArticleRepositoryImpl
 
@@ -59,7 +57,6 @@ class FtsSearchTest {
             context = context,
             articleDao = articleDao,
             firestoreSyncManager = firestoreSyncManager,
-            firestoreBackupService = firestoreBackupService,
             coroutineScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher()),
         )
     }

@@ -65,8 +65,8 @@ private val DarkColorScheme = darkColorScheme(
     scrim = Color(0xCC000000),
     error = TrailsErrorDark,
     onError = TrailsOnErrorDark,
-    errorContainer = TrailsErrorContainer,
-    onErrorContainer = TrailsOnErrorContainer,
+    errorContainer = TrailsErrorContainerDark,
+    onErrorContainer = TrailsOnErrorContainerDark,
 )
 
 private val LightColorScheme = lightColorScheme(
