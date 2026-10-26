@@ -842,6 +842,8 @@ class FirestoreBackupService @Inject constructor(
  * `resolvedId` on the user's article doc, so a merge write that omits it leaves
  * the server value untouched. Restore still reads it back through `toObject`.
  * A field added to [Article] must be added here too; a unit test checks parity.
+ * `backedUpAt` is the version this write sends: the stamp the device records when the
+ * commit succeeds. Older builds read it back on restore.
  */
 internal fun Article.toBackupFields(): Map<String, Any?> = mapOf(
     "itemId" to itemId,
@@ -872,7 +874,7 @@ internal fun Article.toBackupFields(): Map<String, Any?> = mapOf(
     "deletedAt" to deletedAt,
     "archivedAt" to archivedAt,
     "textSource" to textSource,
-    "backedUpAt" to backedUpAt,
+    "backedUpAt" to timeUpdated,
 )
 
 /** The three row reads of one article in [FirestoreBackupService.batchRestoreArticleRows]. */
