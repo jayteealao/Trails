@@ -21,9 +21,12 @@ import io.yumemi.tartlet.ViewStore
  * dialog on screen so it can be captured on a device or emulator.
  *
  * Extras: `state` (`pushing` | `push-failed` | `push-failed-one` | `push-failed-switch` |
- * `wiping` | `worst` | `failures` | `no-failures`), `count` (Int), `label` (String), `dark`
- * (Boolean). Every state renders the Settings screen behind it; `state` picks whether the
- * dialog or the failure row shows. Other extras are ignored.
+ * `wiping` | `worst` | `failures` | `retry-failed` | `no-failures`), `count` (Int), `label`
+ * (String), `dark` (Boolean). Every state renders the Settings screen behind it; `state` picks
+ * whether the dialog or the failure row shows. `retry-failed` is the row after a Retry that did
+ * not finish cleanly. The switch states (`push-failed-switch`, `worst`) show the back-up hint
+ * when they have a label; `--es label ""` gives the guest owner, with no hint. Other extras are
+ * ignored.
  *
  * `adb shell am start -n com.jayteealao.trails/.debug.DesignStatesActivity
  *   --es state push-failed --ei count 42 --ez dark false`
@@ -96,10 +99,10 @@ class DesignStatesActivity : ComponentActivity() {
                 else -> UnsyncedChangesDialogState.Hidden
             }
             val failures = when (state) {
-                "failures" -> countOr(2)
+                "failures", "retry-failed" -> countOr(2)
                 else -> 0
             }
-            val lastSyncAgo = if (state == "failures") 12 * MINUTE_MS else 2 * MINUTE_MS
+            val lastSyncAgo = if (failures > 0) 12 * MINUTE_MS else 2 * MINUTE_MS
 
             return SettingsState(
                 darkTheme = dark,
@@ -111,6 +114,7 @@ class DesignStatesActivity : ComponentActivity() {
                 userEmail = SAMPLE_LABEL,
                 isAnonymous = false,
                 syncFailureCount = failures,
+                retryFailed = state == "retry-failed",
                 unsyncedChangesDialog = dialog,
             )
         }
