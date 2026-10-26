@@ -45,7 +45,8 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * Settings logout, "Clear data" and the sync-failure Retry, over the real push-then-wipe
- * sequence with the device operations mocked: "Logout only" clears nothing; "Clear data"
+ * sequence with the device operations mocked: "Logout only" pushes pending changes (at most
+ * 15 seconds), signs out and clears nothing; "Clear data"
  * asks when a push fails, keeps everything on "Keep data", and clears, forgets preferences
  * and signs out in that order on "Clear anyway".
  */
@@ -60,6 +61,7 @@ class SettingsViewModelTest {
     private lateinit var reset: LocalDataReset
     private lateinit var owner: LocalDataOwner
     private val failureCount = MutableStateFlow(0)
+    private val syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     private val user = mockk<FirebaseUser>().also {
         every { it.uid } returns "owner-a"
         every { it.email } returns "a@example.com"
@@ -77,7 +79,7 @@ class SettingsViewModelTest {
         syncManager = mockk()
         every { syncManager.isSyncing } returns MutableStateFlow(false)
         every { syncManager.lastSyncTime } returns MutableStateFlow(0L)
-        every { syncManager.syncStatus } returns MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+        every { syncManager.syncStatus } returns syncStatus
         every { syncManager.lastError } returns MutableStateFlow<String?>(null)
         authRepository = mockk(relaxed = true)
         every { authRepository.getCurrentUser() } returns user
@@ -115,20 +117,97 @@ class SettingsViewModelTest {
     private fun dialog(vm: SettingsViewModel) = vm.state.value.unsyncedChangesDialog
 
     @Test
-    fun logoutOnly_signsOutAndClearsNothing() = runTest(dispatcher) {
+    fun logoutOnly_pushesPendingChangesThenSignsOut_andClearsNothing() = runTest(dispatcher) {
+        coEvery { reset.pendingChangeCount() } returnsMany listOf(2, 0)
+        coEvery { reset.pushPendingChanges() } returns true
         val vm = viewModel()
         val events = observe(vm)
 
         vm.logout(clearData = false)
         advanceUntilIdle()
 
+        coVerifyOrder {
+            reset.pushPendingChanges()
+            authRepository.signOut()
+        }
         verify(exactly = 1) { authRepository.signOut() }
         assertEquals(listOf<SettingsEvent>(SettingsEvent.LoggedOut), events)
-        coVerify(exactly = 0) { reset.pendingChangeCount() }
         coVerify(exactly = 0) { reset.wipeLocalData() }
         verify(exactly = 0) { prefs.clear() }
         verify(exactly = 0) { owner.clear() }
         verify(exactly = 0) { owner.adopt(any(), any()) }
+        assertEquals(UnsyncedChangesDialogState.Hidden, dialog(vm))
+    }
+
+    @Test
+    fun logoutOnly_offlinePushTimesOut_stillSignsOutAfter15Seconds_keepingData() = runTest(dispatcher) {
+        coEvery { reset.pendingChangeCount() } returns 1
+        coEvery { reset.pushPendingChanges() } coAnswers {
+            delay(20.seconds)
+            true
+        }
+        val vm = viewModel()
+        val events = observe(vm)
+
+        vm.logout(clearData = false)
+        advanceUntilIdle()
+
+        assertEquals(15_000L, currentTime)
+        assertEquals(listOf<SettingsEvent>(SettingsEvent.LoggedOut), events)
+        verify(exactly = 1) { authRepository.signOut() }
+        coVerify(exactly = 0) { reset.wipeLocalData() }
+        verify(exactly = 0) { prefs.clear() }
+        verify(exactly = 0) { owner.clear() }
+    }
+
+    @Test
+    fun logoutOnly_signedOutOrNonOwner_doesNotPush() = runTest(dispatcher) {
+        coEvery { reset.pendingChangeCount() } returns 1
+        every { authRepository.getCurrentUser() } returns null
+        val signedOut = viewModel()
+        val signedOutEvents = observe(signedOut)
+
+        signedOut.logout(clearData = false)
+        advanceUntilIdle()
+
+        every { authRepository.getCurrentUser() } returns user
+        every { owner.isOwnedBy("owner-a") } returns false
+        val nonOwner = viewModel()
+        val nonOwnerEvents = observe(nonOwner)
+
+        nonOwner.logout(clearData = false)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { reset.pushPendingChanges() }
+        coVerify(exactly = 0) { reset.wipeLocalData() }
+        verify(exactly = 2) { authRepository.signOut() }
+        assertEquals(listOf<SettingsEvent>(SettingsEvent.LoggedOut), signedOutEvents)
+        assertEquals(listOf<SettingsEvent>(SettingsEvent.LoggedOut), nonOwnerEvents)
+    }
+
+    @Test
+    fun logoutOnly_ignoresASecondTapWhileItRuns() = runTest(dispatcher) {
+        coEvery { reset.pendingChangeCount() } returnsMany listOf(2, 0)
+        val gate = CompletableDeferred<Unit>()
+        coEvery { reset.pushPendingChanges() } coAnswers {
+            gate.await()
+            true
+        }
+        val vm = viewModel()
+        val events = observe(vm)
+
+        vm.logout(clearData = false)
+        runCurrent()
+        vm.logout(clearData = false)
+        vm.logout(clearData = true)
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { reset.pushPendingChanges() }
+        verify(exactly = 1) { authRepository.signOut() }
+        coVerify(exactly = 0) { reset.wipeLocalData() }
+        assertEquals(listOf<SettingsEvent>(SettingsEvent.LoggedOut), events)
     }
 
     @Test
@@ -270,23 +349,92 @@ class SettingsViewModelTest {
             articleDao.resetSyncFailures(any())
             syncManager.pushLocalChanges()
         }
-        assertTrue(events.isEmpty())
+        assertEquals(listOf<SettingsEvent>(SettingsEvent.RetrySucceeded), events)
+    }
+
+    /** Two skipped articles; the retry resets their counters and its push fails them again. */
+    private fun failingRetry() {
+        failureCount.value = 2
+        coEvery { articleDao.resetSyncFailures(any()) } answers {
+            failureCount.value = 0
+            2
+        }
+        coEvery { syncManager.pushLocalChanges() } returns SyncRunResult(0, 2)
     }
 
     @Test
-    fun retry_failedPush_showsToast() = runTest(dispatcher) {
-        failureCount.value = 2
-        coEvery { articleDao.resetSyncFailures(any()) } returns 2
-        coEvery { syncManager.pushLocalChanges() } returns SyncRunResult(0, 2)
+    fun retry_failedPush_keepsTheRowWithTheFailedLine_andNoToast() = runTest(dispatcher) {
+        failingRetry()
         val vm = viewModel()
         val events = observe(vm)
 
         vm.retrySyncFailures()
         advanceUntilIdle()
 
-        assertEquals(1, events.size)
-        assertTrue(events.single() is SettingsEvent.ShowToast)
+        assertEquals(2, vm.state.value.syncFailureCount)
+        assertTrue(vm.state.value.retryFailed)
         assertFalse(vm.state.value.isRetryingFailures)
+        assertTrue(events.none { it is SettingsEvent.ShowToast })
+        assertTrue(events.none { it == SettingsEvent.RetrySucceeded })
+    }
+
+    @Test
+    fun retry_success_emitsRetrySucceeded_andHidesTheRow() = runTest(dispatcher) {
+        failureCount.value = 2
+        coEvery { articleDao.resetSyncFailures(any()) } answers {
+            failureCount.value = 0
+            2
+        }
+        coEvery { syncManager.pushLocalChanges() } returns SyncRunResult(2, 0)
+        val vm = viewModel()
+        val events = observe(vm)
+
+        vm.retrySyncFailures()
+        advanceUntilIdle()
+
+        assertEquals(listOf<SettingsEvent>(SettingsEvent.RetrySucceeded), events)
+        assertEquals(0, vm.state.value.syncFailureCount)
+        assertFalse(vm.state.value.retryFailed)
+    }
+
+    @Test
+    fun retryFailed_clearsOnTheNextCleanSync() = runTest(dispatcher) {
+        failingRetry()
+        // The status the retry's own run left must not clear the failed line.
+        syncStatus.value = SyncStatus.Success("Synced 0 articles, 2 failed")
+        val vm = viewModel()
+        observe(vm)
+
+        vm.retrySyncFailures()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.retryFailed)
+
+        syncStatus.value = SyncStatus.Syncing
+        advanceUntilIdle()
+        assertTrue(vm.state.value.retryFailed)
+
+        syncStatus.value = SyncStatus.Success("Synced 2 articles")
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.retryFailed)
+        assertEquals(0, vm.state.value.syncFailureCount)
+    }
+
+    @Test
+    fun retryFailed_givesWayToANewSkipCount() = runTest(dispatcher) {
+        failingRetry()
+        val vm = viewModel()
+        observe(vm)
+
+        vm.retrySyncFailures()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.retryFailed)
+
+        failureCount.value = 1
+        advanceUntilIdle()
+
+        assertEquals(1, vm.state.value.syncFailureCount)
+        assertFalse(vm.state.value.retryFailed)
     }
 
     @Test
