@@ -37,6 +37,7 @@ import com.jayteealao.trails.network.DomainMetadata
     entities = [
         Article::class,
         ArticleFts::class,
+        SyncState::class,
         ArticleTags::class,
         ArticleAuthors::class,
         ArticleImages::class,
@@ -44,7 +45,7 @@ import com.jayteealao.trails.network.DomainMetadata
         DomainMetadata::class,
         LocalArchive::class,
     ],
-    version = 10,
+    version = 11,
     autoMigrations = [],
     exportSchema = true
 )
@@ -257,6 +258,26 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
     }
 }
 
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override suspend fun migrate(connection: SQLiteConnection) {
+        // Moves the sync stamp and the failed-push counter to sync_state, so sync bookkeeping
+        // stops rewriting the search index. Rows without a stamp or a strike get no sync_state
+        // row (a missing row reads as never backed up, 0 strikes). DROP COLUMN keeps each
+        // rowid, so the search index stays valid. The CREATE TABLE is the one Room exports
+        // for version 11.
+        connection.execSQL("CREATE TABLE IF NOT EXISTS `sync_state` (`itemId` TEXT NOT NULL, `backed_up_at` INTEGER DEFAULT NULL, `sync_failures` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`itemId`))")
+        connection.execSQL(
+            "INSERT INTO `sync_state` (`itemId`, `backed_up_at`, `sync_failures`) " +
+                "SELECT `itemId`, `backed_up_at`, `sync_failures` FROM `article` " +
+                "WHERE `backed_up_at` IS NOT NULL OR `sync_failures` > 0"
+        )
+        // SQLite refuses to drop an indexed column, so the index goes first.
+        connection.execSQL("DROP INDEX IF EXISTS `index_article_backed_up_at_deleted_at_timeAdded`")
+        connection.execSQL("ALTER TABLE `article` DROP COLUMN `backed_up_at`")
+        connection.execSQL("ALTER TABLE `article` DROP COLUMN `sync_failures`")
+    }
+}
+
 /** Every hand-written migration, in order. Production and the tests register this one list. */
 val ALL_MIGRATIONS: Array<Migration> = arrayOf(
     MIGRATION_1_2,
@@ -268,6 +289,7 @@ val ALL_MIGRATIONS: Array<Migration> = arrayOf(
     MIGRATION_7_8,
     MIGRATION_8_9,
     MIGRATION_9_10,
+    MIGRATION_10_11,
 )
 
 /**
