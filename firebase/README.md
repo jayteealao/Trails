@@ -72,6 +72,13 @@ grace end is a timestamp in `firestore.rules` that the deploy script stamps into
 the deployed copy; the committed file holds a placeholder that means "no grace",
 so an unstamped file refuses every client marker write.
 
+Older app builds stop backing up when these rules deploy. They write the
+article and its markers in one batch, so a refused marker fails the article
+write too; this already happens during the grace period for any article whose
+`resolvedId` differs from its `itemId`, and for every article after the grace
+end. Updating the app is the only fix; the rules keep no path for older builds.
+See [`shared-types/MarkerSchema.md`](../shared-types/MarkerSchema.md#grace-period-for-older-app-builds).
+
 ### Two-push deploy sequence (load-bearing — the tightening is fail-safe only in this order)
 
 This is how the read-flip shipped, when CI still deployed the rules on
@@ -179,6 +186,19 @@ public bucket binding:
 The dashboard's existing `GET /signed-url` route (internal API key) is unchanged;
 both routes share one signing implementation and differ only in how the owner is
 identified (hardcoded dashboard user vs. verified token uid).
+
+Both routes find the shared article through the server-written `canonicalId`
+and fall back to the `itemId` while it is absent. Two windows follow from that:
+
+- An article saved a moment ago has no server marker until the user-article
+  trigger has run, and `/app/signed-url` answers 404 for it until then. Opening
+  it again a few seconds later works.
+- An existing article whose `canonicalId` the link re-derive has not written yet
+  resolves to `articles/{itemId}`; where its shared article has another id, the
+  dashboard shows it without shared-article data and the signed URL answers 404.
+  Deploy the `dashboardApi` read change only after a re-derive dry run reports no
+  link to add, change or clear (see
+  [`warg/cloud-functions/backfill-scripts/README.md`](../warg/cloud-functions/backfill-scripts/README.md#link-re-derive)).
 
 ### Deploy ordering (load-bearing — the migration is fail-safe only in this order)
 

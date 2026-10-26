@@ -167,6 +167,11 @@ WorkManager results.
   decides. The wipe deletes every table, the archive folder and the image cache, and
   asks for the Firestore on-device cache to be cleared at the next app start
   (`FirestoreCacheReset`; Firestore clears it only before its client starts).
+- Known limit: when no owner is stored, the first account to sign in adopts the
+  library that is on the device and backs it up to that account. This happens on a
+  device that was updated while signed out (an older build kept the library at
+  logout) or when the stored owner is lost. The app cannot tell whose library it is,
+  so it does not ask; a person handing over a device should use "Clear data" first.
 
 ---
 

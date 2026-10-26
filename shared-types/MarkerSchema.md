@@ -49,6 +49,15 @@ write is refused. The end of the grace period is a timestamp literal in
 `firebase/firestore.rules`, stamped by the deploy script at the first rules
 deploy. This document does not hold the date.
 
+The grace period does not keep older builds backing up. An older build writes
+the article and its markers in one batch, and it writes a second marker keyed
+by `resolvedId` whenever that differs from `itemId`. At most one of those keys
+can equal `canonicalId`, so the rules refuse the other marker and the whole
+batch fails, the article included. Older builds' backups therefore stop for
+those articles as soon as the rules deploy, and for every article at the grace
+end. The person must update the app to keep backing up; the rules do not relax
+for older builds.
+
 ## Producers
 
 - **Warg backfill** — the Admin-SDK `@warg/backfill-scripts` package writes
