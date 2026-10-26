@@ -95,7 +95,7 @@ interface ArticleRepository: Syncable {
     /**
      * Back up a single article to Firestore and write its existence marker now.
      * Satisfies the read-gate for a freshly-saved article before anyone opens the
-     * detail screen. On success, stamps [backedUpAt] in Room so the reconciliation
+     * detail screen. On success, stamps the article's sync_state row so the reconciliation
      * sweep can skip already-backed-up articles.
      *
      * Failures are surfaced as [Result.failure] — callers fall back to the periodic
