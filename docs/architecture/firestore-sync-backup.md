@@ -147,7 +147,8 @@ WorkManager results.
   nothing recorded. Any other chunk failure retries the chunk one article at a time;
   an article that fails on its own gets a strike (`sync_failures`), and after
   `MAX_SYNC_FAILURES` (3) the push skips it. Settings shows a row with the skipped
-  count and a Retry action (`SyncFailures.retry`).
+  count and a Retry action (`SyncFailures.retry`). A failed Retry keeps the row with a
+  failed-retry line until the next clean sync.
 - **Last sync** moves only when a run finishes with nothing failed.
 - **What each push sends with an article.** `pushChunk` loads the article's tags and its
   image, author and video rows, so the push loop, the per-article retry, the
@@ -167,6 +168,11 @@ WorkManager results.
   decides. The wipe deletes every table, the archive folder and the image cache, and
   asks for the Firestore on-device cache to be cleared at the next app start
   (`FirestoreCacheReset`; Firestore clears it only before its client starts).
+- "Logout only" first sends pending changes while the owner is still signed in
+  (`PushThenWipe.pushBeforeSignOut`, at most 15 seconds), then signs out; it keeps every
+  table, the archive folder and the owner. A later sign-in by another account clears the
+  device without a question when nothing is left unsent; otherwise the switch dialog asks
+  (its safe action cancels the sign-in).
 - Known limit: when no owner is stored, the first account to sign in adopts the
   library that is on the device and backs it up to that account. This happens on a
   device that was updated while signed out (an older build kept the library at
