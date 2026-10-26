@@ -160,14 +160,14 @@ class FirestoreSyncManager @Inject constructor(
             val localArticle = articleDao.getArticleById(remoteArticle.itemId)
 
             if (localArticle == null) {
-                // New article - insert with related data. Stamp backedUpAt: the row
+                // New article - insert with related data. Stamp its sync state: the row
                 // came from Firestore, so it is by definition already backed up —
                 // without the stamp the next reconcile sweep re-uploads it (a billed
                 // write per pulled article).
-                articleDao.upsertArticle(remoteArticle.copy(
-                    normalizedUrl = remoteArticle.computeNormalizedUrl(),
-                    backedUpAt = System.currentTimeMillis()
-                ))
+                articleDao.upsertRestoredArticle(
+                    remoteArticle.copy(normalizedUrl = remoteArticle.computeNormalizedUrl()),
+                    System.currentTimeMillis(),
+                )
 
                 // Apply pre-fetched tags
                 if (prefetchedTags.isNotEmpty()) {
@@ -183,10 +183,10 @@ class FirestoreSyncManager @Inject constructor(
                     // Remote won — the applied row exactly reflects Firestore, so it
                     // is already backed up. Stamping keeps it out of the reconcile
                     // sweep (local-wins rows below stay unstamped deliberately).
-                    articleDao.upsertArticle(remoteArticle.copy(
-                        normalizedUrl = remoteArticle.computeNormalizedUrl(),
-                        backedUpAt = System.currentTimeMillis()
-                    ))
+                    articleDao.upsertRestoredArticle(
+                        remoteArticle.copy(normalizedUrl = remoteArticle.computeNormalizedUrl()),
+                        System.currentTimeMillis(),
+                    )
 
                     // Replace tags: bulk delete (efficiency-3: N DAO calls → 1 DAO call)
                     // then insert remote tags. See ArticleDao.deleteAllTagsForArticle KDoc
@@ -503,7 +503,7 @@ class FirestoreSyncManager @Inject constructor(
                 Timber.d("No local changes to sync")
 
                 // Offline-saved articles are invisible to the incremental count
-                // (backed_up_at IS NULL, but timeUpdated predates lastSync), so the
+                // (no backed-up stamp in sync_state, but timeUpdated predates lastSync), so the
                 // safety-net sweep must run even when there is nothing else to push.
                 result += reconcileNeverBackedUpArticles()
 
@@ -569,9 +569,9 @@ class FirestoreSyncManager @Inject constructor(
             }
 
             // Class-B reconciliation sweep: back up any article that was saved locally
-            // but never reached Firestore (backed_up_at IS NULL). These are articles
-            // that were saved offline, had an inline backup failure, or pre-date the
-            // backed_up_at column. It runs only after a clean loop, so an article gets
+            // but never reached Firestore (no backed-up stamp in sync_state). These are
+            // articles that were saved offline, had an inline backup failure, or pre-date
+            // the backed-up stamp. It runs only after a clean loop, so an article gets
             // at most one strike per run.
             if (result.failed == 0 && result.interruptedBy == null) {
                 result += reconcileNeverBackedUpArticles()
@@ -852,9 +852,9 @@ class FirestoreSyncManager @Inject constructor(
 
     /**
      * Back up articles that were saved locally but never successfully backed up to
-     * Firestore ([Article.backedUpAt] IS NULL). This handles:
+     * Firestore (no [com.jayteealao.trails.data.local.database.SyncState] stamp). This handles:
      * - Articles saved while offline (inline backup failed silently).
-     * - Articles saved before the [Article.backedUpAt] column was added (NULL by default).
+     * - Articles saved before the backed-up stamp existed (no stamp by default).
      * - The live Class-B case (e.g. `XrU724etfGYUZ9`) that stranded ~18h without archives.
      *
      * Processes in pages of [RECONCILE_CHUNK_SIZE] to respect the Firestore rules
@@ -875,8 +875,8 @@ class FirestoreSyncManager @Inject constructor(
                 Timber.w("reconcile: iteration cap $MAX_RECONCILE_ITERATIONS hit, stopping sweep — work may remain")
                 break
             }
-            // Always the first page: stamping backed_up_at removes rows from the
-            // WHERE backed_up_at IS NULL predicate, so the next first page is
+            // Always the first page: stamping sync_state removes rows from the
+            // never-backed-up predicate, so the next first page is
             // always the next unswept batch.
             val chunk = articleDao.getArticlesNeverBackedUp(RECONCILE_CHUNK_SIZE)
             if (chunk.isEmpty()) break
