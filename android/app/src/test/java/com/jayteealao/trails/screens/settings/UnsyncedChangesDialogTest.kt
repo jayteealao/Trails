@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -22,7 +23,9 @@ import org.robolectric.annotation.Config
 
 /**
  * Every state of the unsynced-changes dialog renders the board copy and buttons, the
- * buttons call their actions, and every button is at least 48 dp tall.
+ * buttons call their actions, and every button is at least 48 dp tall. On an account
+ * switch the safe action reads "Cancel sign-in" with a hint to back the changes up first;
+ * "Clear data" keeps "Keep data".
  */
 @RunWith(RobolectricTestRunner::class)
 // Plain Application so Robolectric does not boot the Hilt app, whose onCreate starts Firebase.
@@ -62,6 +65,8 @@ class UnsyncedChangesDialogTest {
         rule.onNodeWithText("Current account").assertDoesNotExist()
         assertButton("Keep data")
         assertButton("Clear anyway")
+        rule.onNodeWithText("Cancel sign-in").assertDoesNotExist()
+        rule.onNodeWithText("Sign in as", substring = true).assertDoesNotExist()
 
         rule.onNodeWithText("Keep data").performClick()
         rule.onNodeWithText("Clear anyway").performClick()
@@ -77,6 +82,7 @@ class UnsyncedChangesDialogTest {
         rule.onNodeWithText("1 change on this device is not backed up. Clearing data deletes it.").assertExists()
         assertButton("Keep data")
         assertButton("Clear anyway")
+        rule.onNodeWithText("Cancel sign-in").assertDoesNotExist()
     }
 
     @Test
@@ -89,11 +95,22 @@ class UnsyncedChangesDialogTest {
         ).assertExists()
         rule.onNodeWithText("Current account").assertExists()
         rule.onNodeWithText("jo.reader@example.com").assertExists()
-        assertButton("Keep data")
+        rule.onNodeWithText("Sign in as jo.reader@example.com to back them up first.").assertExists()
+        assertButton("Cancel sign-in")
         assertButton("Switch anyway")
+        rule.onNodeWithText("Keep data").assertDoesNotExist()
 
+        rule.onNodeWithText("Cancel sign-in").performClick()
+        assertEquals(1, keeps)
         rule.onNodeWithText("Switch anyway").performClick()
         assertEquals(1, confirms)
+    }
+
+    @Test
+    fun pushFailed_accountSwitch_one_usesIt() {
+        show(UnsyncedChangesDialogState.PushFailed(1, WipeReason.ACCOUNT_SWITCH, "jo.reader@example.com"))
+
+        rule.onNodeWithText("Sign in as jo.reader@example.com to back it up first.").assertExists()
     }
 
     @Test
@@ -101,6 +118,16 @@ class UnsyncedChangesDialogTest {
         show(UnsyncedChangesDialogState.PushFailed(3, WipeReason.ACCOUNT_SWITCH, null))
 
         rule.onNodeWithText("Guest account").assertExists()
+        assertButton("Cancel sign-in")
+        // A guest session cannot be signed back into, so there is no back-up hint.
+        rule.onNodeWithText("Sign in as", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun pushFailed_body_scrolls() {
+        show(UnsyncedChangesDialogState.PushFailed(42, WipeReason.CLEAR_DATA, "jo.reader@example.com"))
+
+        rule.onNode(hasScrollAction()).assertExists()
     }
 
     @Test
@@ -114,7 +141,7 @@ class UnsyncedChangesDialogTest {
         )
 
         rule.onNodeWithText("More than 999 changes", substring = true).assertExists()
-        assertButton("Keep data")
+        assertButton("Cancel sign-in")
         assertButton("Switch anyway")
     }
 
