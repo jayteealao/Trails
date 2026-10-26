@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 // Internal data classes for grouping flow state
@@ -102,6 +103,9 @@ class SettingsViewModel @Inject constructor(
 
     /** The "Clear data" run, so Cancel can stop it while pending changes are pushed. */
     private var clearDataJob: Job? = null
+
+    /** The "Logout only" run, so a second tap while it pushes is ignored. */
+    private var logoutJob: Job? = null
 
     /** The manual "Sync now" run; "Clear data" cancels it before it pushes and wipes. */
     private var manualSyncJob: Job? = null
@@ -190,21 +194,34 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * "Logout only" ([clearData] false) keeps every table and the archive folder.
+     * "Logout only" ([clearData] false) sends pending changes first (at most 15 seconds),
+     * then signs out; it keeps every table, the archive folder and the owner.
      * "Clear data" pushes pending changes first (at most 15 seconds), then clears every
      * table and the archive folder; when changes stay unsent the person decides, and
      * keeping the data leaves them signed in with nothing changed.
      */
     fun logout(clearData: Boolean = false) {
+        if (clearDataJob?.isActive == true || logoutJob?.isActive == true) return
+        manualSyncJob?.cancel()
         if (!clearData) {
-            viewModelScope.launch(ioDispatcher) {
+            logoutJob = viewModelScope.launch(ioDispatcher) {
+                try {
+                    val user = authRepository.getCurrentUser()
+                    val left = pushThenWipe.pushBeforeSignOut(
+                        canPush = user != null && localDataOwner.isOwnedBy(user.uid),
+                    )
+                    if (left > 0) Timber.i("Logout only: %d changes stay on this device", left)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // The data stays on the device; the owner's next sign-in sends it.
+                    Timber.w(e, "Logout only: push before sign-out failed")
+                }
                 authRepository.signOut()
                 _event.emit(SettingsEvent.LoggedOut)
             }
             return
         }
-        if (clearDataJob?.isActive == true) return
-        manualSyncJob?.cancel()
         clearDataJob = viewModelScope.launch(ioDispatcher) {
             try {
                 clearData()
