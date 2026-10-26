@@ -119,6 +119,8 @@ class FirestoreBackupServiceTest {
             assertFalse("resolvedId must not be written", map.containsKey("resolvedId"))
             assertFalse("canonicalId must not be written", map.containsKey("canonicalId"))
             assertFalse("syncFailures must not be written", map.containsKey("syncFailures"))
+            // backedUpAt is the version this write sends.
+            assertEquals(map["timeUpdated"], map["backedUpAt"])
         }
         assertEquals(listOf("a1", "a2", "a3"), written.map { it["itemId"] })
         assertEquals("https://example.com/a1", written[0]["url"])
@@ -131,8 +133,8 @@ class FirestoreBackupServiceTest {
             .map { it.name }
             .toSet()
 
-        // syncFailures: device-local retry counter; never backed up.
-        assertEquals(fieldNames - "resolvedId" - "syncFailures", fullArticle("a1").toBackupFields().keys)
+        // backedUpAt: the version sent, kept for older builds; the device keeps its stamp in sync_state.
+        assertEquals(fieldNames - "resolvedId" + "backedUpAt", fullArticle("a1").toBackupFields().keys)
     }
 
     // ---------------------------------------------------------------------------
