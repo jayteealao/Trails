@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -49,6 +51,7 @@ private data class SyncStateData(
 private data class LocalDataStateData(
     val syncFailureCount: Int,
     val isRetryingFailures: Boolean,
+    val retryFailed: Boolean,
     val unsyncedChangesDialog: UnsyncedChangesDialogState,
 )
 
@@ -92,13 +95,29 @@ class SettingsViewModel @Inject constructor(
     private val unsyncedChangesDialog =
         MutableStateFlow<UnsyncedChangesDialogState>(UnsyncedChangesDialogState.Hidden)
 
-    // The retry resets the counters first, so the row keeps the tapped count while it runs.
+    /**
+     * The failure count when a Retry did not finish cleanly; null otherwise. The row keeps
+     * it with its failed line until a new Retry, a new skip count or the next clean sync.
+     */
+    private val retryFailedCount = MutableStateFlow<Int?>(null)
+
+    /** Waits for the next clean sync after a failed Retry, then clears the failed line. */
+    private var retryFailedClearJob: Job? = null
+
+    // The retry resets the counters first, so the row keeps the tapped count while it runs,
+    // and after a failed retry, until the articles fail again or a later sync succeeds.
     private val localDataStateFlow = combine(
         syncFailures.observeCount(),
         retryingFailureCount,
+        retryFailedCount,
         unsyncedChangesDialog,
-    ) { failureCount, retryingCount, dialog ->
-        LocalDataStateData(retryingCount ?: failureCount, retryingCount != null, dialog)
+    ) { failureCount, retryingCount, failedCount, dialog ->
+        LocalDataStateData(
+            syncFailureCount = retryingCount ?: failureCount.takeIf { it > 0 } ?: failedCount ?: 0,
+            isRetryingFailures = retryingCount != null,
+            retryFailed = retryingCount == null && failureCount == 0 && failedCount != null,
+            unsyncedChangesDialog = dialog,
+        )
     }
 
     /** The "Clear data" run, so Cancel can stop it while pending changes are pushed. */
@@ -134,6 +153,7 @@ class SettingsViewModel @Inject constructor(
             isAnonymous = currentUser?.isAnonymous ?: false,
             syncFailureCount = local.syncFailureCount,
             isRetryingFailures = local.isRetryingFailures,
+            retryFailed = local.retryFailed,
             unsyncedChangesDialog = local.unsyncedChangesDialog,
         )
     }.stateIn(
@@ -277,23 +297,37 @@ class SettingsViewModel @Inject constructor(
     /** Retry on the failure row: reset the 3-strike counters, then push once. */
     fun retrySyncFailures() {
         if (retryingFailureCount.value != null) return
-        retryingFailureCount.value = state.value.syncFailureCount
+        val tapped = state.value.syncFailureCount
+        retryingFailureCount.value = tapped
+        retryFailedClearJob?.cancel()
+        retryFailedCount.value = null
         viewModelScope.launch(ioDispatcher) {
             try {
-                if (syncFailures.retry().status != SyncRunStatus.SUCCESS) {
-                    _event.emit(SettingsEvent.ShowToast(RETRY_FAILED_MESSAGE))
+                if (syncFailures.retry().status == SyncRunStatus.SUCCESS) {
+                    _event.emit(SettingsEvent.RetrySucceeded)
+                } else {
+                    recordRetryFailed(tapped)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _event.emit(SettingsEvent.ShowToast(RETRY_FAILED_MESSAGE))
+                Timber.w(e, "Retry of skipped articles failed")
+                recordRetryFailed(tapped)
             } finally {
                 retryingFailureCount.value = null
             }
         }
     }
 
-    private companion object {
-        const val RETRY_FAILED_MESSAGE = "Retry failed. These articles will be tried again on the next sync."
+    /**
+     * Keep the row with its failed line. The wait skips the status the retry's own run left
+     * (the current value of the state flow), so only a later clean sync clears the line.
+     */
+    private fun recordRetryFailed(count: Int) {
+        retryFailedCount.value = count
+        retryFailedClearJob = viewModelScope.launch {
+            firestoreSyncManager.syncStatus.drop(1).first { it is SyncStatus.Success }
+            retryFailedCount.value = null
+        }
     }
 }
