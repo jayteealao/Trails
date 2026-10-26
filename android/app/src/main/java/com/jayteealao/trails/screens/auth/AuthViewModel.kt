@@ -82,8 +82,10 @@ class AuthViewModel @Inject constructor(
     private suspend fun completeSignIn(user: FirebaseUser) {
         if (localDataOwner.decide(user.uid) == OwnerDecision.DIFFERENT_OWNER) {
             val result = try {
-                // The previous owner is signed out, and a push as [user] would copy the
-                // previous library into this account, so no push runs here.
+                // No push as [user]: it would write the previous library into this account.
+                // "Logout only" already pushed the previous owner's changes while they were
+                // signed in, so this usually clears the device with no question; changes
+                // still unsent are the person's call.
                 pushThenWipe.run(
                     reason = WipeReason.ACCOUNT_SWITCH,
                     ownerLabel = localDataOwner.label(),
