@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
  * Runs every hand-written migration on the bundled SQLite engine and validates the result
  * against the exported schema of the next version, with a representative row carried through.
  *
- * Later schema versions add one test per migration here and extend [migrate1To10_chain].
+ * Later schema versions add one test per migration here and extend [migrate1To11_chain].
  */
 @RunWith(AndroidJUnit4::class)
 class MigrationTest {
@@ -198,20 +198,59 @@ class MigrationTest {
     }
 
     @Test
-    fun migrate1To10_chain() = runBlocking {
+    fun migrate10To11_movesSyncBookkeeping() = runBlocking {
+        helper.createDatabase(10).use { db ->
+            db.insertArticle("article", "a1", "Growing roses")
+            db.insertArticle("article", "a2", "Pruning apple trees")
+            db.insertArticle("article", "a3", "Harbor lantern walk")
+            db.execSQL("UPDATE article SET backed_up_at = 4000 WHERE itemId = 'a1'")
+            db.execSQL("UPDATE article SET sync_failures = 2 WHERE itemId = 'a2'")
+        }
+
+        helper.runMigrationsAndValidate(11, listOf(MIGRATION_10_11)).use { db ->
+            assertEquals(listOf("a1", "a2", "a3"), db.texts("SELECT itemId FROM article ORDER BY itemId"))
+            // The stamped and the struck article moved to sync_state; the plain one has no row.
+            assertEquals(
+                listOf("a1|4000|0", "a2||2"),
+                db.texts("SELECT itemId || '|' || IFNULL(backed_up_at, '') || '|' || sync_failures FROM sync_state ORDER BY itemId"),
+            )
+            assertEquals(
+                0L,
+                db.long("SELECT COUNT(*) FROM pragma_table_info('article') WHERE name IN ('backed_up_at', 'sync_failures')"),
+            )
+            assertEquals(listOf("a1"), db.searchTitle("roses"))
+            assertEquals(listOf("a2"), db.searchTitle("apple"))
+            assertEquals(listOf("a3"), db.searchTitle("lantern"))
+        }
+    }
+
+    @Test
+    fun migrate1To11_chain() = runBlocking {
         helper.createDatabase(1).use { db ->
             db.insertArticle("PocketArticle", "a1", "Growing roses", pocketId = "p1")
             db.insertArticle("PocketArticle", "a2", "Pruning apple trees")
             db.execSQL("INSERT INTO PocketTags (itemId, tag) VALUES ('a1', 'garden')")
         }
 
-        helper.runMigrationsAndValidate(10, ALL_MIGRATIONS.toList()).use { db ->
+        helper.runMigrationsAndValidate(11, ALL_MIGRATIONS.toList()).use { db ->
             assertEquals(2L, db.long("SELECT COUNT(*) FROM article"))
             assertEquals(listOf("garden"), db.texts("SELECT tag FROM article_tags WHERE itemId = 'a1'"))
             assertEquals(listOf("p1"), db.texts("SELECT articleId FROM article WHERE itemId = 'a1'"))
             assertEquals(listOf("a1"), db.searchTitle("roses"))
-            assertTrue(db.long("SELECT COUNT(*) FROM article WHERE backed_up_at IS NULL AND normalized_url IS NULL") == 2L)
-            assertEquals(2L, db.long("SELECT COUNT(*) FROM article WHERE sync_failures = 0"))
+            // The sync stamp and the counter are read from sync_state (moved there at version 11).
+            assertTrue(
+                db.long(
+                    "SELECT COUNT(*) FROM article LEFT JOIN sync_state AS s ON s.itemId = article.itemId " +
+                        "WHERE s.backed_up_at IS NULL AND article.normalized_url IS NULL"
+                ) == 2L
+            )
+            assertEquals(
+                2L,
+                db.long(
+                    "SELECT COUNT(*) FROM article LEFT JOIN sync_state AS s ON s.itemId = article.itemId " +
+                        "WHERE IFNULL(s.sync_failures, 0) = 0"
+                ),
+            )
             assertTrue("index_article_tags_tag" in db.texts("SELECT name FROM pragma_index_list('article_tags')"))
             assertEquals(2L, db.long("SELECT COUNT(*) FROM article_fts_docsize"))
         }
