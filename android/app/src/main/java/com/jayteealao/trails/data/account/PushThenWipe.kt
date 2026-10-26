@@ -68,6 +68,19 @@ class PushThenWipe @Inject constructor(
         }
     }
 
+    /**
+     * "Logout only": send pending changes while the owner is still signed in, for at most
+     * [PUSH_LIMIT]; never clears anything. Returns how many changes stay unsent.
+     *
+     * @param canPush true only when the signed-in user owns the local data.
+     */
+    suspend fun pushBeforeSignOut(canPush: Boolean): Int {
+        val count = reset.pendingChangeCount()
+        if (count == 0 || !canPush) return count
+        withTimeoutOrNull(PUSH_LIMIT) { reset.pushPendingChanges() }
+        return reset.pendingChangeCount()
+    }
+
     companion object {
         val PUSH_LIMIT = 15.seconds
     }
