@@ -33,12 +33,15 @@ import com.jayteealao.trails.data.local.database.MAX_SYNC_FAILURES
  * The Settings sync-section row for articles the sync skipped after [MAX_SYNC_FAILURES]
  * failed runs. Not composed at all when [count] is 0. Retry resets the counters and runs
  * one sync; while it runs the row shows progress and Retry stays focusable, reads as
- * "Retrying" and ignores taps. The count is a polite live region, so a change is announced.
+ * "Retrying" and ignores taps. After a Retry that did not finish cleanly ([retryFailed]) the
+ * row stays with a failed line and Retry stays available. The text is a polite live region,
+ * so a change is announced.
  */
 @Composable
 fun SyncFailureRow(
     count: Int,
     isRetrying: Boolean,
+    retryFailed: Boolean = false,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -74,6 +77,13 @@ fun SyncFailureRow(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (retryFailed) {
+                Text(
+                    text = RETRY_FAILED_LINE,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         Row(
             modifier = Modifier.align(Alignment.CenterVertically),
@@ -100,3 +110,5 @@ fun SyncFailureRow(
         }
     }
 }
+
+internal const val RETRY_FAILED_LINE = "Retry failed. Will try again on the next sync."
