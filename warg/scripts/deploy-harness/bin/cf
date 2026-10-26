@@ -10,6 +10,10 @@
 #   H_NO_PRINT=<w>                 `deploy` prints no version id
 #   H_DEPLOY_RC=<w>:<n>            `deploy` exits n
 #   H_PAGES_HASH=<hash>            commit_hash of the newest Pages deployment
+#   H_PAGES_PROD_BRANCH=<branch>   the project's production branch (default main);
+#                                  an upload to another branch is a preview and
+#                                  leaves the production list unchanged
+#   H_PAGES_GET_FAIL=1             `pages get` exits 1
 set -euo pipefail
 state="${HARNESS_STATE:?HARNESS_STATE is not set}"
 echo "cf $*" >>"$state/calls.log"
@@ -71,9 +75,20 @@ case "${1:-} ${2:-} ${3:-}" in
     fi
     ;;
   "pages deployments list")
+    prod="${H_PAGES_PROD_BRANCH:-main}"
     hash="${H_PAGES_HASH:-}"
-    [ -n "$hash" ] || hash="$(cat "$state/pages-hash" 2>/dev/null || echo 0000000000000000000000000000000000000000)"
-    echo "[{\"id\":\"$(uuid "pages-$hash")\",\"environment\":\"production\",\"deployment_trigger\":{\"type\":\"ad_hoc\",\"metadata\":{\"branch\":\"main\",\"commit_hash\":\"$hash\",\"commit_message\":\"$hash\",\"commit_dirty\":false}}}]"
+    if [ -z "$hash" ] && [ "$(cat "$state/pages-branch" 2>/dev/null || true)" = "$prod" ]; then
+      hash="$(cat "$state/pages-hash" 2>/dev/null || true)"
+    fi
+    [ -n "$hash" ] || hash=0000000000000000000000000000000000000000
+    echo "[{\"id\":\"$(uuid "pages-$hash")\",\"environment\":\"production\",\"deployment_trigger\":{\"type\":\"ad_hoc\",\"metadata\":{\"branch\":\"$prod\",\"commit_hash\":\"$hash\",\"commit_message\":\"$hash\",\"commit_dirty\":false}}}]"
+    ;;
+  "pages get "*)
+    if [ "${H_PAGES_GET_FAIL:-0}" = 1 ]; then
+      echo "Authentication error [code: 10000]" >&2
+      exit 1
+    fi
+    echo "{\"id\":\"$(uuid "project-$3")\",\"name\":\"$3\",\"subdomain\":\"$3.pages.dev\",\"production_branch\":\"${H_PAGES_PROD_BRANCH:-main}\"}"
     ;;
   deploy*)
     w="$(basename "$PWD")"

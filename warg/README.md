@@ -76,6 +76,12 @@ secrets each worker needs, and how each target is verified.
    exits with that command's code; 2 means a usage error or a refused dirty
    tree, 3 a failed verification or a missing secret.
 
+Dashboard branch: the dashboard uploads to the Pages project's production
+branch, which the script reads with `cf pages get warg-dashboard` before the
+first upload. An upload to any other branch is only a preview. When that read
+fails, set `PAGES_BRANCH=<branch>`; with neither, the run stops before any
+upload.
+
 First deploy of a new worker: the secret check cannot list secrets of a worker
 that does not exist yet, so pass the flag for that worker only, then set its
 secrets and deploy again without it:
