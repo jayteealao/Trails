@@ -216,6 +216,56 @@ class PushThenWipeTest {
         assertEquals("More than 999 changes", unsyncedChangesText(1000))
     }
 
+    @Test
+    fun pushBeforeSignOut_nothingPending_doesNotPush() = runTest {
+        coEvery { reset.pendingChangeCount() } returns 0
+
+        assertEquals(0, sequence.pushBeforeSignOut(canPush = true))
+
+        coVerify(exactly = 0) { reset.pushPendingChanges() }
+        coVerify(exactly = 0) { reset.wipeLocalData() }
+    }
+
+    @Test
+    fun pushBeforeSignOut_pushesThenRecounts_andNeverWipes() = runTest {
+        coEvery { reset.pendingChangeCount() } returnsMany listOf(3, 0)
+        coEvery { reset.pushPendingChanges() } returns true
+
+        assertEquals(0, sequence.pushBeforeSignOut(canPush = true))
+
+        coVerifyOrder {
+            reset.pendingChangeCount()
+            reset.pushPendingChanges()
+            reset.pendingChangeCount()
+        }
+        coVerify(exactly = 0) { reset.wipeLocalData() }
+    }
+
+    @Test
+    fun pushBeforeSignOut_stopsAtTheTimeLimit_andReturnsWhatIsLeft() = runTest {
+        coEvery { reset.pendingChangeCount() } returnsMany listOf(3, 3)
+        coEvery { reset.pushPendingChanges() } coAnswers {
+            delay(20.seconds)
+            true
+        }
+
+        val left = sequence.pushBeforeSignOut(canPush = true)
+
+        assertEquals(3, left)
+        assertEquals(15_000L, currentTime)
+        coVerify(exactly = 0) { reset.wipeLocalData() }
+    }
+
+    @Test
+    fun pushBeforeSignOut_cannotPush_returnsTheCountWithoutPushing() = runTest {
+        coEvery { reset.pendingChangeCount() } returns 2
+
+        assertEquals(2, sequence.pushBeforeSignOut(canPush = false))
+
+        coVerify(exactly = 0) { reset.pushPendingChanges() }
+        coVerify(exactly = 0) { reset.wipeLocalData() }
+    }
+
     private companion object {
         const val LABEL = "a@example.com"
     }
