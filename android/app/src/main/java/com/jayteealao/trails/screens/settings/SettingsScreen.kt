@@ -335,23 +335,20 @@ internal fun SettingsScreenContent(
         SyncFailureRow(
             count = viewStore.state.syncFailureCount,
             isRetrying = viewStore.state.isRetryingFailures,
+            retryFailed = viewStore.state.retryFailed,
             onRetry = { viewStore.action { retrySyncFailures() } },
         )
 
-        // When the failure row goes away (its articles synced), focus moves to Sync Now
-        // so a screen reader is not left on a removed control. A disabled button cannot
-        // take focus (the retry's own sync may still run), so the move waits until Sync
-        // Now is enabled again.
+        // After a successful Retry the row goes away; focus moves to Sync Now once it is
+        // enabled. A background sync never moves focus. A disabled button cannot take
+        // focus (the retry's own sync may still run), so the move waits for Sync Now.
         val syncNowFocus = remember { FocusRequester() }
         // No sync while the local data is being cleared.
         val syncNowEnabled = !viewStore.state.isSyncing &&
             viewStore.state.unsyncedChangesDialog == UnsyncedChangesDialogState.Hidden
-        var hadSyncFailures by remember { mutableStateOf(false) }
         var focusSyncNowWhenEnabled by remember { mutableStateOf(false) }
-        LaunchedEffect(viewStore.state.syncFailureCount) {
-            val hasFailures = viewStore.state.syncFailureCount > 0
-            if (hadSyncFailures && !hasFailures) focusSyncNowWhenEnabled = true
-            hadSyncFailures = hasFailures
+        viewStore.handle<SettingsEvent.RetrySucceeded> {
+            focusSyncNowWhenEnabled = true
         }
         LaunchedEffect(focusSyncNowWhenEnabled, syncNowEnabled) {
             if (focusSyncNowWhenEnabled && syncNowEnabled) {
