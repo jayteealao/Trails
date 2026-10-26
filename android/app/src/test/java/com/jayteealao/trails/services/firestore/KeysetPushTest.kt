@@ -8,6 +8,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.data.local.database.SyncState
 import com.jayteealao.trails.data.local.database.ArticleSql
 import com.jayteealao.trails.data.local.database.MAX_SYNC_FAILURES
 import com.jayteealao.trails.network.ArticleImages
@@ -114,17 +115,23 @@ class KeysetPushTest {
 
     private fun id(n: Int) = "k%03d".format(n)
 
-    /** Backed up before, so only the push loop (not the never-backed-up sweep) sends them. */
-    private fun article(n: Int, timeUpdated: Long, deleted: Boolean = false, syncFailures: Int = 0) = Article(
+    private fun article(n: Int, timeUpdated: Long, deleted: Boolean = false) = Article(
         itemId = id(n),
         title = "Article $n",
         url = "https://example.com/${id(n)}",
         timeAdded = 1_500,
         timeUpdated = timeUpdated,
         deletedAt = if (deleted) timeUpdated else null,
-        backedUpAt = 1_500,
-        syncFailures = syncFailures,
     )
+
+    /**
+     * Stores [articles] backed up before (stamp 1_500 in sync_state), so only the push loop
+     * (not the never-backed-up sweep) sends them; [strikes] gives an article's failed runs.
+     */
+    private suspend fun insert(articles: List<Article>, strikes: Map<String, Int> = emptyMap()) {
+        dao.upsertArticles(articles)
+        articles.forEach { dao.upsertSyncState(SyncState(it.itemId, 1_500, strikes[it.itemId] ?: 0)) }
+    }
 
     /**
      * One push run on a real dispatcher: the fake backup call writes to Room, which suspends,
@@ -142,7 +149,7 @@ class KeysetPushTest {
         // 500 rows changed after last sync (1_000): timeUpdated 2_000…2_499, 50 deleted, and
         // rows 90…109 share one timeUpdated, across the boundary of pages 2 and 3, so the
         // itemId tiebreak decides their order.
-        dao.upsertArticles(
+        insert(
             (0 until 500).map { n -> article(n, timeUpdated = if (n in 90..109) 2_090L else 2_000L + n, deleted = n % 10 == 3) }
         )
         val bumpedBeforeRead = (480 until 485).map(::id).toSet() // all on the last page
@@ -193,7 +200,7 @@ class KeysetPushTest {
     fun firstSync_pushesEveryRowOnceInPagesOfFifty() = runTest {
         remoteFirstSync = true
         remoteLastSync = null
-        dao.upsertArticles((0 until 250).map { article(it, timeUpdated = 100L + it) })
+        insert((0 until 250).map { article(it, timeUpdated = 100L + it) })
 
         val result = push()
 
@@ -206,22 +213,23 @@ class KeysetPushTest {
 
     @Test
     fun thirdStrikeDuringTheRun_shiftsNoOtherRow() = runTest {
-        dao.upsertArticles(
-            (0 until 120).map { n -> article(n, timeUpdated = 2_000L + n, syncFailures = if (n == 10) MAX_SYNC_FAILURES - 1 else 0) }
+        insert(
+            (0 until 120).map { n -> article(n, timeUpdated = 2_000L + n) },
+            strikes = mapOf(id(10) to MAX_SYNC_FAILURES - 1),
         )
         failing = setOf(id(10))
 
         val result = push()
 
         assertEquals(SyncRunStatus.PARTIAL_FAILURE, result.status)
-        assertEquals(MAX_SYNC_FAILURES, dao.getArticleById(id(10))!!.syncFailures)
+        assertEquals(MAX_SYNC_FAILURES, dao.getSyncState(id(10))!!.syncFailures)
         assertEquals((0 until 120).map(::id).toSet() - id(10), pushed.keys)
         assertTrue(pushed.values.all { it == 1 })
     }
 
     @Test
     fun imageRowsRideTheKeysetPages() = runTest {
-        dao.upsertArticles((0 until 3).map { article(it, timeUpdated = 2_000L + it) })
+        insert((0 until 3).map { article(it, timeUpdated = 2_000L + it) })
         val image = ArticleImages(imageId = "img1", itemId = id(1), src = "https://example.com/i.png", width = 1, height = 1, credit = "", caption = "")
         dao.insertArticleImages(listOf(image))
 

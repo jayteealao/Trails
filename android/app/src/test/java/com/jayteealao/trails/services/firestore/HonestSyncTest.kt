@@ -14,6 +14,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.data.local.database.SyncState
 import com.jayteealao.trails.sync.workers.FirestoreSyncWorker
 import com.jayteealao.trails.testing.JvmRoomDatabase
 import io.mockk.coEvery
@@ -120,6 +121,9 @@ class HonestSyncTest {
         timeUpdated = 2_000,
     )
 
+    /** The sync bookkeeping of [id]; a missing row reads as never backed up, 0 strikes. */
+    private suspend fun state(id: String): SyncState = dao.getSyncState(id) ?: SyncState(id)
+
     private suspend fun seedGoodAndPoison() {
         dao.upsertArticles(listOf(article("good1"), article("good2"), article(POISON)))
     }
@@ -140,9 +144,9 @@ class HonestSyncTest {
         assertTrue(lastSyncWrites.isEmpty())
         coVerify(exactly = 0) { backup.updateLastSyncTimestamp(any()) }
         assertEquals(0L, manager.lastSyncTime.value)
-        assertNotNull(dao.getArticleById("good1")!!.backedUpAt)
-        assertNotNull(dao.getArticleById("good2")!!.backedUpAt)
-        val poison = dao.getArticleById(POISON)!!
+        assertNotNull(state("good1").backedUpAt)
+        assertNotNull(state("good2").backedUpAt)
+        val poison = state(POISON)
         assertNull(poison.backedUpAt)
         assertEquals(1, poison.syncFailures)
         // The failed chunk was retried one article at a time: the poison article went out alone once.
@@ -155,7 +159,7 @@ class HonestSyncTest {
 
         for (run in 1..3) {
             assertEquals(ListenableWorker.Result.retry(), runWorker())
-            assertEquals(run, dao.getArticleById(POISON)!!.syncFailures)
+            assertEquals(run, state(POISON).syncFailures)
         }
         assertTrue(lastSyncWrites.isEmpty())
 
@@ -190,7 +194,7 @@ class HonestSyncTest {
         // The loop stopped after the first chunk and did not retry it article by article.
         coVerify(exactly = 1) { backup.backupArticlesPaginated(any(), any(), any()) }
         assertEquals(50, backupCalls.single().size)
-        val rows = (1..60).map { dao.getArticleById("a$it")!! }
+        val rows = (1..60).map { state("a$it") }
         assertTrue(rows.all { it.syncFailures == 0 && it.backedUpAt == null })
         assertTrue(lastSyncWrites.isEmpty())
         assertEquals(0, dao.observeSyncFailureCount().first())
@@ -207,14 +211,16 @@ class HonestSyncTest {
         assertEquals(ListenableWorker.Result.retry(), result)
         coVerify(exactly = 0) { backup.backupArticlesPaginated(any(), any(), any()) }
         assertTrue(lastSyncWrites.isEmpty())
-        assertNull(dao.getArticleById("good1")!!.backedUpAt)
+        assertNull(state("good1").backedUpAt)
     }
 
     @Test
     fun editWhileItsPushIsInFlight_staysUnsynced_andTheNextRunSendsIt() = runTest {
         // Both rows were backed up at an earlier version, so only the edit is unsent
         // (a never-stamped row would be sent again by the same run's sweep).
-        dao.upsertArticles(listOf(article("good1").copy(backedUpAt = 1_000), article("good2").copy(backedUpAt = 1_000)))
+        dao.upsertArticles(listOf(article("good1"), article("good2")))
+        dao.upsertSyncState(SyncState("good1", backedUpAt = 1_000))
+        dao.upsertSyncState(SyncState("good2", backedUpAt = 1_000))
         var edited = false
         coEvery { backup.backupArticlesPaginated(any(), any(), any()) } coAnswers {
             val articles = firstArg<List<Article>>()

@@ -26,7 +26,7 @@ import com.jayteealao.trails.testing.TestLocalDataOwner
 
 /**
  * Tests for [FirestoreSyncManager.reconcileNeverBackedUpArticles] — the Class-B
- * sweep that backs up articles whose [Article.backedUpAt] is NULL.
+ * sweep that backs up articles that have no backed-up stamp.
  *
  * Verifies:
  * - Never-backed-up articles are passed to [FirestoreBackupService.backupArticlesPaginated].
@@ -78,7 +78,7 @@ class FirestoreSyncManagerReconcileTest {
     private fun signedInUser(uid: String = "u1"): FirebaseUser =
         mockk<FirebaseUser>().also { every { it.uid } returns uid }
 
-    private fun article(id: String) = Article(itemId = id, backedUpAt = null)
+    private fun article(id: String) = Article(itemId = id)
 
     // ── unauthenticated ──────────────────────────────────────────────────────
 

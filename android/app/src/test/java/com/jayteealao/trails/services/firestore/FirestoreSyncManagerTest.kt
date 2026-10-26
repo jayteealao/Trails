@@ -266,7 +266,7 @@ class FirestoreSyncManagerTest {
         // Local article is older → remote wins → conflict-update path is taken.
         val localArticle = Article(itemId = "r1", timeUpdated = 100)
         coEvery { articleDao.getArticleById("r1") } returns localArticle
-        coEvery { articleDao.upsertArticle(any()) } returns Unit
+        coEvery { articleDao.upsertRestoredArticle(any(), any()) } returns Unit
         coEvery { articleDao.deleteAllTagsForArticle("r1") } returns Unit
         coEvery { articleDao.insertArticleTags(any()) } returns Unit
 
@@ -468,18 +468,18 @@ class FirestoreSyncManagerTest {
     // ---- Download-stamp on remote-won upserts (reconcile-stall-guard AC4) ----
 
     /**
-     * AC4 — an article applied from a remote restore is stamped `backedUpAt` at
+     * AC4 — an article applied from a remote restore has its sync state stamped at
      * apply time (it already exists in Firestore), so the next reconcile sweep
      * does not re-upload it.
      */
     @Test
-    fun `handleRemoteArticleChange stamps backedUpAt on remote-won upserts`() = runTest {
+    fun `handleRemoteArticleChange stamps the sync state on remote-won upserts`() = runTest {
         every { auth.currentUser } returns signedInUser("u1")
 
         // New-article path: no local row, remote is applied as-is.
         val remoteArticle = Article(itemId = "r1", timeUpdated = 200)
         coEvery { articleDao.getArticleById("r1") } returns null
-        coEvery { articleDao.upsertArticle(any()) } returns Unit
+        coEvery { articleDao.upsertRestoredArticle(any(), any()) } returns Unit
         coEvery { firestoreBackupService.batchRestoreArticleTags(listOf("r1")) } returns emptyMap()
 
         coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
@@ -496,7 +496,7 @@ class FirestoreSyncManagerTest {
         manager.performFullSync()
 
         coVerify(exactly = 1) {
-            articleDao.upsertArticle(match { it.itemId == "r1" && it.backedUpAt != null })
+            articleDao.upsertRestoredArticle(match { it.itemId == "r1" }, any())
         }
     }
 
@@ -528,6 +528,7 @@ class FirestoreSyncManagerTest {
         manager.performFullSync()
 
         coVerify(exactly = 0) { articleDao.upsertArticle(any()) }
+        coVerify(exactly = 0) { articleDao.upsertRestoredArticle(any(), any()) }
         coVerify(exactly = 0) { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) }
         coVerify(exactly = 0) { articleDao.recordPushResults(any(), any()) }
     }
