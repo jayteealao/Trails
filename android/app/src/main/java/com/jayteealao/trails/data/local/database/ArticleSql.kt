@@ -84,53 +84,83 @@ internal object ArticleSql {
      * not backed up, whatever their age: last sync is account-wide, so another device can
      * move it past an edit this device never sent. A full push (since below 0, a first sync)
      * sends every row. The cursor is a key, not a row count: a row that changes or drops out
-     * during the run moves no later page.
+     * during the run moves no later page. The stamp and the counter come from `sync_state`;
+     * a missing sync_state row is never backed up, 0 strikes.
      */
     const val CHANGED_SINCE_KEYSET = """
-        SELECT * FROM article
-        WHERE timeUpdated <= :until
-          AND sync_failures < $MAX_SYNC_FAILURES
-          AND (:since < 0 OR backed_up_at IS NULL OR backed_up_at < timeUpdated)
-          AND (timeUpdated, itemId) > (:afterTimeUpdated, :afterItemId)
-        ORDER BY timeUpdated ASC, itemId ASC
+        SELECT article.* FROM article
+        LEFT JOIN sync_state AS s ON s.itemId = article.itemId
+        WHERE article.timeUpdated <= :until
+          AND IFNULL(s.sync_failures, 0) < $MAX_SYNC_FAILURES
+          AND (:since < 0 OR s.backed_up_at IS NULL OR s.backed_up_at < article.timeUpdated)
+          AND (article.timeUpdated, article.itemId) > (:afterTimeUpdated, :afterItemId)
+        ORDER BY article.timeUpdated ASC, article.itemId ASC
         LIMIT :limit
     """
 
     /**
      * Rows changed in the window (since, until] below MAX_SYNC_FAILURES, sent or not. A run
      * with nothing left to push still records last sync when this is above zero, so last
-     * sync moves after a run that finished what an earlier run left.
+     * sync moves after a run that finished what an earlier run left. A missing sync_state
+     * row is 0 strikes.
      */
     const val COUNT_CHANGED_IN_WINDOW = """
         SELECT COUNT(*) FROM article
-        WHERE timeUpdated > :since AND timeUpdated <= :until
-          AND sync_failures < $MAX_SYNC_FAILURES
+        LEFT JOIN sync_state AS s ON s.itemId = article.itemId
+        WHERE article.timeUpdated > :since AND article.timeUpdated <= :until
+          AND IFNULL(s.sync_failures, 0) < $MAX_SYNC_FAILURES
     """
 
     /** Rows [CHANGED_SINCE_KEYSET] selects, so the run's count and its pages agree. */
     const val COUNT_CHANGED_SINCE = """
         SELECT COUNT(*) FROM article
-        WHERE timeUpdated <= :until
-          AND sync_failures < $MAX_SYNC_FAILURES
-          AND (:since < 0 OR backed_up_at IS NULL OR backed_up_at < timeUpdated)
+        LEFT JOIN sync_state AS s ON s.itemId = article.itemId
+        WHERE article.timeUpdated <= :until
+          AND IFNULL(s.sync_failures, 0) < $MAX_SYNC_FAILURES
+          AND (:since < 0 OR s.backed_up_at IS NULL OR s.backed_up_at < article.timeUpdated)
     """
 
     /**
-     * The oldest never-backed-up rows, first page only: each sweep stamps the rows it
-     * pushes, so they leave the predicate and the next first page is the next batch.
-     * Deleted rows are included (sent as `deletedAt`): a row deleted before backups were
-     * stamped is otherwise never sent and stays unsynced forever.
+     * The never-backed-up rows in (timeUpdated, itemId) order, first page only: each sweep
+     * stamps the rows it pushes, so they leave the predicate and the next first page is the
+     * next batch. Deleted rows are included (sent as `deletedAt`): a row deleted before
+     * backups were stamped is otherwise never sent and stays unsynced forever. A missing
+     * sync_state row is never backed up, 0 strikes.
      */
     const val NEVER_BACKED_UP = """
-        SELECT * FROM article
-        WHERE backed_up_at IS NULL AND sync_failures < $MAX_SYNC_FAILURES
-        ORDER BY timeAdded ASC
+        SELECT article.* FROM article
+        LEFT JOIN sync_state AS s ON s.itemId = article.itemId
+        WHERE s.backed_up_at IS NULL AND IFNULL(s.sync_failures, 0) < $MAX_SYNC_FAILURES
+        ORDER BY article.timeUpdated ASC, article.itemId ASC
         LIMIT :limit
     """
 
     /** Rows matching [NEVER_BACKED_UP]'s predicate. */
-    const val COUNT_NEVER_BACKED_UP =
-        "SELECT COUNT(*) FROM article WHERE backed_up_at IS NULL AND sync_failures < $MAX_SYNC_FAILURES"
+    const val COUNT_NEVER_BACKED_UP = """
+        SELECT COUNT(*) FROM article
+        LEFT JOIN sync_state AS s ON s.itemId = article.itemId
+        WHERE s.backed_up_at IS NULL AND IFNULL(s.sync_failures, 0) < $MAX_SYNC_FAILURES
+    """
+
+    /**
+     * Rows whose current version Firestore has not confirmed: never backed up (no stamp or
+     * no sync_state row) or edited after the stamp.
+     */
+    const val COUNT_UNSYNCED = """
+        SELECT COUNT(*) FROM article
+        LEFT JOIN sync_state AS s ON s.itemId = article.itemId
+        WHERE s.backed_up_at IS NULL OR article.timeUpdated > s.backed_up_at
+    """
+
+    /**
+     * Articles at MAX_SYNC_FAILURES strikes. Joins `article`, so a sync_state row without
+     * its article is never counted.
+     */
+    const val SYNC_FAILURE_COUNT = """
+        SELECT COUNT(*) FROM sync_state AS s
+        JOIN article ON article.itemId = s.itemId
+        WHERE s.sync_failures >= $MAX_SYNC_FAILURES
+    """
 
     const val BY_RESOLVED_ID = "SELECT * FROM article WHERE resolvedId = :resolvedId ORDER BY timeAdded DESC LIMIT 1"
 
