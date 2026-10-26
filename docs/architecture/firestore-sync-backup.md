@@ -133,19 +133,24 @@ count would pass 500; an article is never split across two batches.
 the transient error that stopped the run, or no user), and the workers map it to
 WorkManager results.
 
+- **Where the bookkeeping lives.** The backed-up stamp and the strike counter live in
+  the device-local `sync_state` table, one row per article that has a stamp or a strike,
+  kept apart from the articles so a stamp or a strike does not rewrite the search index.
+  A missing row means never backed up and no strikes; every sync query reads it with a
+  left join (`IFNULL(s.sync_failures, 0)`, `s.backed_up_at IS NULL OR ...`).
 - **What a run sends.** After the first sync, a run selects every row whose current
-  version this device has not backed up (`backed_up_at IS NULL OR backed_up_at <
-  timeUpdated`), changed up to the run's start, in keyset pages of
+  version this device has not backed up (no stamp, or a stamp older than
+  `timeUpdated`), changed up to the run's start, in keyset pages of
   (`timeUpdated`, `itemId`) (`ArticleSql.CHANGED_SINCE_KEYSET`). Last sync is
   account-wide (another device moves it), so it does not decide which rows are unsent.
   A first sync sends every row. Deleted rows are sent as `deletedAt`.
 - **The stamp.** Each pushed article is stamped with the `timeUpdated` it was sent
   with, and only while its row still has that version
-  (`ArticleDao.recordPushResults`, the only place a push stamps `backed_up_at`). An edit
+  (`ArticleDao.recordPushResults`, the only place a push writes the stamp). An edit
   made while the push is in flight leaves the row unsynced for the next run.
 - **Failures.** A transient failure (offline, timeout, no user) stops the run with
   nothing recorded. Any other chunk failure retries the chunk one article at a time;
-  an article that fails on its own gets a strike (`sync_failures`), and after
+  an article that fails on its own gets a strike (the `sync_state` counter), and after
   `MAX_SYNC_FAILURES` (3) the push skips it. Settings shows a row with the skipped
   count and a Retry action (`SyncFailures.retry`). A failed Retry keeps the row with a
   failed-retry line until the next clean sync.

@@ -15,7 +15,7 @@
 # The search line lists the ids that match the word, with the query that fits the file:
 # the FTS4 index (below version 10) or the FTS5 index (version 10 and later).
 # Exits 0 only when the before version is 7, the after version equals expected-version
-# (default 10), and the before and after counts-and-search records are identical.
+# (default 11), and the before and after counts-and-search records are identical.
 #
 # Only emulators are accepted: the script installs, seeds and force-stops the app.
 set -euo pipefail
@@ -25,7 +25,7 @@ if [ $# -lt 4 ]; then
   echo "usage: $0 <emulator-serial> <old.apk> <new.apk> <out-dir> [search-word] [expected-version]" >&2
   exit 2
 fi
-serial=$1 old_apk=$2 new_apk=$3 out=$4 word=${5:-roses} expected_version=${6:-10}
+serial=$1 old_apk=$2 new_apk=$3 out=$4 word=${5:-roses} expected_version=${6:-11}
 case "$serial" in
   emulator-*) ;;
   *) echo "refusing $serial: only an emulator serial (emulator-NNNN) is accepted" >&2; exit 2 ;;

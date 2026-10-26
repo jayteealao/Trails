@@ -41,6 +41,11 @@ dev() { adb -s "$serial" "$@"; }
 # Under Git Bash, `pwd -W` gives the C:/... form that a native sqlite3 can open.
 work_root=${WIPE_CHECK_WORK:-$(pwd -W 2>/dev/null || pwd)}
 work="$work_root/.wipe-check-work"
+# The sync stamp and the strike counter live in sync_state; a missing row means never
+# backed up and no strikes.
+synced_rows='article AS a LEFT JOIN sync_state AS s ON s.itemId = a.itemId'
+skipped_count='SELECT COUNT(*) FROM sync_state AS s WHERE s.sync_failures >= 3
+  AND EXISTS (SELECT 1 FROM article AS a WHERE a.itemId = s.itemId);'
 mkdir -p "$work"
 trap 'rm -rf "$work"' EXIT
 
@@ -75,8 +80,9 @@ case "$mode" in
         for t in $tables; do
           echo "$t $(sqlite3 "$work/Pocket" "SELECT COUNT(*) FROM $t;")"
         done
-        echo "unsynced $(sqlite3 "$work/Pocket" 'SELECT COUNT(*) FROM article WHERE backed_up_at IS NULL OR timeUpdated > backed_up_at;')"
-        echo "skipped $(sqlite3 "$work/Pocket" 'SELECT COUNT(*) FROM article WHERE sync_failures >= 3;')"
+        echo "unsynced $(sqlite3 "$work/Pocket" "SELECT COUNT(*) FROM $synced_rows
+          WHERE s.backed_up_at IS NULL OR a.timeUpdated > s.backed_up_at;")"
+        echo "skipped $(sqlite3 "$work/Pocket" "$skipped_count")"
       else
         echo "database absent"
       fi
@@ -112,9 +118,12 @@ case "$mode" in
     esac
     stop_app
     pull_db || { echo "no database on the device; open the app once first" >&2; exit 1; }
-    sqlite3 "$work/Pocket" "UPDATE article SET sync_failures = 3 WHERE itemId IN (SELECT itemId FROM article WHERE deleted_at IS NULL ORDER BY timeAdded DESC LIMIT $n);"
+    # The strike lives in sync_state (one row per article with a stamp or a strike).
+    sqlite3 "$work/Pocket" "INSERT INTO sync_state (itemId, sync_failures)
+      SELECT itemId, 3 FROM article WHERE deleted_at IS NULL ORDER BY timeAdded DESC LIMIT $n
+      ON CONFLICT(itemId) DO UPDATE SET sync_failures = 3;"
     push_db
-    echo "skipped articles now: $(sqlite3 "$work/Pocket" 'SELECT COUNT(*) FROM article WHERE sync_failures >= 3;')"
+    echo "skipped articles now: $(sqlite3 "$work/Pocket" "$skipped_count")"
     ;;
   *)
     usage
