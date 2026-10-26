@@ -3,6 +3,8 @@ package com.jayteealao.trails.data.local.database
 import androidx.paging.PagingSource
 import androidx.room3.Dao
 import androidx.room3.DaoReturnTypeConverters
+import androidx.room3.Insert
+import androidx.room3.OnConflictStrategy
 import androidx.room3.Query
 import androidx.room3.RewriteQueriesToDropUnusedColumns
 import androidx.room3.RoomWarnings
@@ -250,11 +252,11 @@ interface ArticleDao {
 
     /**
      * Rows whose current version Firestore has not confirmed: unsent edits, unsent
-     * deletes and rows skipped after MAX_SYNC_FAILURES. Restore and push stamp
-     * `backed_up_at`, so their rows are not counted. A deleted row that was never
+     * deletes and rows skipped after MAX_SYNC_FAILURES. Restore and push stamp the
+     * article's sync_state row, so their rows are not counted. A deleted row that was never
      * backed up counts until the never-backed-up sweep sends its deletion.
      */
-    @Query("SELECT COUNT(*) FROM article WHERE backed_up_at IS NULL OR timeUpdated > backed_up_at")
+    @Query(ArticleSql.COUNT_UNSYNCED)
     suspend fun countUnsyncedChanges(): Int
 
     @Query("DELETE FROM article_tags")
@@ -278,12 +280,16 @@ interface ArticleDao {
     @Query("DELETE FROM article")
     suspend fun wipeArticles()
 
+    @Query("DELETE FROM sync_state")
+    suspend fun wipeSyncState()
+
     /**
      * Delete every table in one transaction. article_fts empties through Room's
      * content triggers on article. A new table gets its delete here.
      */
     @Transaction
     suspend fun wipeAllLocalData() {
+        wipeSyncState()
         wipeArticleTags()
         wipeArticleImages()
         wipeArticleVideos()
@@ -356,10 +362,9 @@ interface ArticleDao {
     suspend fun searchArticlesRanked(match: String, limit: Int): List<ArticleItem>
 
     /**
-     * Return articles that have never been successfully backed up to Firestore
-     * ([backedUpAt] IS NULL), deleted ones included so their deletion reaches Firestore,
-     * ordered oldest-first so the reconciliation sweep
-     * processes stranded articles in chronological order. Returns the first [limit] rows
+     * Return articles that have never been successfully backed up to Firestore (no
+     * [SyncState.backedUpAt], or no sync_state row), deleted ones included so their deletion
+     * reaches Firestore, in (timeUpdated, itemId) order. Returns the first [limit] rows
      * only: the sweep stamps what it pushes, so the next call returns the next batch.
      * Skips rows that failed MAX_SYNC_FAILURES runs.
      */
@@ -373,27 +378,48 @@ interface ArticleDao {
     @Query(ArticleSql.COUNT_NEVER_BACKED_UP)
     suspend fun countArticlesNeverBackedUp(): Int
 
-    /**
-     * Stamp a successful push of the version [pushedTimeUpdated]: it becomes `backed_up_at`,
-     * and the failed-push counter goes back to 0, only while the row still has that version.
-     * An edit committed after the push read the row changed `timeUpdated`, so the row stays
-     * unsynced and the next push sends the edit. Returns the number of rows stamped (0 or 1).
-     */
-    @Query(
-        "UPDATE article SET backed_up_at = :pushedTimeUpdated, sync_failures = 0 " +
-            "WHERE itemId = :itemId AND timeUpdated = :pushedTimeUpdated"
-    )
-    suspend fun markBackedUpIfUnchanged(itemId: String, pushedTimeUpdated: Long): Int
+    /** The sync bookkeeping of [itemId]; null when the article was never stamped or struck. */
+    @Query("SELECT * FROM sync_state WHERE itemId = :itemId")
+    suspend fun getSyncState(itemId: String): SyncState?
 
-    /** Count one more failed push run for each of [itemIds]. */
-    @Query("UPDATE article SET sync_failures = sync_failures + 1 WHERE itemId IN (:itemIds)")
-    suspend fun incrementSyncFailures(itemIds: List<String>)
+    @Upsert
+    suspend fun upsertSyncState(state: SyncState)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertSyncStatesIfAbsent(states: List<SyncState>)
+
+    @Query("SELECT timeUpdated FROM article WHERE itemId = :itemId")
+    suspend fun getTimeUpdated(itemId: String): Long?
+
+    /**
+     * Stamp a successful push of the version [pushedTimeUpdated]: it becomes the article's
+     * backed-up stamp in sync_state, and the failed-push counter goes back to 0, only while
+     * the row still has that version. An edit committed after the push read the row changed
+     * `timeUpdated`, so the row stays unsynced and the next push sends the edit. Returns the
+     * number of rows stamped (0 or 1). Writes only sync_state, so the search index is untouched.
+     */
+    @Transaction
+    suspend fun markBackedUpIfUnchanged(itemId: String, pushedTimeUpdated: Long): Int {
+        if (getTimeUpdated(itemId) != pushedTimeUpdated) return 0
+        upsertSyncState(SyncState(itemId, pushedTimeUpdated, 0))
+        return 1
+    }
+
+    @Query("UPDATE sync_state SET sync_failures = sync_failures + 1 WHERE itemId IN (:itemIds)")
+    suspend fun bumpSyncFailures(itemIds: List<String>)
+
+    /** Count one more failed push run for each of [itemIds]; writes only sync_state. */
+    @Transaction
+    suspend fun incrementSyncFailures(itemIds: List<String>) {
+        insertSyncStatesIfAbsent(itemIds.map { SyncState(it) })
+        bumpSyncFailures(itemIds)
+    }
 
     /**
      * Record the outcome of one push in one transaction: stamp each [succeeded] row with the
      * version that was sent (itemId to the `timeUpdated` it was pushed with, see
      * [markBackedUpIfUnchanged]) and add a strike to the [failed] rows. The only place a
-     * push stamps `backed_up_at`.
+     * push stamps the backed-up time.
      */
     @Transaction
     suspend fun recordPushResults(succeeded: Map<String, Long>, failed: List<String>) {
@@ -405,16 +431,35 @@ interface ArticleDao {
      * Articles the sync skips after MAX_SYNC_FAILURES failed runs, deleted rows included
      * (an unsent delete is an unsynced change).
      */
-    @Query("SELECT COUNT(*) FROM article WHERE sync_failures >= $MAX_SYNC_FAILURES")
+    @Query(ArticleSql.SYNC_FAILURE_COUNT)
     fun observeSyncFailureCount(): Flow<Int>
+
+    @Query("UPDATE article SET timeUpdated = MAX(timeUpdated, :now) WHERE itemId IN (SELECT itemId FROM sync_state WHERE sync_failures >= $MAX_SYNC_FAILURES)")
+    suspend fun touchSkippedArticles(now: Long)
+
+    @Query("UPDATE sync_state SET sync_failures = 0 WHERE sync_failures >= $MAX_SYNC_FAILURES AND itemId IN (SELECT itemId FROM article)")
+    suspend fun clearSkippedCounters(): Int
 
     /**
      * Clear the counter on every skipped article and raise its `timeUpdated` to [now],
      * so the next push sends it even though last sync has moved past it.
      * Returns the number of rows reset.
      */
-    @Query("UPDATE article SET sync_failures = 0, timeUpdated = MAX(timeUpdated, :now) WHERE sync_failures >= $MAX_SYNC_FAILURES")
-    suspend fun resetSyncFailures(now: Long): Int
+    @Transaction
+    suspend fun resetSyncFailures(now: Long): Int {
+        touchSkippedArticles(now)
+        return clearSkippedCounters()
+    }
+
+    /**
+     * Store an article that came from Firestore and stamp it backed up at [stampedAt] with 0
+     * strikes, in one transaction.
+     */
+    @Transaction
+    suspend fun upsertRestoredArticle(article: Article, stampedAt: Long) {
+        upsertArticle(article)
+        upsertSyncState(SyncState(article.itemId, stampedAt, 0))
+    }
 
     /**
      * Atomically upserts a batch of articles together with all their associated data
@@ -474,6 +519,8 @@ interface ArticleDao {
                 else -> existingArticle.favorite
             }
 
+            // The sync_state row is not touched, so a re-save keeps the stamp and the
+            // counter; timeUpdated moves, so the push still sends it.
             upsertArticle(
                 newArticle.copy(
                     itemId = existingArticle.itemId,
@@ -502,10 +549,6 @@ interface ArticleDao {
                     text = if (newArticle.text.isNullOrBlank()) existingArticle.text else newArticle.text,
                     deletedAt = null,
                     archivedAt = null,
-                    // A re-save is a local change (timeUpdated moves), so the push still
-                    // sends it; the backup stamp and the counter belong to the row.
-                    backedUpAt = existingArticle.backedUpAt,
-                    syncFailures = existingArticle.syncFailures,
                 )
             )
             return existingArticle.itemId
