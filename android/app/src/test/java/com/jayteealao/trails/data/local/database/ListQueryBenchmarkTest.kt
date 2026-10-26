@@ -149,7 +149,6 @@ class ListQueryBenchmarkTest {
             "index_article_deleted_at_archived_at_timeAdded",
             "index_article_deleted_at_archived_at_timeFavorited_timeAdded",
             "index_article_timeUpdated_itemId",
-            "index_article_backed_up_at_deleted_at_timeAdded",
             "index_article_resolvedId",
             "index_article_normalized_url",
             "index_article_tags_tag",

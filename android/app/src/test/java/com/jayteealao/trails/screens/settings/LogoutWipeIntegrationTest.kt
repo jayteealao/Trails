@@ -19,6 +19,7 @@ import com.jayteealao.trails.data.account.PushThenWipe
 import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.local.database.SyncState
 import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
@@ -151,10 +152,10 @@ class LogoutWipeIntegrationTest {
                     url = "https://example.com/$it",
                     timeAdded = 1_000,
                     timeUpdated = if (it == "a2") EDITED_AT else 2_000,
-                    backedUpAt = 2_000,
                 )
             }
         )
+        listOf("a1", "a2").forEach { db.articleDao().upsertSyncState(SyncState(it, 2_000)) }
         db.useWriterConnection { connection ->
             connection.executeSQL("INSERT INTO article_tags (itemId, tag) VALUES ('a1', 'water')")
             connection.executeSQL(

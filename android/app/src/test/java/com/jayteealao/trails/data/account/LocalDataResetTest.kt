@@ -16,6 +16,7 @@ import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.local.database.MAX_SYNC_FAILURES
+import com.jayteealao.trails.data.local.database.SyncState
 import com.jayteealao.trails.services.firestore.FirestoreCacheReset
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.services.firestore.SyncRunResult
@@ -79,6 +80,9 @@ class LocalDataResetTest {
         File(context.filesDir, LocalDataReset.ARCHIVES_DIR).deleteRecursively()
     }
 
+    /** An article and its sync bookkeeping, which [insert] writes to `sync_state`. */
+    private data class Seed(val article: Article, val backedUpAt: Long?, val syncFailures: Int)
+
     private fun article(
         itemId: String,
         title: String = "Article $itemId",
@@ -86,16 +90,25 @@ class LocalDataResetTest {
         backedUpAt: Long? = null,
         deletedAt: Long? = null,
         syncFailures: Int = 0,
-    ) = Article(
-        itemId = itemId,
-        title = title,
-        url = "https://example.com/$itemId",
-        timeAdded = 1_000,
-        timeUpdated = timeUpdated,
-        backedUpAt = backedUpAt,
-        deletedAt = deletedAt,
-        syncFailures = syncFailures,
+    ) = Seed(
+        Article(
+            itemId = itemId,
+            title = title,
+            url = "https://example.com/$itemId",
+            timeAdded = 1_000,
+            timeUpdated = timeUpdated,
+            deletedAt = deletedAt,
+        ),
+        backedUpAt,
+        syncFailures,
     )
+
+    /** Stores the articles, then a sync_state row for each one with a stamp or a strike. */
+    private suspend fun insert(seeds: List<Seed>) {
+        dao.upsertArticles(seeds.map { it.article })
+        seeds.filter { it.backedUpAt != null || it.syncFailures != 0 }
+            .forEach { dao.upsertSyncState(SyncState(it.article.itemId, it.backedUpAt, it.syncFailures)) }
+    }
 
     private suspend fun count(sql: String): Long = db.useReaderConnection { connection ->
         connection.usePrepared(sql) { stmt ->
@@ -106,9 +119,9 @@ class LocalDataResetTest {
 
     @Test
     fun wipe_emptiesEveryTableAndSearchIndex() = runTest {
-        dao.upsertArticles(
+        insert(
             listOf(
-                article("a1", title = "The river bank"),
+                article("a1", title = "The river bank", backedUpAt = 1_500),
                 article("a2", title = "Down the river"),
                 article("a3", title = "River stones"),
             )
@@ -154,7 +167,7 @@ class LocalDataResetTest {
 
     @Test
     fun wipe_withoutArchiveFolder_stillEmptiesTables() = runTest {
-        dao.upsertArticles(listOf(article("a1")))
+        insert(listOf(article("a1")))
 
         reset.wipeLocalData()
 
@@ -163,7 +176,7 @@ class LocalDataResetTest {
 
     @Test
     fun wipe_runsInsideTheSyncGate_andAsksForTheFirestoreCacheToBeCleared() = runTest {
-        dao.upsertArticles(listOf(article("a1")))
+        insert(listOf(article("a1")))
         assertFalse(FirestoreCacheReset.isRequested(context))
 
         reset.wipeLocalData()
@@ -190,19 +203,19 @@ class LocalDataResetTest {
 
     @Test
     fun unsyncedCount_neverBackedUp() = runTest {
-        dao.upsertArticles(listOf(article("a", backedUpAt = null)))
+        insert(listOf(article("a", backedUpAt = null)))
         assertEquals(1, reset.pendingChangeCount())
     }
 
     @Test
     fun unsyncedCount_editedAfterBackup() = runTest {
-        dao.upsertArticles(listOf(article("a", timeUpdated = 3_000, backedUpAt = 2_000)))
+        insert(listOf(article("a", timeUpdated = 3_000, backedUpAt = 2_000)))
         assertEquals(1, reset.pendingChangeCount())
     }
 
     @Test
     fun unsyncedCount_deletedAndNotPushed() = runTest {
-        dao.upsertArticles(listOf(article("a", timeUpdated = 3_000, backedUpAt = 2_000, deletedAt = 3_000)))
+        insert(listOf(article("a", timeUpdated = 3_000, backedUpAt = 2_000, deletedAt = 3_000)))
         assertEquals(1, reset.pendingChangeCount())
     }
 
@@ -210,7 +223,7 @@ class LocalDataResetTest {
     fun deletedAndNeverBackedUp_countsUntilTheSweepSendsIt() = runTest {
         // A row deleted before backups were stamped: the never-backed-up sweep picks it
         // up, so a push stamps it and the count does not stay above zero forever.
-        dao.upsertArticles(listOf(article("old", timeUpdated = 3_000, backedUpAt = null, deletedAt = 3_000)))
+        insert(listOf(article("old", timeUpdated = 3_000, backedUpAt = null, deletedAt = 3_000)))
         assertEquals(1, reset.pendingChangeCount())
         assertEquals(listOf("old"), dao.getArticlesNeverBackedUp(50).map { it.itemId })
 
@@ -221,7 +234,7 @@ class LocalDataResetTest {
 
     @Test
     fun unsyncedCount_skippedAfterThreeFailures() = runTest {
-        dao.upsertArticles(
+        insert(
             listOf(article("a", timeUpdated = 3_000, backedUpAt = 2_000, syncFailures = MAX_SYNC_FAILURES))
         )
         assertEquals(1, reset.pendingChangeCount())
@@ -229,7 +242,7 @@ class LocalDataResetTest {
 
     @Test
     fun unsyncedCount_stampedAtOrAfterEdit_isZero() = runTest {
-        dao.upsertArticles(
+        insert(
             listOf(
                 article("same", timeUpdated = 2_000, backedUpAt = 2_000),
                 article("later", timeUpdated = 2_000, backedUpAt = 5_000),
@@ -240,7 +253,7 @@ class LocalDataResetTest {
 
     @Test
     fun unsyncedCount_afterPushStamp_isZero() = runTest {
-        dao.upsertArticles(listOf(article("a"), article("b", timeUpdated = 3_000, backedUpAt = 1_000)))
+        insert(listOf(article("a"), article("b", timeUpdated = 3_000, backedUpAt = 1_000)))
         assertEquals(2, reset.pendingChangeCount())
 
         dao.recordPushResults(mapOf("a" to 2_000L, "b" to 3_000L), emptyList())
@@ -269,7 +282,7 @@ class LocalDataResetTest {
     private companion object {
         val TABLES = listOf(
             "article", "article_tags", "article_images", "article_videos",
-            "article_authors", "DomainMetadata", "local_archive",
+            "article_authors", "DomainMetadata", "local_archive", "sync_state",
         )
     }
 }

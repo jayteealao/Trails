@@ -47,16 +47,14 @@ class ArticleQueryPlanTest {
         Case("ARCHIVE_LIST", ArticleSql.ARCHIVE_LIST, listOf("index_article_deleted_at_archived_at_timeAdded"), noSort = true),
         Case("TAG_LIST_BY_TAG", ArticleSql.TAG_LIST_BY_TAG, listOf("index_article_tags_tag", "index_article_resolvedId"), noSort = false),
         Case("ALL_TAGS", ArticleSql.ALL_TAGS, listOf("index_article_resolvedId"), noSort = false),
-        Case("CHANGED_SINCE_KEYSET", ArticleSql.CHANGED_SINCE_KEYSET, listOf("index_article_timeUpdated_itemId"), noSort = true),
-        Case("COUNT_CHANGED_SINCE", ArticleSql.COUNT_CHANGED_SINCE, listOf("index_article_timeUpdated_itemId"), noSort = false),
-        Case("COUNT_CHANGED_IN_WINDOW", ArticleSql.COUNT_CHANGED_IN_WINDOW, listOf("index_article_timeUpdated_itemId"), noSort = false),
-        Case("NEVER_BACKED_UP", ArticleSql.NEVER_BACKED_UP, listOf("index_article_backed_up_at_deleted_at_timeAdded"), noSort = false),
-        Case(
-            "COUNT_NEVER_BACKED_UP",
-            ArticleSql.COUNT_NEVER_BACKED_UP,
-            listOf("index_article_backed_up_at_deleted_at_timeAdded"),
-            noSort = false,
-        ),
+        // The sync queries join sync_state by its primary key for the stamp and the counter.
+        Case("CHANGED_SINCE_KEYSET", ArticleSql.CHANGED_SINCE_KEYSET, listOf("index_article_timeUpdated_itemId", "sqlite_autoindex_sync_state_1"), noSort = true),
+        Case("COUNT_CHANGED_SINCE", ArticleSql.COUNT_CHANGED_SINCE, listOf("index_article_timeUpdated_itemId", "sqlite_autoindex_sync_state_1"), noSort = false),
+        Case("COUNT_CHANGED_IN_WINDOW", ArticleSql.COUNT_CHANGED_IN_WINDOW, listOf("index_article_timeUpdated_itemId", "sqlite_autoindex_sync_state_1"), noSort = false),
+        Case("NEVER_BACKED_UP", ArticleSql.NEVER_BACKED_UP, listOf("index_article_timeUpdated_itemId", "sqlite_autoindex_sync_state_1"), noSort = true),
+        Case("COUNT_NEVER_BACKED_UP", ArticleSql.COUNT_NEVER_BACKED_UP, listOf("sqlite_autoindex_sync_state_1"), noSort = false),
+        Case("COUNT_UNSYNCED", ArticleSql.COUNT_UNSYNCED, listOf("sqlite_autoindex_sync_state_1"), noSort = false),
+        Case("SYNC_FAILURE_COUNT", ArticleSql.SYNC_FAILURE_COUNT, listOf("sqlite_autoindex_article_1"), noSort = false),
         Case("BY_RESOLVED_ID", ArticleSql.BY_RESOLVED_ID, listOf("index_article_resolvedId"), noSort = false),
         Case("BY_NORMALIZED_URL", ArticleSql.BY_NORMALIZED_URL, listOf("index_article_normalized_url"), noSort = false),
         Case("IMAGES_FOR_ARTICLES", ArticleSql.IMAGES_FOR_ARTICLES, listOf("index_article_images_itemId"), noSort = false),
@@ -92,10 +90,13 @@ class ArticleQueryPlanTest {
                     timeFavorited = if (n % 10 == 0) n * 10L else 0,
                     archivedAt = if (n % 7 == 0) n * 10L else null,
                     deletedAt = if (n % 13 == 0) n * 10L else null,
-                    backedUpAt = if (n % 3 == 0) null else n * 10L,
                 )
             }
         )
+        // Two thirds backed up; a few of them struck.
+        (1..200).filter { it % 3 != 0 }.forEach { n ->
+            dao.upsertSyncState(SyncState("a$n", backedUpAt = n * 10L, syncFailures = if (n % 11 == 0) MAX_SYNC_FAILURES else 0))
+        }
         dao.insertArticleTags(
             (1..300).map { n -> ArticleTags(itemId = "a${n % 200 + 1}", tag = "tag${n % 15}", sortId = null, type = null) }
         )
