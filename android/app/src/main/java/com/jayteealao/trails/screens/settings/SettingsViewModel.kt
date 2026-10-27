@@ -321,12 +321,13 @@ class SettingsViewModel @Inject constructor(
 
     /**
      * Keep the row with its failed line. The wait skips the status the retry's own run left
-     * (the current value of the state flow), so only a later clean sync clears the line.
+     * (the current value of the state flow), so only a later clean sync clears the line: a
+     * run that finished with failed articles is not clean.
      */
     private fun recordRetryFailed(count: Int) {
         retryFailedCount.value = count
         retryFailedClearJob = viewModelScope.launch {
-            firestoreSyncManager.syncStatus.drop(1).first { it is SyncStatus.Success }
+            firestoreSyncManager.syncStatus.drop(1).first { it is SyncStatus.Success && it.failed == 0 }
             retryFailedCount.value = null
         }
     }

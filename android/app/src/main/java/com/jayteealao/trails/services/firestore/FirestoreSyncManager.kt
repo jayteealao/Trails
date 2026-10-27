@@ -43,7 +43,8 @@ import javax.inject.Singleton
 sealed class SyncStatus {
     object Idle : SyncStatus()
     object Syncing : SyncStatus()
-    data class Success(val message: String) : SyncStatus()
+    /** A finished run; [failed] counts the articles it could not send (0 for a clean run). */
+    data class Success(val message: String, val failed: Int = 0) : SyncStatus()
     data class Error(val message: String, val exception: Exception?) : SyncStatus()
 }
 
@@ -633,7 +634,7 @@ class FirestoreSyncManager @Inject constructor(
         } else {
             "Synced ${result.pushed} articles"
         }
-        _syncStatus.value = SyncStatus.Success(message)
+        _syncStatus.value = SyncStatus.Success(message, failed = result.failed)
     }
 
     /**

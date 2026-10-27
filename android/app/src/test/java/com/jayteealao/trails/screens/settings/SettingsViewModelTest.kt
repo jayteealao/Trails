@@ -421,6 +421,30 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun retryFailed_staysAfterASyncThatStillFailsArticles() = runTest(dispatcher) {
+        failingRetry()
+        val vm = viewModel()
+        observe(vm)
+
+        vm.retrySyncFailures()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.retryFailed)
+
+        syncStatus.value = SyncStatus.Syncing
+        advanceUntilIdle()
+        syncStatus.value = SyncStatus.Success("Synced 3 articles, 2 failed", failed = 2)
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.retryFailed)
+        assertEquals(2, vm.state.value.syncFailureCount)
+
+        syncStatus.value = SyncStatus.Success("Synced 2 articles")
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.retryFailed)
+    }
+
+    @Test
     fun retryFailed_givesWayToANewSkipCount() = runTest(dispatcher) {
         failingRetry()
         val vm = viewModel()
