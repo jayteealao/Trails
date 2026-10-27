@@ -29,7 +29,14 @@ pnpm run deploy -- --all --with-rules              # workers, functions, rules a
 ```
 
 `--all` (and `pnpm deploy:all`) never deploys the rules; they go out only with
-an explicit `--with-rules`.
+an explicit `--with-rules`, and its summary prints a `rules` row reading
+`not deployed (pass --with-rules)`.
+
+Every rules deploy (`--with-rules` or `--rules-only`) first reads the newest
+link re-derive dry-run report (or the one `--rederive-report <path>` names) and
+stops before any deploy unless it is a production dry run that plans no marker
+removal and no error. `--skip-rederive-check` overrides it with a summary
+warning; it is the rollback path when no clean report exists.
 
 The rules step reads the grace end from the released Firestore rules and keeps
 it; on the first stamped deploy (the released rules hold no stamped grace end)
@@ -71,13 +78,16 @@ server's link must go out in this order:
    `linkAdds=0 linkChanges=0 linkClears=0 errors=0` (`../warg/README.md`).
 4. **The readers**: `pnpm run deploy -- --functions-only` again. The link check
    reads that clean report and now deploys `dashboard-api`.
-5. **The rules**, with `pnpm run deploy -- --rules-only`. Then run the
-   re-derive dry run once more: it must plan no marker removal.
+5. **The rules**, with `pnpm run deploy -- --rules-only`. The deploy script
+   refuses to deploy them until the newest production re-derive dry run plans
+   no marker removal (step 3 leaves that report). Then run the re-derive dry
+   run once more: it must plan no marker removal.
 
 The link re-derive is a required step, not a clean-up: the read rule only asks
 that a marker exists, and markers that older rules let any signed-in user write
 under any key keep opening their shared article until the re-derive removes
-them. Run it (step 3) before the rules deploy.
+them. Run it (step 3) before the rules deploy. deploy.sh enforces it: the
+rules deploy refuses to run until that dry run is clean.
 
 ## Article markers & sequenced read tightening
 

@@ -61,7 +61,7 @@ secrets each worker needs, and how each target is verified.
 3. Deploy from `warg/`:
 
    ```bash
-   pnpm deploy:all                   # workers, functions and the dashboard (never the rules)
+   pnpm deploy:all                   # workers, functions and the dashboard (never the rules; prints a rules: not deployed row)
    pnpm run deploy -- --all --with-rules   # the same, then the Firestore and Storage rules
    pnpm run deploy                   # workers only
    pnpm run deploy -- --with-pages   # workers and the dashboard
@@ -119,7 +119,8 @@ plans no link to add, change or clear, reports no write error and finds the
 duplicate merge finished, `dashboard-api` is held back: its summary row reads
 `skipped` with the reason, a warning says so, and the other functions still
 deploy. Deploy the functions again after a clean dry run to ship it.
-`--skip-rederive-check` deploys it without the check and warns; never put it in
+The same report also gates the rules deploy (below).
+`--skip-rederive-check` skips both checks, each with a warning; never put it in
 a package.json script.
 
 Rules: `--with-rules` deploys `../firebase/` after the functions; `--all`
@@ -129,8 +130,11 @@ the reasons are in `../firebase/README.md` (Ship order). The step reads the
 grace end from the released Firestore rules and keeps it (the first stamped deploy sets it to 30 days later and warns), stamps
 it into an LF build copy, deploys that copy non-interactively and compares the
 SHA-256 of each released ruleset, read through the Firebase Rules API, with the
-build copy; a mismatch stops the run with exit 3. Rules deploy only this way
-(`../firebase/README.md`).
+build copy; a mismatch stops the run with exit 3. Before any deploy, every run
+that includes the rules (`--with-rules` or `--rules-only`) reads the link
+re-derive report of the Link check and stops with exit 3 unless it is a
+production dry run that plans no marker removal and no error. Rules deploy only
+this way (`../firebase/README.md`).
 
 Checking the deploy script: `pnpm deploy:check` runs shellcheck and a stub
 harness that drives the script end to end without credentials (CI runs it too).
