@@ -66,10 +66,11 @@ done
 echo 'name = "warg-dashboard"' >"$FIX/pages/dashboard/wrangler.toml"
 # A clean production dry run of the link re-derive, where deploy.sh looks for
 # it by default; the link-check scenarios pass their own reports.
-# rederive_report <file> <mode> <target> <linkAdds>: writes a re-derive report.
+# rederive_report <file> <mode> <target> <linkAdds> [markerRemovals]: writes a
+# re-derive report (markerRemovals defaults to 0).
 rederive_report() {
   cat >"$1" <<JSON
-{"mode":"$2","target":"$3","generatedAt":"2026-10-27T00:00:00.000Z","counts":{"users":1,"articles":2,"linkAdds":$4,"linkChanges":0,"linkClears":0,"errors":0},"preconditionFailures":[]}
+{"mode":"$2","target":"$3","generatedAt":"2026-10-27T00:00:00.000Z","counts":{"users":1,"articles":2,"linkAdds":$4,"linkChanges":0,"linkClears":0,"markerRemovals":${5:-0},"errors":0},"preconditionFailures":[]}
 JSON
 }
 mkdir -p "$FIX/cloud-functions/backfill-scripts/tmp"
@@ -179,6 +180,8 @@ scenario_full_success() {
   expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA --commit-message $SHA --commit-dirty=false\$"
   expect_row "pages:dashboard" deployed "$UUID"
   expect_out '^=== Link check passed: cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json '
+  expect_out '^=== Rules link check passed: '
+  expect_no_out '^rules +skipped +not deployed'
   expect_out '^TARGET +RESULT +DETAIL +LABEL$'
   expect_out '^Exit code: 0$'
   finish
@@ -244,9 +247,10 @@ scenario_link_check_skipped() {
 
 scenario_link_check_rules_only() {
   start link-check-rules-only
-  run_deploy link-check-rules-only -- --rules-only --skip-checks --rederive-report "$ROOT/no-such-report.json"
+  run_deploy link-check-rules-only -- --rules-only --skip-checks
   expect_rc 0
-  expect_no_out 'Link check'
+  expect_no_out '^=== Link check'
+  expect_out '^=== Rules link check passed: cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json '
   expect_out '^Exit code: 0$'
   finish
 }
@@ -390,17 +394,22 @@ scenario_dirty_allowed() {
   expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA-dirty --commit-message $SHA-dirty --commit-dirty=true\$"
   expect_row "pages:dashboard" deployed "$UUID"
   expect_row "worker:gateway" deployed "$UUID"
+  expect_out '^=== Rules link check passed: '
+  expect_no_out '^rules +skipped +not deployed'
   LABEL="$SHA"
   finish
 }
 
 # --all never deploys the rules: they go out only with an explicit --with-rules.
+# The summary row `rules skipped not deployed (pass --with-rules)` is the
+# signal; no rules:firestore or rules:storage row prints.
 scenario_all_without_rules() {
   start all-without-rules
   run_deploy all-without-rules -- --all --skip-checks
   expect_rc 0
   expect_calls 0 '^firebase deploy --only firestore:rules'
   expect_calls 0 '^curl '
+  expect_row "rules" skipped 'not deployed \(pass --with-rules\)'
   expect_no_out '^rules:'
   expect_out '^Exit code: 0$'
   finish
@@ -506,6 +515,7 @@ scenario_induced_failure_rc() {
   expect_row "worker:gateway" skipped '-'
   expect_row "function:archive-gateway" skipped '-'
   expect_row "pages:dashboard" skipped '-'
+  expect_row "rules" skipped 'not deployed \(pass --with-rules\)'
   expect_out '^Exit code: 7$'
   finish
 }
