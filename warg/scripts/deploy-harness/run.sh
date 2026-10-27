@@ -255,6 +255,90 @@ scenario_link_check_rules_only() {
   finish
 }
 
+# The rules link check: every rules deploy waits for a production dry run of
+# the link re-derive that plans no marker removal and no error. Anything else
+# stops the run before any deploy; the override deploys and warns.
+expect_rules_refused() { # expect_rules_refused <detail regex>
+  expect_rc 3
+  expect_row "rules:firestore" failed "$1"
+  expect_calls 0 '^firebase deploy'
+  expect_calls 0 '^curl '
+  expect_out '^Exit code: 3$'
+}
+
+scenario_rules_gate_marker_removals() {
+  start rules-gate-marker-removals
+  rederive_report "$ROOT/report-removals.json" dry-run production 0 2
+  run_deploy rules-gate-marker-removals -- --rules-only --skip-checks --rederive-report "$ROOT/report-removals.json"
+  expect_rules_refused '.*plans markerRemovals=2 errors=0; apply the link re-derive.*'
+  expect_row "rules:storage" skipped '-'
+  finish
+}
+
+scenario_rules_gate_missing_report() {
+  start rules-gate-missing-report
+  run_deploy rules-gate-missing-report -- --rules-only --skip-checks --rederive-report "$ROOT/no-such-report.json"
+  expect_rules_refused 'no link re-derive dry-run report at .*'
+  finish
+}
+
+scenario_rules_gate_not_production() {
+  start rules-gate-not-production
+  rederive_report "$ROOT/report-gate-emulator.json" dry-run emulator 0
+  rederive_report "$ROOT/report-gate-apply.json" apply production 0
+  cat >"$ROOT/report-gate-no-count.json" <<'JSON'
+{"mode":"dry-run","target":"production","generatedAt":"2026-10-27T00:00:00.000Z","counts":{"users":1,"articles":2,"linkAdds":0,"linkChanges":0,"linkClears":0,"errors":0},"preconditionFailures":[]}
+JSON
+  run_deploy rules-gate-emulator -- --rules-only --skip-checks --rederive-report "$ROOT/report-gate-emulator.json"
+  expect_rules_refused '.*is not a production run \(target emulator\).*'
+  run_deploy rules-gate-apply -- --rules-only --skip-checks --rederive-report "$ROOT/report-gate-apply.json"
+  expect_rules_refused '.*is not a dry run \(mode apply\).*'
+  run_deploy rules-gate-no-count -- --rules-only --skip-checks --rederive-report "$ROOT/report-gate-no-count.json"
+  expect_rules_refused '.*has no markerRemovals count.*'
+  NAME=rules-gate-not-production
+  finish
+}
+
+scenario_rules_gate_before_workers() {
+  start rules-gate-before-workers
+  rederive_report "$ROOT/report-removals-all.json" dry-run production 0 2
+  run_deploy rules-gate-before-workers -- --all --with-rules --skip-checks --rederive-report "$ROOT/report-removals-all.json"
+  expect_rules_refused '.*plans markerRemovals=2 errors=0.*'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^wrangler pages deploy'
+  expect_row "worker:logger" skipped '-'
+  expect_row "function:archive-gateway" skipped '-'
+  finish
+}
+
+scenario_rules_gate_skipped() {
+  start rules-gate-skipped
+  rederive_report "$ROOT/report-removals-skip.json" dry-run production 0 2
+  run_deploy rules-gate-skipped -- --rules-only --skip-checks --rederive-report "$ROOT/report-removals-skip.json" --skip-rederive-check
+  expect_rc 0
+  expect_out '^=== Rules link check skipped \(--skip-rederive-check\) ===$'
+  expect_out '^WARNING: rules check skipped \(--skip-rederive-check\)'
+  expect_row "rules:firestore" deployed ".*"
+  expect_row "rules:storage" deployed ".*"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+# Link adds, changes and clears hold dashboard-api back but do not stop the
+# rules: only marker removals do.
+scenario_rules_gate_link_changes_pass() {
+  start rules-gate-link-changes-pass
+  rederive_report "$ROOT/report-links.json" dry-run production 3 0
+  run_deploy rules-gate-link-changes-pass -- --functions-only --with-rules --skip-checks --rederive-report "$ROOT/report-links.json"
+  expect_rc 0
+  expect_dashboard_held '.*plans linkAdds=3 linkChanges=0 linkClears=0 errors=0'
+  expect_out '^=== Rules link check passed: '
+  expect_row "rules:firestore" deployed ".*"
+  expect_row "rules:storage" deployed ".*"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
 scenario_secrets_list_fails() {
   start secrets-list-fails
   run_deploy secrets-list-fails H_SECRETS_FAIL=renderer --
@@ -977,7 +1061,8 @@ ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker a
   fn-secret-missing fn-secret-disabled fn-param-missing fn-public-invoker
   invoker-table-sync function-configs-no-rules
   link-check-plans-change link-check-not-production-dry-run link-check-missing-report link-check-skipped
-  link-check-rules-only)
+  link-check-rules-only rules-gate-marker-removals rules-gate-missing-report rules-gate-not-production
+  rules-gate-before-workers rules-gate-skipped rules-gate-link-changes-pass)
 if [ $# -gt 0 ]; then
   SELECTED=("$@")
 else
