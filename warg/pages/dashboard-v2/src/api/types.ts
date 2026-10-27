@@ -166,6 +166,8 @@ export interface ArticleListResponse {
   articles: Article[];
   total: number;
   hasMore: boolean;
+  /** Opaque cursor of the next page; null on the last page and on filtered or searched lists. */
+  nextCursor?: string | null;
 }
 
 // ─── Archive Submission ───

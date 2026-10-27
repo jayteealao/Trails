@@ -28,6 +28,8 @@ export function ArticlesView() {
   const [filter, setFilter] = useState('');
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(1);
+  // The cursor that opens each page, taken from the page before it.
+  const [cursors, setCursors] = useState<Record<number, string>>({});
   const navigate = useNavigate();
   const { settings } = useSettings();
 
@@ -39,6 +41,7 @@ export function ArticlesView() {
       limit: PAGE_LIMIT,
       filter: filter || undefined,
       search: debouncedSearch || undefined,
+      cursor: cursors[page],
     }),
     [page, filter, debouncedSearch],
   );
@@ -66,11 +69,11 @@ export function ArticlesView() {
         <FilterInput
           placeholder="Search articles..."
           value={searchText}
-          onChange={v => { setSearchText(v); setPage(1); }}
+          onChange={v => { setSearchText(v); setPage(1); setCursors({}); }}
         />
         <FilterSelect
           value={filter}
-          onChange={v => { setFilter(v); setPage(1); }}
+          onChange={v => { setFilter(v); setPage(1); setCursors({}); }}
           options={CLASSIFICATION_OPTIONS}
         />
       </FilterBar>
@@ -92,7 +95,11 @@ export function ArticlesView() {
             canPrev={page > 1}
             canNext={hasMore}
             onPrev={() => setPage(p => Math.max(1, p - 1))}
-            onNext={() => setPage(p => p + 1)}
+            onNext={() => {
+              const next = data?.nextCursor;
+              if (next) setCursors(c => ({ ...c, [page + 1]: next }));
+              setPage(p => p + 1);
+            }}
           />
         </>
       )}

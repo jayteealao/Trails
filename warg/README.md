@@ -110,11 +110,23 @@ exit 3 when one grants `allUsers` or `allAuthenticatedUsers`; a deploy update
 leaves IAM as it was, so a public binding never goes unnoticed. The HTTP
 functions stay public; their per-caller keys guard them.
 
+Link check: the dashboard reads follow the server-written link
+(`canonicalId`), so before any deploy that includes the functions the script
+reads the newest link re-derive report
+(`cloud-functions/backfill-scripts/tmp/rederive-pass-b-*.json`, or the file
+`--rederive-report <path>` names). Unless it is a production dry run that
+plans no link to add, change or clear, reports no write error and finds the
+duplicate merge finished, `dashboard-api` is held back: its summary row reads
+`skipped` with the reason, a warning says so, and the other functions still
+deploy. Deploy the functions again after a clean dry run to ship it.
+`--skip-rederive-check` deploys it without the check and warns; never put it in
+a package.json script.
+
 Rules: `--with-rules` deploys `../firebase/` after the functions; `--all`
 never includes it. Ship the app release that writes no marker before the first
 rules deploy, and run the link re-derive (below) as part of it: the order and
-the reasons are in `../firebase/README.md` (Ship order). The step reads the grace end from the released Firestore rules and
-keeps it (the first stamped deploy sets it to 30 days later and warns), stamps
+the reasons are in `../firebase/README.md` (Ship order). The step reads the
+grace end from the released Firestore rules and keeps it (the first stamped deploy sets it to 30 days later and warns), stamps
 it into an LF build copy, deploys that copy non-interactively and compares the
 SHA-256 of each released ruleset, read through the Firebase Rules API, with the
 build copy; a mismatch stops the run with exit 3. Rules deploy only this way
@@ -293,9 +305,11 @@ re-derive in `@warg/backfill-scripts` makes every such link a server choice:
   trigger's own link function (status `pending`, no archive yet);
 - it clears a `canonicalId` it cannot derive (no URL, or an id that cannot name
   a shared article) and lists the article as an anomaly. When such an article's
-  own id already names a shared article or a marker (an id conflict, often a
-  URL that changed after the save), it keeps that marker and lists the anomaly
-  for you to decide;
+  own id already names a shared article with another URL (an id conflict, often
+  a URL that changed after the save), it removes the marker under that id: the
+  app chose the id, so nothing proves that shared article is the user's. The
+  removal is flagged `archiveLoss` when that shared article has a finished
+  archive, and the anomaly is listed for you to decide;
 - it removes every marker that none of the user's own article URLs derives,
   whatever its `source` says;
 - it skips deleted user articles (`deletedAt`, or the older `deleted_at`): they
@@ -389,7 +403,9 @@ one page. Signed archive links are reused until 5 minutes before they expire.
 previous page's `nextCursor` (`null` on the last page and on a filtered or
 searched list). A malformed cursor answers 400 `{"error":"Invalid cursor"}`. A
 `page` without a cursor skips the earlier pages with an offset, which Firestore
-bills per skipped document; a page past 10,000 skipped documents answers 400.
+bills per skipped document; a page past 10,000 skipped documents answers 400
+`{"error":"Page out of range; follow nextCursor instead"}`. Both dashboards send
+the cursor with the page number when they step to the next page.
 
 **Second-account check.** After deploy two (step 6 of
 [Rotating the function keys](#rotating-the-function-keys-two-steps)), with the

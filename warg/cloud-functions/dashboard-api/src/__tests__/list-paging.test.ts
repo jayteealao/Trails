@@ -250,3 +250,20 @@ test('the cursor round-trips a number, a Timestamp and a string', () => {
   assert.equal(encodeListCursor(undefined, 'item-00001'), null);
   assert.equal(decodeListCursor(Buffer.from(JSON.stringify({ v: { n: 1 }, id: 'x'.repeat(1501) })).toString('base64url')), null);
 });
+
+test('a deep page needs a cursor: without one it answers 400, with the cursor of the page before it answers 200', async () => {
+  const { users, shared } = seed();
+  const { db } = makeOrderedDb(users, shared);
+
+  const refused = await list(db, { page: '202', limit: '50' });
+  assert.equal(refused.status, 400);
+  assert.equal(refused.body?.['error'], 'Page out of range; follow nextCursor instead');
+
+  // The dashboard sends the page number with the nextCursor it got for the page before.
+  const first = await list(db, { page: '1', limit: '50' });
+  const cursor = first.body?.['nextCursor'];
+  assert.equal(typeof cursor, 'string');
+  const deep = await list(db, { page: '202', limit: '50', cursor });
+  assert.equal(deep.status, undefined);
+  assert.equal(deep.body?.['articles'].length, 50);
+});

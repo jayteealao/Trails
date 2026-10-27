@@ -8,13 +8,23 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import ts from 'typescript';
+
 const functionsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../cloud-functions');
 
+/**
+ * The file as TypeScript emits it: types and comments removed and the layout
+ * reprinted, so a comment, a type annotation or a formatting change in one copy
+ * does not count as a difference.
+ */
 function source(rel) {
-  return readFileSync(resolve(functionsDir, rel), 'utf8').replace(/\r\n/g, '\n');
+  const text = readFileSync(resolve(functionsDir, rel), 'utf8');
+  return ts.transpileModule(text, {
+    compilerOptions: { removeComments: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+  }).outputText;
 }
 
-/** The body of `function <name>(...) {...}` in `text`, whitespace collapsed, type annotations of locals dropped. */
+/** The body of `function <name>(...) {...}` in `text`, whitespace collapsed. */
 function functionText(text, name, rel) {
   const start = text.search(new RegExp(`(?:export )?function ${name}\\(`));
   assert.notEqual(start, -1, `${rel} has no function ${name}`);
@@ -24,7 +34,7 @@ function functionText(text, name, rel) {
     if (text[i] === '{') depth += 1;
     if (text[i] === '}') {
       depth -= 1;
-      if (depth === 0) return text.slice(open, i + 1).replace(/(const \w+): \w+ =/g, '$1 =').replace(/\s+/g, ' ');
+      if (depth === 0) return text.slice(open, i + 1).replace(/\s+/g, ' ');
     }
   }
   assert.fail(`${rel}: function ${name} is not closed`);

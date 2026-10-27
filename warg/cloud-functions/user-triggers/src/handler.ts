@@ -21,6 +21,20 @@ export function withinRetryWindow(eventTimeMs: number | undefined, nowMs: number
   return eventTimeMs !== undefined && Number.isFinite(eventTimeMs) && nowMs - eventTimeMs < RETRY_WINDOW_MS;
 }
 
+/**
+ * Runs a write that records a failure on the user's documents. The trigger is
+ * deployed with retry on, so a throw here would re-deliver the event for as
+ * long as the platform keeps it, outside the retry window; a failed record is
+ * logged instead (for example, the user article was deleted after the save).
+ */
+async function recordFailure(itemId: string, write: () => Promise<unknown>): Promise<void> {
+  try {
+    await write();
+  } catch (error) {
+    console.error(`[onUserArticleSave] Could not record the failure of ${itemId}:`, error);
+  }
+}
+
 export type HandleResult = 'missing-url' | 'invalid-id' | 'conflict' | 'linked' | 'created' | 'already-linked' | 'error';
 
 /**
@@ -52,13 +66,13 @@ export async function handleUserArticleCreated(
   const url = data['url'];
   if (!url) {
     console.error(`Missing URL for article ${itemId}`);
-    await userRef.update({ error: 'Missing URL', error_at: Timestamp.now() });
+    await recordFailure(itemId, () => userRef.update({ error: 'Missing URL', error_at: Timestamp.now() }));
     return 'missing-url';
   }
 
   if (!isValidSharedId(itemId)) {
     console.error(`[onUserArticleSave] Invalid article id ${JSON.stringify(itemId)}`);
-    await userRef.update({ error: 'Invalid article id', error_at: Timestamp.now() });
+    await recordFailure(itemId, () => userRef.update({ error: 'Invalid article id', error_at: Timestamp.now() }));
     return 'invalid-id';
   }
 
@@ -99,11 +113,13 @@ export async function handleUserArticleCreated(
   } catch (error) {
     if (error instanceof SharedIdConflictError) {
       console.error(`[onUserArticleSave] ${error.message}`);
-      await userRef.update({ error: 'Shared article id conflict', error_at: Timestamp.now() });
+      await recordFailure(itemId, () =>
+        userRef.update({ error: 'Shared article id conflict', error_at: Timestamp.now() })
+      );
       return 'conflict';
     }
     if (error instanceof InvalidSharedIdError) {
-      await userRef.update({ error: 'Invalid article id', error_at: Timestamp.now() });
+      await recordFailure(itemId, () => userRef.update({ error: 'Invalid article id', error_at: Timestamp.now() }));
       return 'invalid-id';
     }
 
@@ -119,16 +135,18 @@ export async function handleUserArticleCreated(
     }
 
     // Mark the shared article this user article created as failed while it is still pending.
-    const articleDoc = await articleRef.get();
-    if (articleDoc.exists && articleDoc.data()?.['status'] === 'pending') {
-      await articleRef.update({
-        status: 'failed',
-        error: message,
-        failed_at: Timestamp.now(),
-      });
-    }
+    await recordFailure(itemId, async () => {
+      const articleDoc = await articleRef.get();
+      if (articleDoc.exists && articleDoc.data()?.['status'] === 'pending') {
+        await articleRef.update({
+          status: 'failed',
+          error: message,
+          failed_at: Timestamp.now(),
+        });
+      }
+    });
 
-    await userRef.update({ error: message, error_at: Timestamp.now() });
+    await recordFailure(itemId, () => userRef.update({ error: message, error_at: Timestamp.now() }));
     return 'error';
   }
 }

@@ -64,6 +64,17 @@ for f in firebase.json .firebaserc firestore.rules storage.rules; do
   cp "$RULES_SRC/$f" "$RULES_FIX/$f"
 done
 echo 'name = "warg-dashboard"' >"$FIX/pages/dashboard/wrangler.toml"
+# A clean production dry run of the link re-derive, where deploy.sh looks for
+# it by default; the link-check scenarios pass their own reports.
+# rederive_report <file> <mode> <target> <linkAdds>: writes a re-derive report.
+rederive_report() {
+  cat >"$1" <<JSON
+{"mode":"$2","target":"$3","generatedAt":"2026-10-27T00:00:00.000Z","counts":{"users":1,"articles":2,"linkAdds":$4,"linkChanges":0,"linkClears":0,"errors":0},"preconditionFailures":[]}
+JSON
+}
+mkdir -p "$FIX/cloud-functions/backfill-scripts/tmp"
+rederive_report "$FIX/cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261026T000000Z.json" dry-run production 5
+rederive_report "$FIX/cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json" dry-run production 0
 git -C "$FIX" init -q
 git -C "$FIX" config core.autocrlf false
 git -C "$FIX" add -A
@@ -167,7 +178,75 @@ scenario_full_success() {
   expect_calls 0 'harness-token'
   expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA --commit-message $SHA --commit-dirty=false\$"
   expect_row "pages:dashboard" deployed "$UUID"
+  expect_out '^=== Link check passed: cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json '
   expect_out '^TARGET +RESULT +DETAIL +LABEL$'
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+# The link check: a re-derive report that plans a link change, one that is not
+# a production dry run, or no report holds dashboard-api back while the other
+# functions deploy; the override deploys it and warns.
+expect_dashboard_held() { # expect_dashboard_held <reason regex>
+  expect_row "function:dashboard-api" skipped "held back: $1"
+  expect_out "^WARNING: dashboard-api held back: $1"
+  expect_calls 0 '^firebase deploy --only functions:dashboard-api '
+  expect_calls 1 '^firebase deploy --only functions:user-triggers '
+}
+
+scenario_link_check_plans_change() {
+  start link-check-plans-change
+  rederive_report "$ROOT/report-change.json" dry-run production 3
+  run_deploy link-check-plans-change -- --functions-only --skip-checks --rederive-report "$ROOT/report-change.json"
+  expect_rc 0
+  expect_dashboard_held ".*plans linkAdds=3 linkChanges=0 linkClears=0 errors=0"
+  expect_row "function:archive-gateway" deployed ".*"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_link_check_not_production_dry_run() {
+  start link-check-not-production-dry-run
+  rederive_report "$ROOT/report-apply.json" apply production 0
+  rederive_report "$ROOT/report-emulator.json" dry-run emulator 0
+  run_deploy link-check-apply -- --functions-only --skip-checks --rederive-report "$ROOT/report-apply.json"
+  expect_rc 0
+  expect_dashboard_held '.*is not a dry run \(mode apply\)'
+  run_deploy link-check-emulator -- --functions-only --skip-checks --rederive-report "$ROOT/report-emulator.json"
+  expect_rc 0
+  expect_dashboard_held '.*is not a production run \(target emulator\)'
+  NAME=link-check-not-production-dry-run
+  finish
+}
+
+scenario_link_check_missing_report() {
+  start link-check-missing-report
+  run_deploy link-check-missing-report -- --all --skip-checks --rederive-report "$ROOT/no-such-report.json"
+  expect_rc 0
+  expect_dashboard_held 'no link re-derive dry-run report at .*'
+  expect_calls 9 '^cf deploy '
+  expect_row "pages:dashboard" deployed "$UUID"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_link_check_skipped() {
+  start link-check-skipped
+  rederive_report "$ROOT/report-skip.json" dry-run production 3
+  run_deploy link-check-skipped -- --functions-only --skip-checks --rederive-report "$ROOT/report-skip.json" --skip-rederive-check
+  expect_rc 0
+  expect_out '^=== Link check skipped \(--skip-rederive-check\) ===$'
+  expect_out '^WARNING: link check skipped \(--skip-rederive-check\)'
+  expect_row "function:dashboard-api" deployed ".*"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_link_check_rules_only() {
+  start link-check-rules-only
+  run_deploy link-check-rules-only -- --rules-only --skip-checks --rederive-report "$ROOT/no-such-report.json"
+  expect_rc 0
+  expect_no_out 'Link check'
   expect_out '^Exit code: 0$'
   finish
 }
@@ -886,7 +965,9 @@ ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker a
   rules-first-stamp rules-reused-stamp rules-released-zero rules-hash-mismatch rules-storage-drift
   rules-placeholder-missing rules-gcloud-unauth rules-release-unit
   fn-secret-missing fn-secret-disabled fn-param-missing fn-public-invoker
-  invoker-table-sync function-configs-no-rules)
+  invoker-table-sync function-configs-no-rules
+  link-check-plans-change link-check-not-production-dry-run link-check-missing-report link-check-skipped
+  link-check-rules-only)
 if [ $# -gt 0 ]; then
   SELECTED=("$@")
 else

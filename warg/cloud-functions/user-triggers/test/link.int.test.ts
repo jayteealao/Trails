@@ -307,4 +307,32 @@ describe('server-owned link trigger', () => {
     expect((await db.collection('articles').doc('itemRetry002').get()).get('status')).toBe('failed');
     expect((await userArticle(USER_A, 'itemRetry002').get()).get('error')).toBe('gateway unavailable');
   });
+
+  it('returns without throwing when the failure cannot be recorded because the user article is gone', async () => {
+    const data = await seedUserArticle(USER_A, 'itemRetry003', 'https://example.com/retry-gone');
+    const eventTimeMs = Date.now();
+    const failing: BeginArchive = async () => {
+      // The user deletes the article while the archive start is failing.
+      await userArticle(USER_A, 'itemRetry003').delete();
+      throw new Error('gateway unavailable');
+    };
+
+    expect(
+      await handleUserArticleCreated(
+        { db, userId: USER_A, itemId: 'itemRetry003', data, eventTimeMs },
+        { beginArchive: failing, nowMs: () => eventTimeMs + RETRY_WINDOW_MS },
+      ),
+    ).toBe('error');
+    expect((await userArticle(USER_A, 'itemRetry003').get()).exists).toBe(false);
+    expect((await db.collection('articles').doc('itemRetry003').get()).get('status')).toBe('failed');
+  });
+
+  it('returns without throwing when a missing-URL article is deleted before the trigger runs', async () => {
+    const begin = beginStub();
+    const data = await seedUserArticle(USER_A, 'itemNoUrl002');
+    await userArticle(USER_A, 'itemNoUrl002').delete();
+
+    expect(await fire(USER_A, 'itemNoUrl002', data, begin)).toBe('missing-url');
+    expect((await userArticle(USER_A, 'itemNoUrl002').get()).exists).toBe(false);
+  });
 });

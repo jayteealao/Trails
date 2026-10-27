@@ -18,10 +18,12 @@ rules tests on the emulators and reads no `FIREBASE_TOKEN`.
    `FIREBASE_TOKEN` for that shell only; never commit or log it).
 2. Sign in to Google Cloud: `gcloud auth login`. The rules step reads the
    released rulesets through the Firebase Rules API with this sign-in.
-3. Re-run the rules deploy from `warg/`:
+3. Re-run, from `warg/`, the same deploy command that stopped: the sign-in
+   check runs before the first upload, so that run deployed nothing. For a
+   deploy of the rules alone that is:
 
    ```bash
-   pnpm run deploy -- --functions-only --with-rules
+   pnpm run deploy -- --rules-only
    ```
 
 4. Check that the summary rows `rules:firestore` and `rules:storage` read

@@ -110,13 +110,15 @@ node dist/debug-logs-cleanup.js              # dry-run again: expect 0
 Merging `firebase/**` deploys nothing: the rules deploy only through the Warg
 deploy script, `pnpm run deploy -- --functions-only --with-rules` (or
 `--rules-only`) from `warg/`; see [`firebase/README.md`](../../../firebase/README.md#deploying).
-The tightened `articles` read rule is already live.  A rules change that relies on
+The tightened `articles` read rule is already live. A rules change that relies on
 the server-owned link (`canonicalId`) or its marker must deploy after
 `rederive-pass-b --apply` has written them for existing articles; the scripts
 here are safe to run at any time. The same holds for the `dashboardApi` reads,
-which follow `canonicalId`: deploy them only after a `rederive-pass-b` dry run
-reports `linkAdds=0 linkChanges=0 linkClears=0 errors=0`. The deploy script does
-not check this yet.
+which follow `canonicalId`: they ship only after a production `rederive-pass-b`
+dry run reports `linkAdds=0 linkChanges=0 linkClears=0 errors=0`. The deploy
+script checks this: it reads the newest `tmp/rederive-pass-b-*.json` report of
+this package and holds `dashboard-api` back until that report is clean
+(`warg/README.md`, Link check).
 
 ## Tests
 

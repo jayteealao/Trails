@@ -231,16 +231,29 @@ test('isDeleted: deletedAt or the legacy deleted_at, when non-null', () => {
   assert.equal(isDeleted({ deleted_at: 5 }), true);
 });
 
-test('planUser: an id conflict keeps the itemId marker of the user\'s own legacy shared article', () => {
-  // articles/itemAAAA1 was created for the first URL; the user article's URL changed since.
+test('planUser: an id conflict removes the itemId marker and flags the archive loss', () => {
+  // articles/itemAAAA1 holds another URL; nothing proves it is this user's own.
   const index = buildIndex([shared('itemAAAA1', 'https://ex.com/first', 1, { hasSuccessArchive: true })]);
   const plan = planUser(
     index,
     user([article('itemAAAA1', 'https://ex.com/second')], [{ key: 'itemAAAA1', source: 'sync', itemId: 'itemAAAA1' }]),
   );
   assert.deepEqual(plan.anomalies.map((a) => a.kind), ['id-conflict']);
-  assert.deepEqual(plan.markerRemovals, []);
+  assert.deepEqual(plan.markerRemovals.map((m) => [m.key, m.archiveLoss]), [['itemAAAA1', true]]);
   assert.deepEqual(plan.creates, []);
+});
+
+test('planUser: an item id chosen to collide with another user\'s shared article loses its marker', () => {
+  // userB saved https://ex.com/victim as articles/victimAA1; userA saves another
+  // URL under the same item id and writes a marker for it.
+  const index = buildIndex([shared('victimAA1', 'https://ex.com/victim', 1)]);
+  const plan = planUser(
+    index,
+    user([article('victimAA1', 'https://ex.com/other')], [{ key: 'victimAA1', source: 'trigger', itemId: 'victimAA1' }]),
+  );
+  assert.deepEqual(plan.anomalies.map((a) => a.kind), ['id-conflict']);
+  assert.deepEqual(plan.markerRemovals.map((m) => m.key), ['victimAA1']);
+  assert.deepEqual(plan.markerAdds, []);
 });
 
 test('planUser: an invalid id keeps a marker keyed by that id', () => {

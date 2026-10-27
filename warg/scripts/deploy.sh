@@ -43,6 +43,14 @@ set -euo pipefail
 #                                     run. Not combinable with --with-pages,
 #                                     --with-functions, --functions-only,
 #                                     --all or --allow-missing-secrets.
+#   --rederive-report <path>          the link re-derive dry-run report the
+#                                     link check reads (default: the newest
+#                                     cloud-functions/backfill-scripts/tmp/
+#                                     rederive-pass-b-*.json)
+#   --skip-rederive-check             deploy the functions without the link
+#                                     check; printed as a warning in the
+#                                     summary. Never put it in a package.json
+#                                     script.
 #   --skip-checks                     skip typecheck and tests (the secret
 #                                     preflight still runs)
 #   --allow-missing-secrets <worker>  skip the secret preflight for that one
@@ -91,6 +99,16 @@ set -euo pipefail
 # prompts for it. The deploy configuration DASHBOARD_USER_ID
 # (dashboard-api/.env) and BACKFILL_USER_ID (backfill-archiver/.env) must be
 # set too; required_function_params_for() below is the list.
+#
+# Link check (functions only): the dashboard reads follow the server-written
+# link (canonicalId), so dashboard-api deploys only after a production dry run
+# of the link re-derive (rederive-pass-b, README: Re-deriving article links)
+# plans no link to add, change or clear, reports no write error and finds the
+# duplicate merge finished. deploy.sh reads that run's JSON report before any
+# deploy. When the report is missing, is not a production dry run or plans a
+# link change, dashboard-api is held back: its row reads skipped with the
+# reason, a summary warning says so, and the other functions still deploy.
+# --skip-rederive-check deploys dashboard-api without the check (warned).
 #
 # Labels: the label is the commit SHA (`git rev-parse HEAD`), plus -dirty
 # with --allow-dirty. Workers get `--tag <12-char sha>[-dirty]` and
@@ -177,6 +195,9 @@ ALLOW_DIRTY=false
 DIRTY=false
 ALLOW_MISSING=()
 ALL_FLAG=false
+REDERIVE_REPORT=""
+SKIP_REDERIVE_CHECK=false
+HOLD_DASHBOARD_API=false
 LABEL="-"
 TAG="-"
 
@@ -247,7 +268,7 @@ trap 'exit 143' TERM
 
 usage_error() {
   echo "ERROR: $1" >&2
-  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--skip-checks] [--allow-dirty] [--allow-missing-secrets <worker>]..." >&2
+  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--allow-missing-secrets <worker>]..." >&2
   FIRST_RC=2
   exit 2
 }
@@ -277,6 +298,12 @@ while [ $# -gt 0 ]; do
     --all) WITH_PAGES=true; WITH_FUNCTIONS=true; ALL_FLAG=true ;;
     --functions-only) WITH_FUNCTIONS=true; FUNCTIONS_ONLY=true ;;
     --rules-only) WITH_RULES=true; RULES_ONLY=true ;;
+    --rederive-report)
+      [ $# -ge 2 ] || usage_error "--rederive-report needs a report path"
+      REDERIVE_REPORT="$2"
+      shift
+      ;;
+    --skip-rederive-check) SKIP_REDERIVE_CHECK=true ;;
     --skip-checks) SKIP_CHECKS=true ;;
     --allow-dirty) ALLOW_DIRTY=true ;;
     --allow-missing-secrets)
@@ -446,6 +473,49 @@ preflight_secrets() {
     echo "Set each with: pnpm exec wrangler secret put <NAME> --config workers/$worker/wrangler.jsonc" >&2
     fail_target "$target" failed 3 "missing secret(s):$missing"
   fi
+}
+
+# --- Link check (holds dashboard-api back) ------------------------------------
+# The dashboard reads follow canonicalId; they ship only after a production
+# dry run of the link re-derive plans no link change (header: Link check).
+hold_dashboard_api() {
+  HOLD_DASHBOARD_API=true
+  set_result "function:dashboard-api" skipped "held back: $1"
+  WARNINGS+=("dashboard-api held back: $1; apply the link re-derive, run its dry run again, then deploy the functions again")
+  echo "=== Link check: dashboard-api held back: $1 ==="
+}
+
+preflight_link_rederive() {
+  local report="$REDERIVE_REPORT" verdict
+  if [ "$SKIP_REDERIVE_CHECK" = true ]; then
+    WARNINGS+=("link check skipped (--skip-rederive-check): the dashboard reads deploy without a clean link re-derive dry run")
+    echo "=== Link check skipped (--skip-rederive-check) ==="
+    return 0
+  fi
+  if [ -z "$report" ]; then
+    # The report names carry a UTC stamp, so the last name is the newest run.
+    local f
+    for f in cloud-functions/backfill-scripts/tmp/rederive-pass-b-*.json; do
+      [ ! -f "$f" ] || report="$f"
+    done
+  fi
+  if [ -z "$report" ] || [ ! -f "$report" ]; then
+    hold_dashboard_api "no link re-derive dry-run report${report:+ at $report}"
+    return 0
+  fi
+  verdict="$(json_eval '
+    d.mode !== "dry-run" ? "is not a dry run (mode " + d.mode + ")"
+    : d.target !== "production" ? "is not a production run (target " + d.target + ")"
+    : (d.preconditionFailures || []).length > 0 ? "found the duplicate merge unfinished"
+    : !d.counts ? "has no counts"
+    : ["linkAdds", "linkChanges", "linkClears", "errors"].some((k) => d.counts[k] !== 0)
+      ? "plans linkAdds=" + d.counts.linkAdds + " linkChanges=" + d.counts.linkChanges + " linkClears=" + d.counts.linkClears + " errors=" + d.counts.errors
+    : "clean"' <"$report" 2>"$WORK_DIR/err")" || verdict="is not a re-derive report"
+  if [ "$verdict" != "clean" ]; then
+    hold_dashboard_api "link re-derive report $report $verdict"
+    return 0
+  fi
+  echo "=== Link check passed: $report (generated $(json_eval 'd.generatedAt' <"$report")) ==="
 }
 
 # --- Sign-in preflight (fail closed) -----------------------------------------
@@ -924,6 +994,8 @@ echo
 if [ "$WITH_FUNCTIONS" = true ]; then
   preflight_function_secrets
   echo
+  preflight_link_rederive
+  echo
 fi
 
 # --- Sign-in preflight for the dashboard and the functions, before any deploy -
@@ -940,6 +1012,9 @@ fi
 
 if [ "$WITH_FUNCTIONS" = true ]; then
   for fn in "${CLOUD_FUNCTIONS[@]}"; do
+    if [ "$fn" = dashboard-api ] && [ "$HOLD_DASHBOARD_API" = true ]; then
+      continue
+    fi
     deploy_cloud_fn "$fn"
   done
 fi

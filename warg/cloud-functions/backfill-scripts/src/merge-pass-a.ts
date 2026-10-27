@@ -28,6 +28,9 @@ import type {
 } from './merge.js';
 import { labelPath, userLabel, writeJsonReport } from './report.js';
 
+/** gRPC status of a write to a document that does not exist. */
+const NOT_FOUND = 5;
+
 /** Provenance recorded on the winner markers the merge adds. */
 export const MERGE_MARKER_SOURCE = 'merge';
 
@@ -37,6 +40,8 @@ export interface MergeOptions {
   readonly pageSize?: number;
   /** Test hook: stop after this write phase, as a crash would. */
   readonly stopAfterPhase?: 1 | 2;
+  /** Test hook: runs after the scan and before the first write. */
+  readonly beforeWrites?: () => Promise<void>;
   /** Test hook: runs after the winner markers are flushed and before any link moves. */
   readonly afterMarkers?: () => Promise<void>;
 }
@@ -192,8 +197,7 @@ export async function runMergePassA(db: Firestore, options: MergeOptions): Promi
         plan.normalizedUrlWrites,
         linkMoves,
         markerAdds,
-        options.stopAfterPhase,
-        options.afterMarkers,
+        options,
       )
     : 0;
 
@@ -261,15 +265,16 @@ async function writePlan(
   normalizedUrlWrites: readonly NormalizedUrlWrite[],
   linkMoves: readonly LinkMove[],
   markerAdds: readonly MarkerNeed[],
-  stopAfterPhase: 1 | 2 | undefined,
-  afterMarkers: (() => Promise<void>) | undefined,
+  hooks: Pick<MergeOptions, 'stopAfterPhase' | 'beforeWrites' | 'afterMarkers'>,
 ): Promise<number> {
+  const { stopAfterPhase, beforeWrites, afterMarkers } = hooks;
   let errors = 0;
   const writer: BulkWriter = db.bulkWriter();
   // Attach BEFORE enqueuing any op. BulkWriter retries UNAVAILABLE/ABORTED
   // itself; this decides when to give up and counts the failure.
   writer.onWriteError((error) => {
-    if (error.failedAttempts < 10) return true;
+    // A document that is gone stays gone: give up at once instead of retrying.
+    if (error.code !== NOT_FOUND && error.failedAttempts < 10) return true;
     errors += 1;
     console.error(
       `[merge] write failed (${error.failedAttempts} attempts) ${labelPath(error.documentRef.path)}: ${error.message}`,
@@ -281,6 +286,7 @@ async function writePlan(
   const shared = sharedArticlesCollection(db);
 
   try {
+    if (beforeWrites) await beforeWrites();
     // Phase 1: the winner gains archives; every shared article gets normalizedUrl.
     for (const group of groups) {
       const winner = shared.doc(group.winnerId);

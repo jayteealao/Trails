@@ -293,14 +293,13 @@ export function planUser(index: SharedIndex, user: UserInput): UserPlan {
           ? { kind: 'no-url', uidLabel, itemId: article.itemId }
           : { kind: derived.reason, uidLabel, itemId: article.itemId, normalizedUrl: derived.normalizedUrl },
       );
-      // An id conflict or a bad id may sit beside the user's own legacy shared
-      // article (its URL changed after the save). Keep that article's marker:
-      // removing it would cut the user off an archive the pass cannot re-link.
-      // The anomaly row lists it for the person reviewing the dry run.
-      if (
-        derived.reason !== 'no-url' &&
-        (index.byId.has(article.itemId) || user.markers.some((marker) => marker.key === article.itemId))
-      ) {
+      // A marker keyed by this item id is kept only while no shared article
+      // sits at that id, where it opens nothing. An id conflict means a shared
+      // article with another URL holds the id; the client chose the item id, so
+      // nothing proves that article is the user's own, and its marker is
+      // removed (flagged archiveLoss when it has a finished archive). The
+      // anomaly row lists it for the person reviewing the dry run.
+      if (derived.reason !== 'no-url' && !index.byId.has(article.itemId)) {
         keep.add(article.itemId);
       }
       if (nonBlank(current)) {

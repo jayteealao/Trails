@@ -359,6 +359,59 @@ describe('duplicate merge (emulator)', () => {
     expect(await comparableState()).toEqual(oneShot);
   });
 
+  /** Every user link, every mergedInto and every merge marker the fixture can hold. */
+  async function linksStubsAndMergeMarkers(): Promise<Record<string, unknown>> {
+    const out: Record<string, unknown> = {};
+    for (const doc of (await sharedArticlesCollection(db).get()).docs) {
+      out[`articles/${doc.id}.mergedInto`] = doc.get('mergedInto');
+    }
+    for (const uid of [USER_A, USER_B]) {
+      for (const doc of (await userArticlesCollection(db, uid).get()).docs) {
+        out[`${uid}/${doc.id}.canonicalId`] = doc.get('canonicalId');
+      }
+      for (const doc of (await markersCollection(db, uid).get()).docs) {
+        if (doc.get('source') === MERGE_MARKER_SOURCE) out[`${uid}/markers/${doc.id}`] = 'merge';
+      }
+    }
+    return out;
+  }
+
+  it('a failed phase 1 write stops the run before any marker, link or stub is written', async () => {
+    await seed();
+    const before = await linksStubsAndMergeMarkers();
+
+    const result = await runMergePassA(db, {
+      apply: true,
+      // The g1 winner disappears after the scan, so its archive copy and normalizedUrl writes fail.
+      beforeWrites: async () => {
+        await sharedArticlesCollection(db).doc('g1old').delete();
+      },
+    });
+
+    expect(result.errors).toBeGreaterThan(0);
+    const expected = Object.fromEntries(
+      Object.entries(before).filter(([path]) => path !== 'articles/g1old.mergedInto'),
+    );
+    expect(await linksStubsAndMergeMarkers()).toEqual(expected);
+  });
+
+  it('a failed link move stops the run before any loser becomes a stub', async () => {
+    await seed();
+
+    const result = await runMergePassA(db, {
+      apply: true,
+      // A user article disappears after the markers land, so its link move fails.
+      afterMarkers: async () => {
+        await userArticlesCollection(db, USER_A).doc('a-g1').delete();
+      },
+    });
+
+    expect(result.errors).toBeGreaterThan(0);
+    for (const doc of (await sharedArticlesCollection(db).get()).docs) {
+      expect(doc.get('mergedInto')).toBeUndefined();
+    }
+  });
+
   it('adds a missing winner marker for an article already linked to the winner', async () => {
     await seed();
     await userArticlesCollection(db, USER_B).doc('b-g1').set({ itemId: 'b-g1', canonicalId: 'g1old' });

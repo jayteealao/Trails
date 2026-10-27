@@ -46,9 +46,12 @@ export function fetchArticles(params: {
   limit?: number;
   filter?: string;
   search?: string;
+  /** The `nextCursor` of the page before; the server refuses deep pages without one. */
+  cursor?: string;
 }): Promise<ArticleListResponse> {
   const search = new URLSearchParams();
   if (params.page) search.set('page', String(params.page));
+  if (params.cursor) search.set('cursor', params.cursor);
   if (params.limit) search.set('limit', String(params.limit));
   if (params.filter) search.set('filter', params.filter);
   if (params.search) search.set('search', params.search);

@@ -59,16 +59,25 @@ server's link must go out in this order:
    whole batch. An older build therefore stops backing up new articles once
    these rules are live, for as long as it stays installed (the grace period
    does not help it).
-2. **The functions** (save trigger, readers), then the duplicate merge
-   (`merge-pass-a`) and the link re-derive (`rederive-pass-b`), each after its
-   reviewed dry run (`../warg/README.md`).
-3. **The rules**, with `pnpm run deploy -- --functions-only --with-rules`.
+2. **The save trigger and the other functions**, with
+   `pnpm run deploy -- --functions-only`. The four functions deploy together,
+   but the deploy script's link check holds `dashboard-api` (the readers that
+   follow `canonicalId`) back until a clean link re-derive dry run exists, so
+   this run ships the trigger and leaves the old readers live
+   (`../warg/README.md`, Link check).
+3. **The duplicate merge** (`merge-pass-a`), then **the link re-derive**
+   (`rederive-pass-b`): each a reviewed dry run, then `--apply`. Then run the
+   re-derive dry run again; it must report
+   `linkAdds=0 linkChanges=0 linkClears=0 errors=0` (`../warg/README.md`).
+4. **The readers**: `pnpm run deploy -- --functions-only` again. The link check
+   reads that clean report and now deploys `dashboard-api`.
+5. **The rules**, with `pnpm run deploy -- --rules-only`. Then run the
+   re-derive dry run once more: it must plan no marker removal.
 
 The link re-derive is a required step, not a clean-up: the read rule only asks
 that a marker exists, and markers that older rules let any signed-in user write
 under any key keep opening their shared article until the re-derive removes
-them. Run it (step 2) before the rules deploy, and run its dry run again after
-the rules deploy to check that it plans no marker removal.
+them. Run it (step 3) before the rules deploy.
 
 ## Article markers & sequenced read tightening
 
@@ -226,8 +235,9 @@ and fall back to the `itemId` while it is absent. Two windows follow from that:
 - An existing article whose `canonicalId` the link re-derive has not written yet
   resolves to `articles/{itemId}`; where its shared article has another id, the
   dashboard shows it without shared-article data and the signed URL answers 404.
-  Deploy the `dashboardApi` read change only after a re-derive dry run reports no
-  link to add, change or clear (see
+  The `dashboardApi` read change ships only after a re-derive dry run reports no
+  link to add, change or clear: the deploy script holds `dashboard-api` back
+  until it does (Ship order above, and
   [`warg/cloud-functions/backfill-scripts/README.md`](../warg/cloud-functions/backfill-scripts/README.md#link-re-derive)).
 
 ### Deploy ordering (load-bearing — the migration is fail-safe only in this order)
