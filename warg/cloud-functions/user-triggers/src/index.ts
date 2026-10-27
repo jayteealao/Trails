@@ -26,6 +26,9 @@ export const onUserArticleSave = onDocumentCreated(
   {
     document: 'users/{userId}/articles/{itemId}',
     secrets: [PUBLIC_API_KEY, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET],
+    // A failed link or archive start throws inside the handler's retry window,
+    // so the event is delivered again instead of leaving the article unlinked.
+    retry: true,
   },
   async (event) => {
     const snap = event.data;
@@ -36,7 +39,7 @@ export const onUserArticleSave = onDocumentCreated(
 
     const { userId, itemId } = event.params;
     await handleUserArticleCreated(
-      { db: getFirestore(), userId, itemId, data: snap.data() },
+      { db: getFirestore(), userId, itemId, data: snap.data(), eventTimeMs: Date.parse(event.time) },
       { beginArchive: (payload) => callGatewayBegin(gatewayBeginConfig(GATEWAY_URL.value()), payload) }
     );
     return null;

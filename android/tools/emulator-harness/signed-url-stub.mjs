@@ -44,4 +44,4 @@ const server = createServer((req, res) => {
   res.end('not found');
 });
 
-server.listen(port, '0.0.0.0', () => console.log(`signed-url stub listening on ${port}`));
+server.listen(port, '127.0.0.1', () => console.log(`signed-url stub listening on ${port}`));

@@ -4,11 +4,11 @@
   },
   "emulators": {
     "firestore": {
-      "host": "0.0.0.0",
+      "host": "127.0.0.1",
       "port": 8787
     },
     "auth": {
-      "host": "0.0.0.0",
+      "host": "127.0.0.1",
       "port": 9099
     },
     "ui": {

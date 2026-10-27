@@ -58,6 +58,13 @@ those articles as soon as the rules deploy, and for every article at the grace
 end. The person must update the app to keep backing up; the rules do not relax
 for older builds.
 
+The grace period also does not help a new article. An older build backs up a
+new article and its marker in one batch, and the rules check the marker
+against the user article as it was before the batch: the article does not
+exist yet, so the marker is refused and the whole batch fails. Ship the app
+release that writes no marker first, then the rules (`firebase/README.md`,
+Ship order).
+
 ## Producers
 
 - **Warg backfill** — the Admin-SDK `@warg/backfill-scripts` package writes
@@ -75,8 +82,13 @@ for older builds.
 ## Consumer
 
 - The `articles` read rule checks
-  `exists(/databases/$(database)/documents/users/$(uid)/articleMarkers/$(id))`,
-  so a user reads a shared article only through a marker the server wrote.
+  `exists(/databases/$(database)/documents/users/$(uid)/articleMarkers/$(id))`.
+  It asks only that a marker exists, not who wrote it. New client marker writes
+  are refused (or tied to the server's link during the grace period), but
+  markers that older rules let a user write under any key stay valid until the
+  link re-derive (`rederive-pass-b --apply`) removes them. Only after that run
+  does a user read a shared article only through a marker the server wrote; the
+  re-derive is therefore a required step of the rules rollout.
 - **Trails (Android)** — `ArchiveService` reads `canonicalId` from
   `users/{uid}/articles/{itemId}` and then reads `articles/{canonicalId}`
   (or `articles/{itemId}` while the field is absent).

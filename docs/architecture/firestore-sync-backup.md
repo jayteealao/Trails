@@ -37,6 +37,10 @@ All paths below are relative to `users/{uid}/`.
 | `DOMAIN_METADATA_COLLECTION = "domain_metadata"` | `articles/{itemId}/domain_metadata/metadata` | Domain metadata |
 | `ARTICLE_TEXT_COLLECTION = "text"` | `articles/{itemId}/text/content` | Large-text overflow store |
 
+The app writes no `articleMarkers/{key}` doc and no `canonicalId`. The server
+writes both: the save trigger links each new user article to its shared article
+and writes the marker that opens it (`shared-types/MarkerSchema.md`).
+
 The string literals for all collection names live exclusively in
 `FirestoreBackupService.companion`. No other class constructs these path strings —
 they are composed via private helpers (`getUserArticlesCollection`, etc.).
@@ -119,11 +123,12 @@ Both `backupArticle` (single-article canonical path) and `backupArticlesPaginate
 private const val WRITE_BATCH_LIMIT = 20
 ```
 
-At most 20 articles go into one batched write, which keeps each commit small. The cap
-was first set by the rules' per-write `getAfter()` budget for app-written markers; the
-app no longer writes markers, so that budget no longer applies, and the cap stays for
-commit size. `WRITE_COUNT_THRESHOLD = 500` also closes a batch before its queued write
-count would pass 500; an article is never split across two batches.
+At most 20 articles go into one batched write, which keeps each commit small.
+The cap was first set by the rules budget of the app's marker writes (one
+`getAfter()` per marker, at most 20 document accesses per batch); the app no
+longer writes markers, so that budget no longer applies, and the cap stays for
+commit size only (the comment on `WRITE_BATCH_LIMIT` in
+`FirestoreBackupService.kt`).
 
 ---
 

@@ -221,7 +221,7 @@ describe('link re-derive (emulator)', () => {
       linkChanges: 0,
       linkClears: 1,
       creates: 1,
-      archiveLoss: 1,
+      archiveLoss: 2,
       markerAdds: 0,
       markerChanges: 1,
       markerRemovals: 4,
@@ -278,10 +278,10 @@ describe('link re-derive (emulator)', () => {
     ]);
     expect(report.markerRemovals).toEqual(
       expect.arrayContaining([
-        { uidLabel: labelA, key: 'foreign0002', source: 'trigger', itemId: 'aliasA0001' },
-        { uidLabel: labelA, key: 'sharedOther01', source: 'sync', itemId: 'aliasA0002' },
-        { uidLabel: labelB, key: 'dupNew0001', source: 'sync', itemId: 'itemB00002' },
-        { uidLabel: labelB, key: 'foreign0001', source: 'sync', itemId: 'itemB00003' },
+        { uidLabel: labelA, key: 'foreign0002', source: 'trigger', itemId: 'aliasA0001', archiveLoss: false },
+        { uidLabel: labelA, key: 'sharedOther01', source: 'sync', itemId: 'aliasA0002', archiveLoss: true },
+        { uidLabel: labelB, key: 'dupNew0001', source: 'sync', itemId: 'itemB00002', archiveLoss: false },
+        { uidLabel: labelB, key: 'foreign0001', source: 'sync', itemId: 'itemB00003', archiveLoss: false },
       ]),
     );
     expect(report.anomalies).toEqual([

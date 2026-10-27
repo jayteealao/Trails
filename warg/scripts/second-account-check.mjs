@@ -11,19 +11,19 @@
 // `PASS|FAIL <check> (<status>)` line per check and exits 1 on any FAIL.
 // It never prints the token, the anonymous uid or the key.
 //
-//   FIREBASE_WEB_API_KEY=<web key> node scripts/charter-second-account-check.mjs \
+//   FIREBASE_WEB_API_KEY=<web key> node scripts/second-account-check.mjs \
 //     --project <project id> --shared-id <shared id> --signed-url-base <dashboard-api URL>
 import { pathToFileURL } from 'node:url';
 
 const USAGE =
-  'usage: FIREBASE_WEB_API_KEY=<web key> node scripts/charter-second-account-check.mjs --project <id> --shared-id <id> --signed-url-base <url>';
+  'usage: FIREBASE_WEB_API_KEY=<web key> node scripts/second-account-check.mjs --project <id> --shared-id <id> --signed-url-base <url>';
 const IDENTITY = 'https://identitytoolkit.googleapis.com/v1';
 
 /**
  * Runs the check. `fetchImpl` and `log` are injectable for the self-test.
  * Returns the process exit code: 0 when every check passed, 1 otherwise.
  */
-export async function runCharterCheck({ fetchImpl = fetch, apiKey, projectId, sharedId, signedUrlBase, log = console.log }) {
+export async function runSecondAccountCheck({ fetchImpl = fetch, apiKey, projectId, sharedId, signedUrlBase, log = console.log }) {
   const docs = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents`;
   const keyQuery = `key=${encodeURIComponent(apiKey)}`;
   const results = [];
@@ -47,7 +47,7 @@ export async function runCharterCheck({ fetchImpl = fetch, apiKey, projectId, sh
     const created = await fetchImpl(`${articlePath}?documentId=${encodeURIComponent(sharedId)}`, {
       method: 'POST',
       headers: { ...auth, 'content-type': 'application/json' },
-      body: JSON.stringify({ fields: { charterCheck: { booleanValue: true } } }),
+      body: JSON.stringify({ fields: { secondAccountCheck: { booleanValue: true } } }),
     });
     if (!created.ok) record('own-article-created', false, created.status);
 
@@ -119,5 +119,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     console.error(USAGE);
     process.exit(2);
   }
-  process.exit(await runCharterCheck({ ...args, apiKey }));
+  process.exit(await runSecondAccountCheck({ ...args, apiKey }));
 }

@@ -10,6 +10,14 @@ export function userLabel(uid: string): string {
   return createHash('sha256').update(uid).digest('hex').slice(0, 12);
 }
 
+/**
+ * A document path with its user id replaced by that user's label, so a log
+ * line can name the document without naming the user.
+ */
+export function labelPath(path: string): string {
+  return path.replace(/^users\/([^/]+)/, (_match, uid: string) => `users/${userLabel(uid)}`);
+}
+
 /** Write `data` as indented JSON, creating the parent folder when needed. */
 export async function writeJsonReport(path: string, data: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });

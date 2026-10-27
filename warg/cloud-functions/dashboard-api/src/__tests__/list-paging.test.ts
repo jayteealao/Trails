@@ -199,11 +199,22 @@ test('the last page has no cursor; a page without a cursor uses an offset; a bad
   assert.equal(shortPage.body!['hasMore'], false);
   assert.equal(shortPage.body!['total'], 30);
 
-  for (const bad of ['not-a-cursor', Buffer.from('{"v":{"n":1}}').toString('base64url'), Buffer.from('{"v":{},"id":"x"}').toString('base64url')]) {
+  for (const bad of [
+    'not-a-cursor',
+    Buffer.from('{"v":{"n":1}}').toString('base64url'),
+    Buffer.from('{"v":{},"id":"x"}').toString('base64url'),
+    Buffer.from('{"v":{"n":1},"id":"a/b"}').toString('base64url'),
+    Buffer.from('{"v":{"n":1},"id":".."}').toString('base64url'),
+  ]) {
     const res = await list(makeOrderedDb(users, shared).db, { page: '2', cursor: bad });
     assert.equal(res.status, 400, bad);
     assert.deepEqual(res.body, { error: 'Invalid cursor' });
   }
+
+  const deep = makeOrderedDb(users, shared);
+  const deepPage = await list(deep.db, { page: '100000000', limit: '100' });
+  assert.equal(deepPage.status, 400);
+  assert.deepEqual(deep.counter.offsets, [], 'a page past the offset cap reads nothing');
 });
 
 test('a filtered list keeps the bounded read and the filtered total, with no cursor', async () => {

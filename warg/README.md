@@ -61,7 +61,8 @@ secrets each worker needs, and how each target is verified.
 3. Deploy from `warg/`:
 
    ```bash
-   pnpm deploy:all                   # workers, functions, rules and the dashboard
+   pnpm deploy:all                   # workers, functions and the dashboard (never the rules)
+   pnpm run deploy -- --all --with-rules   # the same, then the Firestore and Storage rules
    pnpm run deploy                   # workers only
    pnpm run deploy -- --with-pages   # workers and the dashboard
    pnpm run deploy -- --functions-only   # the four Cloud Functions only
@@ -109,8 +110,10 @@ exit 3 when one grants `allUsers` or `allAuthenticatedUsers`; a deploy update
 leaves IAM as it was, so a public binding never goes unnoticed. The HTTP
 functions stay public; their per-caller keys guard them.
 
-Rules: `--with-rules` (and `--all`) deploys `../firebase/` after the
-functions. The step reads the grace end from the released Firestore rules and
+Rules: `--with-rules` deploys `../firebase/` after the functions; `--all`
+never includes it. Ship the app release that writes no marker before the first
+rules deploy, and run the link re-derive (below) as part of it: the order and
+the reasons are in `../firebase/README.md` (Ship order). The step reads the grace end from the released Firestore rules and
 keeps it (the first stamped deploy sets it to 30 days later and warns), stamps
 it into an LF build copy, deploys that copy non-interactively and compares the
 SHA-256 of each released ruleset, read through the Firebase Rules API, with the
@@ -266,8 +269,10 @@ cd cloud-functions/backfill-scripts
 
    Against production the script waits 5 seconds before it writes (Ctrl-C to
    abort; `--yes` skips the wait). It writes archives and `normalizedUrl`
-   first, then the user links and markers, and the stub marks last, so a stopped
-   run leaves every reader working.
+   first, then the winner markers, then the user links, and the stub marks
+   last, so a stopped run leaves every reader working and no user is linked to
+   a winner before holding its marker. A write that still fails after its
+   retries stops the run before the next of these steps; run it again.
 3. **Check**: run the dry run again. It should plan zero changes. Re-running the
    real run is always safe, and it finishes a run that stopped part way.
 
@@ -287,7 +292,10 @@ re-derive in `@warg/backfill-scripts` makes every such link a server choice:
 - when no shared article has that URL, it creates one through the save
   trigger's own link function (status `pending`, no archive yet);
 - it clears a `canonicalId` it cannot derive (no URL, or an id that cannot name
-  a shared article) and lists the article as an anomaly;
+  a shared article) and lists the article as an anomaly. When such an article's
+  own id already names a shared article or a marker (an id conflict, often a
+  URL that changed after the save), it keeps that marker and lists the anomaly
+  for you to decide;
 - it removes every marker that none of the user's own article URLs derives,
   whatever its `source` says;
 - it skips deleted user articles (`deletedAt`, or the older `deleted_at`): they
@@ -321,7 +329,9 @@ cd cloud-functions/backfill-scripts
    - `creates`: new shared articles; each starts with no archive (`archiveLoss`
      marks the ones whose old link had one);
    - `markerRemovals`, with each marker's `source` (the older app's `sync` and
-     `self-heal` markers among them);
+     `self-heal` markers among them) and `archiveLoss: true` when the marker
+     opened a shared article with a finished archive (the `archiveLoss` count
+     includes these);
    - `anomalies`: articles with no URL or no valid id, id conflicts, shared
      articles with no URL, and deleted articles whose link differs from the
      derived one.
@@ -341,7 +351,7 @@ cd cloud-functions/backfill-scripts
    real run reports conflicts (a document changed while it ran; exit code 1),
    run `--apply` again, then the dry run.
 
-## Backfill passes, the change scan and the charter check
+## Backfill passes, the change scan and the second-account check
 
 The scheduled backfill (`backfillArchiver`, every 10 minutes) makes one full
 pass over the backfill user's articles, page by page, and stops at the end of
@@ -355,18 +365,33 @@ groups articles by the link the server wrote (`canonicalId`) and makes no
 per-URL lookup; an article the server has not linked yet is left for the save
 trigger or the link re-derive.
 
+The save trigger (`onUserArticleSave`) is deployed with retry on: when its link
+or its archive start fails, it throws and the event is delivered again, for up
+to one hour after the save. After that it marks the shared article `failed` and
+writes the error on the user article. The backfill does not retry those, nor an
+archive the trigger started that later failed or got stuck, because the trigger
+does not change the article's `timeUpdated`; a new full pass (below) does.
+
 To start one new full pass, set `BACKFILL_PASS_LABEL` to a new value in
 `cloud-functions/backfill-archiver/.env` (the default is `1`) and deploy the
 functions through the deploy script. Do this once after the link re-derive
-pass, so the backfill revisits the articles it re-linked.
+pass, so the backfill revisits the articles it re-linked, and whenever failed
+or stuck archives that the save trigger started should be retried.
 
 The dashboard article list pages on the server: each page reads its own 50
 articles and their shared articles, Next sends the cursor of the page before,
 and the total comes from a `count()` query. A list with a status filter or a
-search still reads up to 2,000 articles and filters them in memory. Signed
-archive links are reused until 5 minutes before they expire.
+search (the inbox counts among them) still reads up to 2,000 articles and their
+shared articles and filters them in memory, so only the unfiltered list reads
+one page. Signed archive links are reused until 5 minutes before they expire.
 
-**Charter check.** After deploy two (step 6 of
+`GET /articles` (dashboard-api) takes `cursor`, an opaque value copied from the
+previous page's `nextCursor` (`null` on the last page and on a filtered or
+searched list). A malformed cursor answers 400 `{"error":"Invalid cursor"}`. A
+`page` without a cursor skips the earlier pages with an offset, which Firestore
+bills per skipped document; a page past 10,000 skipped documents answers 400.
+
+**Second-account check.** After deploy two (step 6 of
 [Rotating the function keys](#rotating-the-function-keys-two-steps)), with the
 new app release on the phone:
 
@@ -382,14 +407,17 @@ new app release on the phone:
    from step 1:
 
    ```bash
-   FIREBASE_WEB_API_KEY=<web key> node scripts/charter-second-account-check.mjs \
+   FIREBASE_WEB_API_KEY=<web key> node scripts/second-account-check.mjs \
      --project trails-e428e --shared-id <canonicalId> --signed-url-base <dashboard-api URL>
    ```
 
-   It creates and then deletes its own anonymous account, and prints three
-   PASS lines (marker write refused, shared read refused, signed link refused).
-   It exits 1 on any FAIL. Its self-test is
-   `node --test scripts/__tests__/charter-second-account-check.test.mjs`.
+   It creates and then deletes its own anonymous account, so the project must
+   have the Anonymous sign-in provider enabled (Firebase Console,
+   Authentication, Sign-in method); without it the script prints
+   a `FAIL anonymous-sign-up (<status>)` line and exits 1. Otherwise it prints three PASS lines
+   (marker write refused, shared read refused, signed link refused) and exits 1
+   on any FAIL. Its self-test is
+   `node --test scripts/__tests__/second-account-check.test.mjs`.
 5. Send a request with the old shared key to archive-gateway, as step 6 of the
    key rotation describes. It must get 401.
 

@@ -140,7 +140,7 @@ finish() {
 # summary and exit code.
 scenario_full_success() {
   start full-success
-  run_deploy full-success -- --all
+  run_deploy full-success -- --all --with-rules
   expect_rc 0
   expect_out "^Deploying label: $SHA\$"
   expect_calls 9 '^cf workers secrets list --worker '
@@ -162,6 +162,7 @@ scenario_full_success() {
   expect_row "rules:firestore" deployed "firestore-[0-9]+ sha256:[0-9a-f]{12} grace 20.*"
   expect_row "rules:storage" deployed "trails-e428e.firebasestorage.app=storage-[0-9]+ htbase-archives-standard=storage-[0-9]+ sha256:[0-9a-f]{12}"
   expect_calls 0 'headers=missing'
+  expect_calls 0 'no-timeouts'
   expect_no_out 'harness-token'
   expect_calls 0 'harness-token'
   expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA --commit-message $SHA --commit-dirty=false\$"
@@ -299,7 +300,7 @@ scenario_dirty_allowed() {
   start dirty-allowed
   echo "scratch" >"$FIX/untracked.txt"
   LABEL="$SHA-dirty"
-  run_deploy dirty-allowed -- --all --allow-dirty --skip-checks
+  run_deploy dirty-allowed -- --all --with-rules --allow-dirty --skip-checks
   rm -f "$FIX/untracked.txt"
   expect_rc 0
   expect_out "^Deploying label: $SHA-dirty\$"
@@ -311,6 +312,18 @@ scenario_dirty_allowed() {
   expect_row "pages:dashboard" deployed "$UUID"
   expect_row "worker:gateway" deployed "$UUID"
   LABEL="$SHA"
+  finish
+}
+
+# --all never deploys the rules: they go out only with an explicit --with-rules.
+scenario_all_without_rules() {
+  start all-without-rules
+  run_deploy all-without-rules -- --all --skip-checks
+  expect_rc 0
+  expect_calls 0 '^firebase deploy --only firestore:rules'
+  expect_calls 0 '^curl '
+  expect_no_out '^rules:'
+  expect_out '^Exit code: 0$'
   finish
 }
 
@@ -866,7 +879,7 @@ scenario_secret_in_env() {
 
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
   quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
-  dirty-refused dirty-allowed fn-old-updatetime fn-new-updatetime fn-deploy-fails
+  dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails
   pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync
   functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env

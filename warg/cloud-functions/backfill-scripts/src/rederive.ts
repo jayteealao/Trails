@@ -122,6 +122,8 @@ export interface MarkerRemoval {
   readonly key: string;
   readonly source: string | null;
   readonly itemId: string | null;
+  /** The removed marker opened a shared article with a finished archive. */
+  readonly archiveLoss: boolean;
 }
 
 export type Anomaly =
@@ -291,6 +293,16 @@ export function planUser(index: SharedIndex, user: UserInput): UserPlan {
           ? { kind: 'no-url', uidLabel, itemId: article.itemId }
           : { kind: derived.reason, uidLabel, itemId: article.itemId, normalizedUrl: derived.normalizedUrl },
       );
+      // An id conflict or a bad id may sit beside the user's own legacy shared
+      // article (its URL changed after the save). Keep that article's marker:
+      // removing it would cut the user off an archive the pass cannot re-link.
+      // The anomaly row lists it for the person reviewing the dry run.
+      if (
+        derived.reason !== 'no-url' &&
+        (index.byId.has(article.itemId) || user.markers.some((marker) => marker.key === article.itemId))
+      ) {
+        keep.add(article.itemId);
+      }
       if (nonBlank(current)) {
         plan.linkChanges.push({
           uid,
@@ -388,6 +400,7 @@ export function planUser(index: SharedIndex, user: UserInput): UserPlan {
       key: marker.key,
       source: marker.source ?? null,
       itemId: marker.itemId ?? null,
+      archiveLoss: index.byId.get(marker.key)?.hasSuccessArchive === true,
     });
   }
 

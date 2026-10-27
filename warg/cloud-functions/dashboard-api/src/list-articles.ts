@@ -69,6 +69,16 @@ export function encodeListCursor(timeAdded: unknown, id: string): string | null 
   return Buffer.from(JSON.stringify({ v, id })).toString('base64url');
 }
 
+/**
+ * The most documents a page without a cursor may skip. Firestore bills every
+ * skipped document, so a deep page number past this answers 400; Next pages
+ * send the cursor and skip nothing.
+ */
+export const MAX_LIST_OFFSET = 10_000;
+
+/** A Firestore document id: no slash, not `.` or `..`, not `__name__`-style. */
+const DOCUMENT_ID_SHAPE = /^(?!\.\.?$)(?!__.*__$)[^/]+$/;
+
 export function decodeListCursor(
   token: string
 ): { value: number | string | Timestamp; id: string } | null {
@@ -81,6 +91,7 @@ export function decodeListCursor(
   if (!parsed || typeof parsed !== 'object') return null;
   const { v, id } = parsed as { v?: unknown; id?: unknown };
   if (typeof id !== 'string' || id.length === 0 || Buffer.byteLength(id) > 1500) return null;
+  if (!DOCUMENT_ID_SHAPE.test(id)) return null;
   if (!v || typeof v !== 'object') return null;
   const rec = v as Record<string, unknown>;
   const n = rec['n'];
@@ -144,6 +155,10 @@ export async function handleListArticles(
     const cursor = cursorParam ? decodeListCursor(cursorParam) : null;
     if (cursorParam && !cursor) {
       res.status(400).json({ error: 'Invalid cursor' });
+      return;
+    }
+    if (!cursor && (page - 1) * limit > MAX_LIST_OFFSET) {
+      res.status(400).json({ error: 'Page out of range; follow nextCursor instead' });
       return;
     }
     const ordered = userArticles

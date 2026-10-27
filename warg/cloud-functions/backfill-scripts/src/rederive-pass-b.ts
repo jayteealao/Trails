@@ -81,6 +81,7 @@ export interface RederiveReport {
     readonly key: string;
     readonly source: string | null;
     readonly itemId: string | null;
+    readonly archiveLoss: boolean;
   }>;
   readonly anomalies: readonly Anomaly[];
   readonly conflicts: readonly Conflict[];
@@ -215,7 +216,8 @@ export async function runRederivePassB(db: Firestore, options: RederiveOptions):
       creates: plan.creates.length,
       archiveLoss:
         plan.linkChanges.filter((row) => row.archiveLoss).length +
-        plan.creates.filter((row) => row.archiveLoss).length,
+        plan.creates.filter((row) => row.archiveLoss).length +
+        plan.markerRemovals.filter((row) => row.archiveLoss).length,
       markerAdds: plan.markerAdds.length,
       markerChanges: plan.markerChanges.length,
       markerRemovals: plan.markerRemovals.length,
