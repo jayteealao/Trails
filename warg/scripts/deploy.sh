@@ -23,8 +23,13 @@ set -euo pipefail
 #                                     after the functions; verified by the
 #                                     released ruleset hash. Never implied by
 #                                     --all: the app release that stops writing
-#                                     markers ships first (firebase/README.md)
-#   --all                             workers + functions + dashboard
+#                                     markers ships first (firebase/README.md).
+#                                     Refused unless the newest production
+#                                     link re-derive dry run plans no marker
+#                                     removal (Link check)
+#   --all                             workers + functions + dashboard; the
+#                                     summary prints a `rules` row `skipped
+#                                     not deployed (pass --with-rules)`
 #                                     (combinable with --with-rules)
 #   --functions-only                  deploy the four Cloud Functions and
 #                                     nothing else (no worker, no dashboard,
@@ -40,17 +45,21 @@ set -euo pipefail
 #                                     function secret preflight); the rollback
 #                                     path for a bad ruleset. The firebase,
 #                                     gcloud and released-hash checks still
-#                                     run. Not combinable with --with-pages,
+#                                     run, and the run is refused unless the
+#                                     newest production link re-derive dry
+#                                     run plans no marker removal (Link
+#                                     check). Not combinable with --with-pages,
 #                                     --with-functions, --functions-only,
 #                                     --all or --allow-missing-secrets.
-#   --rederive-report <path>          the link re-derive dry-run report the
-#                                     link check reads (default: the newest
-#                                     cloud-functions/backfill-scripts/tmp/
-#                                     rederive-pass-b-*.json)
-#   --skip-rederive-check             deploy the functions without the link
-#                                     check; printed as a warning in the
-#                                     summary. Never put it in a package.json
-#                                     script.
+#   --rederive-report <path>          the link re-derive dry-run report that
+#                                     both link checks read, the dashboard
+#                                     one and the rules one (default: the
+#                                     newest cloud-functions/backfill-scripts/
+#                                     tmp/rederive-pass-b-*.json)
+#   --skip-rederive-check             deploy the functions and the rules
+#                                     without either link check; each skip is
+#                                     printed as a warning in the summary.
+#                                     Never put it in a package.json script.
 #   --skip-checks                     skip typecheck and tests (the secret
 #                                     preflight still runs)
 #   --allow-missing-secrets <worker>  skip the secret preflight for that one
@@ -100,7 +109,7 @@ set -euo pipefail
 # (dashboard-api/.env) and BACKFILL_USER_ID (backfill-archiver/.env) must be
 # set too; required_function_params_for() below is the list.
 #
-# Link check (functions only): the dashboard reads follow the server-written
+# Link check (functions and rules): the dashboard reads follow the server-written
 # link (canonicalId), so dashboard-api deploys only after a production dry run
 # of the link re-derive (rederive-pass-b, README: Re-deriving article links)
 # plans no link to add, change or clear, reports no write error and finds the
@@ -108,7 +117,12 @@ set -euo pipefail
 # deploy. When the report is missing, is not a production dry run or plans a
 # link change, dashboard-api is held back: its row reads skipped with the
 # reason, a summary warning says so, and the other functions still deploy.
-# --skip-rederive-check deploys dashboard-api without the check (warned).
+# The rules deploy (--with-rules or --rules-only) reads the same report before
+# any deploy: unless it is a production dry run that finds the duplicate merge
+# finished and plans markerRemovals=0 and errors=0, the whole run stops with
+# exit 3 on rules:firestore, naming the report and the count. Link adds,
+# changes and clears do not stop the rules.
+# --skip-rederive-check skips both checks (each warned).
 #
 # Labels: the label is the commit SHA (`git rev-parse HEAD`), plus -dirty
 # with --allow-dirty. Workers get `--tag <12-char sha>[-dirty]` and
@@ -147,7 +161,8 @@ set -euo pipefail
 #   TARGET  RESULT (deployed|failed|unverified|skipped)  DETAIL  LABEL
 # where DETAIL is the version id, the update times or the reason; then the
 # warnings and the exit code. The first failure stops the run; targets not
-# reached read "skipped".
+# reached read "skipped". --all without --with-rules adds one row
+# `rules  skipped  not deployed (pass --with-rules)`.
 #
 # Exit codes: the failing command's own code; 2 for a usage error or a
 # refused dirty tree; 3 when a target ran but failed verification, a
@@ -394,6 +409,10 @@ fi
 if [ "$WITH_RULES" = true ]; then
   register_target "rules:firestore"
   register_target "rules:storage"
+elif [ "$ALL_FLAG" = true ]; then
+  # --all claims to deploy everything, so the summary says the rules did not.
+  register_target "rules"
+  set_result rules skipped "not deployed (pass --with-rules)"
 fi
 if [ "$WITH_PAGES" = true ]; then
   register_target "pages:dashboard"
@@ -485,20 +504,33 @@ hold_dashboard_api() {
   echo "=== Link check: dashboard-api held back: $1 ==="
 }
 
+# resolve_rederive_report: sets REDERIVE_REPORT_PATH to --rederive-report or,
+# without it, the newest default report (empty when there is none). Both the
+# link check and the rules check read the same report.
+REDERIVE_REPORT_PATH=""
+REDERIVE_REPORT_RESOLVED=false
+resolve_rederive_report() {
+  [ "$REDERIVE_REPORT_RESOLVED" = false ] || return 0
+  REDERIVE_REPORT_RESOLVED=true
+  REDERIVE_REPORT_PATH="$REDERIVE_REPORT"
+  if [ -z "$REDERIVE_REPORT_PATH" ]; then
+    # The report names carry a UTC stamp, so the last name is the newest run.
+    local f
+    for f in cloud-functions/backfill-scripts/tmp/rederive-pass-b-*.json; do
+      [ ! -f "$f" ] || REDERIVE_REPORT_PATH="$f"
+    done
+  fi
+}
+
 preflight_link_rederive() {
-  local report="$REDERIVE_REPORT" verdict
+  local report verdict
   if [ "$SKIP_REDERIVE_CHECK" = true ]; then
     WARNINGS+=("link check skipped (--skip-rederive-check): the dashboard reads deploy without a clean link re-derive dry run")
     echo "=== Link check skipped (--skip-rederive-check) ==="
     return 0
   fi
-  if [ -z "$report" ]; then
-    # The report names carry a UTC stamp, so the last name is the newest run.
-    local f
-    for f in cloud-functions/backfill-scripts/tmp/rederive-pass-b-*.json; do
-      [ ! -f "$f" ] || report="$f"
-    done
-  fi
+  resolve_rederive_report
+  report="$REDERIVE_REPORT_PATH"
   if [ -z "$report" ] || [ ! -f "$report" ]; then
     hold_dashboard_api "no link re-derive dry-run report${report:+ at $report}"
     return 0
@@ -516,6 +548,37 @@ preflight_link_rederive() {
     return 0
   fi
   echo "=== Link check passed: $report (generated $(json_eval 'd.generatedAt' <"$report")) ==="
+}
+
+# --- Rules link check (stops the run before any deploy) -----------------------
+# The rules open a shared article to any holder of a marker, so they go live
+# only after a production dry run of the link re-derive plans no marker
+# removal: every marker an older app or another user wrote is gone by then
+# (header: Link check).
+preflight_rules_rederive() {
+  local report verdict
+  if [ "$SKIP_REDERIVE_CHECK" = true ]; then
+    WARNINGS+=("rules check skipped (--skip-rederive-check): the rules deploy without a clean link re-derive dry run")
+    echo "=== Rules link check skipped (--skip-rederive-check) ==="
+    return 0
+  fi
+  resolve_rederive_report
+  report="$REDERIVE_REPORT_PATH"
+  if [ -z "$report" ] || [ ! -f "$report" ]; then
+    fail_target "rules:firestore" failed 3 "no link re-derive dry-run report${report:+ at $report}; run the link re-derive dry run against production before the rules deploy"
+  fi
+  verdict="$(json_eval '
+    d.mode !== "dry-run" ? "is not a dry run (mode " + d.mode + ")"
+    : d.target !== "production" ? "is not a production run (target " + d.target + ")"
+    : (d.preconditionFailures || []).length > 0 ? "found the duplicate merge unfinished"
+    : typeof d.counts?.markerRemovals !== "number" ? "has no markerRemovals count"
+    : d.counts.markerRemovals !== 0 || d.counts.errors !== 0
+      ? "plans markerRemovals=" + d.counts.markerRemovals + " errors=" + d.counts.errors
+    : "clean"' <"$report" 2>"$WORK_DIR/err")" || verdict="is not a re-derive report"
+  if [ "$verdict" != "clean" ]; then
+    fail_target "rules:firestore" failed 3 "link re-derive report $report $verdict; apply the link re-derive and run its dry run again before the rules deploy"
+  fi
+  echo "=== Rules link check passed: $report (generated $(json_eval 'd.generatedAt' <"$report"), markerRemovals=0) ==="
 }
 
 # --- Sign-in preflight (fail closed) -----------------------------------------
@@ -995,6 +1058,10 @@ if [ "$WITH_FUNCTIONS" = true ]; then
   preflight_function_secrets
   echo
   preflight_link_rederive
+  echo
+fi
+if [ "$WITH_RULES" = true ]; then
+  preflight_rules_rederive
   echo
 fi
 
