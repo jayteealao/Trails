@@ -126,6 +126,8 @@ interface NonEligibleCanonical {
   markTriggered: boolean;
   /** Set when the item is held back by a backoff that ends at this time. */
   backoffUntil?: number;
+  /** The shared article's retry count, for a backoff-held item. */
+  retryCount?: number;
 }
 
 function realSleep(ms: number): Promise<void> {
@@ -482,17 +484,26 @@ async function selectEligibleCanonicals(
   );
 
   for (const candidate of candidates) {
+    const snapshot = snapshotsById.get(candidate.canonicalItemId);
     if (isDomainBackedOff(tracker, candidate.domain, nowMs)) {
       skippedBackoff += 1;
-      nonEligible.push({
-        candidate,
-        markTriggered: false,
-        backoffUntil: tracker.domain_backoff[candidate.domain]?.backoff_until?.toMillis() ?? nowMs,
-      });
+      // An unlinked candidate (no server link, no shared article) is not held
+      // for a retry: a retry would create a shared article the server did not choose.
+      const exists = Boolean(snapshot?.exists);
+      nonEligible.push(
+        candidate.fromServerLink || exists
+          ? {
+              candidate,
+              markTriggered: false,
+              backoffUntil:
+                tracker.domain_backoff[candidate.domain]?.backoff_until?.toMillis() ?? nowMs,
+              retryCount: exists ? getRetryCount(snapshot!.data()) : 0,
+            }
+          : { candidate, markTriggered: false }
+      );
       continue;
     }
 
-    const snapshot = snapshotsById.get(candidate.canonicalItemId);
     if (!snapshot || !snapshot.exists) {
       // The backfill creates a shared article only for a link the server chose.
       // An unlinked one waits for the save trigger or the link re-derive pass.
@@ -520,7 +531,7 @@ async function selectEligibleCanonicals(
       const backoffUntil = failureBackoffUntil(failure, retryCount);
       if (backoffUntil !== null && backoffUntil > nowMs) {
         // Within per-class backoff window — skip this run, retry later.
-        nonEligible.push({ candidate, markTriggered: false, backoffUntil });
+        nonEligible.push({ candidate, markTriggered: false, backoffUntil, retryCount });
         continue;
       }
       eligible.push({ candidate, isNew: false, retryCount });
@@ -873,6 +884,29 @@ export async function runBackfill(deps: BackfillDeps): Promise<void> {
       await linkSourceUserDocs(item.candidate, item.markTriggered);
       if (item.markTriggered) {
         runSummary.linked_only += item.candidate.sourceUserRefs.length;
+      }
+    }
+
+    // The scan moves past this page, and a backoff's end changes neither the
+    // user article nor the scan position, so an item held back only by a
+    // domain or per-class backoff goes on the retry list, due when it ends.
+    if (mode !== 'retry') {
+      for (const item of nonEligible) {
+        if (item.backoffUntil === undefined) continue;
+        const dropped = enqueueRetry(
+          tracker,
+          {
+            item_id: item.candidate.canonicalItemId,
+            url: item.candidate.url,
+            domain: item.candidate.domain,
+            retry_count: item.retryCount ?? 0,
+            not_before: Timestamp.fromMillis(Math.max(item.backoffUntil, now())),
+          },
+          RETRY_QUEUE_MAX
+        );
+        if (dropped) {
+          console.warn(`[backfill] run=${runOwner} retry list full; dropped the oldest entry`);
+        }
       }
     }
 

@@ -359,3 +359,70 @@ test('unlinked: an article without a server link creates no shared article; with
   await runBackfill(p.deps());
   assert.deepEqual(p.sent.map((s) => s.request_id), ['itemU0001']);
 });
+
+test('retry list: an article held back by a backoff on a scanned page is queued and sent once it ends', async () => {
+  // Domain backoff on the change scan.
+  const h = harness();
+  const until = T0 + 30 * MIN;
+  seedCompletedPass(h, { time_updated: T0 - 30 * MIN, item_id: '' }, {
+    domain_backoff: {
+      'd1.example': { consecutive_failures: 3, backoff_until: Timestamp.fromMillis(until), last_error: 'x' },
+    },
+  });
+  userArticle(h, 'itemD0001', { timeUpdated: T0 - 5 * MIN, canonicalId: 'sharedD001', host: 'd1' });
+  h.fake.put('articles/sharedD001', { url: 'https://d1.example/page', status: 'failed', retry_count: 1 });
+
+  await runBackfill(h.deps());
+  assert.equal(h.sent.length, 0);
+  assert.deepEqual(h.tracker()['change_marker'], { time_updated: T0 - 5 * MIN, item_id: 'itemD0001' });
+  let queue = h.tracker()['retry_queue'] as Array<Record<string, any>>;
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0]!['item_id'], 'sharedD001');
+  assert.equal(queue[0]!['retry_count'], 1);
+  assert.equal(queue[0]!['not_before'].toMillis(), until);
+
+  // Still held: no send, entry stays.
+  h.clock.t = until - 1;
+  await runBackfill(h.deps());
+  assert.equal(h.sent.length, 0);
+
+  h.fake.log.length = 0;
+  h.clock.t = until;
+  await runBackfill(h.deps());
+  assert.deepEqual(h.sent.map((p) => p.request_id), ['sharedD001']);
+  assert.equal(queries(h).length, 0, 'a retry run reads no user articles');
+  queue = h.tracker()['retry_queue'] as Array<Record<string, any>>;
+  assert.equal(queue.length, 0);
+
+  // Per-class backoff on the full pass.
+  const f = harness();
+  userArticle(f, 'itemW0001', { timeUpdated: T0 - 100 * MIN, canonicalId: 'sharedW001' });
+  f.fake.put('articles/sharedW001', {
+    url: 'https://itemw0001.example/page',
+    status: 'failed',
+    retry_count: 0,
+    failure: { class: 'WORKFLOW_TRIGGER', last_seen_at: Timestamp.fromMillis(T0 - MIN) },
+  });
+  await runBackfill(f.deps());
+  assert.equal(f.sent.length, 0);
+  assert.ok(f.tracker()['pass_completed_at'] instanceof Timestamp);
+  const fq = f.tracker()['retry_queue'] as Array<Record<string, any>>;
+  assert.equal(fq.length, 1);
+  assert.equal(fq[0]!['not_before'].toMillis(), T0 + 9 * MIN);
+  f.clock.t = T0 + 9 * MIN;
+  await runBackfill(f.deps());
+  assert.deepEqual(f.sent.map((p) => p.request_id), ['sharedW001']);
+
+  // An archived article and an unlinked one under a domain backoff are not queued.
+  const n = harness();
+  seedCompletedPass(n, { time_updated: T0 - 30 * MIN, item_id: '' }, {
+    domain_backoff: {
+      'itemu0002.example': { consecutive_failures: 3, backoff_until: Timestamp.fromMillis(until), last_error: 'x' },
+    },
+  });
+  userArticle(n, 'itemA0001', { timeUpdated: T0 - 6 * MIN, canonicalId: 'sharedA001' });
+  n.fake.put('articles/sharedA001', { archives: { rendered: { status: 'success' } } });
+  userArticle(n, 'itemU0002', { timeUpdated: T0 - 5 * MIN });
+  await runBackfill(n.deps());
+  assert.equal((n.tracker()['retry_queue'] as unknown[]).length, 0);
+});
