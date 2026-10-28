@@ -1,8 +1,9 @@
 import { resolve } from 'node:path';
 import process from 'node:process';
 
-import { FieldPath, FieldValue } from 'firebase-admin/firestore';
-import type { BulkWriter, DocumentData, Firestore, Timestamp } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import type { BulkWriter, DocumentData, Firestore } from 'firebase-admin/firestore';
+import { callGatewayBegin } from '@warg/user-triggers/dist/shared/gateway-client.js';
 import { linkUserArticle, SharedIdConflictError } from '@warg/user-triggers/dist/shared/link.js';
 
 import {
@@ -41,6 +42,32 @@ export interface RederiveOptions {
   readonly stopAfterPhase?: 1 | 2;
   /** Test hook: runs after phase 1 and before the phase 2 writes. */
   readonly beforePhase2?: () => Promise<void>;
+  /**
+   * Starts the archive of a shared article the pass creates (the gateway
+   * /begin call the save trigger makes). Required by `apply` when the plan
+   * creates a shared article: the save trigger runs only on a new user
+   * article, so nothing else would start it.
+   */
+  readonly beginArchive?: BeginArchive;
+}
+
+/** The gateway /begin call, as the save trigger makes it. */
+export type BeginArchive = (payload: {
+  url: string;
+  request_id: string;
+  includeScreenshot: boolean;
+  includePdf: boolean;
+}) => Promise<{ requestId?: string; request_id?: string }>;
+
+/** The environment variables the CLI reads to start archives. */
+const GATEWAY_ENV = ['GATEWAY_URL', 'PUBLIC_API_KEY', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'] as const;
+
+/** The gateway /begin client from the environment, or undefined when any variable is unset. */
+export function gatewayBeginFromEnv(env: NodeJS.ProcessEnv = process.env): BeginArchive | undefined {
+  const [gatewayUrl, publicApiKey, cfAccessClientId, cfAccessClientSecret] = GATEWAY_ENV.map((name) => env[name]);
+  if (!gatewayUrl || !publicApiKey || !cfAccessClientId || !cfAccessClientSecret) return undefined;
+  const config = { gatewayUrl, publicApiKey, cfAccessClientId, cfAccessClientSecret };
+  return (payload) => callGatewayBegin(config, payload);
 }
 
 /** A write refused because the document changed after the scan; a re-run plans it again. */
@@ -63,6 +90,10 @@ export interface RederiveReport {
     readonly linkChanges: number;
     readonly linkClears: number;
     readonly creates: number;
+    /** Archives of new shared articles: planned in a dry run, started in `apply`. */
+    readonly archiveStarts: number;
+    /** Archives that did not start; their shared article is marked failed so the backfill retries it. */
+    readonly archiveStartFailures: number;
     readonly archiveLoss: number;
     readonly markerAdds: number;
     readonly markerChanges: number;
@@ -195,10 +226,22 @@ export async function runRederivePassB(db: Firestore, options: RederiveOptions):
   const plan = planAll(shared, users);
 
   const refused = apply && preconditionFailures.length > 0;
+  if (apply && !refused && plan.creates.length > 0 && !options.beginArchive) {
+    throw new Error(
+      `this run creates ${plan.creates.length} shared articles whose archives must start;` +
+        ` set ${GATEWAY_ENV.join(', ')} and re-run with --apply`,
+    );
+  }
   const outcome =
     apply && !refused
       ? await writePlan(db, plan, users, options)
-      : { errors: 0, conflicts: [] as Conflict[], anomalies: [] as Anomaly[] };
+      : {
+          errors: 0,
+          conflicts: [] as Conflict[],
+          anomalies: [] as Anomaly[],
+          archiveStarts: apply ? 0 : plan.creates.length,
+          archiveStartFailures: 0,
+        };
 
   const anomalies = [...plan.anomalies, ...outcome.anomalies];
   const linkChanges = plan.linkChanges.map(({ uid: _uid, ...row }) => row);
@@ -214,6 +257,8 @@ export async function runRederivePassB(db: Firestore, options: RederiveOptions):
       linkChanges: plan.linkChanges.filter((row) => row.kind === 'change').length,
       linkClears: plan.linkChanges.filter((row) => row.kind === 'clear').length,
       creates: plan.creates.length,
+      archiveStarts: outcome.archiveStarts,
+      archiveStartFailures: outcome.archiveStartFailures,
       archiveLoss:
         plan.linkChanges.filter((row) => row.archiveLoss).length +
         plan.creates.filter((row) => row.archiveLoss).length +
@@ -262,8 +307,16 @@ async function writePlan(
   plan: Plan,
   users: readonly ScannedUser[],
   options: RederiveOptions,
-): Promise<{ errors: number; conflicts: Conflict[]; anomalies: Anomaly[] }> {
+): Promise<{
+  errors: number;
+  conflicts: Conflict[];
+  anomalies: Anomaly[];
+  archiveStarts: number;
+  archiveStartFailures: number;
+}> {
   let errors = 0;
+  let archiveStarts = 0;
+  let archiveStartFailures = 0;
   const conflicts: Conflict[] = [];
   const anomalies: Anomaly[] = [];
   const byUid = new Map(users.map((user) => [user.uid, user]));
@@ -290,6 +343,10 @@ async function writePlan(
         { markerSource: REDERIVE_MARKER_SOURCE },
       );
       createdIds.set(create.itemId, outcome.canonicalId);
+      if (outcome.needsArchive && options.beginArchive) {
+        if (await startArchive(db, options.beginArchive, create, outcome.canonicalId)) archiveStarts += 1;
+        else archiveStartFailures += 1;
+      }
     } catch (error) {
       createdIds.set(create.itemId, null);
       if (error instanceof SharedIdConflictError) {
@@ -309,7 +366,7 @@ async function writePlan(
       }
     }
   }
-  if (options.stopAfterPhase === 1) return { errors, conflicts, anomalies };
+  if (options.stopAfterPhase === 1) return { errors, conflicts, anomalies, archiveStarts, archiveStartFailures };
 
   if (options.beforePhase2) await options.beforePhase2();
 
@@ -357,7 +414,7 @@ async function writePlan(
         .catch(track(write.uidLabel, `articleMarkers/${key}`, 2));
     }
     await writer.flush();
-    if (options.stopAfterPhase === 2) return { errors, conflicts, anomalies };
+    if (options.stopAfterPhase === 2) return { errors, conflicts, anomalies, archiveStarts, archiveStartFailures };
 
     // Phase 3: markers no own URL derives, last, so no correct marker is lost
     // first. A marker rewritten since the scan fails its precondition.
@@ -371,7 +428,45 @@ async function writePlan(
   } finally {
     await writer.close();
   }
-  return { errors, conflicts, anomalies };
+  return { errors, conflicts, anomalies, archiveStarts, archiveStartFailures };
+}
+
+/**
+ * Starts the archive of a shared article the pass created, as the save trigger
+ * does after the link: the gateway /begin call, then the request id and the
+ * processing state. A start that fails marks the still-pending shared article
+ * failed, as the save trigger does, so the backfill retries it; a re-run of
+ * this pass would not, because the user article is linked by then.
+ */
+async function startArchive(
+  db: Firestore,
+  beginArchive: BeginArchive,
+  create: CreatePlan,
+  sharedId: string,
+): Promise<boolean> {
+  const sharedRef = db.collection('articles').doc(sharedId);
+  try {
+    const begun = await beginArchive({ url: create.url, request_id: sharedId, includeScreenshot: true, includePdf: true });
+    await sharedRef.update({
+      warg_request_id: begun.requestId ?? begun.request_id,
+      status: 'processing',
+      processing_started_at: Timestamp.now(),
+    });
+    await userArticlesCollection(db, create.uid).doc(create.itemId).update({ archival_triggered: true });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[rederive] archive start failed user=${create.uidLabel} articles/${sharedId}: ${message}`);
+    try {
+      const snap = await sharedRef.get();
+      if (snap.exists && snap.get('status') === 'pending') {
+        await sharedRef.update({ status: 'failed', error: message, failed_at: Timestamp.now() });
+      }
+    } catch (markError) {
+      console.error(`[rederive] could not mark articles/${sharedId} failed: ${(markError as Error).message}`);
+    }
+    return false;
+  }
 }
 
 export interface RederiveCliArgs {
@@ -432,7 +527,7 @@ export function parseRederiveArgs(argv: readonly string[], now = new Date()): Re
 export async function runCli(
   argv: readonly string[],
   db?: Firestore,
-  hooks: Pick<RederiveOptions, 'stopAfterPhase' | 'beforePhase2'> = {},
+  hooks: Pick<RederiveOptions, 'stopAfterPhase' | 'beforePhase2' | 'beginArchive'> = {},
 ): Promise<{ result: RederiveResult; reportPath: string; exitCode: number }> {
   const args = parseRederiveArgs(argv);
   await assertTargetEnv(args.yes);
@@ -440,6 +535,7 @@ export async function runCli(
   const result = await runRederivePassB(db ?? getDb(), {
     apply: args.apply,
     pageSize: args.pageSize,
+    beginArchive: gatewayBeginFromEnv(),
     ...hooks,
   });
   await writeJsonReport(args.reportPath, result.report);
@@ -448,7 +544,8 @@ export async function runCli(
   console.log(
     `[rederive] mode=${args.apply ? 'APPLY' : 'dry-run'} users=${counts.users} articles=${counts.articles}` +
       ` skippedDeleted=${counts.skippedDeleted} linkAdds=${counts.linkAdds} linkChanges=${counts.linkChanges}` +
-      ` linkClears=${counts.linkClears} creates=${counts.creates} archiveLoss=${counts.archiveLoss}` +
+      ` linkClears=${counts.linkClears} creates=${counts.creates} archiveStarts=${counts.archiveStarts}` +
+      ` archiveStartFailures=${counts.archiveStartFailures} archiveLoss=${counts.archiveLoss}` +
       ` markerAdds=${counts.markerAdds} markerChanges=${counts.markerChanges}` +
       ` markerRemovals=${counts.markerRemovals} anomalies=${counts.anomalies}` +
       ` conflicts=${counts.conflicts} errors=${counts.errors}`,
@@ -461,7 +558,7 @@ export async function runCli(
       '[rederive] the duplicate merge has not finished — run merge-pass-a (dry run, then --apply) first',
     );
     exitCode = 2;
-  } else if (result.errors + result.conflicts.length > 0) {
+  } else if (result.errors + result.conflicts.length + result.report.counts.archiveStartFailures > 0) {
     console.error('[rederive] some writes did not apply — re-run with --apply, then run the dry run again');
     exitCode = 1;
   } else if (!args.apply) {

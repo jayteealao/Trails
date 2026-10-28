@@ -5,5 +5,5 @@
     "outDir": "dist/shared",
     "rootDir": "src"
   },
-  "include": ["src/link.ts"]
+  "include": ["src/link.ts", "src/gateway-client.ts"]
 }

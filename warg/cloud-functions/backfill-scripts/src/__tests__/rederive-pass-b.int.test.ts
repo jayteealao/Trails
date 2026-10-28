@@ -12,7 +12,7 @@ import { markersCollection, sharedArticlesCollection, userArticlesCollection } f
 import { MERGE_MARKER_SOURCE, runMergePassA } from '../merge-pass-a.js';
 import { REDERIVE_MARKER_SOURCE } from '../rederive.js';
 import { runCli, runRederivePassB } from '../rederive-pass-b.js';
-import type { RederiveReport, RederiveResult } from '../rederive-pass-b.js';
+import type { BeginArchive, RederiveReport, RederiveResult } from '../rederive-pass-b.js';
 import { userLabel } from '../report.js';
 import { clearEmulator, createTestDb, destroyTestDb } from './emulator.js';
 import type { TestDb } from './emulator.js';
@@ -36,6 +36,13 @@ let testDb: TestDb;
 let db: Firestore;
 let reportDir: string;
 
+/** The shared ids whose archive the pass started, through the fake gateway /begin. */
+let begun: string[] = [];
+const beginArchive: BeginArchive = async (payload) => {
+  begun.push(payload.request_id);
+  return { requestId: `req-${payload.request_id}` };
+};
+
 beforeAll(async () => {
   testDb = createTestDb();
   db = testDb.db;
@@ -50,6 +57,7 @@ afterAll(async () => {
 afterEach(async () => {
   // runCli sets the exit code for a refused or partial run; it is asserted per test.
   process.exitCode = 0;
+  begun = [];
   await clearEmulator();
 });
 
@@ -201,11 +209,13 @@ describe('link re-derive (emulator)', () => {
     const before = await snapshotAll();
     const path = reportPath('dry-run');
 
-    const { result, reportPath: written, exitCode } = await runCli(['--report', path], db);
+    const { result, reportPath: written, exitCode } = await runCli(['--report', path], db, { beginArchive });
 
     expect(exitCode).toBe(0);
     expect(written).toBe(path);
     expect(await snapshotAll()).toEqual(before);
+    // The archive of the shared article it would create is planned, not started.
+    expect(begun).toEqual([]);
 
     const text = await readFile(path, 'utf8');
     const report = JSON.parse(text) as RederiveReport;
@@ -221,6 +231,8 @@ describe('link re-derive (emulator)', () => {
       linkChanges: 0,
       linkClears: 1,
       creates: 1,
+      archiveStarts: 1,
+      archiveStartFailures: 0,
       archiveLoss: 2,
       markerAdds: 0,
       markerChanges: 1,
@@ -298,7 +310,9 @@ describe('link re-derive (emulator)', () => {
     await seed();
     const before = await snapshotAll();
 
-    const { result, exitCode } = await runCli(['--apply', '--page-size', '2', '--report', reportPath('apply')], db);
+    const { result, exitCode } = await runCli(['--apply', '--page-size', '2', '--report', reportPath('apply')], db, {
+      beginArchive,
+    });
     expect(exitCode).toBe(0);
     expect(result.errors).toBe(0);
     expect(result.conflicts).toEqual([]);
@@ -327,12 +341,17 @@ describe('link re-derive (emulator)', () => {
     expect(pocketMarker.get('itemId')).toBe('aliasA0001');
     expect((await markersCollection(db, USER_B).doc('dupOld0001').get()).get('itemId')).toBe('itemB00001');
 
-    // The unmatched alias got a new shared article of its own, with no archive yet.
+    // The unmatched alias got a new shared article of its own, and its archive started.
     const created = await sharedArticlesCollection(db).doc('aliasA0002').get();
     expect(created.exists).toBe(true);
     expect(created.get('normalizedUrl')).toBe(normalizeUrl(URL_GIVEN));
-    expect(created.get('status')).toBe('pending');
     expect(created.get('archives')).toEqual({});
+    expect(begun).toEqual(['aliasA0002']);
+    expect(result.report.counts.archiveStarts).toBe(1);
+    expect(created.get('status')).toBe('processing');
+    expect(created.get('warg_request_id')).toBe('req-aliasA0002');
+    expect(created.get('processing_started_at')).toBeInstanceOf(Timestamp);
+    expect((await userArticle(USER_A, 'aliasA0002'))['archival_triggered']).toBe(true);
 
     // Markers no own URL derives are gone.
     expect(await markerIds(USER_A)).toEqual(['aliasA0002', 'sharedPocket01']);
@@ -356,7 +375,7 @@ describe('link re-derive (emulator)', () => {
 
   it('a second real run makes no change', async () => {
     await seed();
-    await runCli(['--apply', '--report', reportPath('first')], db);
+    await runCli(['--apply', '--report', reportPath('first')], db, { beginArchive });
     const before = await snapshotAll();
 
     const { result, exitCode } = await runCli(['--apply', '--report', reportPath('second')], db);
@@ -369,12 +388,12 @@ describe('link re-derive (emulator)', () => {
 
   it('a run stopped after phase 1 or 2 is finished by the next run', async () => {
     await seed();
-    await runRederivePassB(db, { apply: true });
+    await runRederivePassB(db, { apply: true, beginArchive });
     const oneShot = await comparableState();
 
     await clearEmulator();
     await seed();
-    const first = await runRederivePassB(db, { apply: true, stopAfterPhase: 1 });
+    const first = await runRederivePassB(db, { apply: true, stopAfterPhase: 1, beginArchive });
     expect(first.errors).toBe(0);
     expect((await sharedArticlesCollection(db).doc('aliasA0002').get()).exists).toBe(true);
     expect((await userArticle(USER_A, 'aliasA0001'))['canonicalId']).toBeUndefined();
@@ -390,6 +409,15 @@ describe('link re-derive (emulator)', () => {
     expect(third.report.counts.markerRemovals).toBe(4);
     expect(third.report.counts.linkAdds + third.report.counts.linkClears).toBe(0);
     expect(await comparableState()).toEqual(oneShot);
+  });
+
+  it('refuses --apply before any write when it cannot start the archives of the shared articles it creates', async () => {
+    await seed();
+    const before = await snapshotAll();
+
+    await expect(runRederivePassB(db, { apply: true })).rejects.toThrow(/GATEWAY_URL/);
+
+    expect(await snapshotAll()).toEqual(before);
   });
 
   it('refuses --apply until the duplicate merge has finished', async () => {
@@ -413,6 +441,7 @@ describe('link re-derive (emulator)', () => {
     await seed();
 
     const { result, exitCode } = await runCli(['--apply', '--report', reportPath('conflict')], db, {
+      beginArchive,
       beforePhase2: async () => {
         await userArticlesCollection(db, USER_A).doc('aliasA0001').update({ title: 'edited meanwhile' });
       },
