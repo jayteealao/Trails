@@ -2,14 +2,18 @@
 // resolved_id (col 3) is the canonical id sent to /begin as request_id.
 import { readFileSync } from 'node:fs';
 
+const USAGE = 'usage: node warg/scripts/analyze-short-ids.mjs <AUDIT_CSV>';
+const CSV_PATH = process.argv[2];
+if (!CSV_PATH) {
+  console.error(USAGE);
+  process.exit(2);
+}
+
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_OLD = /^[a-zA-Z0-9_-]{8,40}$/; // pre-fix gateway rule
 const SAFE_NEW = /^[a-zA-Z0-9_-]{1,40}$/; // post-fix gateway rule
 
-const lines = readFileSync(
-  new URL('./user-TGtRF6GrQaSmfjGk9GEYJ8YZc0v1-audit.csv', import.meta.url),
-  'utf8'
-).split(/\r?\n/);
+const lines = readFileSync(CSV_PATH, 'utf8').split(/\r?\n/);
 
 const header = lines[0].split(',');
 const COL = (name) => header.indexOf(name);

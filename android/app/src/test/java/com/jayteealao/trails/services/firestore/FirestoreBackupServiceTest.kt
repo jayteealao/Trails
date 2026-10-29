@@ -33,9 +33,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Verifies that backing up an article also writes its existence marker(s)
- * onto the same WriteBatch (so they commit atomically), keyed by itemId plus
- * resolvedId when distinct.
+ * Verifies that the backup writes only the user's own article data: no
+ * article-marker doc and no resolvedId (both are server-owned), with the
+ * article written as an explicit field map.
  *
  * The `characterization` tests at the bottom pin the behaviour of the
  * batch/large-text/restore surfaces. The streaming-restore slice updated
@@ -50,7 +50,6 @@ class FirestoreBackupServiceTest {
     @MockK private lateinit var auth: FirebaseAuth
     @MockK(relaxed = true) private lateinit var batch: WriteBatch
 
-    private lateinit var markersCollection: CollectionReference
     private lateinit var usersCollection: CollectionReference
     private lateinit var userDoc: DocumentReference
     private lateinit var articlesCollection: CollectionReference
@@ -67,13 +66,11 @@ class FirestoreBackupServiceTest {
 
         usersCollection = mockk()
         userDoc = mockk()
-        markersCollection = mockk()
         articlesCollection = mockk()
         articleDoc = mockk(relaxed = true)
 
         every { firestore.collection("users") } returns usersCollection
         every { usersCollection.document("u1") } returns userDoc
-        every { userDoc.collection("articleMarkers") } returns markersCollection
         every { userDoc.collection("articles") } returns articlesCollection
         every { articlesCollection.document(any()) } returns articleDoc
 
@@ -88,185 +85,56 @@ class FirestoreBackupServiceTest {
         clearAllMocks()
     }
 
-    private fun article(id: String, resolved: String?): Article {
-        val a = mockk<Article>(relaxed = true)
-        every { a.itemId } returns id
-        every { a.resolvedId } returns resolved
-        every { a.text } returns null
-        return a
+    /** A real Article with every property set, including a resolvedId. */
+    private fun fullArticle(id: String) = Article(
+        itemId = id,
+        resolvedId = "resolved-$id",
+        title = "Title",
+        url = "https://example.com/$id",
+        normalizedUrl = "https://example.com/$id",
+        text = "body",
+    )
+
+    @Test
+    fun `backup paths queue no write under articleMarkers`() = runTest {
+        // userDoc is a strict mock: articleMarkers is not stubbed, so touching it fails the backup.
+        assertTrue(service.backupArticle(fullArticle("a1")).isSuccess)
+        assertTrue(service.backupArticles(listOf(fullArticle("a2"), fullArticle("a3"))).isSuccess)
+        assertTrue(service.backupArticlesPaginated(listOf(fullArticle("a4"))).isSuccess)
+
+        verify(exactly = 0) { userDoc.collection("articleMarkers") }
     }
 
     @Test
-    fun `writes a single sync marker for itemId when resolvedId is null`() = runTest {
-        val markerDoc = mockk<DocumentReference>()
-        every { markersCollection.document("item1") } returns markerDoc
+    fun `written article map has no resolvedId and no canonicalId`() = runTest {
+        val written = mutableListOf<Map<String, Any?>>()
+        every { batch.set(articleDoc, capture(written), any()) } returns batch
 
-        val result = service.backupArticle(article("item1", null))
+        assertTrue(service.backupArticle(fullArticle("a1")).isSuccess)
+        assertTrue(service.backupArticles(listOf(fullArticle("a2"))).isSuccess)
+        assertTrue(service.backupArticlesPaginated(listOf(fullArticle("a3"))).isSuccess)
 
-        assertTrue(result.isSuccess)
-        verify(exactly = 1) {
-            batch.set(
-                markerDoc,
-                match<Map<String, Any>> {
-                    it["key"] == "item1" && it["source"] == "sync" && it["itemId"] == "item1"
-                },
-                any(),
-            )
+        assertEquals(3, written.size)
+        written.forEach { map ->
+            assertFalse("resolvedId must not be written", map.containsKey("resolvedId"))
+            assertFalse("canonicalId must not be written", map.containsKey("canonicalId"))
+            assertFalse("syncFailures must not be written", map.containsKey("syncFailures"))
+            // backedUpAt is the version this write sends.
+            assertEquals(map["timeUpdated"], map["backedUpAt"])
         }
-        // Only one marker doc requested → no spurious resolvedId marker.
-        verify(exactly = 1) { markersCollection.document(any()) }
+        assertEquals(listOf("a1", "a2", "a3"), written.map { it["itemId"] })
+        assertEquals("https://example.com/a1", written[0]["url"])
     }
 
     @Test
-    fun `writes markers for both itemId and a distinct resolvedId`() = runTest {
-        val itemMarker = mockk<DocumentReference>()
-        val resolvedMarker = mockk<DocumentReference>()
-        every { markersCollection.document("item1") } returns itemMarker
-        every { markersCollection.document("resolved1") } returns resolvedMarker
+    fun `toBackupFields keys equal the Article fields minus resolvedId`() {
+        val fieldNames = Article::class.java.declaredFields
+            .filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) && !it.isSynthetic }
+            .map { it.name }
+            .toSet()
 
-        val result = service.backupArticle(article("item1", "resolved1"))
-
-        assertTrue(result.isSuccess)
-        // Both markers carry itemId = "item1" (the owning article's id).
-        verify(exactly = 1) {
-            batch.set(
-                itemMarker,
-                match<Map<String, Any>> { it["key"] == "item1" && it["itemId"] == "item1" },
-                any(),
-            )
-        }
-        verify(exactly = 1) {
-            batch.set(
-                resolvedMarker,
-                match<Map<String, Any>> { it["key"] == "resolved1" && it["itemId"] == "item1" },
-                any(),
-            )
-        }
-        verify(exactly = 2) { batch.set(any(), match<Map<String, Any>> { it["source"] == "sync" }, any()) }
-    }
-
-    @Test
-    fun `does not duplicate the marker when resolvedId equals itemId`() = runTest {
-        every { markersCollection.document("item1") } returns mockk<DocumentReference>()
-
-        val result = service.backupArticle(article("item1", "item1"))
-
-        assertTrue(result.isSuccess)
-        verify(exactly = 1) { markersCollection.document(any()) }
-        verify(exactly = 1) {
-            batch.set(
-                any(),
-                match<Map<String, Any>> { it["source"] == "sync" && it["itemId"] == "item1" },
-                any(),
-            )
-        }
-    }
-
-    @Test
-    fun `does not write a resolvedId marker when resolvedId is blank`() = runTest {
-        every { markersCollection.document("item1") } returns mockk<DocumentReference>()
-
-        val result = service.backupArticle(article("item1", "  "))
-
-        assertTrue(result.isSuccess)
-        verify(exactly = 1) { markersCollection.document(any()) }
-        verify(exactly = 1) {
-            batch.set(
-                any(),
-                match<Map<String, Any>> { it["source"] == "sync" && it["itemId"] == "item1" },
-                any(),
-            )
-        }
-    }
-
-    /**
-     * TST-04 — writeArticleMarker happy path: the marker doc is written under
-     * users/{uid}/articleMarkers/{key} (owner's uid path) with source = "self-heal"
-     * and itemId = key (default: key and itemId are the same for itemId-keyed markers).
-     */
-    @Test
-    fun `writeArticleMarker writes marker under owner uid path with self-heal source`() = runTest {
-        val markerDoc = mockk<DocumentReference>()
-        every { markersCollection.document("key1") } returns markerDoc
-        every { markerDoc.set(any(), any()) } returns Tasks.forResult(null)
-
-        val result = service.writeArticleMarker("key1")
-
-        assertTrue(result.isSuccess)
-        // Must set on the doc under users/u1/articleMarkers/key1 with itemId = key1.
-        verify(exactly = 1) {
-            markerDoc.set(
-                match<Map<String, Any>> {
-                    it["key"] == "key1" && it["source"] == "self-heal" && it["itemId"] == "key1"
-                },
-                any(),
-            )
-        }
-    }
-
-    /**
-     * writeArticleMarker with explicit itemId: for a resolvedId-keyed self-heal
-     * the caller can pass the owning article's itemId separately.
-     */
-    @Test
-    fun `writeArticleMarker with explicit itemId carries correct itemId in marker body`() = runTest {
-        val markerDoc = mockk<DocumentReference>()
-        every { markersCollection.document("resolved-key") } returns markerDoc
-        every { markerDoc.set(any(), any()) } returns Tasks.forResult(null)
-
-        val result = service.writeArticleMarker("resolved-key", itemId = "article-1")
-
-        assertTrue(result.isSuccess)
-        verify(exactly = 1) {
-            markerDoc.set(
-                match<Map<String, Any>> {
-                    it["key"] == "resolved-key" && it["itemId"] == "article-1" && it["source"] == "self-heal"
-                },
-                any(),
-            )
-        }
-    }
-
-    /**
-     * TST-04 — writeArticleMarker failure path: when Firestore throws, the
-     * function returns a failed Result instead of propagating the exception.
-     */
-    @Test
-    fun `writeArticleMarker returns failure result when Firestore set throws`() = runTest {
-        val markerDoc = mockk<DocumentReference>()
-        every { markersCollection.document("key1") } returns markerDoc
-        every { markerDoc.set(any(), any()) } returns Tasks.forException(RuntimeException("network error"))
-
-        val result = service.writeArticleMarker("key1")
-
-        assertFalse(result.isSuccess)
-        assertTrue(result.isFailure)
-    }
-
-    @Test
-    fun `backupArticles bulk path writes sync markers for every article`() = runTest {
-        val markerDoc1 = mockk<DocumentReference>()
-        val markerDoc2 = mockk<DocumentReference>()
-        every { markersCollection.document("a1") } returns markerDoc1
-        every { markersCollection.document("a2") } returns markerDoc2
-
-        val result = service.backupArticles(listOf(article("a1", null), article("a2", null)))
-
-        assertTrue(result.isSuccess)
-        verify(exactly = 1) {
-            batch.set(
-                markerDoc1,
-                match<Map<String, Any>> { it["key"] == "a1" && it["source"] == "sync" && it["itemId"] == "a1" },
-                any(),
-            )
-        }
-        verify(exactly = 1) {
-            batch.set(
-                markerDoc2,
-                match<Map<String, Any>> { it["key"] == "a2" && it["source"] == "sync" && it["itemId"] == "a2" },
-                any(),
-            )
-        }
+        // backedUpAt: the version sent, kept for older builds; the device keeps its stamp in sync_state.
+        assertEquals(fieldNames - "resolvedId" + "backedUpAt", fullArticle("a1").toBackupFields().keys)
     }
 
     // ---------------------------------------------------------------------------
@@ -274,15 +142,13 @@ class FirestoreBackupServiceTest {
     // ---------------------------------------------------------------------------
 
     /**
-     * `backupArticlesPaginated` caps each batch at WRITE_BATCH_LIMIT (20) articles to
-     * honour the Firestore rules getAfter budget, regardless of total write count.
-     * 45 plain articles (no tags, null resolvedId) contribute 2 writes each (article
-     * doc + 1 marker) = 90 total writes — well under the 500-write threshold — but
+     * `backupArticlesPaginated` caps each batch at WRITE_BATCH_LIMIT (20) articles,
+     * regardless of total write count. 45 plain articles (no tags) contribute 1
+     * write each = 45 total writes — well under the 500-write threshold — but
      * the 20-article cap forces 3 batches: articles 1–20, 21–40, 41–45.
      */
     @Test
     fun `backupArticlesPaginated chunks at WRITE_BATCH_LIMIT of 20`() = runTest {
-        every { markersCollection.document(any()) } returns mockk(relaxed = true)
         val articles = (1..45).map { Article(itemId = "a$it") }
 
         // Use a fresh mock per batch.commit() call so we can count commits.
@@ -307,14 +173,13 @@ class FirestoreBackupServiceTest {
 
     /**
      * Companion test for the article-count cap: a list of 25 articles with tiny
-     * write footprints (no tags, small text — 2 writes each, total 50 writes —
+     * write footprints (no tags, small text — 1 write each, total 25 writes —
      * well under the 500-write threshold) must still be committed in 2 batches
      * because the WRITE_BATCH_LIMIT (20 articles per batch) is hit first.
      * No single batch should receive more than 20 articles.
      */
     @Test
     fun `backupArticlesPaginated caps batches at 20 articles even when write count is low`() = runTest {
-        every { markersCollection.document(any()) } returns mockk(relaxed = true)
         val articles = (1..25).map { Article(itemId = "c$it") }
 
         // Use a fresh mock per batch so we can verify each is committed exactly once.
@@ -338,16 +203,15 @@ class FirestoreBackupServiceTest {
      * `backupArticlesPaginated` splits into multiple batches when the per-article
      * write count would push the running total past the 500-write threshold.
      *
-     * Setup: 3 articles each carrying 250 tags → 252 writes per article
-     * (1 article doc + 250 tag docs + 1 marker).
-     * - Batch 1: article 1 (252). Before article 2: 252+252=504 > 500 → flush.
-     * - Batch 2: article 2 (252). Before article 3: 252+252=504 > 500 → flush.
-     * - Batch 3: article 3 (252). End of list → flush.
+     * Setup: 3 articles each carrying 250 tags → 251 writes per article
+     * (1 article doc + 250 tag docs).
+     * - Batch 1: article 1 (251). Before article 2: 251+251=502 > 500 → flush.
+     * - Batch 2: article 2 (251). Before article 3: 251+251=502 > 500 → flush.
+     * - Batch 3: article 3 (251). End of list → flush.
      * Result: 3 batches committed.
      */
     @Test
     fun `backupArticlesPaginated flushes when next article would exceed write-count threshold`() = runTest {
-        every { markersCollection.document(any()) } returns mockk(relaxed = true)
 
         // Wire tag doc refs for each article.
         val tagsCollection = mockk<CollectionReference>()
@@ -391,7 +255,6 @@ class FirestoreBackupServiceTest {
      */
     @Test
     fun `backupArticlesPaginated stores large text in subcollection and nulls article text`() = runTest {
-        every { markersCollection.document(any()) } returns mockk(relaxed = true)
         val textCollection = mockk<CollectionReference>()
         val textDoc = mockk<DocumentReference>()
         every { articleDoc.collection("text") } returns textCollection
@@ -409,7 +272,7 @@ class FirestoreBackupServiceTest {
         }
         // ...and the article doc is saved with text stripped.
         verify(exactly = 1) {
-            batch.set(articleDoc, match<Article> { it.itemId == "big" && it.text == null }, any())
+            batch.set(articleDoc, match<Map<String, Any?>> { it["itemId"] == "big" && it.containsKey("text") && it["text"] == null }, any())
         }
     }
 
@@ -418,7 +281,6 @@ class FirestoreBackupServiceTest {
      */
     @Test
     fun `backupArticlesPaginated keeps small text inline on the article doc`() = runTest {
-        every { markersCollection.document(any()) } returns mockk(relaxed = true)
         val article = Article(itemId = "small", text = "short body")
 
         val result = service.backupArticlesPaginated(listOf(article))
@@ -426,7 +288,7 @@ class FirestoreBackupServiceTest {
         assertTrue(result.isSuccess)
         verify(exactly = 0) { articleDoc.collection("text") }
         verify(exactly = 1) {
-            batch.set(articleDoc, match<Article> { it.itemId == "small" && it.text == "short body" }, any())
+            batch.set(articleDoc, match<Map<String, Any?>> { it["itemId"] == "small" && it["text"] == "short body" }, any())
         }
     }
 
@@ -533,7 +395,6 @@ class FirestoreBackupServiceTest {
      */
     @Test
     fun `backupArticlesPaginated writes tags inside chunk batch not a separate commit`() = runTest {
-        every { markersCollection.document(any()) } returns mockk(relaxed = true)
         val tagsCollection = mockk<CollectionReference>()
         val tagDoc = mockk<DocumentReference>()
         every { articleDoc.collection("tags") } returns tagsCollection
@@ -560,7 +421,6 @@ class FirestoreBackupServiceTest {
      */
     @Test
     fun `backupArticlesPaginated with empty tagsByArticleId writes no tag docs`() = runTest {
-        every { markersCollection.document(any()) } returns mockk(relaxed = true)
         val article = Article(itemId = "a1")
 
         val result = service.backupArticlesPaginated(listOf(article))
@@ -583,10 +443,18 @@ class FirestoreBackupServiceTest {
         every { aggSnapshot.count } returns total
     }
 
+    /** Restored docs here carry neither deletion key (FirestoreBackupServiceDeletionTest covers those). */
+    private fun stubNoDeletionKeys(doc: DocumentSnapshot) {
+        every { doc.getLong(any()) } returns null
+        every { doc.contains(any<String>()) } returns false
+        every { doc.id } returns "doc"
+    }
+
     /** Shared helper: build N mock doc snapshots for a given page id prefix. */
     private fun makePageDocs(prefix: String, count: Int): List<DocumentSnapshot> =
         (1..count).map { i ->
             mockk<DocumentSnapshot>().also {
+                stubNoDeletionKeys(it)
                 every { it.toObject(Article::class.java) } returns Article(itemId = "${prefix}_$i")
                 // No subcollection text needed: text is null → rehydrateLargeText will query,
                 // but the article doc reference itself is mocked via articleDoc (relaxed).
@@ -732,6 +600,7 @@ class FirestoreBackupServiceTest {
 
         // One-article page with text == null (stored in subcollection).
         val docWithNullText = mockk<DocumentSnapshot>().also {
+            stubNoDeletionKeys(it)
             every { it.toObject(Article::class.java) } returns Article(itemId = "large1", text = null)
         }
         val page1 = mockk<QuerySnapshot>()
@@ -771,6 +640,7 @@ class FirestoreBackupServiceTest {
         every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
 
         val docWithText = mockk<DocumentSnapshot>().also {
+            stubNoDeletionKeys(it)
             every { it.toObject(Article::class.java) } returns Article(itemId = "inline1", text = "short")
         }
         val page1 = mockk<QuerySnapshot>()
@@ -802,6 +672,7 @@ class FirestoreBackupServiceTest {
         every { articlesCollection.orderBy("timeAdded") } returns orderedQuery
 
         val docWithNullText = mockk<DocumentSnapshot>().also {
+            stubNoDeletionKeys(it)
             every { it.toObject(Article::class.java) } returns Article(itemId = "missing1", text = null)
         }
         val page1 = mockk<QuerySnapshot>()
@@ -839,7 +710,12 @@ class FirestoreBackupServiceTest {
         val snap = mockk<QuerySnapshot>()
         val docs = tags.map { tag ->
             mockk<DocumentSnapshot>().also {
-                every { it.toObject(ArticleTags::class.java) } returns tag
+                every { it.data } returns mapOf(
+                    "itemId" to tag.itemId,
+                    "tag" to tag.tag,
+                    "sortId" to tag.sortId?.toLong(),
+                    "type" to tag.type,
+                )
             }
         }
         every { snap.documents } returns docs

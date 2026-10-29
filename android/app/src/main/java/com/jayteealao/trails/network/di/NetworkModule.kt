@@ -5,6 +5,7 @@ import com.chuckerteam.chucker.api.ChuckerCollector
 import com.chuckerteam.chucker.api.ChuckerInterceptor
 import com.chuckerteam.chucker.api.RetentionManager
 import com.google.gson.GsonBuilder
+import com.jayteealao.trails.BuildConfig
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.di.DEFAULT_DASHBOARD_API_URL
 import com.jayteealao.trails.network.ArchiveUrlService
@@ -73,7 +74,7 @@ object NetworkModule {
         return OkHttpClient.Builder()
             .followRedirects(true)
             .followSslRedirects(true)
-            .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS))
+            .connectionSpecs(connectionSpecsFor(BuildConfig.DEBUG, BuildConfig.SIGNED_URL_BASE_OVERRIDE))
             .connectionPool(ConnectionPool(20, 5, TimeUnit.MINUTES))
             .addNetworkInterceptor { chain ->
                 chain.proceed(
@@ -104,6 +105,16 @@ object NetworkModule {
             .build()
         return retrofit.create(ArchiveUrlService::class.java)
     }
+}
+
+/**
+ * TLS only. A debug build whose signed-link base override is a plain-http local
+ * stub (emulator runs) also allows cleartext, so the stub's links can be fetched;
+ * release builds and debug builds without that override never do.
+ */
+internal fun connectionSpecsFor(debug: Boolean, signedUrlBaseOverride: String): List<ConnectionSpec> {
+    val tls = listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS)
+    return if (debug && signedUrlBaseOverride.startsWith("http://")) tls + ConnectionSpec.CLEARTEXT else tls
 }
 
 internal class HttpRequestInterceptor : Interceptor {

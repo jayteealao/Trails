@@ -1,12 +1,9 @@
 import { onRequest } from 'firebase-functions/v2/https';
-import { defineSecret } from 'firebase-functions/params';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { verifyApiKey } from './auth.js';
 import { handleCreateUpload } from './create-upload.js';
 import { handleFinalize } from './finalize.js';
-
-const CF_ACCESS_CLIENT_ID = defineSecret('CF_ACCESS_CLIENT_ID');
-const CF_ACCESS_CLIENT_SECRET = defineSecret('CF_ACCESS_CLIENT_SECRET');
+import { functionSecrets } from './secrets.js';
 
 // Initialize Firebase Admin (only once)
 if (getApps().length === 0) {
@@ -21,7 +18,8 @@ if (getApps().length === 0) {
  */
 export const archiveGateway = onRequest(
   {
-    secrets: [CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET]
+    // The old shared key is bound only while the key-rotation switch is on.
+    secrets: functionSecrets()
   },
   async (req, res) => {
   // No CORS headers — this is an internal API called only by backend workers.

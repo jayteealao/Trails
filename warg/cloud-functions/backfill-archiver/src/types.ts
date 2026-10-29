@@ -28,6 +28,21 @@ export interface RunSummary {
   failed: number;
 }
 
+/** The last user article the change scan handled, by app-written timeUpdated then id. */
+export interface ChangeMarker {
+  time_updated: number;
+  item_id: string;
+}
+
+/** A shared article whose archive start failed and is due to be sent again. */
+export interface RetryEntry {
+  item_id: string;
+  url: string;
+  domain: string;
+  retry_count: number;
+  not_before: Timestamp;
+}
+
 export interface BackfillTracker {
   batch: BatchEntry[];
   batch_started_at: Timestamp | null;
@@ -52,6 +67,11 @@ export interface BackfillTracker {
   run_lease: RunLease | null;
   domain_backoff: Record<string, DomainBackoffState>;
   last_run_summary: RunSummary;
+  pass_label: string | null;
+  pass_started_at: Timestamp | null;
+  pass_completed_at: Timestamp | null;
+  change_marker: ChangeMarker | null;
+  retry_queue: RetryEntry[];
 }
 
 export type ItemStatus = 'complete' | 'failed' | 'stuck' | 'in_progress';

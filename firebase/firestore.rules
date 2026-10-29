@@ -12,11 +12,31 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // End of the grace period for app-written article markers. Until this
+    // instant the rules accept an app-written marker only when its key equals
+    // the server-written canonicalId of the article it names; after it every
+    // client marker write is refused. The committed 0 means no grace (fails
+    // closed). The deploy script writes the real end (the first rules deploy
+    // plus 30 days, in epoch milliseconds) into a build copy of this file.
+    // Never commit a date here.
+    function markerGraceEnd() {
+      return timestamp.value(0); // __GRACE_END_MS__
+    }
+
+    // True when the user article named by the marker's itemId exists and its
+    // server-written canonicalId equals the marker key. An article without a
+    // canonicalId never matches.
+    function markerKeyIsServerLink(userId, markerId) {
+      let articlePath = /databases/$(database)/documents/users/$(userId)/articles/$(request.resource.data.itemId);
+      return exists(articlePath)
+        && get(articlePath).data.get('canonicalId', '') == markerId;
+    }
+
     // Top-level articles collection (written by Warg backend, read-only for app).
-    // A user may `get` a dedup doc only if they hold a per-user existence marker
-    // for that key (i.e. they saved that article). Enumeration is disabled; writes
-    // are backend-only. Markers: users/{uid}/articleMarkers/{key} (written by sync,
-    // the one-off backfill, and read-denial self-heal).
+    // A user may `get` a shared doc only if they hold a per-user marker for that
+    // key. Enumeration is disabled; writes are backend-only. Markers:
+    // users/{uid}/articleMarkers/{key}, written by the server (see the marker
+    // rule below for the grace period).
     match /articles/{itemId} {
       allow get:   if isAuthenticated()
                    && exists(/databases/$(database)/documents/users/$(request.auth.uid)/articleMarkers/$(itemId));
@@ -36,50 +56,34 @@ service cloud.firestore {
       // Allow users to read and write their own user document
       allow read, write: if isOwner(userId);
 
-      // Article existence markers - one doc per saved article key, used to
-      // gate the (later) tightened top-level `articles` read. Owner-scoped.
+      // Article markers - one doc per shared article the user may read, keyed
+      // by the shared id. Markers are written by the server. During the grace
+      // period an app-written marker is accepted only when its key equals the
+      // server-written canonicalId of the user article its itemId names; after
+      // the grace end every client marker write is refused. Reads of
+      // articles/{id} stay gated by the marker.
       //
-      // CREATE / UPDATE: requires proof the user owns the referenced article.
-      // Primary path: `getAfter` checks that users/{userId}/articles/{itemId} is
-      // being written in the same batch (batch backup flow). Fallback: if the
-      // backup doc is not in this batch, the top-level articles/{itemId} doc must
-      // exist (Warg backend-write-only, so it proves Warg archived a genuine
-      // article). The fallback allows self-heal writes when the backup doc is not
-      // yet present, breaking the deadlock without reopening the enumeration hole
-      // (the top-level `articles` collection rejects all client writes).
-      //
-      // SECURITY NOTE (review SE-1): The `get(articles/{itemId})` fallback's safety
-      // depends on the top-level `articles` collection NOT being enumerable by
-      // clients. The `articles/{itemId}` rule above enforces:
-      //   - allow get: only if the caller already holds an articleMarkers entry
-      //     for that itemId (circular proof — not exploitable for bootstrapping)
-      //   - allow list: false (enumeration disabled)
-      //   - allow write: false (backend service account only)
-      // Consequence: an authenticated user who does NOT already own an
-      // articleMarkers entry for a given itemId cannot read or enumerate the
-      // top-level article to use it as fallback proof. The fallback is safe given
-      // this rule constraint. Any future relaxation of the top-level `articles`
-      // read rules MUST re-evaluate this fallback's threat model.
-      //
-      // RULES BUDGET: getAfter costs 1 call (cached per path within the request);
-      // get() on the fallback costs 1 additional call only when getAfter fails.
-      // Total ≤ 2 per article in a batch. Callers must keep batches ≤ 20 articles
-      // to stay within the 20-document-access limit per batched write.
+      // RULES BUDGET: each client marker write reads one user article (exists()
+      // and get() on one path count once), so a batch of 20 articles stays
+      // within the 20-document-access limit per batched write.
       match /articleMarkers/{markerId} {
         allow read: if isOwner(userId);
         allow delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
+          && request.time < markerGraceEnd()
           && request.resource.data.itemId is string
-          && (
-            getAfter(/databases/$(database)/documents/users/$(userId)/articles/$(request.resource.data.itemId)).data != null
-            || get(/databases/$(database)/documents/articles/$(request.resource.data.itemId)) != null
-          );
+          && markerKeyIsServerLink(userId, markerId);
       }
 
       // Articles subcollection - user can only access their own articles
       match /articles/{articleId} {
-        // Allow authenticated users to read and write their own articles
-        allow read, write: if isOwner(userId);
+        // Owners read, write and delete their own articles. canonicalId names
+        // the shared article and only the server writes it.
+        allow read, delete: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && !('canonicalId' in request.resource.data);
+        allow update: if isOwner(userId)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['canonicalId']);
 
         // Tags subcollection for each article
         match /tags/{tagId} {

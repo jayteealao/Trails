@@ -22,7 +22,7 @@ if [ "${#WORKERS[@]}" -eq 0 ] || [ "${#FUNCTIONS[@]}" -eq 0 ]; then
   echo "deploy harness: cannot read WORKERS or CLOUD_FUNCTIONS from $DEPLOY_SH" >&2
   exit 1
 fi
-eval "$(sed -n '/^required_secrets_for() {$/,/^}$/p; /^function_names_for() {$/,/^}$/p' "$DEPLOY_SH")"
+eval "$(sed -n '/^required_secrets_for() {$/,/^}$/p; /^function_names_for() {$/,/^}$/p; /^private_functions_for() {$/,/^}$/p' "$DEPLOY_SH")"
 H_ALL_SECRETS="$(for w in "${WORKERS[@]}"; do required_secrets_for "$w" | tr ' ' '\n'; done | sort -u | tr '\n' ' ')"
 export H_ALL_SECRETS
 
@@ -39,6 +39,7 @@ trap 'rm -rf "$ROOT"' EXIT
 FIX="$ROOT/repo"
 mkdir -p "$FIX/scripts" "$FIX/pages/dashboard"
 cp "$WARG/scripts/deploy.sh" "$FIX/scripts/deploy.sh"
+cp "$WARG/scripts/rules-release.mjs" "$FIX/scripts/rules-release.mjs"
 for w in "${WORKERS[@]}"; do
   mkdir -p "$FIX/workers/$w"
   echo "{}" >"$FIX/workers/$w/package.json"
@@ -47,7 +48,34 @@ for fn in "${FUNCTIONS[@]}"; do
   mkdir -p "$FIX/cloud-functions/$fn"
   echo "PLACEHOLDER=1" >"$FIX/cloud-functions/$fn/.env"
 done
+# The functions that accept the old shared key must state the switch.
+for fn in archive-gateway backfill-archiver dashboard-api; do
+  echo "KEY_ROTATION_DUAL_ACCEPT=false" >>"$FIX/cloud-functions/$fn/.env"
+done
+# The required deploy configuration (no real user id).
+echo "DASHBOARD_USER_ID=harness-user" >>"$FIX/cloud-functions/dashboard-api/.env"
+echo "BACKFILL_USER_ID=harness-user" >>"$FIX/cloud-functions/backfill-archiver/.env"
+# deploy.sh deploys the rules from the repository's firebase/ folder, which
+# sits beside warg/ (here: beside the fixture repo).
+RULES_SRC="$(cd "$WARG/.." && pwd)/firebase"
+RULES_FIX="$ROOT/firebase"
+mkdir -p "$RULES_FIX"
+for f in firebase.json .firebaserc firestore.rules storage.rules; do
+  cp "$RULES_SRC/$f" "$RULES_FIX/$f"
+done
 echo 'name = "warg-dashboard"' >"$FIX/pages/dashboard/wrangler.toml"
+# A clean production dry run of the link re-derive, where deploy.sh looks for
+# it by default; the link-check scenarios pass their own reports.
+# rederive_report <file> <mode> <target> <linkAdds> [markerRemovals]: writes a
+# re-derive report (markerRemovals defaults to 0).
+rederive_report() {
+  cat >"$1" <<JSON
+{"mode":"$2","target":"$3","generatedAt":"2026-10-27T00:00:00.000Z","counts":{"users":1,"articles":2,"linkAdds":$4,"linkChanges":0,"linkClears":0,"markerRemovals":${5:-0},"errors":0},"preconditionFailures":[]}
+JSON
+}
+mkdir -p "$FIX/cloud-functions/backfill-scripts/tmp"
+rederive_report "$FIX/cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261026T000000Z.json" dry-run production 5
+rederive_report "$FIX/cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json" dry-run production 0
 git -C "$FIX" init -q
 git -C "$FIX" config core.autocrlf false
 git -C "$FIX" add -A
@@ -124,7 +152,7 @@ finish() {
 # summary and exit code.
 scenario_full_success() {
   start full-success
-  run_deploy full-success -- --all
+  run_deploy full-success -- --all --with-rules
   expect_rc 0
   expect_out "^Deploying label: $SHA\$"
   expect_calls 9 '^cf workers secrets list --worker '
@@ -137,12 +165,176 @@ scenario_full_success() {
   expect_calls 9 "^cf deploy --tag $SHORT --message $SHA --provision=false\$"
   for fn in "${FUNCTIONS[@]}"; do
     expect_row "function:$fn" deployed ".*@20[0-9-]+T.*"
-    expect_calls 1 "^firebase deploy --only functions:$fn --project trails-e428e GIT_SHA=$SHA\$"
+    expect_calls 1 "^firebase deploy --only functions:$fn --project trails-e428e --non-interactive GIT_SHA=$SHA\$"
   done
   expect_calls 6 '^gcloud functions describe .* --region us-central1 --project trails-e428e'
+  expect_calls 3 '^gcloud run services get-iam-policy .* --region us-central1 --project trails-e428e --format=json$'
+  expect_row "function:user-triggers" deployed ".* invoker private"
+  expect_calls 1 '^firebase deploy --only firestore:rules,storage --project trails-e428e --non-interactive --config firebase.json'
+  expect_row "rules:firestore" deployed "firestore-[0-9]+ sha256:[0-9a-f]{12} grace 20.*"
+  expect_row "rules:storage" deployed "trails-e428e.firebasestorage.app=storage-[0-9]+ htbase-archives-standard=storage-[0-9]+ sha256:[0-9a-f]{12}"
+  expect_calls 0 'headers=missing'
+  expect_calls 0 'no-timeouts'
+  expect_no_out 'harness-token'
+  expect_calls 0 'harness-token'
   expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA --commit-message $SHA --commit-dirty=false\$"
   expect_row "pages:dashboard" deployed "$UUID"
+  expect_out '^=== Link check passed: cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json '
+  expect_out '^=== Rules link check passed: '
+  expect_no_out '^rules +skipped +not deployed'
   expect_out '^TARGET +RESULT +DETAIL +LABEL$'
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+# The link check: a re-derive report that plans a link change, one that is not
+# a production dry run, or no report holds dashboard-api back while the other
+# functions deploy; the override deploys it and warns.
+expect_dashboard_held() { # expect_dashboard_held <reason regex>
+  expect_row "function:dashboard-api" skipped "held back: $1"
+  expect_out "^WARNING: dashboard-api held back: $1"
+  expect_calls 0 '^firebase deploy --only functions:dashboard-api '
+  expect_calls 1 '^firebase deploy --only functions:user-triggers '
+}
+
+scenario_link_check_plans_change() {
+  start link-check-plans-change
+  rederive_report "$ROOT/report-change.json" dry-run production 3
+  run_deploy link-check-plans-change -- --functions-only --skip-checks --rederive-report "$ROOT/report-change.json"
+  expect_rc 0
+  expect_dashboard_held ".*plans linkAdds=3 linkChanges=0 linkClears=0 errors=0"
+  expect_row "function:archive-gateway" deployed ".*"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_link_check_not_production_dry_run() {
+  start link-check-not-production-dry-run
+  rederive_report "$ROOT/report-apply.json" apply production 0
+  rederive_report "$ROOT/report-emulator.json" dry-run emulator 0
+  run_deploy link-check-apply -- --functions-only --skip-checks --rederive-report "$ROOT/report-apply.json"
+  expect_rc 0
+  expect_dashboard_held '.*is not a dry run \(mode apply\)'
+  run_deploy link-check-emulator -- --functions-only --skip-checks --rederive-report "$ROOT/report-emulator.json"
+  expect_rc 0
+  expect_dashboard_held '.*is not a production run \(target emulator\)'
+  NAME=link-check-not-production-dry-run
+  finish
+}
+
+scenario_link_check_missing_report() {
+  start link-check-missing-report
+  run_deploy link-check-missing-report -- --all --skip-checks --rederive-report "$ROOT/no-such-report.json"
+  expect_rc 0
+  expect_dashboard_held 'no link re-derive dry-run report at .*'
+  expect_calls 9 '^cf deploy '
+  expect_row "pages:dashboard" deployed "$UUID"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_link_check_skipped() {
+  start link-check-skipped
+  rederive_report "$ROOT/report-skip.json" dry-run production 3
+  run_deploy link-check-skipped -- --functions-only --skip-checks --rederive-report "$ROOT/report-skip.json" --skip-rederive-check
+  expect_rc 0
+  expect_out '^=== Link check skipped \(--skip-rederive-check\) ===$'
+  expect_out '^WARNING: link check skipped \(--skip-rederive-check\)'
+  expect_row "function:dashboard-api" deployed ".*"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_link_check_rules_only() {
+  start link-check-rules-only
+  run_deploy link-check-rules-only -- --rules-only --skip-checks
+  expect_rc 0
+  expect_no_out '^=== Link check'
+  expect_out '^=== Rules link check passed: cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json '
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+# The rules link check: every rules deploy waits for a production dry run of
+# the link re-derive that plans no marker removal and no error. Anything else
+# stops the run before any deploy; the override deploys and warns.
+expect_rules_refused() { # expect_rules_refused <detail regex>
+  expect_rc 3
+  expect_row "rules:firestore" failed "$1"
+  expect_calls 0 '^firebase deploy'
+  expect_calls 0 '^curl '
+  expect_out '^Exit code: 3$'
+}
+
+scenario_rules_gate_marker_removals() {
+  start rules-gate-marker-removals
+  rederive_report "$ROOT/report-removals.json" dry-run production 0 2
+  run_deploy rules-gate-marker-removals -- --rules-only --skip-checks --rederive-report "$ROOT/report-removals.json"
+  expect_rules_refused '.*plans markerRemovals=2 errors=0; apply the link re-derive.*'
+  expect_row "rules:storage" skipped '-'
+  finish
+}
+
+scenario_rules_gate_missing_report() {
+  start rules-gate-missing-report
+  run_deploy rules-gate-missing-report -- --rules-only --skip-checks --rederive-report "$ROOT/no-such-report.json"
+  expect_rules_refused 'no link re-derive dry-run report at .*'
+  finish
+}
+
+scenario_rules_gate_not_production() {
+  start rules-gate-not-production
+  rederive_report "$ROOT/report-gate-emulator.json" dry-run emulator 0
+  rederive_report "$ROOT/report-gate-apply.json" apply production 0
+  cat >"$ROOT/report-gate-no-count.json" <<'JSON'
+{"mode":"dry-run","target":"production","generatedAt":"2026-10-27T00:00:00.000Z","counts":{"users":1,"articles":2,"linkAdds":0,"linkChanges":0,"linkClears":0,"errors":0},"preconditionFailures":[]}
+JSON
+  run_deploy rules-gate-emulator -- --rules-only --skip-checks --rederive-report "$ROOT/report-gate-emulator.json"
+  expect_rules_refused '.*is not a production run \(target emulator\).*'
+  run_deploy rules-gate-apply -- --rules-only --skip-checks --rederive-report "$ROOT/report-gate-apply.json"
+  expect_rules_refused '.*is not a dry run \(mode apply\).*'
+  run_deploy rules-gate-no-count -- --rules-only --skip-checks --rederive-report "$ROOT/report-gate-no-count.json"
+  expect_rules_refused '.*has no markerRemovals count.*'
+  NAME=rules-gate-not-production
+  finish
+}
+
+scenario_rules_gate_before_workers() {
+  start rules-gate-before-workers
+  rederive_report "$ROOT/report-removals-all.json" dry-run production 0 2
+  run_deploy rules-gate-before-workers -- --all --with-rules --skip-checks --rederive-report "$ROOT/report-removals-all.json"
+  expect_rules_refused '.*plans markerRemovals=2 errors=0.*'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^wrangler pages deploy'
+  expect_row "worker:logger" skipped '-'
+  expect_row "function:archive-gateway" skipped '-'
+  finish
+}
+
+scenario_rules_gate_skipped() {
+  start rules-gate-skipped
+  rederive_report "$ROOT/report-removals-skip.json" dry-run production 0 2
+  run_deploy rules-gate-skipped -- --rules-only --skip-checks --rederive-report "$ROOT/report-removals-skip.json" --skip-rederive-check
+  expect_rc 0
+  expect_out '^=== Rules link check skipped \(--skip-rederive-check\) ===$'
+  expect_out '^WARNING: rules check skipped \(--skip-rederive-check\)'
+  expect_row "rules:firestore" deployed ".*"
+  expect_row "rules:storage" deployed ".*"
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+# Link adds, changes and clears hold dashboard-api back but do not stop the
+# rules: only marker removals do.
+scenario_rules_gate_link_changes_pass() {
+  start rules-gate-link-changes-pass
+  rederive_report "$ROOT/report-links.json" dry-run production 3 0
+  run_deploy rules-gate-link-changes-pass -- --functions-only --with-rules --skip-checks --rederive-report "$ROOT/report-links.json"
+  expect_rc 0
+  expect_dashboard_held '.*plans linkAdds=3 linkChanges=0 linkClears=0 errors=0'
+  expect_out '^=== Rules link check passed: '
+  expect_row "rules:firestore" deployed ".*"
+  expect_row "rules:storage" deployed ".*"
   expect_out '^Exit code: 0$'
   finish
 }
@@ -275,18 +467,35 @@ scenario_dirty_allowed() {
   start dirty-allowed
   echo "scratch" >"$FIX/untracked.txt"
   LABEL="$SHA-dirty"
-  run_deploy dirty-allowed -- --all --allow-dirty --skip-checks
+  run_deploy dirty-allowed -- --all --with-rules --allow-dirty --skip-checks
   rm -f "$FIX/untracked.txt"
   expect_rc 0
   expect_out "^Deploying label: $SHA-dirty\$"
   expect_calls 9 '^cf deploy '
   expect_calls 9 "^cf deploy --tag $SHORT-dirty --message $SHA-dirty --provision=false\$"
-  expect_calls 4 '^firebase deploy '
-  expect_calls 4 "^firebase deploy .* GIT_SHA=$SHA-dirty\$"
+  expect_calls 5 '^firebase deploy '
+  expect_calls 5 "^firebase deploy .* GIT_SHA=$SHA-dirty\$"
   expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA-dirty --commit-message $SHA-dirty --commit-dirty=true\$"
   expect_row "pages:dashboard" deployed "$UUID"
   expect_row "worker:gateway" deployed "$UUID"
+  expect_out '^=== Rules link check passed: '
+  expect_no_out '^rules +skipped +not deployed'
   LABEL="$SHA"
+  finish
+}
+
+# --all never deploys the rules: they go out only with an explicit --with-rules.
+# The summary row `rules skipped not deployed (pass --with-rules)` is the
+# signal; no rules:firestore or rules:storage row prints.
+scenario_all_without_rules() {
+  start all-without-rules
+  run_deploy all-without-rules -- --all --skip-checks
+  expect_rc 0
+  expect_calls 0 '^firebase deploy --only firestore:rules'
+  expect_calls 0 '^curl '
+  expect_row "rules" skipped 'not deployed \(pass --with-rules\)'
+  expect_no_out '^rules:'
+  expect_out '^Exit code: 0$'
   finish
 }
 
@@ -306,7 +515,13 @@ scenario_fn_new_updatetime() {
   expect_rc 0
   expect_row "function:backfill-archiver" deployed "backfillArchiver@.* backfillStatus@.* articleStatusDerive@.*"
   expect_row "function:dashboard-api" deployed "dashboardApi@.*"
+  expect_row "function:user-triggers" deployed "onUserArticleSave@.* invoker private"
+  expect_calls 3 '^gcloud run services get-iam-policy '
+  expect_calls 1 '^gcloud run services get-iam-policy onuserarticlesave '
+  expect_calls 1 '^gcloud run services get-iam-policy backfillarchiver '
+  expect_calls 1 '^gcloud run services get-iam-policy articlestatusderive '
   expect_no_out '^pages:dashboard '
+  expect_no_out '^rules:'
   finish
 }
 
@@ -316,7 +531,8 @@ scenario_fn_deploy_fails() {
   expect_rc 4
   expect_row "function:archive-gateway" failed "firebase deploy exited 4"
   expect_row "function:user-triggers" skipped '-'
-  expect_calls 0 '^gcloud '
+  expect_calls 0 '^gcloud functions describe'
+  expect_calls 0 '^gcloud run '
   finish
 }
 
@@ -383,6 +599,7 @@ scenario_induced_failure_rc() {
   expect_row "worker:gateway" skipped '-'
   expect_row "function:archive-gateway" skipped '-'
   expect_row "pages:dashboard" skipped '-'
+  expect_row "rules" skipped 'not deployed \(pass --with-rules\)'
   expect_out '^Exit code: 7$'
   finish
 }
@@ -410,6 +627,180 @@ scenario_unknown_flag() {
   expect_rc 2
   expect_out 'needs a worker name'
   NAME=unknown-flag
+  finish
+}
+
+# --- Rules step -------------------------------------------------------------------
+
+# grace_end_of <file>: the stamped grace end of a rules file (empty when none).
+grace_end_of() {
+  node "$WARG/scripts/rules-release.mjs" grace-end --in "$1"
+}
+
+# The first stamped deploy: no released Firestore rules, so the grace end is
+# the deploy start plus 30 days, stamped into the uploaded copy and warned.
+scenario_rules_first_stamp() {
+  start rules-first-stamp
+  local before after up end month=2592000000
+  before="$(node -e 'console.log(Date.now())')"
+  run_deploy rules-first-stamp -- --with-rules --skip-checks
+  after="$(node -e 'console.log(Date.now())')"
+  expect_rc 0
+  expect_row "rules:firestore" deployed "firestore-[0-9]+ sha256:[0-9a-f]{12} grace 20.*"
+  expect_row "rules:storage" deployed ".*htbase-archives-standard=storage-[0-9]+ sha256:[0-9a-f]{12}"
+  expect_calls 1 '^firebase deploy --only firestore:rules,storage --project trails-e428e --non-interactive --config firebase.json'
+  expect_out '^Grace end: .* \(first stamped deploy'
+  expect_out '^WARNING: rules: the released Firestore rules held no grace end'
+  up="$ROOT/state-rules-first-stamp/uploaded-firestore.rules"
+  if [ ! -f "$up" ]; then
+    fail "no rules were uploaded"
+  else
+    [ "$(grep -c '__GRACE_END_MS__' "$up")" -eq 1 ] || fail "the upload does not hold exactly one grace line"
+    if grep -qF 'timestamp.value(0); // __GRACE_END_MS__' "$up"; then fail "the upload still holds the placeholder"; fi
+    if grep -q $'\r' "$up"; then fail "the upload is not LF"; fi
+    end="$(grace_end_of "$up")"
+    if [ -z "$end" ] || [ "$end" -lt $((before + month)) ] || [ "$end" -gt $((after + month)) ]; then
+      fail "grace end '$end' is not within [$((before + month)), $((after + month))]"
+    fi
+  fi
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+# A later deploy reuses the grace end of the released rules.
+scenario_rules_reused_stamp() {
+  start rules-reused-stamp
+  local seed="$ROOT/seed-reused.rules"
+  node "$WARG/scripts/rules-release.mjs" stamp --in "$RULES_FIX/firestore.rules" --out "$seed" --end-ms 1893456000000
+  run_deploy rules-reused-stamp H_RELEASED_FIRESTORE="$seed" -- --with-rules --skip-checks
+  expect_rc 0
+  expect_out '^Grace end: 2030-01-01T00:00:00.000Z \(reused from the released rules\)$'
+  expect_no_out '^WARNING: rules:'
+  [ "$(grace_end_of "$ROOT/state-rules-reused-stamp/uploaded-firestore.rules" 2>/dev/null)" = 1893456000000 ] || fail "the upload does not hold the reused grace end"
+  expect_row "rules:firestore" deployed ".* grace 2030-01-01T00:00:00.000Z"
+  expect_row "rules:storage" deployed ".*"
+  finish
+}
+
+# Released rules that still hold the unstamped placeholder carry no grace end:
+# the deploy starts the period and says so.
+scenario_rules_released_zero() {
+  start rules-released-zero
+  run_deploy rules-released-zero H_RELEASED_FIRESTORE="$RULES_FIX/firestore.rules" -- --with-rules --skip-checks
+  expect_rc 0
+  expect_out '^Grace end: .* \(first stamped deploy'
+  expect_out '^WARNING: rules: the released Firestore rules held no grace end'
+  expect_row "rules:firestore" deployed ".*"
+  finish
+}
+
+# A rules deploy that exits 0 and releases nothing fails the hash check.
+scenario_rules_hash_mismatch() {
+  start rules-hash-mismatch
+  run_deploy rules-hash-mismatch H_RULES_NOOP=1 H_RELEASED_FIRESTORE="$RULES_FIX/firestore.rules" -- --with-rules --skip-checks
+  expect_rc 3
+  expect_row "rules:firestore" unverified "released ruleset sha256:[0-9a-f]{12} differs from the build copy sha256:[0-9a-f]{12}"
+  expect_row "rules:storage" skipped '-'
+  expect_out '^Exit code: 3$'
+  finish
+}
+
+scenario_rules_storage_drift() {
+  start rules-storage-drift
+  run_deploy rules-storage-drift H_RULES_DRIFT=storage -- --with-rules --skip-checks
+  expect_rc 3
+  expect_row "rules:firestore" deployed ".*"
+  expect_row "rules:storage" unverified "trails-e428e.firebasestorage.app released ruleset sha256:[0-9a-f]{12} differs from the build copy sha256:[0-9a-f]{12}"
+  finish
+}
+
+# Rules without the grace placeholder never deploy.
+scenario_rules_placeholder_missing() {
+  start rules-placeholder-missing
+  sed -i '/__GRACE_END_MS__/d' "$RULES_FIX/firestore.rules"
+  run_deploy rules-placeholder-missing -- --with-rules --skip-checks
+  cp "$RULES_SRC/firestore.rules" "$RULES_FIX/firestore.rules"
+  expect_rc 3
+  expect_row "rules:firestore" failed "firebase/firestore.rules must hold the grace placeholder exactly once"
+  expect_row "rules:storage" skipped '-'
+  expect_calls 0 '^firebase deploy --only firestore'
+  finish
+}
+
+# gcloud signed out: the rules step cannot read the released rules, so the run
+# stops before any upload.
+scenario_rules_gcloud_unauth() {
+  start rules-gcloud-unauth
+  run_deploy rules-gcloud-unauth HARNESS_GCLOUD_UNAUTH=1 -- --with-rules --skip-checks
+  expect_rc 3
+  expect_row "rules:firestore" failed 'gcloud is not signed in \(run gcloud auth login\)'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^firebase deploy'
+  finish
+}
+
+# The rules helper's own tests.
+scenario_rules_release_unit() {
+  start rules-release-unit
+  RC=0
+  OUT="$(cd "$WARG" && node --test --test-reporter=tap scripts/__tests__/rules-release.test.mjs 2>&1)" || RC=$?
+  expect_rc 0
+  expect_out '^# fail 0$'
+  finish
+}
+
+# --- Function secrets, deploy configuration and invokers ----------------------------
+
+scenario_fn_secret_missing() {
+  start fn-secret-missing
+  run_deploy fn-secret-missing H_FN_SECRETS_MISSING=DASHBOARD_API_KEY -- --with-functions --skip-checks
+  expect_rc 3
+  expect_row "function:dashboard-api" failed 'missing secret\(s\): DASHBOARD_API_KEY'
+  expect_row "function:archive-gateway" skipped '-'
+  expect_out 'gcloud secrets create'
+  expect_calls 1 '^gcloud secrets versions describe latest --secret DASHBOARD_API_KEY '
+  expect_calls 1 '^gcloud secrets versions describe latest --secret PUBLIC_API_KEY '
+  expect_calls 0 '^firebase deploy'
+  expect_calls 0 '^cf deploy'
+  finish
+}
+
+scenario_fn_secret_disabled() {
+  start fn-secret-disabled
+  run_deploy fn-secret-disabled H_FN_SECRETS_DISABLED=PUBLIC_API_KEY -- --with-functions --skip-checks
+  expect_rc 3
+  expect_row "function:user-triggers" failed 'missing secret\(s\): PUBLIC_API_KEY'
+  expect_out '^--- backfill-archiver is missing secret\(s\): PUBLIC_API_KEY$'
+  expect_calls 0 '^firebase deploy'
+  finish
+}
+
+scenario_fn_param_missing() {
+  start fn-param-missing
+  sed -i '/^DASHBOARD_USER_ID=/d' "$FIX/cloud-functions/dashboard-api/.env"
+  LABEL="$SHA-dirty"
+  run_deploy fn-param-missing -- --with-functions --skip-checks --allow-dirty
+  git -C "$FIX" checkout -q -- cloud-functions/dashboard-api/.env
+  expect_rc 3
+  expect_row "function:dashboard-api" failed 'cloud-functions/dashboard-api/.env must set DASHBOARD_USER_ID \(deploy configuration\)'
+  expect_calls 0 '^firebase deploy'
+  LABEL="$SHA"
+  finish
+}
+
+scenario_fn_public_invoker() {
+  start fn-public-invoker
+  run_deploy fn-public-invoker H_PUBLIC_INVOKER=onuserarticlesave:allUsers -- --with-functions --skip-checks
+  expect_rc 3
+  expect_row "function:archive-gateway" deployed "archiveGateway@.*"
+  expect_row "function:user-triggers" failed 'public invoker on onUserArticleSave: roles/run.invoker allUsers'
+  expect_row "function:backfill-archiver" skipped '-'
+  run_deploy fn-public-invoker-auth H_PUBLIC_INVOKER=backfillarchiver:allAuthenticatedUsers -- --with-functions --skip-checks
+  expect_rc 3
+  expect_row "function:user-triggers" deployed "onUserArticleSave@.* invoker private"
+  expect_row "function:backfill-archiver" failed 'public invoker on backfillArchiver: roles/run.invoker allAuthenticatedUsers'
+  expect_row "function:dashboard-api" skipped '-'
+  NAME="fn-public-invoker"
   finish
 }
 
@@ -507,11 +898,171 @@ scenario_function_exports_sync() {
   finish
 }
 
+# private_functions_for() names only exported functions, and every other
+# exported function is an HTTP function (export const <name> = onRequest(), so
+# no trigger or scheduled function escapes the invoker check.
+scenario_invoker_table_sync() {
+  start invoker-table-sync
+  local fn name
+  for fn in "${FUNCTIONS[@]}"; do
+    for name in $(private_functions_for "$fn"); do
+      case " $(function_names_for "$fn") " in
+        *" $name "*) ;;
+        *) fail "$fn: private_functions_for() names $name, which function_names_for() does not" ;;
+      esac
+    done
+    for name in $(function_names_for "$fn"); do
+      case " $(private_functions_for "$fn") " in
+        *" $name "*) continue ;;
+      esac
+      grep -Eq "^export const $name = onRequest\(" "$WARG/cloud-functions/$fn/src/"*.ts ||
+        fail "$fn: $name is not in private_functions_for() and is not defined with onRequest("
+    done
+  done
+  finish
+}
+
+# No function folder's firebase.json carries rules, so rules deploy only
+# through the rules step.
+scenario_function_configs_no_rules() {
+  start function-configs-no-rules
+  RC=0
+  OUT="$(node -e '
+    const fs = require("fs");
+    const path = require("path");
+    const dir = path.join(process.argv[1], "cloud-functions");
+    let n = 0;
+    for (const fn of fs.readdirSync(dir)) {
+      const f = path.join(dir, fn, "firebase.json");
+      if (!fs.existsSync(f)) continue;
+      const config = JSON.parse(fs.readFileSync(f, "utf8"));
+      for (const key of ["firestore", "storage"]) {
+        if (key in config) { console.log(fn + "/firebase.json has a " + key + " key"); n++; }
+      }
+    }
+    process.exit(n ? 1 : 0);
+  ' "$WARG" 2>&1)" || RC=$?
+  expect_rc 0
+  finish
+}
+
+# --functions-only deploys the four functions and nothing else: no worker
+# target, no worker secret preflight, no dashboard.
+scenario_functions_only() {
+  start functions-only
+  run_deploy functions-only -- --functions-only
+  expect_rc 0
+  local fn
+  for fn in "${FUNCTIONS[@]}"; do
+    expect_row "function:$fn" deployed ".*@20[0-9-]+T.*"
+  done
+  expect_no_out '^worker:'
+  expect_no_out '^pages:dashboard '
+  expect_out '^=== Secret preflight skipped \(--functions-only\) ===$'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^cf workers secrets list'
+  expect_calls 0 '^wrangler '
+  expect_calls 4 '^firebase deploy --only functions:'
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_functions_only_usage() {
+  start functions-only-usage
+  run_deploy functions-only-all -- --functions-only --all
+  expect_rc 2
+  expect_out 'cannot be combined with'
+  expect_calls 0 '^firebase '
+  run_deploy functions-only-pages -- --functions-only --with-pages
+  expect_rc 2
+  expect_out 'cannot be combined with --with-pages'
+  expect_calls 0 '^firebase '
+  run_deploy functions-only-allow-missing -- --functions-only --allow-missing-secrets gcs
+  expect_rc 2
+  expect_out 'cannot be combined with --allow-missing-secrets'
+  NAME=functions-only-usage
+  finish
+}
+
+# --rules-only deploys the Firestore and Storage rules and nothing else: no
+# worker, no function, no secret preflight; the released-hash check still runs.
+scenario_rules_only() {
+  start rules-only
+  run_deploy rules-only -- --rules-only --skip-checks
+  expect_rc 0
+  expect_row "rules:firestore" deployed "firestore-[0-9]+ sha256:[0-9a-f]{12} grace 20.*"
+  expect_row "rules:storage" deployed ".*"
+  expect_no_out '^worker:'
+  expect_no_out '^function:'
+  expect_no_out '^pages:dashboard '
+  expect_out '^=== Secret preflight skipped \(--rules-only\) ===$'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^cf workers secrets list'
+  expect_calls 0 '^firebase deploy --only functions:'
+  expect_calls 1 '^firebase deploy --only firestore:rules,storage --project trails-e428e --non-interactive --config firebase.json'
+  expect_out '^Exit code: 0$'
+  finish
+}
+
+scenario_rules_only_usage() {
+  start rules-only-usage
+  run_deploy rules-only-all -- --rules-only --all
+  expect_rc 2
+  expect_out 'cannot be combined with --all'
+  expect_calls 0 '^firebase '
+  run_deploy rules-only-functions -- --rules-only --with-functions
+  expect_rc 2
+  expect_out 'cannot be combined with --with-functions'
+  expect_calls 0 '^firebase '
+  run_deploy rules-only-functions-only -- --rules-only --functions-only
+  expect_rc 2
+  expect_out 'cannot be combined with --functions-only'
+  NAME=rules-only-usage
+  finish
+}
+
+# A function .env that does not state the dual-accept switch stops the run
+# before any function deploys.
+scenario_dual_accept_unset() {
+  start dual-accept-unset
+  local env_file="$FIX/cloud-functions/dashboard-api/.env"
+  sed -i '/^KEY_ROTATION_DUAL_ACCEPT=/d' "$env_file"
+  run_deploy dual-accept-unset -- --functions-only --skip-checks --allow-dirty
+  git -C "$FIX" checkout -q -- cloud-functions/dashboard-api/.env
+  expect_rc 3
+  expect_out 'cloud-functions/dashboard-api/.env must set KEY_ROTATION_DUAL_ACCEPT=true or =false'
+  expect_calls 0 '^firebase deploy'
+  expect_out '^Exit code: 3$'
+  finish
+}
+
+# A function .env that assigns a Secret Manager name stops the run before any
+# function deploys.
+scenario_secret_in_env() {
+  start secret-in-env
+  echo "DASHBOARD_API_KEY=x" >>"$FIX/cloud-functions/dashboard-api/.env"
+  run_deploy secret-in-env -- --functions-only --skip-checks --allow-dirty
+  git -C "$FIX" checkout -q -- cloud-functions/dashboard-api/.env
+  expect_rc 3
+  expect_out 'cloud-functions/dashboard-api/.env assigns DASHBOARD_API_KEY, which is a Secret Manager secret; remove the line'
+  expect_calls 0 '^firebase deploy'
+  expect_out '^Exit code: 3$'
+  finish
+}
+
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
   quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
-  dirty-refused dirty-allowed fn-old-updatetime fn-new-updatetime fn-deploy-fails
+  dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails
   pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
-  worker-list-sync secrets-doc-sync function-exports-sync)
+  worker-list-sync secrets-doc-sync function-exports-sync
+  functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env
+  rules-first-stamp rules-reused-stamp rules-released-zero rules-hash-mismatch rules-storage-drift
+  rules-placeholder-missing rules-gcloud-unauth rules-release-unit
+  fn-secret-missing fn-secret-disabled fn-param-missing fn-public-invoker
+  invoker-table-sync function-configs-no-rules
+  link-check-plans-change link-check-not-production-dry-run link-check-missing-report link-check-skipped
+  link-check-rules-only rules-gate-marker-removals rules-gate-missing-report rules-gate-not-production
+  rules-gate-before-workers rules-gate-skipped rules-gate-link-changes-pass)
 if [ $# -gt 0 ]; then
   SELECTED=("$@")
 else

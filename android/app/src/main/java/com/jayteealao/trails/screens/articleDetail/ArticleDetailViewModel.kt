@@ -16,6 +16,7 @@ import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -234,6 +235,13 @@ class ArticleDetailViewModel @Inject constructor(
                             Timber.e(e, "Failed to sync archives for $itemId")
                         } finally {
                             _archiveSyncing.value = false
+                        }
+                        try {
+                            archiveService.applyWargMetadata(itemId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Timber.e(e, "Failed to apply Warg metadata for $itemId")
                         }
                     }
                 }

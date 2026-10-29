@@ -1,6 +1,6 @@
 interface Env {
   DASHBOARD_API_URL: string;
-  INTERNAL_API_KEY: string;
+  DASHBOARD_API_KEY: string;
 }
 
 export async function proxyToApi(
@@ -12,13 +12,16 @@ export async function proxyToApi(
   if (!dashboardApiUrl) {
     return Response.json({ error: 'DASHBOARD_API_URL not configured' }, { status: 500 });
   }
+  if (!env.DASHBOARD_API_KEY) {
+    return Response.json({ error: 'DASHBOARD_API_KEY not configured' }, { status: 500 });
+  }
 
   const base = dashboardApiUrl.endsWith('/') ? dashboardApiUrl : dashboardApiUrl + '/';
   const target = new URL(path, base);
   if (search) target.search = search;
 
   const response = await fetch(target.toString(), {
-    headers: { 'X-Internal-API-Key': env.INTERNAL_API_KEY },
+    headers: { 'X-Internal-API-Key': env.DASHBOARD_API_KEY },
     signal: AbortSignal.timeout(30000),
   });
 

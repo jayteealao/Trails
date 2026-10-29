@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.settings
 
+import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.services.firestore.SyncStatus
 
 /**
@@ -16,7 +17,13 @@ data class SettingsState(
     val syncStatus: SyncStatus = SyncStatus.Idle,
     val lastError: String? = null,
     val userEmail: String? = null,
-    val isAnonymous: Boolean = false
+    val isAnonymous: Boolean = false,
+    /** Articles skipped after 3 failed sync runs; the failure row shows when above 0. */
+    val syncFailureCount: Int = 0,
+    val isRetryingFailures: Boolean = false,
+    /** The last Retry did not finish cleanly; the row stays with its failed line. */
+    val retryFailed: Boolean = false,
+    val unsyncedChangesDialog: UnsyncedChangesDialogState = UnsyncedChangesDialogState.Hidden,
 )
 
 /**
@@ -27,4 +34,6 @@ sealed interface SettingsEvent {
     data object SemanticCacheCleared : SettingsEvent
     data object SyncCompleted : SettingsEvent
     data object LoggedOut : SettingsEvent
+    /** A Retry on the failure row finished cleanly. */
+    data object RetrySucceeded : SettingsEvent
 }

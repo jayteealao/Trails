@@ -175,3 +175,79 @@ test('returns 404 for an anonymous uid that does not own the article', async () 
 
   assert.equal(captured.status, 404);
 });
+
+// The caller owns the user article; the marker for its shared article is present or not.
+function dbWithMarker(hasMarker: boolean): Firestore {
+  const snap = (data: Record<string, unknown> | undefined) => ({
+    exists: data !== undefined,
+    data: () => data,
+  });
+  const db = {
+    collection(name: string) {
+      if (name === 'users') {
+        return {
+          doc: () => ({
+            collection: (sub: string) => ({
+              doc: () => ({
+                get: async () =>
+                  sub === 'articleMarkers'
+                    ? snap(hasMarker ? { key: 'item1234', source: 'trigger' } : undefined)
+                    : snap({}),
+              }),
+            }),
+          }),
+        };
+      }
+      return {
+        doc: () => ({
+          get: async () =>
+            snap({
+              archives: {
+                readability: {
+                  status: 'success',
+                  gcs_path: 'gs://htbase-archives-standard/a/read.json',
+                },
+              },
+            }),
+        }),
+      };
+    },
+  };
+  return db as unknown as Firestore;
+}
+
+test('refuses with 404 and never signs when the caller has no link marker', async () => {
+  let signCalls = 0;
+  const sign: ArchiveSigner = async () => {
+    signCalls += 1;
+    return 'should-not-happen';
+  };
+  const { res, captured } = makeRes();
+
+  await handleAppSignedUrl(
+    makeReq({ itemId: 'item1234', archiveKey: 'readability' }),
+    res,
+    'u1',
+    dbWithMarker(false),
+    sign
+  );
+
+  assert.equal(captured.status, 404);
+  assert.equal(signCalls, 0);
+});
+
+test('returns the signed URL when the caller holds its link marker', async () => {
+  const sign: ArchiveSigner = async () => 'https://signed.example/ok';
+  const { res, captured } = makeRes();
+
+  await handleAppSignedUrl(
+    makeReq({ itemId: 'item1234', archiveKey: 'readability' }),
+    res,
+    'u1',
+    dbWithMarker(true),
+    sign
+  );
+
+  assert.equal(captured.status, undefined);
+  assert.equal((captured.body as { url?: string } | undefined)?.url, 'https://signed.example/ok');
+});

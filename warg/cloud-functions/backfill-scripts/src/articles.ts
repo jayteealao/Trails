@@ -89,3 +89,46 @@ export async function readExistingMarkerKeys(
 
   return keys;
 }
+
+/** The top-level shared-article collection (`articles/{id}`). */
+export const SHARED_ARTICLES_COLLECTION = 'articles';
+
+/** `articles` — the top-level shared-article collection. */
+export function sharedArticlesCollection(db: Firestore): CollectionReference<DocumentData> {
+  return db.collection(SHARED_ARTICLES_COLLECTION);
+}
+
+/**
+ * Page through the top-level `articles` collection ordered by document id,
+ * yielding each snapshot. Same cursor loop as `streamUserArticles`.
+ */
+export async function* streamSharedArticles(
+  db: Firestore,
+  pageSize = 500,
+): AsyncGenerator<QueryDocumentSnapshot<DocumentData>> {
+  const collection = sharedArticlesCollection(db);
+  let cursor: string | null = null;
+
+  for (;;) {
+    let query = collection.orderBy(FieldPath.documentId()).limit(pageSize);
+    if (cursor) query = query.startAfter(cursor);
+
+    const snapshot = await query.get();
+    if (snapshot.empty) break;
+
+    for (const doc of snapshot.docs) yield doc;
+
+    if (snapshot.docs.length < pageSize) break;
+    cursor = snapshot.docs[snapshot.docs.length - 1]!.id;
+  }
+}
+
+/**
+ * Every user id under `users`, sorted. Uses `listDocuments()`, which also
+ * returns users whose own doc is missing but who hold subcollections (the
+ * usual shape: a user is only `users/{uid}/articles/...`).
+ */
+export async function listUserIds(db: Firestore): Promise<string[]> {
+  const refs = await db.collection(USERS_COLLECTION).listDocuments();
+  return refs.map((ref) => ref.id).sort();
+}

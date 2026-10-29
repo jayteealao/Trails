@@ -30,17 +30,29 @@ All paths below are relative to `users/{uid}/`.
 |---|---|---|
 | `USERS_COLLECTION = "users"` | `users/{uid}` | User document (holds `lastSyncTimestamp`) |
 | `ARTICLES_COLLECTION = "articles"` | `articles/{itemId}` | Article documents |
-| `ARTICLE_MARKERS_COLLECTION = "articleMarkers"` | `articleMarkers/{key}` | Existence markers (gating the article read rule) |
 | `TAGS_COLLECTION = "tags"` | `articles/{itemId}/tags/{itemId}_{tag}` | Tag subcollection |
-| `IMAGES_COLLECTION = "images"` | `articles/{itemId}/images/{imageId}` | Image subcollection |
-| `VIDEOS_COLLECTION = "videos"` | `articles/{itemId}/videos/{videoId}` | Video subcollection |
-| `AUTHORS_COLLECTION = "authors"` | `articles/{itemId}/authors/{authorId}` | Author subcollection |
+| `IMAGES_COLLECTION = "images"` | `articles/{itemId}/images/{rowDocId(imageId)}` | Image subcollection |
+| `VIDEOS_COLLECTION = "videos"` | `articles/{itemId}/videos/{rowDocId(videoId)}` | Video subcollection |
+| `AUTHORS_COLLECTION = "authors"` | `articles/{itemId}/authors/{rowDocId(authorId)}` | Author subcollection |
 | `DOMAIN_METADATA_COLLECTION = "domain_metadata"` | `articles/{itemId}/domain_metadata/metadata` | Domain metadata |
 | `ARTICLE_TEXT_COLLECTION = "text"` | `articles/{itemId}/text/content` | Large-text overflow store |
+
+The app writes no `articleMarkers/{key}` doc and no `canonicalId`. The server
+writes both: the save trigger links each new user article to its shared article
+and writes the marker that opens it (`shared-types/MarkerSchema.md`).
 
 The string literals for all collection names live exclusively in
 `FirestoreBackupService.companion`. No other class constructs these path strings —
 they are composed via private helpers (`getUserArticlesCollection`, etc.).
+
+Row documents (images, authors, videos) are keyed by `rowDocId(id)` from
+`ArticleRowsCodec`: the row id URL-encoded, with `.`, `..` and `__x__` escaped, so an
+id such as the `<itemId>:byline` author id is a valid document id. Restore reads the
+row id from the document's data, not from its id.
+
+The app writes no existence markers. The `users/{uid}/articleMarkers/{key}` documents
+that gate the shared-article read rule are written by the server; see
+[`shared-types/MarkerSchema.md`](../../shared-types/MarkerSchema.md).
 
 ---
 
@@ -105,16 +117,77 @@ commit is needed for tags.
 Both `backupArticle` (single-article canonical path) and `backupArticlesPaginated`
 (chunk batch) delegate to `addArticleToBatch`.
 
-### Chunk size and the Firestore rules budget
+### Chunk size
 
 ```kotlin
 private const val WRITE_BATCH_LIMIT = 20
 ```
 
-The tightened Firestore security rules call `getAfter()` on the article document
-for each articleMarker write in a batch. Firestore allows at most 20
-document-access calls per batched write. Each article contributes one unique path,
-so chunk sizes must not exceed 20. The `WRITE_BATCH_LIMIT` constant enforces this.
+At most 20 articles go into one batched write, which keeps each commit small.
+The cap was first set by the rules budget of the app's marker writes (one
+`getAfter()` per marker, at most 20 document accesses per batch); the app no
+longer writes markers, so that budget no longer applies, and the cap stays for
+commit size only (the comment on `WRITE_BATCH_LIMIT` in
+`FirestoreBackupService.kt`).
+
+---
+
+## Push runs
+
+`FirestoreSyncManager.pushLocalChanges()` returns a `SyncRunResult` (pushed, failed,
+the transient error that stopped the run, or no user), and the workers map it to
+WorkManager results.
+
+- **Where the bookkeeping lives.** The backed-up stamp and the strike counter live in
+  the device-local `sync_state` table, one row per article that has a stamp or a strike,
+  kept apart from the articles so a stamp or a strike does not rewrite the search index.
+  A missing row means never backed up and no strikes; every sync query reads it with a
+  left join (`IFNULL(s.sync_failures, 0)`, `s.backed_up_at IS NULL OR ...`).
+- **What a run sends.** After the first sync, a run selects every row whose current
+  version this device has not backed up (no stamp, or a stamp older than
+  `timeUpdated`), changed up to the run's start, in keyset pages of
+  (`timeUpdated`, `itemId`) (`ArticleSql.CHANGED_SINCE_KEYSET`). Last sync is
+  account-wide (another device moves it), so it does not decide which rows are unsent.
+  A first sync sends every row. Deleted rows are sent as `deletedAt`.
+- **The stamp.** Each pushed article is stamped with the `timeUpdated` it was sent
+  with, and only while its row still has that version
+  (`ArticleDao.recordPushResults`, the only place a push writes the stamp). An edit
+  made while the push is in flight leaves the row unsynced for the next run.
+- **Failures.** A transient failure (offline, timeout, no user) stops the run with
+  nothing recorded. Any other chunk failure retries the chunk one article at a time;
+  an article that fails on its own gets a strike (the `sync_state` counter), and after
+  `MAX_SYNC_FAILURES` (3) the push skips it. Settings shows a row with the skipped
+  count and a Retry action (`SyncFailures.retry`). A failed Retry keeps the row with a
+  failed-retry line until the next clean sync.
+- **Last sync** moves only when a run finishes with nothing failed.
+- **What each push sends with an article.** `pushChunk` loads the article's tags and its
+  image, author and video rows, so the push loop, the per-article retry, the
+  never-backed-up sweep and the inline backup after a save
+  (`FirestoreSyncManager.backupArticleNow`) all send them.
+
+## Owner guard and wipe
+
+- `LocalDataOwner` stores the uid that owns the local library. Every push, restore and
+  inline backup runs only when the signed-in uid owns it (or no owner is stored).
+- One gate (`syncGate`) serialises push runs, full syncs, the inline backup and the
+  wipe. `LocalDataReset.wipeLocalData()` runs inside `runExclusive`: a restore in
+  progress stops at its next page, a push stops between chunks, and no run writes the
+  cleared library back.
+- "Clear data" and a sign-in by a different uid go through `PushThenWipe`: pending
+  changes are pushed first (at most 15 seconds), and when some stay unsent the person
+  decides. The wipe deletes every table, the archive folder and the image cache, and
+  asks for the Firestore on-device cache to be cleared at the next app start
+  (`FirestoreCacheReset`; Firestore clears it only before its client starts).
+- "Logout only" first sends pending changes while the owner is still signed in
+  (`PushThenWipe.pushBeforeSignOut`, at most 15 seconds), then signs out; it keeps every
+  table, the archive folder and the owner. A later sign-in by another account clears the
+  device without a question when nothing is left unsent; otherwise the switch dialog asks
+  (its safe action cancels the sign-in).
+- Known limit: when no owner is stored, the first account to sign in adopts the
+  library that is on the device and backs it up to that account. This happens on a
+  device that was updated while signed out (an older build kept the library at
+  logout) or when the stored owner is lost. The app cannot tell whose library it is,
+  so it does not ask; a person handing over a device should use "Clear data" first.
 
 ---
 
@@ -192,20 +265,19 @@ isolation impossible without a schema migration).
 
 ---
 
-## FTS search fix
+## Search
 
-`ArticleRepositoryImpl.searchWithScore(query)` computes:
+Search runs on the FTS5 index `article_fts` over `title` and `text` (tokenizer
+`porter unicode61 remove_diacritics 2`), kept in step with `article` by Room's content
+triggers.
 
-```kotlin
-val sanitizedQuery = sanitizeSearchQuery("*$query*")
-return articleDao.searchArticlesWithMatchInfo(sanitizedQuery)
-```
-
-Previously the raw `query` (not `sanitizedQuery`) was passed to the DAO — the
-sanitized value was computed but silently discarded. The fix passes `sanitizedQuery`
-to the DAO.
-
-**Result-set impact:** queries containing FTS-special characters (`*`, unbalanced
-quotes, `AND`/`OR`/`NEAR` operators) now return results matching sanitized +
-wildcard semantics. Queries that previously caused a malformed `MATCH` expression
-(which would throw or return empty) now return correct results.
+- `FtsMatchQuery.build(input)` turns each typed word, and each quoted phrase, into a
+  quoted FTS5 string and joins them with `OR`, so any word matches and operator words
+  and symbols (`NEAR`, `AND`, `-`, `*`, `"`) match as literal words.
+- `ArticleSql.SEARCH_RANKED` orders by `bm25(article_fts)` (best first), leaves out
+  deleted articles and returns at most `SEARCH_RESULT_LIMIT = 100` rows; the snippet
+  marks matched words in bold.
+- `FtsIndexCheckCallback` compares the index row count with `article` at every open and
+  rebuilds the index when they differ.
+- `ArticleSearchViewModel.search` cancels the previous search, so only the newest
+  result reaches the screen.

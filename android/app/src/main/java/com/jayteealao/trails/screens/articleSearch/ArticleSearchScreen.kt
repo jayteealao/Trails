@@ -87,7 +87,7 @@ internal fun ArticleSearchContent(
     useCardLayout: Boolean = false,
 ) {
     val searchBarContainerColor = searchBarState.searchBarContainerColor()
-    val searchResults = viewStore.state.combinedResults
+    val searchResults = viewStore.state.searchResults
 
     Column(
         modifier = modifier,
@@ -157,8 +157,7 @@ private fun ArticleSearchPreview() {
             searchBarState = previewSearchBarState(query = "trail"),
             viewStore = ViewStore {
                 ArticleSearchState(
-                    searchResultsLocal = PreviewFixtures.articleList,
-                    searchResultsHybrid = emptyList(),
+                    searchResults = PreviewFixtures.articleList,
                     isSearching = false
                 )
             },
@@ -180,8 +179,7 @@ private fun ArticleSearchEmptyPreview() {
             searchBarState = previewSearchBarState(active = true, query = "winter"),
             viewStore = ViewStore {
                 ArticleSearchState(
-                    searchResultsLocal = emptyList(),
-                    searchResultsHybrid = emptyList(),
+                    searchResults = emptyList(),
                     isSearching = false
                 )
             },

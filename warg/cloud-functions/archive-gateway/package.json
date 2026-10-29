@@ -8,6 +8,7 @@
     "build:test": "tsc",
     "build:deploy": "node ../../scripts/build-function-bundle.mjs",
     "typecheck": "tsc --noEmit",
+    "test": "pnpm run build:test && node --test \"dist/__tests__/*.test.js\"",
     "serve": "firebase emulators:start --only functions",
     "deploy": "node -e \"console.error('Deploy Cloud Functions with scripts/deploy.sh: from warg/, run pnpm deploy:all or bash scripts/deploy.sh --with-functions');process.exit(1)\""
   },

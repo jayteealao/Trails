@@ -1,15 +1,15 @@
 package com.jayteealao.trails.screens.settings
 
 import android.app.Activity.RESULT_OK
+import android.content.Context
 import android.content.res.Configuration
 import android.text.format.DateUtils
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,8 +37,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -45,6 +54,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.GoogleAuthProvider
 import com.jayteealao.trails.R
+import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.jayteealao.trails.services.firestore.SyncStatus
 import io.yumemi.tartlet.ViewStore
@@ -72,8 +82,9 @@ fun SettingsScreen(
         // Could show a toast or snackbar here
     }
 
+    val context = LocalContext.current
     viewStore.handle<SettingsEvent.ShowToast> { event ->
-        // Could show a toast or snackbar here
+        showSettingsMessage(context, event.message)
     }
 
     viewStore.handle<SettingsEvent.LoggedOut> {
@@ -321,11 +332,37 @@ internal fun SettingsScreenContent(
             }
         }
 
+        SyncFailureRow(
+            count = viewStore.state.syncFailureCount,
+            isRetrying = viewStore.state.isRetryingFailures,
+            retryFailed = viewStore.state.retryFailed,
+            onRetry = { viewStore.action { retrySyncFailures() } },
+        )
+
+        // After a successful Retry the row goes away; focus moves to Sync Now once it is
+        // enabled. A background sync never moves focus. A disabled button cannot take
+        // focus (the retry's own sync may still run), so the move waits for Sync Now.
+        val syncNowFocus = remember { FocusRequester() }
+        // No sync while the local data is being cleared.
+        val syncNowEnabled = !viewStore.state.isSyncing &&
+            viewStore.state.unsyncedChangesDialog == UnsyncedChangesDialogState.Hidden
+        var focusSyncNowWhenEnabled by remember { mutableStateOf(false) }
+        viewStore.handle<SettingsEvent.RetrySucceeded> {
+            focusSyncNowWhenEnabled = true
+        }
+        LaunchedEffect(focusSyncNowWhenEnabled, syncNowEnabled) {
+            if (focusSyncNowWhenEnabled && syncNowEnabled) {
+                runCatching { syncNowFocus.requestFocus() }
+                focusSyncNowWhenEnabled = false
+            }
+        }
+
         // Manual Sync Button with Loading Indicator
         Button(
             onClick = { viewStore.action { performManualSync() } },
-            enabled = !viewStore.state.isSyncing,
+            enabled = syncNowEnabled,
             modifier = Modifier
+                .focusRequester(syncNowFocus)
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
                 .height(48.dp)
@@ -380,6 +417,13 @@ internal fun SettingsScreenContent(
             )
         }
     }
+
+    UnsyncedChangesDialog(
+        state = viewStore.state.unsyncedChangesDialog,
+        onKeep = { viewStore.action { keepLocalData() } },
+        onConfirm = { viewStore.action { clearAnyway() } },
+        onCancelPush = { viewStore.action { cancelUnsyncedPush() } },
+    )
 }
 
 @Preview(name = "Settings • Freedium Enabled", showBackground = true)
@@ -436,4 +480,9 @@ private fun formatRelativeTime(timestamp: Long): String {
         DateUtils.MINUTE_IN_MILLIS,
         DateUtils.FORMAT_ABBREV_RELATIVE
     ).toString()
+}
+
+/** Show a one-line message from Settings, such as a failed retry, as a toast. */
+internal fun showSettingsMessage(context: Context, message: String) {
+    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }

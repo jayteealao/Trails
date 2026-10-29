@@ -1,12 +1,16 @@
 package com.jayteealao.trails.data.local.database
 
 import androidx.paging.PagingSource
-import androidx.room.Dao
-import androidx.room.Query
-import androidx.room.RewriteQueriesToDropUnusedColumns
-import androidx.room.RoomWarnings
-import androidx.room.Transaction
-import androidx.room.Upsert
+import androidx.room3.Dao
+import androidx.room3.DaoReturnTypeConverters
+import androidx.room3.Insert
+import androidx.room3.OnConflictStrategy
+import androidx.room3.Query
+import androidx.room3.RewriteQueriesToDropUnusedColumns
+import androidx.room3.RoomWarnings
+import androidx.room3.Transaction
+import androidx.room3.Upsert
+import androidx.room3.paging.PagingSourceDaoReturnTypeConverter
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.network.ArticleAuthors
 import com.jayteealao.trails.network.ArticleData
@@ -16,130 +20,92 @@ import com.jayteealao.trails.network.ArticleVideos
 import com.jayteealao.trails.network.DomainMetadata
 import kotlinx.coroutines.flow.Flow
 
+/** Failed push runs after which the sync skips an article until the person retries it. */
+const val MAX_SYNC_FAILURES = 3
+
 @Dao
+@DaoReturnTypeConverters(PagingSourceDaoReturnTypeConverter::class)
 interface ArticleDao {
-
-    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
-    @Query(
-        """
-        SELECT itemId, title, COALESCE(url, givenUrl) AS url,
-        CASE WHEN favorite = '1' OR timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN timeRead IS NOT NULL AND timeRead > 0 THEN 1 ELSE 0 END AS isRead
-        FROM article
-        ORDER BY timeUpdated DESC
-        """
-    )
-    fun getArticles(): PagingSource<Int, ArticleItem>
-
-    @Query("SELECT * FROM article ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
-    fun getArticles(offset: Int, limit: Int): List<Article>
-
-    /**
-     * WARNING: This method loads ALL articles including the text field into memory.
-     * For large datasets, this can cause OutOfMemoryError.
-     * Use getAllArticlesPaginated() instead for safer memory usage.
-     * @deprecated Use getAllArticlesPaginated() to avoid OOM errors
-     */
-    @Deprecated(
-        message = "Use getAllArticlesPaginated() to avoid OutOfMemoryError with large datasets",
-        replaceWith = ReplaceWith("getAllArticlesPaginated(limit, offset)")
-    )
-    @Query("SELECT * FROM article WHERE deleted_at IS NULL ORDER BY timeAdded DESC")
-    suspend fun getAllArticles(): List<Article>
-
-    @Query("SELECT * FROM article WHERE deleted_at IS NULL ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
-    suspend fun getAllArticlesPaginated(limit: Int, offset: Int): List<Article>
 
     @Query("SELECT COUNT(*) FROM article WHERE deleted_at IS NULL")
     suspend fun countAllArticles(): Int
 
-    @Query("SELECT * FROM article WHERE timeUpdated > :since AND deleted_at IS NULL ORDER BY timeUpdated DESC")
-    suspend fun getArticlesModifiedSince(since: Long): List<Article>
+    /**
+     * Keyset page of the rows a push run sends, changed up to [until]: up to [limit] rows
+     * after ([afterTimeUpdated], [afterItemId]) in (timeUpdated, itemId) order. A [since] of
+     * 0 or more selects only rows not backed up at their current version; a negative one
+     * selects every row. Includes deleted rows (a deletion is pushed as `deletedAt`); skips
+     * rows at MAX_SYNC_FAILURES.
+     */
+    @Query(ArticleSql.CHANGED_SINCE_KEYSET)
+    suspend fun getArticlesModifiedSinceKeyset(
+        since: Long,
+        until: Long,
+        afterTimeUpdated: Long,
+        afterItemId: String,
+        limit: Int,
+    ): List<Article>
 
-    @Query("SELECT * FROM article WHERE timeUpdated > :since AND deleted_at IS NULL ORDER BY timeUpdated DESC LIMIT :limit OFFSET :offset")
-    suspend fun getArticlesModifiedSincePaginated(since: Long, limit: Int, offset: Int): List<Article>
+    /** Rows [getArticlesModifiedSinceKeyset] selects, deleted rows included, skipped rows left out. */
+    @Query(ArticleSql.COUNT_CHANGED_SINCE)
+    suspend fun countArticlesModifiedSince(since: Long, until: Long): Int
 
-    @Query("SELECT COUNT(*) FROM article WHERE timeUpdated > :since AND deleted_at IS NULL")
-    suspend fun countArticlesModifiedSince(since: Long): Int
+    /** Rows changed in the window (since, until], sent or not, skipped rows left out. */
+    @Query(ArticleSql.COUNT_CHANGED_IN_WINDOW)
+    suspend fun countArticlesChangedInWindow(since: Long, until: Long): Int
 
-    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
-    @Query("""
-        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
-        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
-        GROUP_CONCAT(tag.tag) AS tagsString
-        FROM article AS art
-        LEFT JOIN article_tags AS tag ON art.itemId = tag.itemId
-        WHERE art.archived_at IS NULL AND art.deleted_at IS NULL
-        GROUP BY art.itemId
-        ORDER BY art.timeAdded DESC
-    """)
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
+    @Query(ArticleSql.MAIN_LIST)
     fun getArticlesWithTags(): PagingSource<Int, ArticleItem>
 
-    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
-    @Query("""
-        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
-        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
-        GROUP_CONCAT(tag.tag) AS tagsString
-        FROM article AS art
-        LEFT JOIN article_tags AS tag ON art.itemId = tag.itemId
-        WHERE art.timeFavorited > 0 AND art.archived_at IS NULL AND art.deleted_at IS NULL
-        GROUP BY art.itemId
-        ORDER BY art.timeFavorited DESC, art.timeAdded DESC
-    """)
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
+    @Query(ArticleSql.FAVORITE_LIST)
     fun getFavoriteArticlesWithTags(): PagingSource<Int, ArticleItem>
 
-    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
-    @Query("""
-        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
-        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
-        GROUP_CONCAT(tag.tag) AS tagsString
-        FROM article AS art
-        LEFT JOIN article_tags AS tag ON art.itemId = tag.itemId
-        WHERE art.archived_at IS NOT NULL AND art.deleted_at IS NULL
-        GROUP BY art.itemId
-        ORDER BY art.archived_at DESC, art.timeAdded DESC
-    """)
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
+    @Query(ArticleSql.ARCHIVE_LIST)
     fun getArchivedArticlesWithTags(): PagingSource<Int, ArticleItem>
 
-    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
-    @Query("""
-        SELECT art.itemId, art.title, COALESCE(art.url, art.givenUrl) AS url, art.image,
-        CASE WHEN art.favorite = '1' OR art.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN art.timeRead IS NOT NULL AND art.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
-        GROUP_CONCAT(allTags.tag) AS tagsString
-        FROM article AS art
-        INNER JOIN article_tags AS selectedTag ON
-            (art.itemId = selectedTag.itemId OR art.resolvedId = selectedTag.itemId)
-            AND selectedTag.tag = :tag
-        LEFT JOIN article_tags AS allTags ON
-            art.itemId = allTags.itemId OR art.resolvedId = allTags.itemId
-        WHERE art.deleted_at IS NULL
-        GROUP BY art.itemId
-        ORDER BY art.timeAdded DESC
-    """)
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
+    @Query(ArticleSql.TAG_LIST_BY_TAG)
     fun getArticlesWithTag(tag: String): PagingSource<Int, ArticleItem>
 
-    @Query(
-        """
-        SELECT tag
-        FROM article_tags
-        GROUP BY tag
-        ORDER BY LOWER(tag)
-    """
-    )
+    /**
+     * Tags with at least one non-deleted article, matched by itemId or resolvedId, so the
+     * list matches [getArticlesWithTag]. Reading `article` also makes the Flow re-emit on deletes.
+     */
+    @Query(ArticleSql.ALL_TAGS)
     fun getAllTags(): Flow<List<String>>
 
     @Query("SELECT * FROM article WHERE itemId = :itemId")
     suspend fun getArticleById(itemId: String): Article?
 
+    /**
+     * Live articles added after [since] that have neither the Warg lead-image row nor the
+     * byline row yet, newest first, at most [limit]. The background metadata pass reads them.
+     */
+    @Query(
+        """
+        SELECT itemId FROM article AS a
+        WHERE a.deleted_at IS NULL AND a.timeAdded > :since
+          AND NOT EXISTS (SELECT 1 FROM article_images AS i WHERE i.itemId = a.itemId AND i.imageId = 'lead')
+          AND NOT EXISTS (SELECT 1 FROM article_authors AS au WHERE au.authorId = a.itemId || ':byline')
+        ORDER BY a.timeAdded DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getRecentArticlesWithoutWargRows(since: Long, limit: Int): List<String>
+
+    /** Every local row of [itemIds], deleted rows included, in one IN-query. */
+    @Query("SELECT * FROM article WHERE itemId IN (:itemIds)")
+    suspend fun getArticlesWithIds(itemIds: List<String>): List<Article>
+
     /** Look up an article whose resolvedId matches [resolvedId] (used by self-heal). */
-    @Query("SELECT * FROM article WHERE resolvedId = :resolvedId ORDER BY timeAdded DESC LIMIT 1")
+    @Query(ArticleSql.BY_RESOLVED_ID)
     suspend fun getArticleByResolvedId(resolvedId: String): Article?
 
-    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
+    /** Articles with the given ids; excludes deleted articles. */
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
     @RewriteQueriesToDropUnusedColumns
     @Query(
         """
@@ -150,20 +116,17 @@ interface ArticleDao {
         GROUP_CONCAT(tag.tag) AS tagsString
         FROM article AS art
         LEFT JOIN article_tags AS tag ON art.itemId = tag.itemId
-        WHERE art.itemId IN (:ids)
+        WHERE art.itemId IN (:ids) AND art.deleted_at IS NULL
         GROUP BY art.itemId
         """
     )
-    fun getArticlesByIds(ids: List<String>): List<ArticleItem>
+    suspend fun getArticlesByIds(ids: List<String>): List<ArticleItem>
 
     @Query("SELECT * FROM article WHERE url = :url OR givenUrl = :url")
-    fun getArticleByUrl(url: String): Article?
+    suspend fun getArticleByUrl(url: String): Article?
 
-    @Query("SELECT * FROM article WHERE normalized_url = :normalizedUrl LIMIT 1")
-    fun getArticleByNormalizedUrl(normalizedUrl: String): Article?
-
-    @Query("SELECT * FROM article WHERE resolved = 0 OR resolved = 1 OR resolved = 3 ORDER BY timeAdded ASC")
-    suspend fun getUnresolvedArticles(): List<Article>
+    @Query(ArticleSql.BY_NORMALIZED_URL)
+    suspend fun getArticleByNormalizedUrl(normalizedUrl: String): Article?
 
     @Query(
         """
@@ -185,29 +148,6 @@ interface ArticleDao {
     )
     suspend fun updateDeleted(itemId: String, timeDeleted: Long)
 
-    @Query(
-        """
-        UPDATE article
-        SET timeToRead = :timeToRead, listenDurationEstimate = :listenDurationEstimate, wordCount = :wordCount, resolved = 3
-        WHERE itemId = :itemId
-    """)
-    suspend fun updateArticleMetrics(itemId: String, timeToRead: Int, listenDurationEstimate: Int, wordCount: Int)
-
-    @Query("SELECT * FROM article WHERE resolved = 2 OR resolved = 1")
-    suspend fun getNonMetricsArticles(): List<Article>
-
-    @Query("SELECT * FROM article WHERE (resolved = 2 OR resolved = 1) AND itemId > :afterId ORDER BY itemId ASC LIMIT :limit")
-    suspend fun getNonMetricsArticles(limit: Int, afterId: String): List<Article>
-
-    @Query("SELECT * FROM article WHERE text = '0' OR text = '1'")
-    suspend fun getTextEqualsZeroOrOne(): List<Article>
-
-    @Query("UPDATE article SET text = :text, resolved = 2 WHERE itemId = :itemId")
-    suspend fun updateText(itemId: String, text: String?)
-
-    @Query("UPDATE article SET resolved = :resolved WHERE itemId IN (:itemIds)")
-    suspend fun updateResolved(itemIds: List<String>, resolved: Int)
-
     @Query("""
             UPDATE article
             SET title = :title, url = :url, image = :image, hasImage = :hasImage, excerpt = :excerpt,
@@ -222,20 +162,8 @@ interface ArticleDao {
     @Query("UPDATE article SET text = :text, text_source = :source, resolved = 2 WHERE itemId = :itemId")
     suspend fun updateTextWithSource(itemId: String, text: String?, source: String)
 
-    @Query("UPDATE article SET text_source = :source WHERE itemId = :itemId")
-    suspend fun updateTextSource(itemId: String, source: String)
-
     @Query("UPDATE article SET image = :image, hasImage = 1 WHERE itemId = :itemId")
     suspend fun updateImage(itemId: String, image: String)
-
-    @Query("SELECT itemId FROM article WHERE (image IS NULL OR image = '') AND deleted_at IS NULL")
-    suspend fun getArticlesWithoutImages(): List<String>
-
-    @Query("SELECT itemId FROM article WHERE (text IS NULL OR text = '') AND deleted_at IS NULL ORDER BY timeAdded DESC LIMIT :limit OFFSET :offset")
-    suspend fun getArticlesNeedingText(limit: Int, offset: Int): List<String>
-
-    @Query("SELECT * FROM article WHERE (title = '' OR wordCount = 0) AND deleted_at IS NULL LIMIT :limit OFFSET :offset")
-    suspend fun getArticlesWithMissingMetadata(limit: Int, offset: Int): List<Article>
 
     @Upsert
     suspend fun upsertArticle(item: Article)
@@ -323,104 +251,215 @@ interface ArticleDao {
     suspend fun getTagsForArticles(itemIds: List<String>): List<ArticleTags>
 
     /**
-     * Delete all articles (hard delete for logout/data clearing)
-     * WARNING: This permanently removes all data
+     * Rows whose current version Firestore has not confirmed: unsent edits, unsent
+     * deletes and rows skipped after MAX_SYNC_FAILURES. Restore and push stamp the
+     * article's sync_state row, so their rows are not counted. A deleted row that was never
+     * backed up counts until the never-backed-up sweep sends its deletion.
      */
+    @Query(ArticleSql.COUNT_UNSYNCED)
+    suspend fun countUnsyncedChanges(): Int
+
+    @Query("DELETE FROM article_tags")
+    suspend fun wipeArticleTags()
+
+    @Query("DELETE FROM article_images")
+    suspend fun wipeArticleImages()
+
+    @Query("DELETE FROM article_videos")
+    suspend fun wipeArticleVideos()
+
+    @Query("DELETE FROM article_authors")
+    suspend fun wipeArticleAuthors()
+
+    @Query("DELETE FROM DomainMetadata")
+    suspend fun wipeDomainMetadata()
+
+    @Query("DELETE FROM local_archive")
+    suspend fun wipeLocalArchives()
+
     @Query("DELETE FROM article")
-    suspend fun deleteAllArticles()
+    suspend fun wipeArticles()
+
+    @Query("DELETE FROM sync_state")
+    suspend fun wipeSyncState()
+
+    /**
+     * Delete every table in one transaction. article_fts empties through Room's
+     * content triggers on article. A new table gets its delete here.
+     */
+    @Transaction
+    suspend fun wipeAllLocalData() {
+        wipeSyncState()
+        wipeArticleTags()
+        wipeArticleImages()
+        wipeArticleVideos()
+        wipeArticleAuthors()
+        wipeDomainMetadata()
+        wipeLocalArchives()
+        wipeArticles()
+    }
 
     @Upsert
     suspend fun insertArticleAuthors(items: List<ArticleAuthors>)
 
+    /** Image rows of [itemIds] in one IN-query, as [getTagsForArticles] does for tags. */
+    @Query(ArticleSql.IMAGES_FOR_ARTICLES)
+    suspend fun getImagesForArticles(itemIds: List<String>): List<ArticleImages>
+
+    /** Author rows of [itemIds] in one IN-query. */
+    @Query(ArticleSql.AUTHORS_FOR_ARTICLES)
+    suspend fun getAuthorsForArticles(itemIds: List<String>): List<ArticleAuthors>
+
+    /** Video rows of [itemIds] in one IN-query. */
+    @Query(ArticleSql.VIDEOS_FOR_ARTICLES)
+    suspend fun getVideosForArticles(itemIds: List<String>): List<ArticleVideos>
+
+    /**
+     * Upsert image, author and video rows in one transaction. The restore path uses it:
+     * it does not touch the article, so a restore never causes a push back.
+     */
+    @Transaction
+    suspend fun insertArticleRows(
+        images: List<ArticleImages>,
+        authors: List<ArticleAuthors>,
+        videos: List<ArticleVideos> = emptyList(),
+    ) {
+        if (images.isNotEmpty()) insertArticleImages(images)
+        if (authors.isNotEmpty()) insertArticleAuthors(authors)
+        if (videos.isNotEmpty()) insertArticleVideos(videos)
+    }
+
+    /** Raise the article's `timeUpdated` to [now] (never lower it). */
+    @Query("UPDATE article SET timeUpdated = MAX(timeUpdated, :now) WHERE itemId = :itemId")
+    suspend fun touchArticle(itemId: String, now: Long)
+
+    /**
+     * Store image and author rows made on this device and raise the article's
+     * `timeUpdated` to [now] in one transaction, so the next push sends the article
+     * with its rows. Row ids must be unique per article: `article_authors` keys rows
+     * by `authorId` alone.
+     */
+    @Transaction
+    suspend fun addLocalArticleRows(
+        itemId: String,
+        images: List<ArticleImages>,
+        authors: List<ArticleAuthors>,
+        now: Long,
+    ) {
+        insertArticleRows(images, authors)
+        touchArticle(itemId, now)
+    }
+
     @Upsert
     suspend fun insertDomainMetadata(item: DomainMetadata)
 
-    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
-    @Query(
-        """
-        SELECT article.itemId, article.title,
-        COALESCE(article.url, article.givenUrl) AS url,
-        article.image,
-        CASE WHEN article.favorite = '1' OR article.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN article.timeRead IS NOT NULL AND article.timeRead > 0 THEN 1 ELSE 0 END AS isRead
-        FROM article
-        JOIN article_fts ON article.itemId = article_fts.itemId
-        WHERE article_fts MATCH :query
-        """
-    )
-    suspend fun searchArticles(query: String): List<ArticleItem>
-
-    @SuppressWarnings(RoomWarnings.Companion.QUERY_MISMATCH)
-    @Query(
-        """
-        SELECT article.itemId, article.title,
-        COALESCE(article.url, article.givenUrl) AS url,
-        article.image,
-        CASE WHEN article.favorite = '1' OR article.timeFavorited > 0 THEN 1 ELSE 0 END AS favorite,
-        CASE WHEN article.timeRead IS NOT NULL AND article.timeRead > 0 THEN 1 ELSE 0 END AS isRead,
-        snippet(article_fts) AS snippet,
-        matchinfo(article_fts) AS matchInfo
-        FROM article
-        JOIN article_fts ON article.itemId = article_fts.itemId
-        WHERE article_fts MATCH :query
-        """
-    )
-    suspend fun searchArticlesWithMatchInfo(query: String): List<ArticleWithMatchInfo>
-
-    @Query("""
-        SELECT * FROM article
-        WHERE articleId != "0"
-        ORDER BY timeAdded DESC
-        LIMIT 1
-    """
-    )
-    fun getLatestArticle(): Article?
-
-    @Query(
-        """
-        SELECT timeUpdated FROM article
-        ORDER BY timeAdded DESC
-        LIMIT 1
-    """
-    )
-    fun getLastUpdatedArticleTime(): Long
-
-    @Query("""
-        SELECT COUNT(*) FROM article
-        """)
-    fun countArticle(): Int
-
-    @Query("""
-        UPDATE article
-        SET timeAdded = :time, timeUpdated = :time
-        WHERE timeAdded = 0 AND timeUpdated = 0
-        """)
-    suspend fun backfillZeroTimestamps(time: Long)
-
-    /** Stamp the epoch-millis when [itemId] was successfully backed up to Firestore. */
-    @Query("UPDATE article SET backed_up_at = :timestamp WHERE itemId = :itemId")
-    suspend fun updateBackedUpAt(itemId: String, timestamp: Long)
+    /**
+     * Full-text search. [match] is an FTS5 match string from `FtsMatchQuery`; results come best
+     * first by bm25, deleted articles are excluded, and at most [limit] rows return.
+     */
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
+    @Query(ArticleSql.SEARCH_RANKED)
+    suspend fun searchArticlesRanked(match: String, limit: Int): List<ArticleItem>
 
     /**
-     * Return articles that have never been successfully backed up to Firestore
-     * ([backedUpAt] IS NULL), ordered oldest-first so the reconciliation sweep
-     * processes stranded articles in chronological order. Paginated via [limit] /
-     * [offset] to keep memory usage bounded.
+     * Return articles that have never been successfully backed up to Firestore (no
+     * [SyncState.backedUpAt], or no sync_state row), deleted ones included so their deletion
+     * reaches Firestore, in (timeUpdated, itemId) order. Returns the first [limit] rows
+     * only: the sweep stamps what it pushes, so the next call returns the next batch.
+     * Skips rows that failed MAX_SYNC_FAILURES runs.
      */
-    @Query("""
-        SELECT * FROM article
-        WHERE backed_up_at IS NULL AND deleted_at IS NULL
-        ORDER BY timeAdded ASC
-        LIMIT :limit OFFSET :offset
-    """)
-    suspend fun getArticlesNeverBackedUp(limit: Int, offset: Int): List<Article>
+    @Query(ArticleSql.NEVER_BACKED_UP)
+    suspend fun getArticlesNeverBackedUp(limit: Int): List<Article>
 
     /**
      * Count of articles matching the [getArticlesNeverBackedUp] predicate — the
-     * backlog the reconciliation sweep is about to drain.
+     * backlog the reconciliation sweep is about to drain. Skips rows that failed MAX_SYNC_FAILURES runs.
      */
-    @Query("SELECT COUNT(*) FROM article WHERE backed_up_at IS NULL AND deleted_at IS NULL")
+    @Query(ArticleSql.COUNT_NEVER_BACKED_UP)
     suspend fun countArticlesNeverBackedUp(): Int
+
+    /** The sync bookkeeping of [itemId]; null when the article was never stamped or struck. */
+    @Query("SELECT * FROM sync_state WHERE itemId = :itemId")
+    suspend fun getSyncState(itemId: String): SyncState?
+
+    @Upsert
+    suspend fun upsertSyncState(state: SyncState)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertSyncStatesIfAbsent(states: List<SyncState>)
+
+    @Query("SELECT timeUpdated FROM article WHERE itemId = :itemId")
+    suspend fun getTimeUpdated(itemId: String): Long?
+
+    /**
+     * Stamp a successful push of the version [pushedTimeUpdated]: it becomes the article's
+     * backed-up stamp in sync_state, and the failed-push counter goes back to 0, only while
+     * the row still has that version. An edit committed after the push read the row changed
+     * `timeUpdated`, so the row stays unsynced and the next push sends the edit. Returns the
+     * number of rows stamped (0 or 1). Writes only sync_state, so the search index is untouched.
+     */
+    @Transaction
+    suspend fun markBackedUpIfUnchanged(itemId: String, pushedTimeUpdated: Long): Int {
+        if (getTimeUpdated(itemId) != pushedTimeUpdated) return 0
+        upsertSyncState(SyncState(itemId, pushedTimeUpdated, 0))
+        return 1
+    }
+
+    @Query("UPDATE sync_state SET sync_failures = sync_failures + 1 WHERE itemId IN (:itemIds)")
+    suspend fun bumpSyncFailures(itemIds: List<String>)
+
+    /** Count one more failed push run for each of [itemIds]; writes only sync_state. */
+    @Transaction
+    suspend fun incrementSyncFailures(itemIds: List<String>) {
+        insertSyncStatesIfAbsent(itemIds.map { SyncState(it) })
+        bumpSyncFailures(itemIds)
+    }
+
+    /**
+     * Record the outcome of one push in one transaction: stamp each [succeeded] row with the
+     * version that was sent (itemId to the `timeUpdated` it was pushed with, see
+     * [markBackedUpIfUnchanged]) and add a strike to the [failed] rows. The only place a
+     * push stamps the backed-up time.
+     */
+    @Transaction
+    suspend fun recordPushResults(succeeded: Map<String, Long>, failed: List<String>) {
+        for ((itemId, pushedTimeUpdated) in succeeded) markBackedUpIfUnchanged(itemId, pushedTimeUpdated)
+        if (failed.isNotEmpty()) incrementSyncFailures(failed)
+    }
+
+    /**
+     * Articles the sync skips after MAX_SYNC_FAILURES failed runs, deleted rows included
+     * (an unsent delete is an unsynced change).
+     */
+    @Query(ArticleSql.SYNC_FAILURE_COUNT)
+    fun observeSyncFailureCount(): Flow<Int>
+
+    @Query("UPDATE article SET timeUpdated = MAX(timeUpdated, :now) WHERE itemId IN (SELECT itemId FROM sync_state WHERE sync_failures >= $MAX_SYNC_FAILURES)")
+    suspend fun touchSkippedArticles(now: Long)
+
+    @Query("UPDATE sync_state SET sync_failures = 0 WHERE sync_failures >= $MAX_SYNC_FAILURES AND itemId IN (SELECT itemId FROM article)")
+    suspend fun clearSkippedCounters(): Int
+
+    /**
+     * Clear the counter on every skipped article and raise its `timeUpdated` to [now],
+     * so the next push sends it even though last sync has moved past it.
+     * Returns the number of rows reset.
+     */
+    @Transaction
+    suspend fun resetSyncFailures(now: Long): Int {
+        touchSkippedArticles(now)
+        return clearSkippedCounters()
+    }
+
+    /**
+     * Store an article that came from Firestore and stamp it backed up at [stampedAt] with 0
+     * strikes, in one transaction.
+     */
+    @Transaction
+    suspend fun upsertRestoredArticle(article: Article, stampedAt: Long) {
+        upsertArticle(article)
+        upsertSyncState(SyncState(article.itemId, stampedAt, 0))
+    }
 
     /**
      * Atomically upserts a batch of articles together with all their associated data
@@ -480,6 +519,8 @@ interface ArticleDao {
                 else -> existingArticle.favorite
             }
 
+            // The sync_state row is not touched, so a re-save keeps the stamp and the
+            // counter; timeUpdated moves, so the push still sends it.
             upsertArticle(
                 newArticle.copy(
                     itemId = existingArticle.itemId,

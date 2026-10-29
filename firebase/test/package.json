@@ -9,8 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "firebase emulators:exec --only firestore --project=demo-trails --config=../firebase.json 'vitest run'",
-    "test:watch": "firebase emulators:exec --only firestore --project=demo-trails --config=../firebase.json 'vitest'"
+    "test": "firebase emulators:exec --only firestore,storage --project=demo-trails --config=emulators.json \"vitest run\"",
+    "test:watch": "firebase emulators:exec --only firestore,storage --project=demo-trails --config=emulators.json \"vitest\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",

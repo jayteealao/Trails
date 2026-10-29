@@ -1,17 +1,39 @@
 # @warg/backfill-scripts
 
-Operator-run Admin-SDK maintenance CLIs that make the tightened top-level
-`articles` read rule safe to deploy. The Admin SDK bypasses Firestore security
+Operator-run Admin-SDK maintenance CLIs for the shared articles, their links
+and the markers that open them. The Admin SDK bypasses Firestore security
 rules, so these run as a trusted operator (via ADC), never as the app.
 
-Three independent scripts share a small pure core (`keys` / `coverage` /
-`classify`):
+Five scripts. Three are per-user (`marker-backfill`, `coverage-gate`,
+`debug-logs-cleanup`) and share a small pure core (`keys` / `coverage` /
+`classify`); two run over the whole project (`merge-pass-a`,
+`rederive-pass-b`):
 
 | Script | What it does | Destructive? |
 | ------ | ------------ | ------------ |
-| `marker-backfill` | Writes a `users/{uid}/articleMarkers/{key}` doc for every key of every one of the user's articles (`itemId`, plus `resolvedId` when present and distinct). Writes **only missing** keys; preserves any existing marker's `source`/`createdAt`. | No — never deletes. |
-| `coverage-gate` | Asserts a marker exists for every derived key. Prints the headline counts and exits non-zero on any gap. This is the precondition that authorizes the read-rule flip. | No — read-only. |
+| `marker-backfill` | **Legacy.** Writes a `users/{uid}/articleMarkers/{key}` doc for every key of every one of the user's articles under the old key model (`itemId`, plus `resolvedId` when present and distinct). Writes **only missing** keys; preserves any existing marker's `source`/`createdAt`. The current marker key is the server-written `canonicalId` ([`shared-types/MarkerSchema.md`](../../../shared-types/MarkerSchema.md)), and `rederive-pass-b` is the current producer. | No — never deletes. |
+| `coverage-gate` | **Legacy.** Asserts a marker exists for every key of the old key model. Prints the headline counts and exits non-zero on any gap. It authorized the read-rule flip, which is already live. | No — read-only. |
 | `debug-logs-cleanup` | Deletes the legacy flat `debug_logs/{id}` docs left unreadable after the uid-scoped `debug_logs/{uid}/sessions/*` migration. Classifies by field shape **and** the absence of a `sessions` subcollection. | Yes — only on `--apply`, only on `legacy-flat` docs. |
+| `merge-pass-a` | Merges shared articles that hold the same normalized URL: the oldest wins, takes the finished archives it lacks, and every user link moves to it; the others stay as stubs with `mergedInto`. Writes `normalizedUrl` on every shared article. Project-wide; takes no `--user`. See [Duplicate merge](#duplicate-merge). | No — never deletes. |
+| `rederive-pass-b` | Re-derives the link (`canonicalId`) and the server marker of every non-deleted user article from its URL, with the save trigger's rule; creates a missing shared article through the trigger's link function. Skips deleted user articles. Project-wide; takes no `--user`. See [Link re-derive](#link-re-derive). | Deletes only markers no own URL derives, on `--apply`. |
+
+## Duplicate merge
+
+`merge-pass-a` runs over the whole project, so it takes no `--user`. Its flags
+are `--apply` (real run; omitted = dry run), `--yes`, `--report <path>` (default
+`tmp/merge-pass-a-<UTC time>.json`, ignored by git) and `--page-size <n>`. The
+report names users only by a short hash. The how-to, with what to check in the
+report, is in [Merging duplicate shared articles](../../README.md#merging-duplicate-shared-articles).
+
+## Link re-derive
+
+`rederive-pass-b` also runs over the whole project and takes no `--user`. Run it
+only after the duplicate merge: `--apply` refuses with exit code 2 until the
+merge has finished. Its flags are `--apply` (real run; omitted = dry run),
+`--yes`, `--report <path>` (default `tmp/rederive-pass-b-<UTC time>.json`,
+ignored by git) and `--page-size <n>`. Exit code 1 means some writes met a
+document that changed while it ran; run it again. The how-to, with what to check
+in the report, is in [Re-deriving article links](../../README.md#re-deriving-article-links-after-the-merge).
 
 ## Preconditions
 
@@ -46,7 +68,10 @@ want the emulator.
 
 ## CLI flags
 
-All three scripts accept:
+The three per-user scripts (`marker-backfill`, `coverage-gate`,
+`debug-logs-cleanup`) accept the flags below. `merge-pass-a` and
+`rederive-pass-b` take no `--user` and no `--limit`; their flags are listed in
+their own sections above.
 
 - `--user <uid>` — target user (**required** — no default). Pass the uid
   explicitly, or export `BACKFILL_USER_ID=<uid>` in the environment. Omitting
@@ -82,11 +107,18 @@ node dist/debug-logs-cleanup.js              # dry-run again: expect 0
 
 ## Deploy ordering (important)
 
-The tightened `articles` read rule must be the **last** change to merge, because
-merging `firebase/**` auto-deploys the rules. Run the backfill `--apply` and a
-**passing** `coverage-gate` against production **before** that final rules
-change lands. Backfill and the gate are deploy-safe to run any time — the read
-rule they protect is not yet tightened.
+Merging `firebase/**` deploys nothing: the rules deploy only through the Warg
+deploy script, `pnpm run deploy -- --functions-only --with-rules` (or
+`--rules-only`) from `warg/`; see [`firebase/README.md`](../../../firebase/README.md#deploying).
+The tightened `articles` read rule is already live. A rules change that relies on
+the server-owned link (`canonicalId`) or its marker must deploy after
+`rederive-pass-b --apply` has written them for existing articles; the scripts
+here are safe to run at any time. The same holds for the `dashboardApi` reads,
+which follow `canonicalId`: they ship only after a production `rederive-pass-b`
+dry run reports `linkAdds=0 linkChanges=0 linkClears=0 errors=0`. The deploy
+script checks this: it reads the newest `tmp/rederive-pass-b-*.json` report of
+this package and holds `dashboard-api` back until that report is clean
+(`warg/README.md`, Link check).
 
 ## Tests
 

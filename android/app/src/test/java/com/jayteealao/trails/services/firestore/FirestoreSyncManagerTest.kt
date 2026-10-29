@@ -4,8 +4,11 @@ import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.network.ArticleAuthors
+import com.jayteealao.trails.network.ArticleImages
 import com.jayteealao.trails.network.ArticleTags
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
@@ -15,9 +18,11 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import io.mockk.slot
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -25,6 +30,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.jayteealao.trails.testing.TestLocalDataOwner
 
 /**
  * Tests pinning the behaviour of [FirestoreSyncManager].
@@ -54,6 +60,21 @@ class FirestoreSyncManagerTest {
         // no-local-changes branch) logs its backlog count at start — stub once here
         // for the strict mocks; individual tests override when the count matters.
         coEvery { articleDao.countArticlesNeverBackedUp() } returns 0
+        // Every push run records its per-article results (stamps and strikes) in Room.
+        coEvery { articleDao.recordPushResults(any(), any()) } returns Unit
+        // Every push chunk reads its articles' tags; none unless a test says otherwise.
+        coEvery { articleDao.getTagsForArticles(any()) } returns emptyList()
+        // A run with nothing left to push checks whether its window saw any change.
+        coEvery { articleDao.countArticlesChangedInWindow(any(), any()) } returns 0
+        // Every push chunk and local-wins push reads the articles' image and author rows,
+        // and every restore page fetches them; no rows unless a test says otherwise.
+        coEvery { articleDao.getImagesForArticles(any()) } returns emptyList()
+        coEvery { articleDao.getAuthorsForArticles(any()) } returns emptyList()
+        coEvery { articleDao.getVideosForArticles(any()) } returns emptyList()
+        coEvery { firestoreBackupService.batchRestoreArticleRows(any()) } returns emptyMap()
+        // A restore page looks its articles up in bulk to skip row reads for local-wins
+        // articles; with no local rows every remote article reads its rows.
+        coEvery { articleDao.getArticlesWithIds(any()) } returns emptyList()
         manager = FirestoreSyncManager(
             context = context,
             firestore = firestore,
@@ -61,6 +82,7 @@ class FirestoreSyncManagerTest {
             articleDao = articleDao,
             firestoreBackupService = firestoreBackupService,
             scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher()),
+            localDataOwner = TestLocalDataOwner.ownsEveryUid(),
         )
     }
 
@@ -106,8 +128,8 @@ class FirestoreSyncManagerTest {
 
         coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
             Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 0L))
-        coEvery { articleDao.countAllArticles() } returns 2
-        coEvery { articleDao.getAllArticlesPaginated(50, 0) } returns
+        coEvery { articleDao.countArticlesModifiedSince(-1L, any()) } returns 2
+        coEvery { articleDao.getArticlesModifiedSinceKeyset(-1L, any(), any(), any(), 50) } returns
             listOf(Article(itemId = "a1"), Article(itemId = "a2"))
         // CR-1 fix: bulk getTagsForArticles replaces per-article getArticleTags in syncLocalChanges.
         coEvery { articleDao.getTagsForArticles(listOf("a1", "a2")) } returns listOf(
@@ -119,7 +141,7 @@ class FirestoreSyncManagerTest {
         coEvery { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) } returns Result.success(2)
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
         // Reconcile sweep runs after main sync; no never-backed-up articles.
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), any()) } returns emptyList()
+        coEvery { articleDao.getArticlesNeverBackedUp(any()) } returns emptyList()
 
         manager.syncLocalChanges()
 
@@ -148,8 +170,8 @@ class FirestoreSyncManagerTest {
 
         coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
             Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 0L))
-        coEvery { articleDao.countAllArticles() } returns 2
-        coEvery { articleDao.getAllArticlesPaginated(50, 0) } returns
+        coEvery { articleDao.countArticlesModifiedSince(-1L, any()) } returns 2
+        coEvery { articleDao.getArticlesModifiedSinceKeyset(-1L, any(), any(), any(), 50) } returns
             listOf(Article(itemId = "a1"), Article(itemId = "a2"))
         coEvery { articleDao.getTagsForArticles(listOf("a1", "a2")) } returns listOf(
             ArticleTags(itemId = "a1", tag = "t1", sortId = null, type = null),
@@ -161,7 +183,7 @@ class FirestoreSyncManagerTest {
             firestoreBackupService.backupArticlesPaginated(any(), capture(tagsSlot), any())
         } returns Result.success(2)
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), any()) } returns emptyList()
+        coEvery { articleDao.getArticlesNeverBackedUp(any()) } returns emptyList()
 
         manager.syncLocalChanges()
 
@@ -186,9 +208,9 @@ class FirestoreSyncManagerTest {
 
         coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
             Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 1000L))
-        coEvery { articleDao.countArticlesModifiedSince(1000L) } returns 0
+        coEvery { articleDao.countArticlesModifiedSince(1000L, any()) } returns 0
         coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), any()) } returns emptyList()
+        coEvery { articleDao.getArticlesNeverBackedUp(any()) } returns emptyList()
 
         manager.syncLocalChanges()
 
@@ -196,6 +218,36 @@ class FirestoreSyncManagerTest {
         // The old two-read pattern must not be invoked.
         coVerify(exactly = 0) { firestoreBackupService.isFirstSync() }
         coVerify(exactly = 0) { firestoreBackupService.getLastSyncTimestamp() }
+    }
+
+    /**
+     * A deletion is a change: a row deleted after the last sync is pushed through the
+     * normal backup path (so Firestore receives its `deletedAt`).
+     */
+    @Test
+    fun `deleted row changed since last sync is pushed`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 1000L))
+        coEvery { articleDao.countArticlesModifiedSince(1000L, any()) } returns 1
+        coEvery { articleDao.getArticlesModifiedSinceKeyset(1000L, any(), any(), any(), 50) } returns
+            listOf(Article(itemId = "d1", timeUpdated = 1500L, deletedAt = 1500L))
+        coEvery { articleDao.getTagsForArticles(listOf("d1")) } returns emptyList()
+        coEvery { firestoreBackupService.backupArticlesPaginated(any(), any(), any()) } returns Result.success(1)
+        coEvery { firestoreBackupService.updateLastSyncTimestamp(any()) } returns Result.success(Unit)
+        coEvery { articleDao.getArticlesNeverBackedUp(any()) } returns emptyList()
+
+        manager.syncLocalChanges()
+
+        coVerify(exactly = 1) {
+            firestoreBackupService.backupArticlesPaginated(
+                match { it.single().itemId == "d1" && it.single().deletedAt == 1500L },
+                any(),
+                any(),
+            )
+        }
+        assertTrue(manager.syncStatus.value is SyncStatus.Success)
     }
 
     /**
@@ -214,7 +266,7 @@ class FirestoreSyncManagerTest {
         // Local article is older → remote wins → conflict-update path is taken.
         val localArticle = Article(itemId = "r1", timeUpdated = 100)
         coEvery { articleDao.getArticleById("r1") } returns localArticle
-        coEvery { articleDao.upsertArticle(any()) } returns Unit
+        coEvery { articleDao.upsertRestoredArticle(any(), any()) } returns Unit
         coEvery { articleDao.deleteAllTagsForArticle("r1") } returns Unit
         coEvery { articleDao.insertArticleTags(any()) } returns Unit
 
@@ -363,38 +415,71 @@ class FirestoreSyncManagerTest {
 
         coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
             Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 1000L))
-        coEvery { articleDao.countArticlesModifiedSince(1000L) } returns 0
+        coEvery { articleDao.countArticlesModifiedSince(1000L, any()) } returns 0
 
         val stranded = listOf(Article(itemId = "s1"), Article(itemId = "s2"))
         coEvery { articleDao.countArticlesNeverBackedUp() } returns 2
-        coEvery { articleDao.getArticlesNeverBackedUp(any(), 0) } returnsMany listOf(stranded, emptyList())
-        coEvery { firestoreBackupService.backupArticlesPaginated(stranded, any()) } returns Result.success(2)
-        coEvery { articleDao.updateBackedUpAt(any(), any()) } returns Unit
+        coEvery { articleDao.getArticlesNeverBackedUp(any()) } returnsMany listOf(stranded, emptyList())
+        coEvery { firestoreBackupService.backupArticlesPaginated(stranded, any(), any()) } returns Result.success(2)
 
         manager.syncLocalChanges()
 
         // The stranded articles were backed up and stamped despite "no local changes".
-        coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(stranded, any()) }
-        coVerify(exactly = 1) { articleDao.updateBackedUpAt("s1", any()) }
-        coVerify(exactly = 1) { articleDao.updateBackedUpAt("s2", any()) }
+        coVerify(exactly = 1) { firestoreBackupService.backupArticlesPaginated(stranded, any(), any()) }
+        coVerify(exactly = 1) { articleDao.recordPushResults(match { it.keys.toList() == listOf("s1", "s2") }, emptyList()) }
         assertEquals(SyncStatus.Success("Up to date"), manager.syncStatus.value)
+    }
+
+    // ---- Last sync moves only on full success --------------------------------
+
+    /**
+     * One article of a chunk fails for a reason of its own: the chunk is retried one
+     * article at a time, the good one is stamped, the bad one gets a strike, and
+     * "last sync" stays where it was.
+     */
+    @Test
+    fun `partial failure does not advance last sync`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = false, lastSyncTimestamp = 1000L))
+        val good = Article(itemId = "p1", timeUpdated = 1500L)
+        val poison = Article(itemId = "p2", timeUpdated = 1500L)
+        coEvery { articleDao.countArticlesModifiedSince(1000L, any()) } returns 2
+        coEvery { articleDao.getArticlesModifiedSinceKeyset(1000L, any(), any(), any(), 50) } returns listOf(good, poison)
+        coEvery { articleDao.getTagsForArticles(listOf("p1", "p2")) } returns emptyList()
+        val tooBig = FirebaseFirestoreException("document too large", FirebaseFirestoreException.Code.INVALID_ARGUMENT)
+        coEvery { firestoreBackupService.backupArticlesPaginated(listOf(good, poison), any(), any()) } returns Result.failure(tooBig)
+        coEvery { firestoreBackupService.backupArticlesPaginated(listOf(good), any(), any()) } returns Result.success(1)
+        coEvery { firestoreBackupService.backupArticlesPaginated(listOf(poison), any(), any()) } returns Result.failure(tooBig)
+
+        val result = manager.pushLocalChanges()
+
+        assertEquals(SyncRunStatus.PARTIAL_FAILURE, result.status)
+        assertEquals(1, result.pushed)
+        assertEquals(1, result.failed)
+        coVerify(exactly = 1) { articleDao.recordPushResults(match { it.keys.toList() == listOf("p1") }, listOf("p2")) }
+        coVerify(exactly = 0) { firestoreBackupService.updateLastSyncTimestamp(any()) }
+        // The sweep is skipped after a failure, so nothing else is pushed this run.
+        coVerify(exactly = 0) { articleDao.getArticlesNeverBackedUp(any()) }
+        assertEquals(0L, manager.lastSyncTime.value)
     }
 
     // ---- Download-stamp on remote-won upserts (reconcile-stall-guard AC4) ----
 
     /**
-     * AC4 — an article applied from a remote restore is stamped `backedUpAt` at
+     * AC4 — an article applied from a remote restore has its sync state stamped at
      * apply time (it already exists in Firestore), so the next reconcile sweep
      * does not re-upload it.
      */
     @Test
-    fun `handleRemoteArticleChange stamps backedUpAt on remote-won upserts`() = runTest {
+    fun `handleRemoteArticleChange stamps the sync state on remote-won upserts`() = runTest {
         every { auth.currentUser } returns signedInUser("u1")
 
         // New-article path: no local row, remote is applied as-is.
         val remoteArticle = Article(itemId = "r1", timeUpdated = 200)
         coEvery { articleDao.getArticleById("r1") } returns null
-        coEvery { articleDao.upsertArticle(any()) } returns Unit
+        coEvery { articleDao.upsertRestoredArticle(any(), any()) } returns Unit
         coEvery { firestoreBackupService.batchRestoreArticleTags(listOf("r1")) } returns emptyMap()
 
         coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
@@ -411,27 +496,22 @@ class FirestoreSyncManagerTest {
         manager.performFullSync()
 
         coVerify(exactly = 1) {
-            articleDao.upsertArticle(match { it.itemId == "r1" && it.backedUpAt != null })
+            articleDao.upsertRestoredArticle(match { it.itemId == "r1" }, any())
         }
     }
 
     /**
-     * AC4 companion — a local-wins conflict must NOT be stamped: the local row is
-     * newer than Firestore, so it legitimately needs the push path (and, if that
-     * fails, the reconcile sweep). No remote copy is upserted at all; the local
-     * article is pushed instead.
+     * A local-wins conflict leaves the local row as it is: nothing is upserted, nothing is
+     * stamped and nothing is uploaded here. The push that follows the restore sends it,
+     * through the one path that stamps and strikes.
      */
     @Test
-    fun `handleRemoteArticleChange does not stamp or upsert on local-wins conflicts`() = runTest {
+    fun `handleRemoteArticleChange does not stamp, upsert or upload on local-wins conflicts`() = runTest {
         every { auth.currentUser } returns signedInUser("u1")
 
         val remoteArticle = Article(itemId = "r1", timeUpdated = 100)
         val localArticle = Article(itemId = "r1", timeUpdated = 200) // local newer → local wins
         coEvery { articleDao.getArticleById("r1") } returns localArticle
-        coEvery { articleDao.getArticleTags("r1") } returns emptyList()
-        coEvery {
-            firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any())
-        } returns Result.success(Unit)
         coEvery { firestoreBackupService.batchRestoreArticleTags(listOf("r1")) } returns emptyMap()
 
         coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
@@ -447,11 +527,126 @@ class FirestoreSyncManagerTest {
 
         manager.performFullSync()
 
-        // The remote copy is never applied — nothing is upserted, so nothing is stamped —
-        // and the newer local article is pushed to Firestore instead.
         coVerify(exactly = 0) { articleDao.upsertArticle(any()) }
-        coVerify(exactly = 1) {
-            firestoreBackupService.backupArticle(localArticle, any(), any(), any(), any(), any())
+        coVerify(exactly = 0) { articleDao.upsertRestoredArticle(any(), any()) }
+        coVerify(exactly = 0) { firestoreBackupService.backupArticle(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { articleDao.recordPushResults(any(), any()) }
+    }
+
+    // ---- First sync: a failed remote count ---------------------------------
+
+    @Test
+    fun `first sync with a failed remote count stops without recording last sync`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } returns
+            Result.success(FirestoreBackupService.UserMetaSnapshot(isFirstSync = true, lastSyncTimestamp = null))
+        coEvery { articleDao.countAllArticles() } returns 0
+        val offline = FirebaseFirestoreException("offline", FirebaseFirestoreException.Code.UNAVAILABLE)
+        coEvery { firestoreBackupService.getRemoteArticleCount() } returns Result.failure(offline)
+
+        val result = manager.fullSync()
+
+        assertEquals(offline, result.interruptedBy)
+        assertTrue(manager.syncStatus.value is SyncStatus.Error)
+        coVerify(exactly = 0) { firestoreBackupService.updateLastSyncTimestamp(any()) }
+        coVerify(exactly = 0) { firestoreBackupService.restoreAllArticlesPaginated(any(), any()) }
+    }
+
+    // ---- Inline backup of one article --------------------------------------
+
+    @Test
+    fun `backupArticleNow sends tags and rows and stamps the version it sent`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+        val article = Article(itemId = "n1", timeUpdated = 700)
+        val tag = ArticleTags(itemId = "n1", tag = "read-later", sortId = null, type = null)
+        val image = ArticleImages("lead", "n1", "https://example.com/n1.jpg", 10, 20, "", "")
+        val author = ArticleAuthors("n1:byline", "n1", "Ada", "", null, null, null, null)
+        coEvery { articleDao.getArticleById("n1") } returns article
+        coEvery { articleDao.getTagsForArticles(listOf("n1")) } returns listOf(tag)
+        coEvery { articleDao.getImagesForArticles(listOf("n1")) } returns listOf(image)
+        coEvery { articleDao.getAuthorsForArticles(listOf("n1")) } returns listOf(author)
+        val tagsSlot = slot<Map<String, List<ArticleTags>>>()
+        val rowsSlot = slot<Map<String, ArticleRows>>()
+        coEvery {
+            firestoreBackupService.backupArticlesPaginated(listOf(article), capture(tagsSlot), any(), capture(rowsSlot))
+        } returns Result.success(1)
+
+        val result = manager.backupArticleNow("n1")
+
+        assertTrue(result.isSuccess)
+        assertEquals(listOf(tag), tagsSlot.captured.getValue("n1"))
+        assertEquals(listOf(image), rowsSlot.captured.getValue("n1").images)
+        assertEquals(listOf(author), rowsSlot.captured.getValue("n1").authors)
+        coVerify(exactly = 1) { articleDao.recordPushResults(mapOf("n1" to 700L), emptyList()) }
+    }
+
+    @Test
+    fun `backupArticleNow uploads nothing when the signed-in user does not own the local data`() = runTest {
+        every { auth.currentUser } returns signedInUser("intruder")
+        val owner = mockk<com.jayteealao.trails.data.account.LocalDataOwner> {
+            every { isOwnedBy("intruder") } returns false
         }
+        val guarded = FirestoreSyncManager(
+            context = context,
+            firestore = firestore,
+            auth = auth,
+            articleDao = articleDao,
+            firestoreBackupService = firestoreBackupService,
+            scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher()),
+            localDataOwner = owner,
+        )
+
+        val result = guarded.backupArticleNow("n1")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { articleDao.getArticleById(any()) }
+        coVerify(exactly = 0) { firestoreBackupService.backupArticlesPaginated(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { articleDao.recordPushResults(any(), any()) }
+    }
+
+    // ---- The sync gate -----------------------------------------------------
+
+    @Test
+    fun `a push waits for a wipe that holds the gate`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+        val wipeMayFinish = CompletableDeferred<Unit>()
+        val order = mutableListOf<String>()
+        coEvery { firestoreBackupService.getUserMetaSnapshot() } coAnswers {
+            order += "push-started"
+            Result.failure(IllegalStateException("stop here"))
+        }
+
+        val wipe = launch {
+            manager.runExclusive {
+                order += "wipe-started"
+                wipeMayFinish.await()
+                order += "wipe-finished"
+            }
+        }
+        testScheduler.runCurrent()
+        val push = launch { manager.pushLocalChanges() }
+        testScheduler.runCurrent()
+        assertEquals(listOf("wipe-started"), order)
+
+        wipeMayFinish.complete(Unit)
+        wipe.join()
+        push.join()
+
+        assertEquals(listOf("wipe-started", "wipe-finished", "push-started"), order)
+    }
+
+    @Test
+    fun `backupArticleNow does not wait for a held gate and uploads nothing`() = runTest {
+        every { auth.currentUser } returns signedInUser("u1")
+        val release = CompletableDeferred<Unit>()
+        val wipe = launch { manager.runExclusive { release.await() } }
+        testScheduler.runCurrent()
+
+        val result = manager.backupArticleNow("n1")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { firestoreBackupService.backupArticlesPaginated(any(), any(), any(), any()) }
+        release.complete(Unit)
+        wipe.join()
     }
 }

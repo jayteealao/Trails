@@ -1,6 +1,6 @@
 package com.jayteealao.trails.data.archive
 
-import androidx.room.Entity
+import androidx.room3.Entity
 
 /**
  * Tracks which archives have been downloaded and stored locally as gzipped files.

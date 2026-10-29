@@ -1,6 +1,7 @@
 interface Env {
   LOGGER: Fetcher;
   DASHBOARD_API_URL: string;
+  DASHBOARD_API_KEY: string;
   INTERNAL_API_KEY: string;
 }
 
@@ -34,7 +35,7 @@ async function fetchDashboardArticles(
   params.set('page', '1');
 
   const response = await fetch(buildApiUrl(env.DASHBOARD_API_URL, 'articles', params), {
-    headers: { 'X-Internal-API-Key': env.INTERNAL_API_KEY },
+    headers: { 'X-Internal-API-Key': env.DASHBOARD_API_KEY },
     signal: AbortSignal.timeout(30000),
   });
 

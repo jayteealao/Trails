@@ -1,7 +1,6 @@
 package com.jayteealao.trails.data.archive
 
 import android.app.Application
-import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.CollectionReference
@@ -15,18 +14,13 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.network.ArchiveUrlService
-import com.jayteealao.trails.services.firestore.FirestoreBackupService
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
-import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -35,25 +29,25 @@ import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 /**
- * Unit tests for [ArchiveService.observeRemoteArchives] — the callbackFlow that
- * self-heals on PERMISSION_DENIED.
+ * Unit tests for [ArchiveService.observeRemoteArchives]: the archive view follows
+ * the server-written `canonicalId` on users/{uid}/articles/{itemId}, falls back to
+ * the user's own itemId, and degrades to an empty map on any read error without
+ * writing anything.
  *
- * Pattern: capture the EventListener<DocumentSnapshot> argument passed to
- * docRef.addSnapshotListener(), then fire events into it to simulate Firestore
- * callback sequences. UnconfinedTestDispatcher drives coroutines eagerly.
+ * Pattern: every addSnapshotListener call is recorded with its EventListener and a
+ * distinct ListenerRegistration, then events are fired into the listeners.
+ * Document references are strict mocks, so an unexpected write call fails the test.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ArchiveServiceObserveTest {
 
     @MockK private lateinit var firestore: FirebaseFirestore
     @MockK private lateinit var auth: FirebaseAuth
-    @MockK private lateinit var backupService: FirestoreBackupService
     @MockK(relaxed = true) private lateinit var okHttpClient: OkHttpClient
     @MockK(relaxed = true) private lateinit var archiveUrlService: ArchiveUrlService
     @MockK(relaxed = true) private lateinit var remoteConfig: FirebaseRemoteConfig
@@ -61,52 +55,63 @@ class ArchiveServiceObserveTest {
     @MockK(relaxed = true) private lateinit var articleDao: ArticleDao
     @MockK(relaxed = true) private lateinit var application: Application
 
-    private lateinit var docRef: DocumentReference
-    private lateinit var articlesCollection: CollectionReference
+    private lateinit var userArticleDoc: DocumentReference
     private lateinit var service: ArchiveService
 
-    // Captures the EventListener passed to addSnapshotListener on each attach() call.
-    // Because attach() may be called multiple times (re-attach after self-heal),
-    // we collect each invocation separately.
-    private val listenerSlots = mutableListOf<EventListener<DocumentSnapshot>>()
+    /** Listeners on the user's own article doc, in attach order. */
+    private val userListeners = mutableListOf<EventListener<DocumentSnapshot>>()
+    private val userRegistrations = mutableListOf<ListenerRegistration>()
+
+    /** Listeners on shared article docs, as (shared id, listener), in attach order. */
+    private val sharedListeners = mutableListOf<Pair<String, EventListener<DocumentSnapshot>>>()
+    private val sharedRegistrations = mutableMapOf<String, MutableList<ListenerRegistration>>()
 
     private val denied = FirebaseFirestoreException("PERMISSION_DENIED", Code.PERMISSION_DENIED)
     private val unavailable = FirebaseFirestoreException("UNAVAILABLE", Code.UNAVAILABLE)
-    private lateinit var registration: ListenerRegistration
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        listenerSlots.clear()
+        userListeners.clear()
+        userRegistrations.clear()
+        sharedListeners.clear()
+        sharedRegistrations.clear()
 
         val user = mockk<FirebaseUser>()
         every { user.uid } returns "u1"
         every { auth.currentUser } returns user
 
-        articlesCollection = mockk()
-        docRef = mockk()
-        every { firestore.collection("articles") } returns articlesCollection
-        every { articlesCollection.document(any()) } returns docRef
-
-        registration = mockk(relaxed = true)
-
-        // Capture each EventListener registered via addSnapshotListener and return
-        // a distinct (relaxed) ListenerRegistration for each attach() call.
-        val listenerSlot = slot<EventListener<DocumentSnapshot>>()
-        every { docRef.addSnapshotListener(capture(listenerSlot)) } answers {
-            listenerSlots.add(listenerSlot.captured)
-            mockk(relaxed = true)
+        // users/u1/articles/{itemId}
+        val usersCollection = mockk<CollectionReference>()
+        val userDoc = mockk<DocumentReference>()
+        val userArticles = mockk<CollectionReference>()
+        userArticleDoc = mockk()
+        every { firestore.collection("users") } returns usersCollection
+        every { usersCollection.document("u1") } returns userDoc
+        every { userDoc.collection("articles") } returns userArticles
+        every { userArticles.document(any()) } returns userArticleDoc
+        every { userArticleDoc.addSnapshotListener(any<EventListener<DocumentSnapshot>>()) } answers {
+            userListeners += firstArg<EventListener<DocumentSnapshot>>()
+            mockk<ListenerRegistration>(relaxed = true).also { userRegistrations += it }
         }
 
-        coEvery { backupService.writeArticleMarker(any(), any()) } returns Result.success(Unit)
-        // owningItemId() checks articleDao first; return null so it falls back to key = itemId.
-        coEvery { articleDao.getArticleById(any()) } returns null
-        coEvery { articleDao.getArticleByResolvedId(any()) } returns null
+        // articles/{sharedId}
+        val articlesCollection = mockk<CollectionReference>()
+        every { firestore.collection("articles") } returns articlesCollection
+        for (id in listOf("item1", "shared1")) {
+            val ref = mockk<DocumentReference>()
+            every { ref.addSnapshotListener(any<EventListener<DocumentSnapshot>>()) } answers {
+                sharedListeners += id to firstArg<EventListener<DocumentSnapshot>>()
+                mockk<ListenerRegistration>(relaxed = true).also {
+                    sharedRegistrations.getOrPut(id) { mutableListOf() } += it
+                }
+            }
+            every { articlesCollection.document(id) } returns ref
+        }
 
         service = ArchiveService(
             firestore = firestore,
             auth = auth,
-            backupService = backupService,
             okHttpClient = okHttpClient,
             archiveUrlService = archiveUrlService,
             remoteConfig = remoteConfig,
@@ -122,156 +127,186 @@ class ArchiveServiceObserveTest {
         clearAllMocks()
     }
 
-    /**
-     * Denied → self-heal marker write → re-attach → success emits non-empty.
-     *
-     * This is the core deadlock-break scenario: the marker is absent when the
-     * listener first attaches, the self-heal writes it, and the re-attached
-     * listener receives the archive document.
-     */
-    @Test
-    fun `denied then self-healed listener emits archives on success`() = runTest(UnconfinedTestDispatcher()) {
-        val emitted = mutableListOf<Map<String, ArchiveStatus>>()
-        val job = launch {
-            service.observeRemoteArchives("item1").toList(emitted)
-        }
-        advanceUntilIdle()
+    private fun userSnapshot(canonicalId: String?): DocumentSnapshot {
+        val snapshot = mockk<DocumentSnapshot>()
+        every { snapshot.get("canonicalId") } returns canonicalId
+        return snapshot
+    }
 
-        // First listener attached — fire PERMISSION_DENIED.
-        assertNotNull("first listener should be captured", listenerSlots.firstOrNull())
-        listenerSlots[0].onEvent(null, denied)
-        advanceUntilIdle()
-
-        // Self-heal should have written the marker and re-attached.
-        coVerify(exactly = 1) { backupService.writeArticleMarker("item1", "item1") }
-        assertEquals("re-attach should have registered a second listener", 2, listenerSlots.size)
-
-        // Second listener attached — fire a successful snapshot with one archive.
+    private fun archiveSnapshot(key: String, status: String): DocumentSnapshot {
         val snapshot = mockk<DocumentSnapshot>()
         every { snapshot.exists() } returns true
         every { snapshot.get("archives") } returns mapOf(
-            "markdown" to mapOf("status" to "success", "gcs_path" to "gs://bucket/md")
+            key to mapOf("status" to status, "gcs_path" to "gs://bucket/$key")
         )
-        listenerSlots[1].onEvent(snapshot, null)
-        advanceUntilIdle()
-
-        assertTrue("should have emitted archives after self-heal", emitted.any { it.isNotEmpty() })
-        val archives = emitted.last()
-        assertEquals(1, archives.size)
-        assertEquals("success", archives["markdown"]?.status)
-
-        job.cancel()
+        return snapshot
     }
 
-    /**
-     * Marker write failure degrades gracefully to empty without crashing.
-     * The flow must not throw — the detail screen shows an empty archives panel.
-     */
+    private fun sharedIdsAttached() = sharedListeners.map { it.first }
+
     @Test
-    fun `marker write failure emits empty and does not crash`() = runTest(UnconfinedTestDispatcher()) {
-        coEvery { backupService.writeArticleMarker(any(), any()) } returns Result.failure(Exception("write failed"))
-
-        val emitted = mutableListOf<Map<String, ArchiveStatus>>()
-        val job = launch {
-            service.observeRemoteArchives("item1").toList(emitted)
-        }
-        advanceUntilIdle()
-
-        listenerSlots[0].onEvent(null, denied)
-        advanceUntilIdle()
-
-        // A second listener should be attached after the failed write (the re-attach
-        // is unconditional once the counter is incremented).
-        // Fire denied again to exhaust the bound (attempt 2/2).
-        if (listenerSlots.size > 1) {
-            listenerSlots[1].onEvent(null, denied)
+    fun `canonicalId different from itemId attaches to the shared article and emits its archives`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val emitted = mutableListOf<Map<String, ArchiveStatus>>()
+            val job = launch { service.observeRemoteArchives("item1").toList(emitted) }
             advanceUntilIdle()
-        }
 
-        // After both bounds exhausted, the next denial should emit empty.
-        if (listenerSlots.size > 2) {
-            listenerSlots[2].onEvent(null, denied)
+            userListeners.single().onEvent(userSnapshot("shared1"), null)
             advanceUntilIdle()
+            assertEquals(listOf("shared1"), sharedIdsAttached())
+
+            sharedListeners.single().second.onEvent(archiveSnapshot("readability", "success"), null)
+            advanceUntilIdle()
+
+            assertEquals(1, emitted.last().size)
+            assertEquals("success", emitted.last()["readability"]?.status)
+            job.cancel()
         }
 
-        assertTrue("should have emitted at least one empty map", emitted.any { it.isEmpty() })
-        job.cancel()
-    }
-
-    /**
-     * The bounded cap prevents infinite re-attachment loops: after MAX_SELF_HEAL_ATTEMPTS,
-     * subsequent denials emit empty and do NOT trigger further self-heals.
-     */
     @Test
-    fun `self-heal attempts are capped and terminal denial emits empty`() = runTest(UnconfinedTestDispatcher()) {
+    fun `no canonicalId falls back to the own itemId`() = runTest(UnconfinedTestDispatcher()) {
         val emitted = mutableListOf<Map<String, ArchiveStatus>>()
-        val job = launch {
-            service.observeRemoteArchives("item1").toList(emitted)
-        }
+        val job = launch { service.observeRemoteArchives("item1").toList(emitted) }
         advanceUntilIdle()
 
-        // Fire denied up to and beyond the cap (MAX = 2).
-        repeat(3) { i ->
-            val idx = listenerSlots.size - 1
-            if (idx >= 0) {
-                listenerSlots[idx].onEvent(null, denied)
-                advanceUntilIdle()
-            }
-        }
+        userListeners.single().onEvent(userSnapshot(null), null)
+        advanceUntilIdle()
+        assertEquals(listOf("item1"), sharedIdsAttached())
 
-        // Self-heal must have been called at most MAX_SELF_HEAL_ATTEMPTS (2) times.
-        coVerify(atMost = 2) { backupService.writeArticleMarker(any(), any()) }
-        // At least one empty map must have been emitted after the bound was hit.
-        assertTrue("should have emitted empty after cap", emitted.any { it.isEmpty() })
-
+        sharedListeners.single().second.onEvent(archiveSnapshot("markdown", "success"), null)
+        advanceUntilIdle()
+        assertEquals("success", emitted.last()["markdown"]?.status)
         job.cancel()
     }
 
-    /**
-     * Cancelling the flow during a self-heal coroutine must NOT trigger another
-     * re-attach once the collector scope is gone.
-     */
     @Test
-    fun `cancel during self-heal does not re-attach`() = runTest(UnconfinedTestDispatcher()) {
-        val job = launch {
-            service.observeRemoteArchives("item1").first() // collect one element then cancel
-        }
+    fun `blank canonicalId falls back to itemId`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launch { service.observeRemoteArchives("item1").toList(mutableListOf()) }
         advanceUntilIdle()
 
-        // Fire denied to trigger self-heal coroutine launch.
-        listenerSlots[0].onEvent(null, denied)
-        // Cancel the collector immediately — the self-heal coroutine is still running.
+        userListeners.single().onEvent(userSnapshot("  "), null)
+        advanceUntilIdle()
+
+        assertEquals(listOf("item1"), sharedIdsAttached())
         job.cancel()
-        advanceUntilIdle()
-
-        // Whether or not the marker write completes, the re-attach should NOT have
-        // registered a second listener because isActive is false when the scope
-        // checks it after the marker write returns. In practice, with
-        // UnconfinedTestDispatcher, the cancel may race; we only assert that we
-        // don't re-attach MORE than once (the self-heal path) beyond the initial attach.
-        // This is a "no infinite loop" safety net, not a precise state assertion.
-        assertTrue("listeners should not have exceeded 2 after one cancel", listenerSlots.size <= 2)
     }
 
-    /**
-     * A non-PERMISSION_DENIED error (e.g. UNAVAILABLE) emits empty immediately
-     * without a self-heal attempt.
-     */
     @Test
-    fun `non-permission error emits empty without self-heal`() = runTest(UnconfinedTestDispatcher()) {
+    fun `user doc listener error falls back to itemId`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launch { service.observeRemoteArchives("item1").toList(mutableListOf()) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(null, denied)
+        advanceUntilIdle()
+
+        assertEquals(listOf("item1"), sharedIdsAttached())
+        job.cancel()
+    }
+
+    @Test
+    fun `canonicalId written while the view is open moves the listener to the shared article`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val emitted = mutableListOf<Map<String, ArchiveStatus>>()
+            val job = launch { service.observeRemoteArchives("item1").toList(emitted) }
+            advanceUntilIdle()
+
+            userListeners.single().onEvent(userSnapshot(null), null)
+            advanceUntilIdle()
+            sharedListeners.single().second.onEvent(null, denied)
+            advanceUntilIdle()
+            assertTrue(emitted.last().isEmpty())
+
+            // The server writes canonicalId; the view follows it with no restart.
+            userListeners.single().onEvent(userSnapshot("shared1"), null)
+            advanceUntilIdle()
+
+            assertEquals(listOf("item1", "shared1"), sharedIdsAttached())
+            verify(exactly = 1) { sharedRegistrations.getValue("item1").single().remove() }
+
+            sharedListeners.last().second.onEvent(archiveSnapshot("readability", "success"), null)
+            advanceUntilIdle()
+            assertEquals("success", emitted.last()["readability"]?.status)
+            job.cancel()
+        }
+
+    @Test
+    fun `canonicalId appearing with the itemId value re-subscribes`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launch { service.observeRemoteArchives("item1").toList(mutableListOf()) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot(null), null)
+        advanceUntilIdle()
+        userListeners.single().onEvent(userSnapshot("item1"), null)
+        advanceUntilIdle()
+
+        assertEquals(listOf("item1", "item1"), sharedIdsAttached())
+        job.cancel()
+    }
+
+    @Test
+    fun `unchanged canonicalId does not re-subscribe`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launch { service.observeRemoteArchives("item1").toList(mutableListOf()) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+
+        assertEquals(listOf("shared1"), sharedIdsAttached())
+        job.cancel()
+    }
+
+    @Test
+    fun `denied shared read emits empty, writes nothing and does not retry`() = runTest(UnconfinedTestDispatcher()) {
         val emitted = mutableListOf<Map<String, ArchiveStatus>>()
-        val job = launch {
-            service.observeRemoteArchives("item1").toList(emitted)
-        }
+        val job = launch { service.observeRemoteArchives("item1").toList(emitted) }
         advanceUntilIdle()
 
-        listenerSlots[0].onEvent(null, unavailable)
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+        sharedListeners.single().second.onEvent(null, denied)
         advanceUntilIdle()
 
-        coVerify(exactly = 0) { backupService.writeArticleMarker(any(), any()) }
-        assertTrue("should have emitted empty for non-permission error", emitted.isNotEmpty())
+        assertTrue(emitted.isNotEmpty())
         assertTrue(emitted.last().isEmpty())
+        // One attach only: no re-attach after the denial.
+        assertEquals(listOf("shared1"), sharedIdsAttached())
+        // The user doc is never written and no subcollection (marker path) is touched.
+        verify(exactly = 0) { userArticleDoc.set(any()) }
+        verify(exactly = 0) { userArticleDoc.set(any(), any()) }
+        verify(exactly = 0) { userArticleDoc.collection(any()) }
+        job.cancel()
+    }
+
+    @Test
+    fun `non-permission error emits empty`() = runTest(UnconfinedTestDispatcher()) {
+        val emitted = mutableListOf<Map<String, ArchiveStatus>>()
+        val job = launch { service.observeRemoteArchives("item1").toList(emitted) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+        sharedListeners.single().second.onEvent(null, unavailable)
+        advanceUntilIdle()
+
+        assertTrue(emitted.last().isEmpty())
+        assertEquals(1, sharedListeners.size)
+        job.cancel()
+    }
+
+    @Test
+    fun `cancelling removes both listener registrations`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launch { service.observeRemoteArchives("item1").toList(mutableListOf()) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
 
         job.cancel()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { userRegistrations.single().remove() }
+        verify(exactly = 1) { sharedRegistrations.getValue("shared1").single().remove() }
     }
 }

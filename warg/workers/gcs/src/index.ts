@@ -17,6 +17,8 @@ import {
   filterPersistableArtifacts,
   toUploadInfo
 } from './artifacts.js';
+import { buildFinalizeMetadata } from './metadata.js';
+import { callCloudFunction } from './cloud-function.js';
 
 /**
  * Compress data using gzip via CompressionStream.
@@ -153,40 +155,6 @@ function assertCreateUploadContract(
 }
 
 /**
- * Call Cloud Function endpoint.
- */
-async function callCloudFunction<T>(
-  baseUrl: string,
-  path: string,
-  body: unknown,
-  apiKey: string
-): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-  try {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Internal-API-Key': apiKey
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Cloud Function ${path} failed: ${response.status} - ${text}`);
-    }
-
-    return (await response.json()) as T;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-/**
  * Extract image src/height/width from readability HTML content using HTMLRewriter.
  */
 async function extractImages(
@@ -268,14 +236,7 @@ export default {
         const readabilityObj = await env.ARCHIVE_BUCKET.get(readabilityArtifact.r2Key);
         if (readabilityObj) {
           const readability = await readabilityObj.json<ReadabilityResult>();
-          metadata = {
-            byline: readability.byline ?? '',
-            excerpt: readability.excerpt ?? '',
-            published_time: readability.publishedTime ?? null,
-            site_name: readability.siteName ?? null,
-            title: readability.title ?? '',
-            word_count: readability.textContent?.split(/\s+/).filter(Boolean).length ?? 0,
-          };
+          metadata = buildFinalizeMetadata(readability);
           images = await extractImages(readability.content);
           console.log(`[gcs] Extracted metadata (${metadata.word_count} words) and ${images.length} images from readability.json`);
         }
@@ -315,10 +276,9 @@ export default {
       };
 
       const createUploadRes = await callCloudFunction<CreateUploadResponse>(
-        env.CLOUD_FN_BASE_URL,
+        env,
         '/create-upload',
-        createUploadReq,
-        env.INTERNAL_API_KEY
+        createUploadReq
       );
       assertCreateUploadContract(artifacts, createUploadRes.uploads);
 
@@ -357,14 +317,13 @@ export default {
         // immediately, surviving a later batch failure.
         try {
           await callCloudFunction<FinalizeResponse>(
-            env.CLOUD_FN_BASE_URL,
+            env,
             '/finalize',
             {
               request_id,
               firestore_doc_id: createUploadRes.firestore_doc_id,
               uploaded: [result.uploaded],
-            } satisfies FinalizeRequest,
-            env.INTERNAL_API_KEY
+            } satisfies FinalizeRequest
           );
         } catch (err) {
           // Don't fail the whole persist — the entry is still journaled as
@@ -400,10 +359,9 @@ export default {
       };
 
       const finalizeRes = await callCloudFunction<FinalizeResponse>(
-        env.CLOUD_FN_BASE_URL,
+        env,
         '/finalize',
-        finalizeReq,
-        env.INTERNAL_API_KEY
+        finalizeReq
       );
 
       console.log(`[gcs] Finalize complete, status: ${finalizeRes.status}`);

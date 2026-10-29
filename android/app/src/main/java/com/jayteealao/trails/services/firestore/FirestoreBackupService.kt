@@ -3,7 +3,7 @@ package com.jayteealao.trails.services.firestore
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.DocumentReference
-import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.WriteBatch
@@ -34,7 +34,6 @@ class FirestoreBackupService @Inject constructor(
     companion object {
         private const val USERS_COLLECTION = "users"
         private const val ARTICLES_COLLECTION = "articles"
-        private const val ARTICLE_MARKERS_COLLECTION = "articleMarkers"
         private const val TAGS_COLLECTION = "tags"
         private const val IMAGES_COLLECTION = "images"
         private const val VIDEOS_COLLECTION = "videos"
@@ -44,11 +43,10 @@ class FirestoreBackupService @Inject constructor(
         // MAX_TEXT_SIZE is compared against toByteArray().size (byte count), not text.length (char count).
         // Firestore's 1 MiB doc limit is bytes; leaving 100KB buffer above 900KB for other fields.
         private const val MAX_TEXT_SIZE = 900_000
-        // Rules budget: each article in a batch costs one getAfter call on
-        // users/{uid}/articles/{itemId}. Firestore allows at most 20 document-
-        // access calls per batched write (same-path calls are cached, but each
-        // article has a unique path). Keep chunk sizes ≤ 20.
-        private const val WRITE_BATCH_LIMIT = 20 // ≤ 20 so each batch's marker getAfter() calls fit the Firestore rules document-access budget
+        // At most 20 articles per batched write keeps each commit small. The app no
+        // longer writes the server-owned link docs, so the old per-article rules
+        // getAfter budget that first set this cap no longer applies.
+        private const val WRITE_BATCH_LIMIT = 20
         // Throughput-hygiene target for backupArticlesPaginated: close a batch before
         // the next article would push the queued write count past this threshold.
         // Firestore's hard limit is 10 MiB per commit (not a write count), so 500 is a
@@ -79,12 +77,17 @@ class FirestoreBackupService @Inject constructor(
      * so tag writes commit atomically with the article — no separate batch commit
      * per article (efficiency-2). The default [emptyList] preserves the existing
      * call sites in [backupArticle] that handle tags separately.
+     *
+     * Each image, author and video row in [rows] is written as one doc in the article's
+     * `images` / `authors` / `videos` subcollection, in the same [batch]. An article
+     * without rows writes no row doc.
      */
     private fun addArticleToBatch(
         batch: WriteBatch,
         articleRef: DocumentReference,
         article: Article,
-        tags: List<ArticleTags> = emptyList()
+        tags: List<ArticleTags> = emptyList(),
+        rows: ArticleRows = ArticleRows()
     ) {
         val textSize = article.text?.toByteArray()?.size ?: 0
         val articleToSave = if (textSize > MAX_TEXT_SIZE && article.text != null) {
@@ -94,12 +97,24 @@ class FirestoreBackupService @Inject constructor(
         } else {
             article
         }
-        batch.set(articleRef, articleToSave, SetOptions.merge())
+        batch.set(articleRef, articleToSave.toBackupFields(), SetOptions.merge())
         // Write tags into the same batch (efficiency-2: no separate per-article commit).
         tags.forEach { tag ->
             val tagRef = articleRef.collection(TAGS_COLLECTION)
                 .document("${tag.itemId}_${tag.tag}")
             batch.set(tagRef, tag, SetOptions.merge())
+        }
+        rows.images.forEach { image ->
+            val imageRef = articleRef.collection(IMAGES_COLLECTION).document(rowDocId(image.imageId))
+            batch.set(imageRef, image.toFirestoreFields(), SetOptions.merge())
+        }
+        rows.authors.forEach { author ->
+            val authorRef = articleRef.collection(AUTHORS_COLLECTION).document(rowDocId(author.authorId))
+            batch.set(authorRef, author.toFirestoreFields(), SetOptions.merge())
+        }
+        rows.videos.forEach { video ->
+            val videoRef = articleRef.collection(VIDEOS_COLLECTION).document(rowDocId(video.videoId))
+            batch.set(videoRef, video.toFirestoreFields(), SetOptions.merge())
         }
     }
 
@@ -110,62 +125,6 @@ class FirestoreBackupService @Inject constructor(
         firestore.collection(USERS_COLLECTION)
             .document(userId)
             .collection(ARTICLES_COLLECTION)
-
-    /**
-     * Get the user's article-marker collection reference.
-     * One existence marker is written per saved article key under
-     * users/{userId}/articleMarkers/{key}; this gates the (later) tightened
-     * top-level `articles` read.
-     */
-    private fun getUserMarkersCollection(userId: String) =
-        firestore.collection(USERS_COLLECTION)
-            .document(userId)
-            .collection(ARTICLE_MARKERS_COLLECTION)
-
-    /**
-     * Marker doc keys for an article: its [Article.itemId] always, plus
-     * [Article.resolvedId] when present and distinct (the network mapper
-     * sometimes leaves it blank). Deduped so the read rule's single exists()
-     * check matches whichever key a reader passes.
-     */
-    private fun markerKeysFor(article: Article): List<String> {
-        val keys = mutableListOf(article.itemId)
-        val resolved = article.resolvedId
-        if (!resolved.isNullOrBlank() && resolved != article.itemId) {
-            keys.add(resolved)
-        }
-        return keys
-    }
-
-    /**
-     * Minimal marker body. `itemId` is the doc id of the user's own article at
-     * users/{userId}/articles/{itemId} — required by the tightened create/update
-     * rule to prove the caller owns the referenced article. Both the itemId-keyed
-     * and the resolvedId-keyed marker for the same article carry the same
-     * [articleItemId] so the rules path cache only needs one getAfter call per
-     * article.
-     */
-    private fun markerBody(key: String, source: String, articleItemId: String): Map<String, Any> =
-        mapOf(
-            "key" to key,
-            "itemId" to articleItemId,
-            "createdAt" to FieldValue.serverTimestamp(),
-            "source" to source,
-        )
-
-    /**
-     * Queue marker writes for [article] onto an existing [batch] so they
-     * commit atomically with the article doc. Keyed by [markerKeysFor].
-     * Both the itemId-keyed and resolvedId-keyed markers carry itemId =
-     * article.itemId so the rules' getAfter check resolves to the same
-     * article doc path (cached — only one access call per article).
-     */
-    private fun addMarkerWrites(batch: WriteBatch, userId: String, article: Article) {
-        val markers = getUserMarkersCollection(userId)
-        markerKeysFor(article).forEach { key ->
-            batch.set(markers.document(key), markerBody(key, "sync", article.itemId), SetOptions.merge())
-        }
-    }
 
     /**
      * Auth guard for methods returning [Result]. Calls [block] with the current
@@ -181,35 +140,6 @@ class FirestoreBackupService @Inject constructor(
         val user = getCurrentUser()
             ?: return Result.failure(Exception("User not authenticated"))
         return block(user)
-    }
-
-    /**
-     * Write a single article-existence marker for the current user. Reused by
-     * the archive read-path self-heal when a read is denied for an owned
-     * article key. Idempotent (merge); records source = "self-heal".
-     *
-     * [key] is the marker doc id (itemId or resolvedId). [itemId] is the doc
-     * id of the user's own article at users/{uid}/articles/{itemId}; it must
-     * match an existing article doc so the tightened create/update rule's
-     * getAfter check passes. When the self-heal is triggered for an itemId-keyed
-     * read (the common case) [key] and [itemId] are the same value; pass them
-     * separately when healing a resolvedId-keyed marker.
-     */
-    suspend fun writeArticleMarker(key: String, itemId: String = key): Result<Unit> {
-        return withAuthenticatedUser { user ->
-            try {
-                getUserMarkersCollection(user.uid)
-                    .document(key)
-                    .set(markerBody(key, "self-heal", itemId), SetOptions.merge())
-                    .await()
-
-                Timber.d("Wrote self-heal marker for key $key (itemId=$itemId)")
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to write self-heal marker for key $key")
-                Result.failure(e)
-            }
-        }
     }
 
     /**
@@ -231,8 +161,9 @@ class FirestoreBackupService @Inject constructor(
                 // Use batch write for atomic operation
                 val batch = firestore.batch()
 
-                // Write article doc (and large-text subcollection when needed).
-                addArticleToBatch(batch, articleRef, article)
+                // Write article doc (and large-text subcollection when needed), plus its
+                // image, author and video rows through the row codec.
+                addArticleToBatch(batch, articleRef, article, rows = ArticleRows(images, authors, videos))
 
                 // Save tags
                 tags.forEach { tag ->
@@ -241,36 +172,12 @@ class FirestoreBackupService @Inject constructor(
                     batch.set(tagRef, tag, SetOptions.merge())
                 }
 
-                // Save images
-                images.forEach { image ->
-                    val imageRef = articleRef.collection(IMAGES_COLLECTION)
-                        .document(image.imageId)
-                    batch.set(imageRef, image, SetOptions.merge())
-                }
-
-                // Save videos
-                videos.forEach { video ->
-                    val videoRef = articleRef.collection(VIDEOS_COLLECTION)
-                        .document(video.videoId)
-                    batch.set(videoRef, video, SetOptions.merge())
-                }
-
-                // Save authors
-                authors.forEach { author ->
-                    val authorRef = articleRef.collection(AUTHORS_COLLECTION)
-                        .document(author.authorId)
-                    batch.set(authorRef, author, SetOptions.merge())
-                }
-
                 // Save domain metadata if present
                 domainMetadata?.let { metadata ->
                     val metadataRef = articleRef.collection(DOMAIN_METADATA_COLLECTION)
                         .document("metadata")
                     batch.set(metadataRef, metadata, SetOptions.merge())
                 }
-
-                // Write existence marker(s) atomically with the article doc
-                addMarkerWrites(batch, user.uid, article)
 
                 // Commit batch
                 batch.commit().await()
@@ -292,21 +199,15 @@ class FirestoreBackupService @Inject constructor(
             try {
                 var successCount = 0
 
-                // Process in chunks of WRITE_BATCH_LIMIT: the tightened marker create/update rule
-                // calls getAfter on users/{uid}/articles/{itemId} per article.
-                // Firestore batched writes allow at most 20 document-access calls;
-                // each article contributes one unique path, so chunks must be ≤ 20.
+                // Process in chunks of WRITE_BATCH_LIMIT (20 articles) to keep each
+                // commit small; the cap is no longer a rules-budget requirement.
                 articles.chunked(WRITE_BATCH_LIMIT).forEach { chunk ->
                     val batch = firestore.batch()
 
                     chunk.forEach { article ->
                         val articleRef = getUserArticlesCollection(user.uid)
                             .document(article.itemId)
-                        batch.set(articleRef, article, SetOptions.merge())
-
-                        // Write existence marker(s) atomically with the article doc so
-                        // the tightened `articles` read rule can verify ownership.
-                        addMarkerWrites(batch, user.uid, article)
+                        batch.set(articleRef, article.toBackupFields(), SetOptions.merge())
                     }
 
                     batch.commit().await()
@@ -334,7 +235,8 @@ class FirestoreBackupService @Inject constructor(
                 val articleDoc = articleRef.get().await()
 
                 if (articleDoc.exists()) {
-                    val rawArticle = articleDoc.toObject(Article::class.java)
+                    // Same deletion read as the bulk restore; no heal write here.
+                    val rawArticle = articleDoc.toRestored()?.first
                     val article = rawArticle?.let { rehydrateLargeText(it, articleRef) }
                     if (article?.text != rawArticle?.text) {
                         Timber.d("Restored separate text for article $articleId")
@@ -348,6 +250,40 @@ class FirestoreBackupService @Inject constructor(
                 Timber.e(e, "Failed to restore article $articleId")
                 Result.failure(e)
             }
+        }
+    }
+
+    /**
+     * Map a restored article doc through [RemoteDeletion]: the article with its deletion
+     * read from `deletedAt` or the legacy `deleted_at`, and the heal write fields (null
+     * when the doc needs none).
+     */
+    private fun DocumentSnapshot.toRestored(): Pair<Article, Map<String, Any>?>? {
+        val article = toObject(Article::class.java) ?: return null
+        val resolution = RemoteDeletion.resolve(
+            deletedAt = getLong(RemoteDeletion.FIELD),
+            legacyDeletedAt = getLong(RemoteDeletion.LEGACY_FIELD),
+            legacyPresent = contains(RemoteDeletion.LEGACY_FIELD),
+            timeUpdated = article.timeUpdated,
+        )
+        return article.withRemoteDeletion(resolution, id) to RemoteDeletion.healFields(resolution.heal)
+    }
+
+    /**
+     * Rewrite legacy `deleted_at` docs to `deletedAt` in one batch. Best effort: a
+     * failure is logged and the next restore heals again.
+     */
+    private suspend fun commitDeletionHeals(heals: List<Pair<DocumentReference, Map<String, Any>>>) {
+        if (heals.isEmpty()) return
+        try {
+            val batch = firestore.batch()
+            heals.forEach { (ref, fields) -> batch.set(ref, fields, SetOptions.merge()) }
+            batch.commit().await()
+            Timber.d("Healed ${heals.size} legacy deletion keys")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to heal ${heals.size} legacy deletion keys; the next restore retries")
         }
     }
 
@@ -437,9 +373,19 @@ class FirestoreBackupService @Inject constructor(
                     if (snapshot.documents.isEmpty()) {
                         hasMore = false
                     } else {
+                        // Read the deletion from either key (RemoteDeletion) and queue the
+                        // heal write for docs that still carry the legacy key.
+                        val heals = mutableListOf<Pair<DocumentReference, Map<String, Any>>>()
                         val articles = snapshot.documents.mapNotNull { doc ->
-                            doc.toObject(Article::class.java)
+                            doc.toRestored()?.let { (article, healFields) ->
+                                if (healFields != null) heals += doc.reference to healFields
+                                article
+                            }
                         }
+
+                        // Heal before onPage: a local-wins push during onPage must not be
+                        // overwritten by a later heal write.
+                        commitDeletionHeals(heals)
 
                         // Rehydrate large text from subcollection (parity with restoreArticle).
                         val hydratedArticles = articles.map { article ->
@@ -485,7 +431,7 @@ class FirestoreBackupService @Inject constructor(
                     .await()
 
                 val tags = snapshot.documents.mapNotNull { doc ->
-                    doc.toObject(ArticleTags::class.java)
+                    tagFromFirestore(doc.data ?: emptyMap(), articleId)
                 }
 
                 Result.success(tags)
@@ -531,7 +477,10 @@ class FirestoreBackupService @Inject constructor(
                                 Timber.w(e, "batchRestoreArticleTags: failed to fetch tags for $articleId")
                                 null
                             }
-                            articleId to (snap?.documents?.mapNotNull { it.toObject(ArticleTags::class.java) } ?: emptyList())
+                            articleId to (
+                                snap?.documents?.mapNotNull { tagFromFirestore(it.data ?: emptyMap(), articleId) }
+                                    ?: emptyList()
+                                )
                         }
                     }
                 }
@@ -541,7 +490,9 @@ class FirestoreBackupService @Inject constructor(
     }
 
     /**
-     * Restore images for a specific article
+     * Restore images for a specific article. Rows are read through the row codec:
+     * the object mapper cannot build [ArticleImages] (no no-argument constructor).
+     * A doc without a usable `src` is skipped.
      */
     suspend fun restoreArticleImages(articleId: String): Result<List<ArticleImages>> {
         return withAuthenticatedUser { user ->
@@ -553,15 +504,111 @@ class FirestoreBackupService @Inject constructor(
                     .await()
 
                 val images = snapshot.documents.mapNotNull { doc ->
-                    doc.toObject(ArticleImages::class.java)
+                    imageFromFirestore(doc.id, doc.data ?: emptyMap(), articleId)
                 }
 
                 Result.success(images)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Failed to restore images for article $articleId")
                 Result.failure(e)
             }
         }
+    }
+
+    /**
+     * Restore authors for a specific article, through the row codec as
+     * [restoreArticleImages] does. A doc without a usable `name` is skipped.
+     */
+    suspend fun restoreArticleAuthors(articleId: String): Result<List<ArticleAuthors>> {
+        return withAuthenticatedUser { user ->
+            try {
+                val snapshot = getUserArticlesCollection(user.uid)
+                    .document(articleId)
+                    .collection(AUTHORS_COLLECTION)
+                    .get()
+                    .await()
+
+                val authors = snapshot.documents.mapNotNull { doc ->
+                    authorFromFirestore(doc.id, doc.data ?: emptyMap(), articleId)
+                }
+
+                Result.success(authors)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to restore authors for article $articleId")
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Restore video rows for a specific article, through the row codec as
+     * [restoreArticleImages] does. A doc without a usable `src` is skipped.
+     */
+    suspend fun restoreArticleVideos(articleId: String): Result<List<ArticleVideos>> {
+        return withAuthenticatedUser { user ->
+            try {
+                val snapshot = getUserArticlesCollection(user.uid)
+                    .document(articleId)
+                    .collection(VIDEOS_COLLECTION)
+                    .get()
+                    .await()
+
+                val videos = snapshot.documents.mapNotNull { doc ->
+                    videoFromFirestore(doc.id, doc.data ?: emptyMap(), articleId)
+                }
+
+                Result.success(videos)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to restore videos for article $articleId")
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Restore the image, author and video rows of several articles, all in parallel as
+     * [batchRestoreArticleTags] does, with each article's three reads made at the same
+     * time.
+     *
+     * An article whose images, authors or videos read failed is left out of the map, so the
+     * caller changes nothing for it; an article without rows maps to an empty
+     * [ArticleRows]. Returns an empty map when [articleIds] is empty or no user is
+     * signed in.
+     */
+    suspend fun batchRestoreArticleRows(articleIds: List<String>): Map<String, ArticleRows> {
+        if (articleIds.isEmpty()) return emptyMap()
+        if (getCurrentUser() == null) return emptyMap()
+        val reads = coroutineScope {
+            articleIds.map { articleId ->
+                async {
+                    val images = async { restoreArticleImages(articleId) }
+                    val authors = async { restoreArticleAuthors(articleId) }
+                    val videos = async { restoreArticleVideos(articleId) }
+                    RowReads(articleId, images.await(), authors.await(), videos.await())
+                }
+            }.awaitAll()
+        }
+        val restored = mutableMapOf<String, ArticleRows>()
+        for (read in reads) {
+            val images = read.images.getOrNull()
+            val authors = read.authors.getOrNull()
+            val videos = read.videos.getOrNull()
+            if (images == null || authors == null || videos == null) {
+                Timber.w(
+                    read.images.exceptionOrNull() ?: read.authors.exceptionOrNull() ?: read.videos.exceptionOrNull(),
+                    "batchRestoreArticleRows: failed to fetch rows for ${read.articleId}"
+                )
+            } else {
+                restored[read.articleId] = ArticleRows(images, authors, videos)
+            }
+        }
+        return restored
     }
 
     /**
@@ -702,23 +749,28 @@ class FirestoreBackupService @Inject constructor(
      *
      * Tags for each article can be supplied via [tagsByArticleId]. When present,
      * each article's tags are written into the same [WriteBatch] as the article doc
-     * and markers — no separate per-article commit is needed (efficiency-2). Callers
+     * — no separate per-article commit is needed (efficiency-2). Callers
      * that do not need tag backup (e.g. the reconcile sweep) use the default
      * [emptyMap].
      *
-     * Tag writes do NOT add `getAfter()` calls to the Firestore rules document-access
-     * budget (tag subcollection writes have no rules check). The chunk size ≤ 20 limit
-     * ([WRITE_BATCH_LIMIT]) is governed solely by the article marker rule, which remains
-     * one `getAfter()` per article.
+     * Each batch holds at most [WRITE_BATCH_LIMIT] (20) articles and at most
+     * [WRITE_COUNT_THRESHOLD] queued writes. The 20-article cap keeps commits small;
+     * the old per-article rules budget that first set it no longer applies.
+     *
+     * Image and author rows from [rowsByArticleId] are written in the article's batch
+     * and count toward the write threshold; an article is still never split across
+     * batches, so one result covers the article and its rows.
      *
      * @param articles List of articles to backup
      * @param tagsByArticleId Pre-fetched tags keyed by [Article.itemId]; default [emptyMap]
      * @param onProgress Callback with (current, total) counts
+     * @param rowsByArticleId Image and author rows keyed by [Article.itemId]; default [emptyMap]
      */
     suspend fun backupArticlesPaginated(
         articles: List<Article>,
         tagsByArticleId: Map<String, List<ArticleTags>> = emptyMap(),
-        onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }
+        onProgress: (current: Int, total: Int) -> Unit = { _, _ -> },
+        rowsByArticleId: Map<String, ArticleRows> = emptyMap()
     ): Result<Int> {
         return withAuthenticatedUser { user ->
             try {
@@ -730,12 +782,11 @@ class FirestoreBackupService @Inject constructor(
                 // Process in write-count-aware chunks bounded by both write count and
                 // article count. Each article contributes a variable number of writes:
                 // 1 article doc + optionally 1 large-text subcollection doc +
-                // tags.size tag docs + markerKeysFor(article).size marker docs.  We
-                // flush before adding an article that would either push the write total
-                // past WRITE_COUNT_THRESHOLD or push the article count to
-                // WRITE_BATCH_LIMIT (≤ 20 required by the marker rule's getAfter budget
-                // — see RULES BUDGET comment above). A single article is never split
-                // across two batches (all-or-nothing within a chunk is preserved).
+                // tags.size tag docs + one doc per image and author row.  We flush before adding an article that would
+                // either push the write total past WRITE_COUNT_THRESHOLD or push the
+                // article count to WRITE_BATCH_LIMIT (20, kept to keep commits small).
+                // A single article is never split across two batches (all-or-nothing
+                // within a chunk is preserved).
                 var batch = firestore.batch()
                 var batchWriteCount = 0
                 var batchArticleCount = 0
@@ -743,9 +794,10 @@ class FirestoreBackupService @Inject constructor(
 
                 articles.forEach { article ->
                     val tags = tagsByArticleId[article.itemId] ?: emptyList()
+                    val rows = rowsByArticleId[article.itemId] ?: ArticleRows()
                     val textSize = article.text?.toByteArray()?.size ?: 0
                     val largeTextWrites = if (textSize > MAX_TEXT_SIZE && article.text != null) 1 else 0
-                    val articleWrites = 1 + largeTextWrites + tags.size + markerKeysFor(article).size
+                    val articleWrites = 1 + largeTextWrites + tags.size + rows.writeCount
 
                     // Flush the current batch if this article would exceed either limit.
                     // Always flush after the first article even if it alone exceeds a limit
@@ -761,8 +813,7 @@ class FirestoreBackupService @Inject constructor(
                     }
 
                     val articleRef = getUserArticlesCollection(user.uid).document(article.itemId)
-                    addArticleToBatch(batch, articleRef, article, tags)
-                    addMarkerWrites(batch, user.uid, article)
+                    addArticleToBatch(batch, articleRef, article, tags, rows)
                     batchWriteCount += articleWrites
                     batchArticleCount++
                     successCount++
@@ -784,3 +835,52 @@ class FirestoreBackupService @Inject constructor(
         }
     }
 }
+
+/**
+ * The field map the backup writes for an article: one entry per [Article]
+ * property, keyed by the property name, except `resolvedId`. The server owns
+ * `resolvedId` on the user's article doc, so a merge write that omits it leaves
+ * the server value untouched. Restore still reads it back through `toObject`.
+ * A field added to [Article] must be added here too; a unit test checks parity.
+ * `backedUpAt` is the version this write sends: the stamp the device records when the
+ * commit succeeds. Older builds read it back on restore.
+ */
+internal fun Article.toBackupFields(): Map<String, Any?> = mapOf(
+    "itemId" to itemId,
+    "title" to title,
+    "givenTitle" to givenTitle,
+    "url" to url,
+    "givenUrl" to givenUrl,
+    "normalizedUrl" to normalizedUrl,
+    "excerpt" to excerpt,
+    "wordCount" to wordCount,
+    "favorite" to favorite,
+    "status" to status,
+    "wordCountMessage" to wordCountMessage,
+    "image" to image,
+    "hasImage" to hasImage,
+    "hasVideo" to hasVideo,
+    "hasAudio" to hasAudio,
+    "sortId" to sortId,
+    "timeAdded" to timeAdded,
+    "timeUpdated" to timeUpdated,
+    "timeRead" to timeRead,
+    "timeFavorited" to timeFavorited,
+    "timeToRead" to timeToRead,
+    "listenDurationEstimate" to listenDurationEstimate,
+    "text" to text,
+    "articleId" to articleId,
+    "resolved" to resolved,
+    "deletedAt" to deletedAt,
+    "archivedAt" to archivedAt,
+    "textSource" to textSource,
+    "backedUpAt" to timeUpdated,
+)
+
+/** The three row reads of one article in [FirestoreBackupService.batchRestoreArticleRows]. */
+private class RowReads(
+    val articleId: String,
+    val images: Result<List<ArticleImages>>,
+    val authors: Result<List<ArticleAuthors>>,
+    val videos: Result<List<ArticleVideos>>,
+)

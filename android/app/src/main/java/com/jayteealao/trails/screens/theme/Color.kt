@@ -27,3 +27,12 @@ val TrailsError = Color(0xFFBA1A1A)
 val TrailsOnError = Color(0xFFFFFFFF)
 val TrailsErrorContainer = Color(0xFFF9DEDC)
 val TrailsOnErrorContainer = Color(0xFF410E0B)
+
+// Dark-theme error pair: #BA1A1A is too dark to read on the dark dialog container.
+val TrailsErrorDark = Color(0xFFFFB4AB)
+val TrailsOnErrorDark = Color(0xFF690005)
+
+// Dark-theme error container pair, so error text and icons on an error surface stay
+// readable next to the light dark-theme error colour.
+val TrailsErrorContainerDark = Color(0xFF93000A)
+val TrailsOnErrorContainerDark = Color(0xFFFFDAD6)
