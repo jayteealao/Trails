@@ -113,7 +113,7 @@ class Migration7To8JvmTest {
             for (i in 0 until setup.length()) connection.execSQL(setup.getString(i))
             connection.execSQL("PRAGMA user_version = 7")
 
-            // normalized_url is filled, so the open callback's URL backfill leaves the rows as they are.
+            // normalized_url already equals normalizeUrl(url), so the open callback's recompute leaves the rows as they are.
             connection.insertArticle("a1", "Growing roses", deletedAt = null, backedUpAt = null)
             connection.insertArticle("a2", "Pruning apple trees", deletedAt = 5_000, backedUpAt = null)
             connection.insertArticle("a3", "Birch bark notes", deletedAt = null, backedUpAt = 4_000)
@@ -138,7 +138,7 @@ class Migration7To8JvmTest {
                 "wordCount, status, hasImage, hasVideo, hasAudio, sortId, timeAdded, timeUpdated, timeFavorited, " +
                 "listenDurationEstimate, text, articleId, resolved, deleted_at, text_source, backed_up_at) " +
                 "VALUES ('$itemId', 'r-$itemId', '$title', '$title', 'https://example.com/$itemId', " +
-                "'https://example.com/$itemId', 'example.com/$itemId', 'About $title', 120, '0', 1, 0, 0, 3, " +
+                "'https://example.com/$itemId', 'https://example.com/$itemId', 'About $title', 120, '0', 1, 0, 0, 3, " +
                 "1000, 2000, 0, 60, 'Body of $title', 'p-$itemId', 1, ${deletedAt ?: "NULL"}, 'warg', " +
                 "${backedUpAt ?: "NULL"})"
         )

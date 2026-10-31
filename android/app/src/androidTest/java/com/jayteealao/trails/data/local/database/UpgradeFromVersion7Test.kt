@@ -76,7 +76,7 @@ class UpgradeFromVersion7Test {
             assertEquals(before, after)
             assertEquals(searchBefore, searchAfter)
             assertTrue(
-                context.getSharedPreferences("db_migrations", Context.MODE_PRIVATE).getBoolean("url_normalization_v1", false)
+                context.getSharedPreferences("db_migrations", Context.MODE_PRIVATE).getBoolean(UrlNormalizationCallback.URL_NORMALIZATION_V2, false)
             )
         } finally {
             db.close()

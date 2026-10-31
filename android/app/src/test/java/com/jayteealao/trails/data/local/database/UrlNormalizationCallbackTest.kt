@@ -65,6 +65,27 @@ class UrlNormalizationCallbackTest {
     }
 
     @Test
+    fun v1OnlyInstall_recomputesStaleKeyOnceAndSetsV2Flag() = runTest {
+        val hashRoute = "http://m.youtube.com/#/watch?v=abc"
+        // Key the old rule (fragment always dropped) stored for this link.
+        val staleKey = "http://m.youtube.com/"
+        seedRows(Article(itemId = "y1", title = "Video", url = hashRoute, normalizedUrl = staleKey, timeAdded = 1))
+        prefs().edit().putBoolean(UrlNormalizationCallback.URL_NORMALIZATION_V1, true).commit()
+        assertFalse(v2Flag())
+
+        openConfigured { db ->
+            assertEquals(hashRoute, db.articleDao().getArticleById("y1")?.normalizedUrl)
+        }
+        assertTrue(v2Flag())
+
+        // Plant a stale key again; a second open with the v2 flag set must not rewrite it.
+        seedRows(Article(itemId = "y1", title = "Video", url = hashRoute, normalizedUrl = staleKey, timeAdded = 1))
+        openConfigured { db ->
+            assertEquals(staleKey, db.articleDao().getArticleById("y1")?.normalizedUrl)
+        }
+    }
+
+    @Test
     fun databaseWithoutAppConfiguration_leavesFlagUnset() = runTest {
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
             .setDriver(BundledSQLiteDriver())
@@ -93,7 +114,33 @@ class UrlNormalizationCallbackTest {
         }
     }
 
-    private fun article() = Article(itemId = "a1", title = "Growing roses", url = rawUrl, timeAdded = 1)
+    /** Upserts rows through a database that has no callback, keeping their stored keys as given. */
+    private suspend fun seedRows(vararg articles: Article) {
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .setDriver(BundledSQLiteDriver())
+            .build()
+        try {
+            db.articleDao().upsertArticles(articles.toList())
+        } finally {
+            db.close()
+        }
+    }
+
+    private suspend fun openConfigured(block: suspend (AppDatabase) -> Unit) {
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .configureAppDatabase(context)
+            .build()
+        try {
+            // The first DAO call opens the database, which runs the open callback.
+            block(db)
+        } finally {
+            db.close()
+        }
+    }
+
+    private fun v2Flag() = prefs().getBoolean(UrlNormalizationCallback.URL_NORMALIZATION_V2, false)
+
+    private fun article() =Article(itemId = "a1", title = "Growing roses", url = rawUrl, timeAdded = 1)
 
     private fun prefs() = context.getSharedPreferences("db_migrations", Context.MODE_PRIVATE)
 

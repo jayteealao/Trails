@@ -41,9 +41,12 @@ const QUERY_COMPONENT_ENCODE_SET = ' !"#$&\'(),/:;<=>?@[]\\^`{|}~';
 
 /**
  * Normalizes a URL for deduplication: lower-cases scheme and host, strips
- * tracking query parameters and the fragment, sorts the remaining parameters by
- * name, and removes one trailing slash from a non-root path. Returns the input
- * unchanged when it is not an http or https URL that OkHttp can parse. Never throws.
+ * tracking query parameters, sorts the remaining parameters by name, and removes
+ * one trailing slash from a non-root path. A route fragment (one whose text after
+ * '#' starts with "/" or "!", as in hash-routed `#/watch?v=…` and hashbang `#!…`
+ * URLs) is kept as OkHttp encodes it, because it names the page; every other
+ * fragment is removed. Returns the input unchanged when it is not an http or
+ * https URL that OkHttp can parse. Never throws.
  */
 export function normalizeUrl(url: string): string {
   try {
@@ -136,7 +139,15 @@ function normalize(input: string): string {
         )
         .join('&');
   }
+  if (parsed.fragment !== null && isRouteFragment(parsed.fragment)) {
+    out += '#' + parsed.fragment;
+  }
   return out;
+}
+
+/** A fragment that carries the page identity: `#/…` (hash routing) or `#!…` (hashbang). */
+function isRouteFragment(encodedFragment: string): boolean {
+  return encodedFragment.startsWith('/') || encodedFragment.startsWith('!');
 }
 
 interface ParsedUrl {
@@ -148,6 +159,8 @@ interface ParsedUrl {
   segments: string[];
   /** Alternating encoded names and values (null for a name without "="), or null for no query. */
   query: Array<string | null> | null;
+  /** The encoded fragment without its '#', or null for no fragment. */
+  fragment: string | null;
 }
 
 /** OkHttp `HttpUrl.Builder.parse(null, input)`; null where OkHttp throws. */
@@ -254,7 +267,7 @@ function parse(input: string): ParsedUrl | null {
   resolvePath(segments, input, pos, pathDelimiterOffset);
   pos = pathDelimiterOffset;
 
-  // Query. The fragment is dropped by the normalizer, so it is not parsed.
+  // Query.
   let query: Array<string | null> | null = null;
   if (pos < limit && input[pos] === '?') {
     const queryDelimiterOffset = delimiterOffset(input, '#', pos, limit);
@@ -268,9 +281,16 @@ function parse(input: string): ParsedUrl | null {
         true
       )
     );
+    pos = queryDelimiterOffset;
   }
 
-  return { scheme, username, password, host, port, segments, query };
+  // Fragment.
+  let fragment: string | null = null;
+  if (pos < limit && input[pos] === '#') {
+    fragment = canonicalizeFragment(input, pos + 1, limit);
+  }
+
+  return { scheme, username, password, host, port, segments, query, fragment };
 }
 
 function defaultPort(scheme: string): number {
@@ -506,6 +526,52 @@ function canonicalize(
       }
     } else {
       out += String.fromCharCode(codePoint);
+    }
+    i += charCount;
+  }
+  return out;
+}
+
+/**
+ * OkHttp `String.canonicalize` with FRAGMENT_ENCODE_SET (empty), alreadyEncoded = true,
+ * strict = false, plusIsSpace = false and unicodeAllowed = true. Like OkHttp, the input
+ * is returned as is when no character needs work (the fast path); otherwise tabs, line
+ * feeds, form feeds and carriage returns are skipped, other control characters are
+ * percent-encoded, and a lone surrogate becomes '?' (okio's writeUtf8CodePoint).
+ */
+function canonicalizeFragment(
+  input: string,
+  pos: number,
+  limit: number
+): string {
+  let needsWork = false;
+  for (let i = pos; i < limit; i++) {
+    const code = input.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) {
+      needsWork = true;
+      break;
+    }
+  }
+  if (!needsWork) return input.slice(pos, limit);
+
+  let out = '';
+  let i = pos;
+  while (i < limit) {
+    const codePoint = input.codePointAt(i) as number;
+    const charCount = codePoint > 0xffff ? 2 : 1;
+    if (
+      codePoint === 0x09 ||
+      codePoint === 0x0a ||
+      codePoint === 0x0c ||
+      codePoint === 0x0d
+    ) {
+      // Skip this character.
+    } else if (codePoint < 0x20 || codePoint === 0x7f) {
+      out += '%' + HEX_DIGITS[codePoint >> 4] + HEX_DIGITS[codePoint & 0xf];
+    } else if (codePoint >= 0xd800 && codePoint <= 0xdfff) {
+      out += '?';
+    } else {
+      out += String.fromCodePoint(codePoint);
     }
     i += charCount;
   }

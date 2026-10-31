@@ -305,23 +305,29 @@ fun RoomDatabase.Builder<AppDatabase>.configureAppDatabase(context: Context): Ro
         .addCallback(FtsIndexCheckCallback())
 
 /**
- * Backfills the `normalized_url` column for existing articles after migration 5→6.
- * Uses SharedPreferences flag to ensure it runs only once.
+ * Recomputes the `normalized_url` column for every article with the current [normalizeUrl],
+ * once per install. It first ran as a NULL-only backfill after migration 5→6 (marker
+ * [URL_NORMALIZATION_V1]). The normalizer later started keeping route fragments (`#/`, `#!`),
+ * so keys stored under the old rule are stale; [URL_NORMALIZATION_V2] makes every install,
+ * including those that already have the v1 marker, recompute all rows once more.
+ * The column is not unique, so rewriting keys cannot collide.
  */
 class UrlNormalizationCallback(private val context: Context) : RoomDatabase.Callback() {
     override suspend fun onOpen(connection: SQLiteConnection) {
         super.onOpen(connection)
         val prefs = context.getSharedPreferences("db_migrations", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("url_normalization_v1", false)) return
+        if (prefs.getBoolean(URL_NORMALIZATION_V2, false)) return
 
         val updates = mutableListOf<Pair<String, String>>()
-        connection.prepare("SELECT itemId, url, givenUrl FROM article WHERE normalized_url IS NULL").use {
+        connection.prepare("SELECT itemId, url, givenUrl, normalized_url FROM article").use {
             while (it.step()) {
                 val itemId = it.getText(0)
                 val url = if (it.isNull(1)) null else it.getText(1)
                 val givenUrl = if (it.isNull(2)) null else it.getText(2)
+                val stored = if (it.isNull(3)) null else it.getText(3)
                 val raw = url ?: givenUrl ?: continue
-                updates.add(itemId to normalizeUrl(raw))
+                val normalized = normalizeUrl(raw)
+                if (normalized != stored) updates.add(itemId to normalized)
             }
         }
 
@@ -344,6 +350,17 @@ class UrlNormalizationCallback(private val context: Context) : RoomDatabase.Call
             Timber.d("URL normalization backfill: updated ${updates.size} articles")
         }
 
-        prefs.edit().putBoolean("url_normalization_v1", true).apply()
+        prefs.edit()
+            .putBoolean(URL_NORMALIZATION_V1, true)
+            .putBoolean(URL_NORMALIZATION_V2, true)
+            .apply()
+    }
+
+    companion object {
+        /** Set after the first (NULL-only) backfill. Kept so older readers still see it. */
+        const val URL_NORMALIZATION_V1 = "url_normalization_v1"
+
+        /** Set after the full recompute that follows the route-fragment normalizer change. */
+        const val URL_NORMALIZATION_V2 = "url_normalization_v2"
     }
 }
