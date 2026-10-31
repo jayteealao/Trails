@@ -165,7 +165,7 @@ class Migration9To10JvmTest {
                 "listenDurationEstimate, text, articleId, resolved, deleted_at, archived_at, text_source, backed_up_at, " +
                 "sync_failures) " +
                 "VALUES ('a$n', 'r$n', '$title', '$title', 'https://example.com/a$n', " +
-                "'https://example.com/a$n', 'example.com/a$n', 'About $n', 120, $favorite, '0', 1, 0, 0, $n, " +
+                "'https://example.com/a$n', 'https://example.com/a$n', 'About $n', 120, $favorite, '0', 1, 0, 0, $n, " +
                 "${1_000 + n}, ${2_000 + n}, $timeFavorited, 60, 'Body of article $n', 'p$n', 1, $deletedAt, $archivedAt, 'warg', " +
                 "${6_000 + n}, 0)"
         )

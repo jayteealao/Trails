@@ -221,7 +221,7 @@ class Migration10To11JvmTest {
                 "listenDurationEstimate, text, articleId, resolved, deleted_at, archived_at, text_source, backed_up_at, " +
                 "sync_failures) " +
                 "VALUES ('$id', 'r$n', '$title', '$title', 'https://example.com/$id', " +
-                "'https://example.com/$id', 'example.com/$id', 'About $n', 120, NULL, '0', 1, 0, 0, $n, " +
+                "'https://example.com/$id', 'https://example.com/$id', 'About $n', 120, NULL, '0', 1, 0, 0, $n, " +
                 "${1_000 + n}, ${2_000 + n}, 0, 60, '$text', 'p$n', 1, $deletedAt, NULL, 'warg', " +
                 "${backedUpAt ?: "NULL"}, $syncFailures)"
         )
