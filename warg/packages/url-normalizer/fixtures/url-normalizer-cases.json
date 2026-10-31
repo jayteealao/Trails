@@ -395,6 +395,71 @@
       "name": "unparsable: empty label",
       "input": "https://a..b/",
       "expected": "https://a..b/"
+    },
+    {
+      "name": "route fragment: hash-routed YouTube watch page kept",
+      "input": "http://m.youtube.com/#/watch?v=Dz2zf_AJRFc",
+      "expected": "http://m.youtube.com/#/watch?v=Dz2zf_AJRFc"
+    },
+    {
+      "name": "route fragment: a second hash-routed video stays distinct",
+      "input": "http://m.youtube.com/#/watch?v=t5c2Sa9UGG0",
+      "expected": "http://m.youtube.com/#/watch?v=t5c2Sa9UGG0"
+    },
+    {
+      "name": "route fragment: hashbang kept",
+      "input": "https://example.com/#!/a/b",
+      "expected": "https://example.com/#!/a/b"
+    },
+    {
+      "name": "route fragment: bare hashbang kept",
+      "input": "https://example.com/#!",
+      "expected": "https://example.com/#!"
+    },
+    {
+      "name": "plain anchor fragment dropped",
+      "input": "https://example.com/page#section-2",
+      "expected": "https://example.com/page"
+    },
+    {
+      "name": "empty fragment dropped",
+      "input": "https://example.com/page#",
+      "expected": "https://example.com/page"
+    },
+    {
+      "name": "route fragment: space left unencoded, as OkHttp's empty fragment encode set",
+      "input": "https://example.com/#/a b",
+      "expected": "https://example.com/#/a b"
+    },
+    {
+      "name": "route fragment: non-ASCII left unencoded (unicodeAllowed)",
+      "input": "https://example.com/#/café",
+      "expected": "https://example.com/#/café"
+    },
+    {
+      "name": "route fragment: tab skipped and control character percent-encoded",
+      "input": "https://example.com/#/a\tb\u0001c",
+      "expected": "https://example.com/#/ab%01c"
+    },
+    {
+      "name": "route fragment: percent escapes kept as written",
+      "input": "https://example.com/#/a%20b%zz",
+      "expected": "https://example.com/#/a%20b%zz"
+    },
+    {
+      "name": "route fragment: tracking params in the fragment are kept",
+      "input": "https://example.com/#/watch?utm_source=x&v=1",
+      "expected": "https://example.com/#/watch?utm_source=x&v=1"
+    },
+    {
+      "name": "route fragment: tracking params in the real query still stripped and sorted",
+      "input": "https://example.com/app/?utm_source=x&b=2&a=1#/watch?v=1",
+      "expected": "https://example.com/app?a=1&b=2#/watch?v=1"
+    },
+    {
+      "name": "fragment starting with an encoded slash is not a route",
+      "input": "https://example.com/p#%2Fx",
+      "expected": "https://example.com/p"
     }
   ]
 }

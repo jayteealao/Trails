@@ -242,8 +242,10 @@ version.
 ## Merging duplicate shared articles
 
 Older shares of one link with different tracking parameters (`utm_*`, `fbclid`,
-a `#fragment` and so on) left several shared articles (`articles/{id}`) for the
-same page. The duplicate merge in `@warg/backfill-scripts` groups every shared
+a `#section` anchor and so on) left several shared articles (`articles/{id}`) for
+the same page. The normalizer drops plain anchors but keeps route fragments (text
+after `#` that starts with `/` or `!`, as in `#/watch?v=…` and `#!…`), because on
+hash-routed sites they name the page. The duplicate merge in `@warg/backfill-scripts` groups every shared
 article by its normalized URL and, in each group:
 
 - keeps the oldest shared article (its `created_at`, else the document's create
