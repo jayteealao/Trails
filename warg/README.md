@@ -71,6 +71,10 @@ secrets each worker needs, and how each target is verified.
    pnpm deploy:quick                 # skip typecheck and tests (the secret check still runs)
    ```
 
+   When `firebase deploy` asks for the `--force` option (a new retry policy, for
+   example), read its message, then add `--force-functions`. That flag also
+   deletes each function that the codebase no longer holds, without asking.
+
    Plain `pnpm deploy` is pnpm's own built-in command and does not run the
    script; use `pnpm run deploy` or one of the `deploy:*` scripts.
 
@@ -98,7 +102,7 @@ runs the function test suites. Each function folder needs its `.env` (copy
 Function secrets and deploy configuration: before any deploy that includes the
 functions, the script checks that every Secret Manager secret the functions
 bind has an enabled latest version, and that `dashboard-api/.env` sets
-`DASHBOARD_USER_ID` and `backfill-archiver/.env` sets `BACKFILL_USER_ID`. A
+`DASHBOARD_USER_ID` and `backfill-archiver/.env` sets `BACKFILL_USER_ID` and `BACKFILL_PASS_LABEL`. A
 miss stops the run with exit 3 naming each missing name (never a value) and
 the `gcloud secrets create` command that adds it, so firebase-tools never
 prompts mid-deploy. The function deploy runs with `--non-interactive`.

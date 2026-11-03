@@ -55,6 +55,7 @@ done
 # The required deploy configuration (no real user id).
 echo "DASHBOARD_USER_ID=harness-user" >>"$FIX/cloud-functions/dashboard-api/.env"
 echo "BACKFILL_USER_ID=harness-user" >>"$FIX/cloud-functions/backfill-archiver/.env"
+echo "BACKFILL_PASS_LABEL=1" >>"$FIX/cloud-functions/backfill-archiver/.env"
 # deploy.sh deploys the rules from the repository's firebase/ folder, which
 # sits beside warg/ (here: beside the fixture repo).
 RULES_SRC="$(cd "$WARG/.." && pwd)/firebase"
@@ -177,7 +178,7 @@ scenario_full_success() {
   expect_calls 0 'no-timeouts'
   expect_no_out 'harness-token'
   expect_calls 0 'harness-token'
-  expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA --commit-message $SHA --commit-dirty=false\$"
+  expect_calls 1 "^wrangler pages deploy --branch master --commit-hash $SHA --commit-message $SHA --commit-dirty=false\$"
   expect_row "pages:dashboard" deployed "$UUID"
   expect_out '^=== Link check passed: cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json '
   expect_out '^=== Rules link check passed: '
@@ -475,7 +476,7 @@ scenario_dirty_allowed() {
   expect_calls 9 "^cf deploy --tag $SHORT-dirty --message $SHA-dirty --provision=false\$"
   expect_calls 5 '^firebase deploy '
   expect_calls 5 "^firebase deploy .* GIT_SHA=$SHA-dirty\$"
-  expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA-dirty --commit-message $SHA-dirty --commit-dirty=true\$"
+  expect_calls 1 "^wrangler pages deploy --branch master --commit-hash $SHA-dirty --commit-message $SHA-dirty --commit-dirty=true\$"
   expect_row "pages:dashboard" deployed "$UUID"
   expect_row "worker:gateway" deployed "$UUID"
   expect_out '^=== Rules link check passed: '
@@ -533,6 +534,38 @@ scenario_fn_deploy_fails() {
   expect_row "function:user-triggers" skipped '-'
   expect_calls 0 '^gcloud functions describe'
   expect_calls 0 '^gcloud run '
+  expect_out '^If firebase asks for the --force option'
+  finish
+}
+
+scenario_fn_force() {
+  start fn-force
+  run_deploy fn-force -- --functions-only --skip-checks --force-functions
+  expect_rc 0
+  expect_calls 4 '^firebase deploy --only functions:.* --non-interactive --force GIT_SHA='
+  expect_out '^WARNING: user-triggers deployed with --force \(--force-functions\)'
+  finish
+}
+
+scenario_fn_force_usage() {
+  start fn-force-usage
+  run_deploy fn-force-usage -- --rules-only --force-functions
+  expect_rc 2
+  expect_out 'force-functions needs --with-functions'
+  expect_calls 0 '^firebase deploy'
+  finish
+}
+
+scenario_fn_pass_label_missing() {
+  start fn-pass-label-missing
+  sed -i '/^BACKFILL_PASS_LABEL=/d' "$FIX/cloud-functions/backfill-archiver/.env"
+  LABEL="$SHA-dirty"
+  run_deploy fn-pass-label-missing -- --with-functions --skip-checks --allow-dirty
+  git -C "$FIX" checkout -q -- cloud-functions/backfill-archiver/.env
+  expect_rc 3
+  expect_row "function:backfill-archiver" failed 'cloud-functions/backfill-archiver/.env must set BACKFILL_PASS_LABEL \(deploy configuration\)'
+  expect_calls 0 '^firebase deploy'
+  LABEL="$SHA"
   finish
 }
 
@@ -541,7 +574,7 @@ scenario_pages_hash_mismatch() {
   run_deploy pages-hash-mismatch H_PAGES_HASH=0123456789abcdef0123456789abcdef01234567 -- --with-pages --skip-checks
   expect_rc 3
   expect_row "pages:dashboard" unverified "newest commit_hash is 0123456789abcdef0123456789abcdef01234567, expected $SHA"
-  expect_calls 1 "^wrangler pages deploy --branch main --commit-hash $SHA "
+  expect_calls 1 "^wrangler pages deploy --branch master --commit-hash $SHA "
   finish
 }
 
@@ -1052,7 +1085,7 @@ scenario_secret_in_env() {
 
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
   quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
-  dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails
+  dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
   pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync
   functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env

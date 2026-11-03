@@ -70,6 +70,12 @@ set -euo pipefail
 #   --allow-dirty                     deploy from a tree with uncommitted or
 #                                     untracked files; every label then ends
 #                                     in -dirty
+#   --force-functions                 pass --force to each `firebase deploy` of
+#                                     a function (a new retry policy needs it).
+#                                     It also deletes each function that the
+#                                     codebase no longer holds, without asking;
+#                                     printed as a warning in the summary.
+#                                     Never put it in a package.json script.
 #
 # Required secrets per worker (checked with `cf workers secrets list` for all
 # nine workers before the first worker deploys). required_secrets_for() below
@@ -106,7 +112,8 @@ set -euo pipefail
 # has an enabled latest version (`gcloud secrets versions describe latest`)
 # and stops with exit 3 naming each missing one, so firebase-tools never
 # prompts for it. The deploy configuration DASHBOARD_USER_ID
-# (dashboard-api/.env) and BACKFILL_USER_ID (backfill-archiver/.env) must be
+# (dashboard-api/.env), BACKFILL_USER_ID and BACKFILL_PASS_LABEL
+# (backfill-archiver/.env) must be
 # set too; required_function_params_for() below is the list.
 #
 # Link check (functions and rules): the dashboard reads follow the server-written
@@ -197,6 +204,7 @@ CLOUD_FUNCTIONS=(archive-gateway user-triggers backfill-archiver dashboard-api)
 FIREBASE_PROJECT=trails-e428e
 FUNCTION_REGION=us-central1
 PAGES_PROJECT=warg-dashboard
+PAGES_PRODUCTION_BRANCH=master
 POLL_INTERVAL="${DEPLOY_POLL_INTERVAL:-5}"
 POLL_TIMEOUT="${DEPLOY_POLL_TIMEOUT:-60}"
 
@@ -207,6 +215,7 @@ FUNCTIONS_ONLY=false
 RULES_ONLY=false
 SKIP_CHECKS=false
 ALLOW_DIRTY=false
+FORCE_FUNCTIONS=false
 DIRTY=false
 ALLOW_MISSING=()
 ALL_FLAG=false
@@ -283,7 +292,7 @@ trap 'exit 143' TERM
 
 usage_error() {
   echo "ERROR: $1" >&2
-  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--allow-missing-secrets <worker>]..." >&2
+  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--force-functions] [--allow-missing-secrets <worker>]..." >&2
   FIRST_RC=2
   exit 2
 }
@@ -321,6 +330,7 @@ while [ $# -gt 0 ]; do
     --skip-rederive-check) SKIP_REDERIVE_CHECK=true ;;
     --skip-checks) SKIP_CHECKS=true ;;
     --allow-dirty) ALLOW_DIRTY=true ;;
+    --force-functions) FORCE_FUNCTIONS=true ;;
     --allow-missing-secrets)
       [ $# -ge 2 ] || usage_error "--allow-missing-secrets needs a worker name"
       is_worker "$2" || usage_error "--allow-missing-secrets: unknown worker '$2' (one of: ${WORKERS[*]})"
@@ -343,6 +353,9 @@ if [ "$RULES_ONLY" = true ]; then
   [ "$FUNCTIONS_ONLY" = false ] || usage_error "--rules-only cannot be combined with --functions-only"
   [ "$WITH_FUNCTIONS" = false ] || usage_error "--rules-only cannot be combined with --with-functions"
   [ "${#ALLOW_MISSING[@]}" -eq 0 ] || usage_error "--rules-only cannot be combined with --allow-missing-secrets"
+fi
+if [ "$FORCE_FUNCTIONS" = true ] && [ "$WITH_FUNCTIONS" = false ]; then
+  usage_error "--force-functions needs --with-functions, --functions-only or --all"
 fi
 # No worker is deployed (or preflighted) by --functions-only or --rules-only.
 SKIP_WORKERS=false
@@ -756,7 +769,7 @@ private_functions_for() {
 required_function_params_for() {
   case "$1" in
     dashboard-api)     echo "DASHBOARD_USER_ID" ;;
-    backfill-archiver) echo "BACKFILL_USER_ID" ;;
+    backfill-archiver) echo "BACKFILL_USER_ID BACKFILL_PASS_LABEL" ;;
     *)                 echo "" ;;
   esac
 }
@@ -817,12 +830,19 @@ check_invokers() {
 }
 
 deploy_cloud_fn() {
-  local fn="$1" target="function:$1" rc=0 start
+  local fn="$1" target="function:$1" rc=0 start force=()
   set_result "$target" running "-"
   echo "--- Cloud function codebase $fn"
+  if [ "$FORCE_FUNCTIONS" = true ]; then
+    force=(--force)
+    WARNINGS+=("$fn deployed with --force (--force-functions): a function the codebase no longer holds is deleted")
+  fi
   start="$(now_iso)"
-  (cd "cloud-functions/$fn" && GIT_SHA="$LABEL" firebase deploy --only "functions:$fn" --project "$FIREBASE_PROJECT" --non-interactive) || rc=$?
+  (cd "cloud-functions/$fn" && GIT_SHA="$LABEL" firebase deploy --only "functions:$fn" --project "$FIREBASE_PROJECT" --non-interactive "${force[@]}") || rc=$?
   if [ "$rc" -ne 0 ]; then
+    if [ "$FORCE_FUNCTIONS" = false ]; then
+      echo "If firebase asks for the --force option, read its message, then deploy again with --force-functions." >&2
+    fi
     fail_target "$target" failed "$rc" "firebase deploy exited $rc"
   fi
   local name out update state detail=""
@@ -983,7 +1003,7 @@ deploy_pages() {
   local target="pages:dashboard" rc=0
   set_result "$target" running "-"
   echo "--- Pages dashboard"
-  (cd pages/dashboard && wrangler pages deploy --branch main --commit-hash "$LABEL" --commit-message "$LABEL" --commit-dirty="$DIRTY") || rc=$?
+  (cd pages/dashboard && wrangler pages deploy --branch "$PAGES_PRODUCTION_BRANCH" --commit-hash "$LABEL" --commit-message "$LABEL" --commit-dirty="$DIRTY") || rc=$?
   if [ "$rc" -ne 0 ]; then
     fail_target "$target" failed "$rc" "wrangler pages deploy exited $rc"
   fi

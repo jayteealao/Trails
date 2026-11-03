@@ -32,7 +32,10 @@ only after the duplicate merge: `--apply` refuses with exit code 2 until the
 merge has finished. Its flags are `--apply` (real run; omitted = dry run),
 `--yes`, `--report <path>` (default `tmp/rederive-pass-b-<UTC time>.json`,
 ignored by git) and `--page-size <n>`. Exit code 1 means some writes met a
-document that changed while it ran; run it again. The how-to, with what to check
+document that changed while it ran; run it again. When `--apply` creates a
+shared article, it starts the archive of that article, so it needs
+`GATEWAY_URL`, `PUBLIC_API_KEY`, `CF_ACCESS_CLIENT_ID` and
+`CF_ACCESS_CLIENT_SECRET` in the environment. The how-to, with what to check
 in the report, is in [Re-deriving article links](../../README.md#re-deriving-article-links-after-the-merge).
 
 ## Preconditions
