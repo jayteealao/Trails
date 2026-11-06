@@ -1029,6 +1029,7 @@ deploy_pages() {
   fail_target "$target" unverified 3 "newest commit_hash is ${newest:-none}, expected $LABEL"
 }
 
+# --- Sandbox version preflight -----------------------------------------------
 # preflight_sandbox_version: stops the run when the monolith image and SDK name
 # different versions. It sits outside the pre-checks so --skip-checks keeps it.
 preflight_sandbox_version() {
