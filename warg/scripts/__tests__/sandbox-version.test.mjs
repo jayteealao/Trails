@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -122,6 +122,27 @@ test('a package.json that is not JSON exits 1 and never passes', () => {
   const r = run(dockerfile('0.12.14'), '{ not json');
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /^FAIL /m);
+});
+
+test('a run through a linked folder still checks and exits 1', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sandbox-version-'));
+  const link = join(root, 'linked-scripts');
+  try {
+    const dir = join(root, 'worker');
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'Dockerfile'), dockerfile('0.12.14'));
+    writeFileSync(join(dir, 'package.json'), manifest('0.12.3'));
+    // 'junction' needs no privilege on Windows and is a plain link elsewhere.
+    symlinkSync(SCRIPTS, link, 'junction');
+    const r = spawnSync(process.execPath, [join(link, 'check-sandbox-version.mjs'), dir], {
+      encoding: 'utf8'
+    });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /^FAIL /m);
+  } finally {
+    unlinkSync(link);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('imageVersion tolerates --platform, an AS name and no registry', () => {

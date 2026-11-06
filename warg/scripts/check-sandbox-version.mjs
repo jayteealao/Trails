@@ -10,9 +10,9 @@
 // node_modules.
 //
 //   node scripts/check-sandbox-version.mjs [workerDir]
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SDK_PACKAGE = '@cloudflare/sandbox';
@@ -68,6 +68,14 @@ function main() {
   process.exit(1);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Both sides go through realpath: Node resolves links in the module URL but not
+// in argv, and a run that skipped main() would exit 0 and read as a pass.
+function isEntryPoint() {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+}
+
+if (isEntryPoint()) {
   main();
 }
