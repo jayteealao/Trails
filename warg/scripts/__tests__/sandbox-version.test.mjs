@@ -67,11 +67,22 @@ test('a variant image tag exits 1 and names both', () => {
   assert.match(r.out, /SDK 0\.12\.14/);
 });
 
-test('a digest on the image line exits 1 and names both', () => {
-  const pinned = '0.12.14@sha256:' + 'a'.repeat(64);
-  const r = run(dockerfile(pinned), manifest('0.12.14'));
+test('a digest on the image line exits 0 and compares the tag', () => {
+  const r = run(dockerfile('0.12.14@sha256:' + 'a'.repeat(64)), manifest('0.12.14'));
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^ok {3}sandbox image 0\.12\.14, SDK 0\.12\.14$/m);
+});
+
+test('a digest on a different tag exits 1 and names both', () => {
+  const r = run(dockerfile('0.12.3@sha256:' + 'a'.repeat(64)), manifest('0.12.14'));
   assert.equal(r.code, 1, r.out);
-  assert.ok(r.out.includes(`image ${pinned}`), r.out);
+  assert.match(r.out, /image 0\.12\.3, SDK 0\.12\.14/);
+});
+
+test('a malformed digest exits 1 and never passes', () => {
+  const r = run(dockerfile('0.12.14@sha256:abc'), manifest('0.12.14'));
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /image \(none\)/);
 });
 
 test('a Dockerfile with no sandbox FROM line exits 1', () => {

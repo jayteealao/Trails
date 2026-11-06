@@ -17,10 +17,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SDK_PACKAGE = '@cloudflare/sandbox';
 const IMAGE_LINE =
-  /^\s*FROM\s+(?:--\S+\s+)*(?:docker\.io\/)?cloudflare\/sandbox:(\S+)(?:\s+AS\s+\S+)?\s*$/i;
+  /^\s*FROM\s+(?:--\S+\s+)*(?:docker\.io\/)?cloudflare\/sandbox:([^\s@]+)(?:@sha256:[0-9a-f]{64})?(?:\s+AS\s+\S+)?\s*$/i;
 const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
 
-// The tag of the first cloudflare/sandbox FROM line, or undefined.
+// The tag of the first cloudflare/sandbox FROM line, or undefined. A digest
+// after the tag is allowed and is not compared: it pins what the tag holds.
 export function imageVersion(dockerfileText) {
   for (const line of dockerfileText.split(/\r?\n/)) {
     const match = IMAGE_LINE.exec(line);

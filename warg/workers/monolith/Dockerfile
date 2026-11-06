@@ -1,4 +1,4 @@
-FROM docker.io/cloudflare/sandbox:0.12.14
+FROM docker.io/cloudflare/sandbox:0.12.14@sha256:b8175e89ae5efd83987ffd5056f57c28c390fd5706d42ef70fb669e275248e7b
 
 # Install monolith binary for creating single-file HTML archives
 RUN wget -q https://github.com/Y2Z/monolith/releases/download/v2.10.1/monolith-gnu-linux-x86_64 \
