@@ -108,6 +108,15 @@ jobs:
           node scripts/check-worker-configs.mjs
           node --test scripts/__tests__/worker-configs.test.mjs
 
+      - name: Monolith image and SDK versions agree
+        # The sandbox image tag in the Dockerfile and the SDK version move by
+        # hand, and an image left behind the SDK fails every monolith archive.
+        # Fails when the two differ or the SDK is a range.
+        timeout-minutes: 5
+        run: |
+          node scripts/check-sandbox-version.mjs
+          node --test scripts/__tests__/sandbox-version.test.mjs
+
       - name: Keys are secrets and no user id is tracked
         # Fails when a cloud function declares a key with defineString or reads
         # one from process.env at module load, or when a tracked text file
