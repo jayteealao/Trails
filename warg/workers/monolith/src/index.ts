@@ -7,6 +7,7 @@ import {
   buildMonolithUrlCommand,
   buildUploadAndHashCommand,
   parseUploadOutput,
+  redactSignedUrlParams,
   SANDBOX_OUTPUT_PATH
 } from './monolith-command.js';
 import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-presign.js';
@@ -155,11 +156,11 @@ async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<E
     return {
       success: result.success,
       exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr
+      stdout: redactSignedUrlParams(result.stdout),
+      stderr: redactSignedUrlParams(result.stderr)
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = redactSignedUrlParams(error instanceof Error ? error.message : String(error));
     const retryAfterMs = error instanceof ContainerUnavailableError ? error.retryAfterMs : undefined;
     if (retryAfterMs !== undefined) {
       console.warn('[monolith] ContainerUnavailableError: container not ready', { retryAfterMs, message });

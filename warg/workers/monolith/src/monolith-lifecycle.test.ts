@@ -189,3 +189,54 @@ describe('runMonolithInSandbox container lifecycle', () => {
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('runMonolithInSandbox signed URL redaction', () => {
+  const SIGNED = 'https://r2.example/doc?X-Amz-Credential=key-id&X-Amz-Signature=secret-sig';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function logged(...spies: Array<{ mock: { calls: unknown[][] } }>): string {
+    return JSON.stringify(spies.flatMap(spy => spy.mock.calls));
+  }
+
+  it('keeps the signature out of logs and the thrown error when output echoes the URL', async () => {
+    fakeSandbox([execFail(`monolith: failed ${SIGNED}`), execFail(`curl: (22) ${SIGNED}`)]);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const error = await runMonolithInSandbox(
+      createEnv(),
+      'req-redact',
+      'archives/req-redact/raw/rendered.html',
+      'https://example.com'
+    ).catch((caught: unknown) => caught);
+
+    expect(String(error)).toContain('X-Amz-Signature=[redacted]');
+    expect(String(error)).not.toContain('secret-sig');
+    expect(logged(warnSpy, errorSpy)).not.toContain('secret-sig');
+    expect(logged(warnSpy, errorSpy)).not.toContain('key-id');
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('keeps the signature out of the error when exec itself throws with the command', async () => {
+    const sandbox = fakeSandbox([]);
+    sandbox.exec.mockRejectedValue(new Error(`exec failed: ${SIGNED}`));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const error = await runMonolithInSandbox(
+      createEnv(),
+      'req-redact-throw',
+      'archives/req-redact-throw/raw/rendered.html',
+      'https://example.com'
+    ).catch((caught: unknown) => caught);
+
+    expect(String(error)).not.toContain('secret-sig');
+    expect(logged(warnSpy, errorSpy)).not.toContain('secret-sig');
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+});

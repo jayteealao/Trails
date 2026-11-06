@@ -1,9 +1,10 @@
 import { AwsClient } from 'aws4fetch';
 
 /**
- * Read-only R2 S3-API credentials used to mint short-lived presigned GET URLs.
- * The Sandbox fetches the rendered HTML over its own network from these URLs,
- * replacing the host→container `writeFile` RPC (B1b).
+ * R2 S3-API credentials (Object Read and Write) used to mint short-lived
+ * presigned GET and PUT URLs. The Sandbox fetches the rendered HTML and uploads
+ * its output over its own network with these URLs, replacing the host→container
+ * `writeFile` RPC (B1b).
  */
 export interface R2PresignConfig {
   accessKeyId: string;
