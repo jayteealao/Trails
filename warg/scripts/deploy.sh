@@ -94,6 +94,12 @@ set -euo pipefail
 # or a missing secret stops the run before any worker is deployed; it is
 # never a warning.
 #
+# Monolith versions: a run that deploys workers stops with exit 3 on
+# worker:monolith, before any deploy, unless the sandbox image tag in
+# workers/monolith/Dockerfile equals the exact @cloudflare/sandbox version in
+# workers/monolith/package.json (scripts/check-sandbox-version.mjs).
+# --skip-checks does not skip it.
+#
 # Cloud Functions need a .env file in each cloud-functions/<fn>/ folder (copy
 # .env.example). It holds plain configuration only: a line that assigns one of
 # the Secret Manager names below stops the run with exit 3.
@@ -1022,6 +1028,22 @@ deploy_pages() {
   done
   fail_target "$target" unverified 3 "newest commit_hash is ${newest:-none}, expected $LABEL"
 }
+
+# preflight_sandbox_version: stops the run when the monolith image and SDK name
+# different versions. It sits outside the pre-checks so --skip-checks keeps it.
+preflight_sandbox_version() {
+  local output detail rc=0
+  output="$(node scripts/check-sandbox-version.mjs 2>&1)" || rc=$?
+  printf '%s\n' "$output"
+  if [ "$rc" -ne 0 ]; then
+    detail="$(printf '%s\n' "$output" | sed -n '/^FAIL /{s///p;q;}')"
+    fail_target "worker:monolith" failed 3 "${detail:-the sandbox version check exited $rc}"
+  fi
+}
+
+if [ "$SKIP_WORKERS" = false ]; then
+  preflight_sandbox_version
+fi
 
 # --- Pre-checks --------------------------------------------------------------
 if [ "$SKIP_CHECKS" = false ]; then
