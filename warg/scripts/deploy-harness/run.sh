@@ -40,10 +40,14 @@ FIX="$ROOT/repo"
 mkdir -p "$FIX/scripts" "$FIX/pages/dashboard"
 cp "$WARG/scripts/deploy.sh" "$FIX/scripts/deploy.sh"
 cp "$WARG/scripts/rules-release.mjs" "$FIX/scripts/rules-release.mjs"
+cp "$WARG/scripts/check-sandbox-version.mjs" "$FIX/scripts/check-sandbox-version.mjs"
 for w in "${WORKERS[@]}"; do
   mkdir -p "$FIX/workers/$w"
   echo "{}" >"$FIX/workers/$w/package.json"
 done
+# The monolith image and SDK must agree, or every worker deploy stops.
+echo "FROM docker.io/cloudflare/sandbox:1.2.3" >"$FIX/workers/monolith/Dockerfile"
+echo '{"dependencies":{"@cloudflare/sandbox":"1.2.3"}}' >"$FIX/workers/monolith/package.json"
 for fn in "${FUNCTIONS[@]}"; do
   mkdir -p "$FIX/cloud-functions/$fn"
   echo "PLACEHOLDER=1" >"$FIX/cloud-functions/$fn/.env"
@@ -398,6 +402,23 @@ scenario_allow_missing_secrets() {
   expect_calls 0 '^cf workers secrets list --worker renderer$'
   expect_calls 8 '^cf workers secrets list --worker '
   expect_row "worker:gateway" deployed "$UUID"
+  finish
+}
+
+# A monolith image and SDK that differ stop the run before any worker deploys,
+# even with --skip-checks.
+scenario_sandbox_version_drift() {
+  start sandbox-version-drift
+  sed -i 's/"1.2.3"/"1.2.4"/' "$FIX/workers/monolith/package.json"
+  LABEL="$SHA-dirty"
+  run_deploy sandbox-version-drift -- --allow-dirty --skip-checks
+  git -C "$FIX" checkout -q -- workers/monolith/package.json
+  expect_rc 3
+  expect_row "worker:monolith" failed 'sandbox versions differ: image 1\.2\.3, SDK 1\.2\.4'
+  expect_row "worker:logger" skipped '-'
+  expect_calls 0 '^cf deploy'
+  expect_out '^Exit code: 3$'
+  LABEL="$SHA"
   finish
 }
 
@@ -1084,7 +1105,7 @@ scenario_secret_in_env() {
 }
 
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
-  quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
+  sandbox-version-drift quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
   pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync
