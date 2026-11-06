@@ -60,6 +60,17 @@ for (const range of ['^0.12.14', '~0.12.14']) {
   });
 }
 
+test('an equal pre-release version exits 0', () => {
+  const r = run(dockerfile('0.13.0-beta.1'), manifest('0.13.0-beta.1'));
+  assert.equal(r.code, 0, r.out);
+});
+
+test('a pre-release SDK with another image tag exits 1 and names both', () => {
+  const r = run(dockerfile('0.13.0'), manifest('0.13.0-beta.1'));
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /image 0\.13\.0, SDK 0\.13\.0-beta\.1/);
+});
+
 test('a variant image tag exits 1 and names both', () => {
   const r = run(dockerfile('0.12.14-python'), manifest('0.12.14'));
   assert.equal(r.code, 1, r.out);
