@@ -121,7 +121,7 @@ test('imageVersion tolerates --platform, an AS name and no registry', () => {
 
 test('imageVersion ignores a comment and another image', () => {
   assert.equal(imageVersion('# FROM cloudflare/sandbox:9.9.9\nFROM cloudflare/sandbox:1.2.3\n'), '1.2.3');
-  assert.equal(imageVersion('FROM example.com/cloudflare/sandbox-fork:1.2.3\n'), null);
+  assert.equal(imageVersion('FROM example.com/cloudflare/sandbox-fork:1.2.3\n'), undefined);
 });
 
 test('sdkVersion reads the dependency and returns undefined without it', () => {
