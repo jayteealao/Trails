@@ -13,6 +13,11 @@ const CHALLENGE_URL = 'https://challenge.example/article';
 const BLOCKED_URL = 'https://blocked.example/article';
 const ARTICLE_URL = 'https://article.example/post';
 
+// The target URLs that the stubs of vitest.runtime.config.ts answer with a rejected credential.
+const TOKEN_REJECTED_URL = 'https://token-rejected.example/article';
+const TOKEN_FORBIDDEN_URL = 'https://token-forbidden.example/article';
+const R2_REJECTED_URL = 'https://r2-rejected.example/article';
+
 interface RequestStatus {
   derived: {
     stage: string;
@@ -89,6 +94,21 @@ async function startRun(
     params: { request_id: requestId, url, options_r2_key: optionsKey }
   });
   return instance;
+}
+
+/**
+ * Grants the quota lease of a step at once. Several runs in a row would
+ * otherwise spend the launch-rate burst of the quota, and with sleeps
+ * disabled the last run would give up on its lease instead of waiting.
+ */
+async function grantLease(m: WorkflowInstanceModifier, kind: 'render' | 'singlefile' | 'monolith') {
+  await m.mockStepResult({ name: `acquire-${kind}-quota-attempt-1` }, { granted: true, leaseId: `test-lease-${kind}` });
+}
+
+function failedStepCodes(status: RequestStatus, step: string): unknown[] {
+  return status.events
+    .filter((event) => event.type === 'step.failed' && event.data?.step === step)
+    .map((event) => event.data?.errorCode);
 }
 
 /** Waits for the run to finish, so a run that ends the wrong way fails on its status. */
@@ -216,32 +236,14 @@ describe('blocked pages', () => {
     await applyD1Migrations(env.INDEX_DB, env.TEST_MIGRATIONS);
   });
 
-  /**
-   * Grants the browser lease of a step at once. Three runs in a row would
-   * otherwise spend the launch-rate burst of the quota, and with sleeps
-   * disabled the last run would give up on its lease instead of waiting.
-   */
-  async function grantBrowserLease(m: WorkflowInstanceModifier, kind: 'render' | 'singlefile') {
-    await m.mockStepResult(
-      { name: `acquire-${kind}-quota-attempt-1` },
-      { granted: true, leaseId: `test-lease-${kind}` }
-    );
-  }
-
-  function failedStepCodes(status: RequestStatus, step: string): unknown[] {
-    return status.events
-      .filter((event) => event.type === 'step.failed' && event.data?.step === step)
-      .map((event) => event.data?.errorCode);
-  }
-
   it('records a challenge page served with HTTP 200 as blocked and does not store it', async () => {
     const id = newRequestId();
     await using _instance = await startRun(
       id,
       { steps: ['render', 'singlefile'] },
       async (m) => {
-        await grantBrowserLease(m, 'render');
-        await grantBrowserLease(m, 'singlefile');
+        await grantLease(m, 'render');
+        await grantLease(m, 'singlefile');
         await m.mockStepResult({ name: 'singlefile' }, { artifact: artifactMeta(id, 'singlefile.html') });
       },
       CHALLENGE_URL
@@ -263,8 +265,8 @@ describe('blocked pages', () => {
       id,
       { steps: ['singlefile', 'render'] },
       async (m) => {
-        await grantBrowserLease(m, 'render');
-        await grantBrowserLease(m, 'singlefile');
+        await grantLease(m, 'render');
+        await grantLease(m, 'singlefile');
         await m.mockStepResult(
           { name: 'render' },
           {
@@ -295,7 +297,7 @@ describe('blocked pages', () => {
     await using _instance = await startRun(
       id,
       { steps: ['render'] },
-      (m) => grantBrowserLease(m, 'render'),
+      (m) => grantLease(m, 'render'),
       ARTICLE_URL
     );
 
@@ -304,5 +306,63 @@ describe('blocked pages', () => {
     const status = await readStatus(id);
     expect(status.derived.stage).toBe('done');
     expect(await env.ARCHIVE_BUCKET.head(getR2Key(id, 'rendered.html'))).not.toBeNull();
+  });
+});
+
+describe('credential failures', () => {
+  beforeAll(async () => {
+    await applyD1Migrations(env.INDEX_DB, env.TEST_MIGRATIONS);
+  });
+
+  async function expectRejectedBrowserToken(url: string) {
+    const id = newRequestId();
+    await using _instance = await startRun(
+      id,
+      { steps: ['render', 'singlefile'] },
+      async (m) => {
+        await grantLease(m, 'render');
+        await grantLease(m, 'singlefile');
+        await m.mockStepResult({ name: 'singlefile' }, { artifact: artifactMeta(id, 'singlefile.html') });
+      },
+      url
+    );
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('incomplete');
+    expect(status.derived.diagnostics?.degradedSteps).toEqual(['render']);
+    expect(status.derived.diagnostics?.errorCode).toBe('BROWSER_TOKEN_INVALID');
+    expect(failedStepCodes(status, 'render')).toContain('BROWSER_TOKEN_INVALID');
+    expect(await env.ARCHIVE_BUCKET.head(getR2Key(id, 'rendered.html'))).toBeNull();
+  }
+
+  it('records a browser token rejected with HTTP 401 as a rejected token', async () => {
+    await expectRejectedBrowserToken(TOKEN_REJECTED_URL);
+  });
+
+  it('records a browser token rejected with HTTP 403 as a rejected token after the fallback fails', async () => {
+    await expectRejectedBrowserToken(TOKEN_FORBIDDEN_URL);
+  });
+
+  it('records a storage key that R2 rejects as a rejected storage key', async () => {
+    const id = newRequestId();
+    await using _instance = await startRun(
+      id,
+      { steps: ['render', 'monolith'] },
+      async (m) => {
+        await grantLease(m, 'render');
+        await grantLease(m, 'monolith');
+      },
+      R2_REJECTED_URL
+    );
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('incomplete');
+    expect(status.derived.diagnostics?.degradedSteps).toEqual(['monolith']);
+    expect(status.derived.diagnostics?.errorCode).toBe('R2_CREDENTIAL_INVALID');
+    expect(failedStepCodes(status, 'monolith')).toContain('R2_CREDENTIAL_INVALID');
   });
 });
