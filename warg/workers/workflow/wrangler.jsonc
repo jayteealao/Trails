@@ -47,5 +47,7 @@
   // Environment variables
   "vars": {
     "MOCK_PIPELINE": "false"
-  }
+  },
+  // Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+  "secrets": { "required": ["INTERNAL_API_KEY"] }
 }
