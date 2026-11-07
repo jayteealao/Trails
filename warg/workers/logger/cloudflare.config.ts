@@ -15,6 +15,8 @@ export default defineConfig({
 			enabled: true,
 		},
 		env: {
+			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+			INTERNAL_API_KEY: bindings.secret(),
 			INDEX_DB: bindings.d1({
 				name: "warg-requests-index",
 				id: "ff077e87-293b-4434-ad9e-ab669c9cbabb",

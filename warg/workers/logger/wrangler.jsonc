@@ -18,5 +18,7 @@
       "database_id": "ff077e87-293b-4434-ad9e-ab669c9cbabb"
     }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+  "secrets": { "required": ["INTERNAL_API_KEY"] }
 }
