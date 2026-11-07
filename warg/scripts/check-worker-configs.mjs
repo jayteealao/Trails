@@ -2,7 +2,7 @@
 //
 // `cf deploy` reads workers/<w>/cloudflare.config.ts; `wrangler dev` and
 // `wrangler types` still read workers/<w>/wrangler.jsonc. A binding, required
-// secret, Durable Object class, cron trigger or compatibility setting changed
+// secret, Durable Object class, cron trigger, compatibility setting or tracing setting changed
 // in one file and not the other either breaks local dev and the generated types, or ships a
 // worker that differs from what was tested. This script loads both files for
 // every worker that has a cloudflare.config.ts, reduces each to the same
@@ -87,6 +87,31 @@ const KNOWN_WRANGLER_KEYS = new Set([
 
 const sorted = (xs) => [...xs].sort();
 
+// The tracing setting with the platform defaults filled in, so an absent block
+// equals { enabled: false }. keys.rate names the sampling key of the file.
+const tracesSetting = (t, keys) =>
+  JSON.stringify({
+    enabled: t?.enabled === true,
+    headSamplingRate: t?.[keys.rate] ?? 1,
+    persist: t?.persist ?? true,
+    destinations: sorted(t?.destinations ?? [])
+  });
+
+// One error per observability or traces key this check does not compare.
+function observabilityKeyErrors(o, file, rate) {
+  const errors = [];
+  const report = (key) =>
+    errors.push(
+      `${file} observability key "${key}" is not compared by this check; extend scripts/check-worker-configs.mjs`
+    );
+  for (const key of Object.keys(o ?? {}))
+    if (key !== 'enabled' && key !== 'traces') report(key);
+  for (const key of Object.keys(o?.traces ?? {}))
+    if (!['enabled', rate, 'persist', 'destinations'].includes(key))
+      report(`traces.${key}`);
+  return errors;
+}
+
 // One send-email binding: its fixed destination and its allow-lists.
 const sendEmail = (destination, allowedDestinations, allowedSenders) =>
   `send-email:${destination ?? ''}:${sorted(allowedDestinations ?? []).join(',')}:${sorted(allowedSenders ?? []).join(',')}`;
@@ -101,6 +126,9 @@ export function fromWrangler(w) {
       );
     }
   }
+  errors.push(
+    ...observabilityKeyErrors(w.observability, 'wrangler.jsonc', 'head_sampling_rate')
+  );
   const bindings = {};
   for (const [name, value] of Object.entries(w.vars ?? {}))
     bindings[name] = `text:${value}`;
@@ -159,6 +187,9 @@ export function fromWrangler(w) {
       compatibilityFlags: sorted(w.compatibility_flags ?? []),
       workersDev: w.workers_dev ?? true,
       observability: Boolean(w.observability?.enabled),
+      traces: tracesSetting(w.observability?.traces, {
+        rate: 'head_sampling_rate'
+      }),
       crons: sorted(w.triggers?.crons ?? []),
       bindings,
       exports: exportsOut,
@@ -170,6 +201,9 @@ export function fromWrangler(w) {
 export function fromCf(config) {
   const errors = [];
   const worker = config.worker ?? {};
+  errors.push(
+    ...observabilityKeyErrors(worker.observability, 'cloudflare.config.ts', 'headSamplingRate')
+  );
   const bindings = {};
   for (const [name, b] of Object.entries(worker.env ?? {})) {
     switch (b.type) {
@@ -246,6 +280,9 @@ export function fromCf(config) {
       compatibilityFlags: sorted(worker.compatibilityFlags ?? []),
       workersDev: worker.workersDev ?? true,
       observability: Boolean(worker.observability?.enabled),
+      traces: tracesSetting(worker.observability?.traces, {
+        rate: 'headSamplingRate'
+      }),
       crons: sorted(crons),
       bindings,
       exports: exportsOut,
@@ -262,7 +299,8 @@ export function compareShapes(a, b) {
     'entrypoint',
     'compatibilityDate',
     'workersDev',
-    'observability'
+    'observability',
+    'traces'
   ]) {
     if (a[key] !== b[key])
       diffs.push(
