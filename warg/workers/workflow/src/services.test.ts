@@ -7,7 +7,7 @@ import {
   ServiceCallError,
   type ServiceErrorClassification,
 } from './services.js';
-import { PROXY_ERROR_PAGE_REASON } from '@warg/shared';
+import { BROWSER_TOKEN_INVALID_REASON, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import type { RendererResponse } from './types.js';
 
 function makeJsonResponse(status: number, body: unknown): Response {
@@ -467,6 +467,81 @@ describe('monolith service classification', () => {
       }),
     ).rejects.toMatchObject({
       classification: { errorCode: 'MONOLITH_RPC_32MIB_LIMIT', retryable: false },
+    });
+  });
+});
+
+describe('rejected credentials', () => {
+  function tokenRejectedBody(status: number, reason: string | undefined = BROWSER_TOKEN_INVALID_REASON) {
+    return {
+      error: 'Browser Rendering /content failed',
+      status,
+      details: '{"errors":[{"code":10000,"message":"Authentication error"}]}',
+      ...(reason ? { reason } : {}),
+    };
+  }
+
+  function renderError(body: unknown): ServiceCallError {
+    return new ServiceCallError(
+      'Service error 502: { ... }',
+      { errorCode: 'RENDER_SERVICE_ERROR', retryable: true, recommendedAction: 'retry_step' },
+      '/render',
+      502,
+      JSON.stringify(body),
+    );
+  }
+
+  it('names a token rejected with HTTP 403 as the fallback reason', () => {
+    expect(getRendererFallbackReason(renderError(tokenRejectedBody(403)))).toBe('browser_token_invalid');
+  });
+
+  it('gives no fallback for a token rejected with HTTP 401', () => {
+    expect(getRendererFallbackReason(renderError(tokenRejectedBody(401)))).toBeUndefined();
+  });
+
+  it('keeps the 403 fallback reason of a payload without the token reason', () => {
+    expect(getRendererFallbackReason(renderError(tokenRejectedBody(403, undefined)))).toBe('browser_rendering_403');
+  });
+
+  it('classifies a renderer answer that names a rejected token as BROWSER_TOKEN_INVALID', async () => {
+    const rendererFetch = vi.fn().mockResolvedValueOnce(makeJsonResponse(502, tokenRejectedBody(401)));
+    const hyperrendererFetch = vi.fn();
+
+    await expect(
+      callRendererWith403Fallback(makeEnv(rendererFetch, hyperrendererFetch), {
+        request_id: 'req-token',
+        url: 'https://example.com/post',
+        browser_quota_kind: 'rest_request',
+      }),
+    ).rejects.toMatchObject({
+      classification: { errorCode: 'BROWSER_TOKEN_INVALID', retryable: false, recommendedAction: 'check_api_key' },
+    });
+    expect(hyperrendererFetch).not.toHaveBeenCalled();
+  });
+
+  it('classifies a monolith answer that names a rejected storage key as R2_CREDENTIAL_INVALID', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(502, {
+        error: 'Internal error',
+        message: 'R2 rejected the storage credential of the presigned URL (HTTP 403)',
+        code: 'R2_CREDENTIAL_INVALID',
+        retryable: false,
+      }),
+    );
+
+    const env = {
+      INTERNAL_API_KEY: 'test-internal-key',
+      MONOLITH: { fetch: monolithFetch },
+    } as unknown as Env;
+
+    await expect(
+      callMonolith(env, {
+        request_id: 'req-m4',
+        rendered_html_key: 'archives/req/raw/rendered.html',
+        base_url: 'https://example.com',
+      }),
+    ).rejects.toMatchObject({
+      classification: { errorCode: 'R2_CREDENTIAL_INVALID', retryable: false, recommendedAction: 'check_api_key' },
     });
   });
 });
