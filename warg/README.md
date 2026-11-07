@@ -184,7 +184,10 @@ curl -sS -X POST "$GATEWAY_URL/internal/health-check" \
 
 The answer is the run summary: `alertKinds` lists the kinds it alerted on and
 `emailed` says whether the email went out. A `401` means a wrong internal key,
-a `400` an out-of-range threshold. The optional thresholds are `minRatio` (0 to
+a `400` an out-of-range threshold. The route exists only for this test and for
+re-measuring after an alert; it needs the internal key, and its thresholds apply
+to that one call, while the daily cron always uses 80%, 5 requests and 48
+hours. The optional thresholds are `minRatio` (0 to
 1), `minRequests` (integer, 1 to 1000) and `staleAfterHours` (integer, 0 to 48).
 
 ### When the health email arrives
