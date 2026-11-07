@@ -491,8 +491,8 @@ describe('rejected credentials', () => {
     );
   }
 
-  it('names a token rejected with HTTP 403 as the fallback reason', () => {
-    expect(getRendererFallbackReason(renderError(tokenRejectedBody(403)))).toBe('browser_token_invalid');
+  it('falls back from a 403 that names the retired token reason as any Browser Rendering 403', () => {
+    expect(getRendererFallbackReason(renderError(tokenRejectedBody(403)))).toBe('browser_rendering_403');
   });
 
   it('gives no fallback for a token rejected with HTTP 401', () => {
