@@ -284,6 +284,22 @@ export async function loadCfConfig(workerDir) {
   return mod.default;
 }
 
+/**
+ * A cron the worker's code dispatches on (an exported `*_CRON` constant in
+ * src/index.ts) must be a configured cron: the gateway runs its sweeps on any
+ * other cron, so a schedule changed only in the configs would silently stop the
+ * daily health check.
+ */
+export function sourceCronErrors(source, crons) {
+  const errors = [];
+  for (const match of source.matchAll(/export const (\w+_CRON) = '([^']+)'/g)) {
+    if (!crons.includes(match[2])) {
+      errors.push(`${match[1]} '${match[2]}' in src/index.ts is not a configured cron (${JSON.stringify(crons)})`);
+    }
+  }
+  return errors;
+}
+
 export async function checkWorker(workerDir) {
   const wrangler = parseJsonc(
     readFileSync(join(workerDir, 'wrangler.jsonc'), 'utf8')
@@ -291,7 +307,11 @@ export async function checkWorker(workerDir) {
   const cf = await loadCfConfig(workerDir);
   const w = fromWrangler(wrangler);
   const c = fromCf(cf);
-  return [...w.errors, ...c.errors, ...compareShapes(w.shape, c.shape)];
+  const indexPath = join(workerDir, 'src', 'index.ts');
+  const cronErrors = existsSync(indexPath)
+    ? sourceCronErrors(readFileSync(indexPath, 'utf8'), w.shape.crons)
+    : [];
+  return [...w.errors, ...c.errors, ...compareShapes(w.shape, c.shape), ...cronErrors];
 }
 
 async function main() {

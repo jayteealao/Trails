@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   checkWorker,
+  sourceCronErrors,
   compareShapes,
   fromCf,
   fromWrangler,
@@ -105,6 +106,12 @@ test('a cron changed in one file is reported', async () => {
   const { wrangler, cf } = await load('gateway');
   wrangler.triggers.crons = ['*/5 * * * *'];
   assert.match(diff(wrangler, cf).join('\n'), /crons:/);
+});
+
+test('a dispatched cron that no config lists is reported', () => {
+  const source = "export const HEALTH_CHECK_CRON = '0 9 * * *';";
+  assert.match(sourceCronErrors(source, ['*/10 * * * *', '0 8 * * *']).join('\n'), /HEALTH_CHECK_CRON '0 9 \* \* \*'/);
+  assert.deepEqual(sourceCronErrors(source, ['0 9 * * *']), []);
 });
 
 test('a send-email destination set in one file is reported', async () => {
