@@ -160,11 +160,31 @@ export default {
 
       // 1. One page load for whatever of the HTML, screenshot and Markdown is missing
       if (!reused.has('rendered.html') || missingScreenshot || missingMarkdown) {
-        const pageResp = await loadPage(env, targetUrl, formats);
-        const pageRateLimit = checkRateLimit(pageResp, '');
+        let action: 'snapshot' | 'content' = formats.length >= 2 ? 'snapshot' : 'content';
+        let pageResp = await loadPage(env, targetUrl, formats);
+        let pageRateLimit = checkRateLimit(pageResp, '');
         if (pageRateLimit) return pageRateLimit;
+        if (!pageResp.ok && action === 'snapshot' && pageResp.status !== 403) {
+          // A failed snapshot must not lose the HTML: load the HTML alone once, and skip the other formats.
+          console.error(
+            '[renderer] snapshot load failed, retrying the HTML alone',
+            JSON.stringify({ request_id, action: 'snapshot', formats, status: pageResp.status })
+          );
+          const snapshotStatus = pageResp.status;
+          await pageResp.body?.cancel();
+          if (missingScreenshot) misses.set('screenshot.png', `screenshot: snapshot failed with ${snapshotStatus}`);
+          if (missingMarkdown) misses.set('rendered.md', `markdown: snapshot failed with ${snapshotStatus}`);
+          action = 'content';
+          pageResp = await loadPage(env, targetUrl, ['content']);
+          pageRateLimit = checkRateLimit(pageResp, '');
+          if (pageRateLimit) return pageRateLimit;
+        }
         if (!pageResp.ok) {
           const errorText = await pageResp.text();
+          console.error(
+            '[renderer] page load failed',
+            JSON.stringify({ request_id, action, status: pageResp.status })
+          );
           // Stays 502: a 401/403 from this worker would read as a blocked target page.
           return Response.json(
             {
@@ -212,7 +232,7 @@ export default {
               await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', decodeScreenshot(page.screenshot), 'image/png', reuseScope)
             );
           } else {
-            misses.set('screenshot.png', 'screenshot: snapshot returned no screenshot');
+            misses.set('screenshot.png', misses.get('screenshot.png') ?? 'screenshot: snapshot returned no screenshot');
           }
         }
         if (missingMarkdown) {
@@ -223,7 +243,7 @@ export default {
               await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'rendered.md', mdData.buffer as ArrayBuffer, 'text/markdown', reuseScope)
             );
           } else {
-            misses.set('rendered.md', 'markdown: snapshot returned no markdown');
+            misses.set('rendered.md', misses.get('rendered.md') ?? 'markdown: snapshot returned no markdown');
           }
         }
       }

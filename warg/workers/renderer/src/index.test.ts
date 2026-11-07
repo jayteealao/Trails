@@ -318,8 +318,42 @@ describe('binding failures', () => {
     expect(body).toMatchObject({ error: 'rate_limited', retry_after_ms: 3000 });
   });
 
-  it.each([403, 500])('answers 502 with the failure body the workflow reads when the snapshot answers %i', async (status) => {
-    const { response, body, bucket } = await render([errorAnswer(status)], { include_screenshot: true });
+  it('answers 502 with the failure body the workflow reads when the snapshot answers 403, with no second load', async () => {
+    const { response, body, bucket, browser } = await render([errorAnswer(403)], { include_screenshot: true });
+
+    expect(response.status).toBe(502);
+    expect(browser.quickAction).toHaveBeenCalledTimes(1);
+    expect(body.error).toBe('Browser Rendering /content failed');
+    expect(body.status).toBe(403);
+    expect(body).not.toHaveProperty('reason');
+    expect(bucket.put).not.toHaveBeenCalled();
+  });
+
+  it('keeps the HTML from one content load when the snapshot fails, and skips the screenshot and Markdown', async () => {
+    const { response, body, browser } = await render([errorAnswer(500), contentAnswer(NORMAL_ARTICLE_PAGE)], {
+      include_screenshot: true,
+      include_markdown: true,
+    });
+
+    expect(response.status).toBe(200);
+    expect(browser.quickAction.mock.calls.map(([action]) => action)).toEqual(['snapshot', 'content']);
+    expect(kinds(body)).toEqual(['rendered.html']);
+    expect(body.meta?.skipped).toEqual(
+      expect.arrayContaining(['screenshot: snapshot failed with 500', 'markdown: snapshot failed with 500']),
+    );
+  });
+
+  it('answers 429 when the HTML-only load after a failed snapshot is rate limited', async () => {
+    const { response, body } = await render([errorAnswer(500), errorAnswer(429, { 'Retry-After': '2' })], {
+      include_screenshot: true,
+    });
+
+    expect(response.status).toBe(429);
+    expect(body).toMatchObject({ error: 'rate_limited', retry_after_ms: 2000 });
+  });
+
+  it.each([403, 500])('answers 502 with the failure body the workflow reads when every load answers %i', async (status) => {
+    const { response, body, bucket } = await render([errorAnswer(status), errorAnswer(status)], { include_screenshot: true });
 
     expect(response.status).toBe(502);
     expect(body.error).toBe('Browser Rendering /content failed');
