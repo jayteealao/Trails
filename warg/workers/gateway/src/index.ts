@@ -518,17 +518,6 @@ export async function runDailyHealthCheck(
   const { rows, skipped } = parseKindHealthPayload(await response.json());
   const { stats, alerts } = evaluateKindHealth(rows, now, thresholds);
 
-  if (alerts.length > 0) {
-    const { subject, text } = buildHealthEmail(alerts, now, thresholds);
-    try {
-      await env.HEALTH_EMAIL.send({ from: env.HEALTH_ALERT_FROM, to: env.HEALTH_ALERT_TO, subject, text });
-    } catch (err) {
-      const code = typeof err === 'object' && err !== null && 'code' in err ? String(err.code) : 'unknown';
-      const message = err instanceof Error ? err.message : String(err);
-      throw new HealthEmailError(`[gateway] health email failed (${code}): ${message}`, { cause: err });
-    }
-  }
-
   const summary: HealthCheckSummary = {
     source,
     checkedAt: now.toISOString(),
@@ -536,8 +525,23 @@ export async function runDailyHealthCheck(
     skippedRows: skipped,
     stats,
     alertKinds: alerts.map((alert) => alert.kind),
-    emailed: alerts.length > 0
+    emailed: false
   };
+
+  if (alerts.length > 0) {
+    const { subject, text } = buildHealthEmail(alerts, now, thresholds);
+    try {
+      await env.HEALTH_EMAIL.send({ from: env.HEALTH_ALERT_FROM, to: env.HEALTH_ALERT_TO, subject, text });
+    } catch (err) {
+      // Keep the measured numbers in the log, since the email that carried them failed.
+      console.log('[gateway] kind health:', JSON.stringify(summary));
+      const code = typeof err === 'object' && err !== null && 'code' in err ? String(err.code) : 'unknown';
+      const message = err instanceof Error ? err.message : String(err);
+      throw new HealthEmailError(`[gateway] health email failed (${code}): ${message}`, { cause: err });
+    }
+    summary.emailed = true;
+  }
+
   console.log('[gateway] kind health:', JSON.stringify(summary));
   return summary;
 }

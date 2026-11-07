@@ -149,6 +149,20 @@ describe('daily archive health check', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it('logs the measured kinds and does not send a second email when the alert email fails', async () => {
+    const log = vi.spyOn(console, 'log');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { testEnv, send } = harness(rowsFor('singlefile', 10, 7));
+    send.mockRejectedValueOnce(Object.assign(new Error('sender not verified'), { code: 'E_SENDER_NOT_VERIFIED' }));
+
+    await expect(runCron(testEnv, DAILY_CRON)).rejects.toThrow(/E_SENDER_NOT_VERIFIED/);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const line = log.mock.calls.find((call) => call[0] === '[gateway] kind health:');
+    expect(String(line?.[1])).toContain('"alertKinds":["singlefile"]');
+    expect(String(line?.[1])).toContain('"emailed":false');
+  });
+
   it('measures the other rows when one row is malformed', async () => {
     const log = vi.spyOn(console, 'log');
     vi.spyOn(console, 'warn').mockImplementation(() => {});
