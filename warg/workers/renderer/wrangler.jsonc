@@ -7,7 +7,9 @@
   "observability": { "enabled": true },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
-  ]
+  ],
+  // Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+  "secrets": { "required": ["INTERNAL_API_KEY", "CF_ACCOUNT_ID", "BR_API_TOKEN"] }
 }
 // Secrets (via `wrangler secret put`):
 // - INTERNAL_API_KEY: shared key for internal worker auth
