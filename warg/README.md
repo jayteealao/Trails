@@ -160,6 +160,18 @@ deploying. Remove the script and the `postinstall` entry once cf finds the
 bundler through the normal Node module lookup, or the workspace stops using the
 hoisted linker.
 
+Archive health email: once a day at 08:00 UTC the gateway checks each archive
+kind and, when one is below 80% success in the last 24 hours (with at least 5
+requests) or has had no success for 48 hours, sends one email through its
+`HEALTH_EMAIL` binding. Before the first deploy that carries it, set
+`HEALTH_ALERT_FROM` and `HEALTH_ALERT_TO` with `pnpm exec wrangler secret put`
+in `workers/gateway`; the deploy refuses the gateway without them. The
+recipient must be a verified destination address in Email Routing, and the
+sender must be on a domain of the account with email sending enabled. To send a
+test email when any kind had a request in the last 24 hours, call
+`POST /internal/health-check` on the gateway with the internal key and the body
+`{"thresholds":{"staleAfterHours":0}}`; the answer lists the kinds it alerted on.
+
 ### Rotating the function keys (two steps)
 
 Each caller of the HTTP Cloud Functions has its own key, so a leaked key opens
