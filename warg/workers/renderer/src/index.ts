@@ -1,4 +1,11 @@
-import { isProxyErrorPage, PROXY_ERROR_PAGE_REASON, storeArtifact, timingSafeEqual } from '@warg/shared';
+import {
+  accessBlockedResponse,
+  isChallengePage,
+  isProxyErrorPage,
+  PROXY_ERROR_PAGE_REASON,
+  storeArtifact,
+  timingSafeEqual
+} from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -139,6 +146,10 @@ export default {
           },
           { status: 502 }
         );
+      }
+      if (isChallengePage(contentJson.result)) {
+        console.warn('[renderer] Browser Rendering /content returned a challenge page:', targetUrl);
+        return accessBlockedResponse(targetUrl);
       }
       const htmlData = new TextEncoder().encode(contentJson.result);
       const htmlMeta = await storeArtifact(
