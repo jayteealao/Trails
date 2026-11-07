@@ -106,6 +106,8 @@ const VALID_ERROR_CODES = new Set<RequestErrorCode>([
   'MONOLITH_INPUT_TOO_LARGE',
   'PERSIST_SERVICE_ERROR',
   'ACCESS_BLOCKED',
+  'R2_CREDENTIAL_INVALID',
+  'BROWSER_TOKEN_INVALID',
   'UNKNOWN_ERROR',
 ]);
 
@@ -161,7 +163,9 @@ function defaultRetryableForCode(code: RequestErrorCode): boolean {
     code !== 'ACCESS_BLOCKED' &&
     code !== 'INVALID_INPUT_URL' &&
     code !== 'MONOLITH_RPC_32MIB_LIMIT' &&
-    code !== 'MONOLITH_INPUT_TOO_LARGE'
+    code !== 'MONOLITH_INPUT_TOO_LARGE' &&
+    code !== 'R2_CREDENTIAL_INVALID' &&
+    code !== 'BROWSER_TOKEN_INVALID'
   );
 }
 
@@ -182,6 +186,7 @@ function defaultActionForCode(code: RequestErrorCode): RequestDiagnostics['recom
     return 'investigate_service';
   }
   if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
+  if (code === 'R2_CREDENTIAL_INVALID' || code === 'BROWSER_TOKEN_INVALID') return 'check_api_key';
   return 'retry_step';
 }
 
