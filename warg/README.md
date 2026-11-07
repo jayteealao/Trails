@@ -172,6 +172,31 @@ test email when any kind had a request in the last 24 hours, call
 `POST /internal/health-check` on the gateway with the internal key and the body
 `{"thresholds":{"staleAfterHours":0}}`; the answer lists the kinds it alerted on.
 
+### When the health email arrives
+
+The email names each kind that needs attention, its success count and its last
+success. Look in this order:
+
+1. The dashboard overview: the stage counts and the error codes of recent
+   requests. `BROWSER_TOKEN_INVALID` or `R2_CREDENTIAL_INVALID` means a dead
+   credential, `ACCESS_BLOCKED` means sites refuse the fetch.
+2. The gateway logs, from `workers/gateway`:
+   `pnpm exec wrangler tail gateway --search "kind health"` while you re-measure
+   (step 3). The `[gateway] kind health:` line holds the numbers of each kind.
+3. Re-measure with the default thresholds. This sends the email again when a
+   kind still needs attention:
+
+   ```bash
+   curl -sS -X POST "$GATEWAY_URL/internal/health-check" \
+     -H "X-Internal-API-Key: $INTERNAL_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{}'
+   ```
+
+An email with the subject `Warg archive health: the daily check failed` means
+the check itself could not run (for example the logger did not answer); its
+text holds the error.
+
 ### Rotating the function keys (two steps)
 
 Each caller of the HTTP Cloud Functions has its own key, so a leaked key opens

@@ -174,7 +174,8 @@ describe('buildHealthEmail', () => {
   it('names the kind, the counts and the ratio', () => {
     const { alerts } = evaluate(batch('singlefile', 10, 7));
     const email = buildHealthEmail(alerts, NOW);
-    expect(email.subject).toBe('Warg archive health: 1 kind(s) need attention');
+    expect(email.subject).toBe('Warg archive health: singlefile need attention');
+    expect(email.text).toContain('Where to look first:');
     expect(email.text).toContain('singlefile');
     expect(email.text).toContain('7/10');
     expect(email.text).toContain('70%');

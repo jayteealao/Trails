@@ -199,6 +199,14 @@ export function parseThresholdOverrides(raw: unknown): HealthThresholds {
   return thresholds;
 }
 
+/** Where the reader of an alert looks first; the README section "When the health email arrives" has the commands. */
+const HEALTH_EMAIL_FOOTER = [
+  'Where to look first:',
+  '  - the dashboard overview: the stage counts and the error codes of recent requests',
+  '  - Workers Logs of the gateway: the line "[gateway] kind health:" holds these numbers',
+  '  - re-measure with POST /internal/health-check on the gateway (warg/README.md, "When the health email arrives")'
+].join('\n');
+
 function percent(ratio: number): string {
   return `${Math.round(ratio * 100)}%`;
 }
@@ -227,7 +235,7 @@ export function buildHealthEmail(
   });
 
   return {
-    subject: `Warg archive health: ${alerts.length} kind(s) need attention`,
-    text: [...blocks, `Checked at ${now.toISOString()}`].join('\n\n')
+    subject: `Warg archive health: ${alerts.map((alert) => alert.kind).join(', ')} need attention`,
+    text: [...blocks, HEALTH_EMAIL_FOOTER, `Checked at ${now.toISOString()}`].join('\n\n')
   };
 }
