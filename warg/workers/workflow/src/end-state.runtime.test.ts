@@ -8,12 +8,18 @@ import type { ArchiveOptionsExtended } from './types.js';
 
 const URL_UNDER_TEST = 'https://example.com/article';
 
+// The target URLs that the stubs of vitest.runtime.config.ts answer with a blocked or a recorded page.
+const CHALLENGE_URL = 'https://challenge.example/article';
+const BLOCKED_URL = 'https://blocked.example/article';
+const ARTICLE_URL = 'https://article.example/post';
+
 interface RequestStatus {
   derived: {
     stage: string;
     terminal: boolean;
     diagnostics?: { degradedSteps?: string[]; errorCode?: string };
   };
+  events: Array<{ type: string; data?: Record<string, unknown> }>;
 }
 
 type RunOptions = Omit<ArchiveOptionsExtended, 'url'>;
@@ -33,12 +39,12 @@ function loggerFetch(path: string, init?: RequestInit): Promise<Response> {
 }
 
 /** Stores the options and registers the request, as the gateway does before a run. */
-async function seedRequest(requestId: string, options: RunOptions): Promise<string> {
+async function seedRequest(requestId: string, options: RunOptions, url: string): Promise<string> {
   const optionsKey = `archives/${requestId}/options.json`;
-  await env.ARCHIVE_BUCKET.put(optionsKey, JSON.stringify({ url: URL_UNDER_TEST, ...options }));
+  await env.ARCHIVE_BUCKET.put(optionsKey, JSON.stringify({ url, ...options }));
   const response = await loggerFetch('/request/init', {
     method: 'POST',
-    body: JSON.stringify({ requestId, url: URL_UNDER_TEST })
+    body: JSON.stringify({ requestId, url })
   });
   expect(response.status).toBe(201);
   return optionsKey;
@@ -68,9 +74,10 @@ async function readStatus(requestId: string): Promise<RequestStatus> {
 async function startRun(
   requestId: string,
   options: RunOptions,
-  mock?: (m: WorkflowInstanceModifier) => Promise<void>
+  mock?: (m: WorkflowInstanceModifier) => Promise<void>,
+  url: string = URL_UNDER_TEST
 ): Promise<WorkflowInstanceIntrospector> {
-  const optionsKey = await seedRequest(requestId, options);
+  const optionsKey = await seedRequest(requestId, options, url);
   const instance = await introspectWorkflowInstance(env.ARCHIVE_WORKFLOW, requestId);
   await instance.modify(async (m) => {
     await m.disableSleeps();
@@ -79,7 +86,7 @@ async function startRun(
   });
   await env.ARCHIVE_WORKFLOW.create({
     id: requestId,
-    params: { request_id: requestId, url: URL_UNDER_TEST, options_r2_key: optionsKey }
+    params: { request_id: requestId, url, options_r2_key: optionsKey }
   });
   return instance;
 }
@@ -201,5 +208,101 @@ describe('end state of an archive run', () => {
       'readability',
       'singlefile'
     ]);
+  });
+});
+
+describe('blocked pages', () => {
+  beforeAll(async () => {
+    await applyD1Migrations(env.INDEX_DB, env.TEST_MIGRATIONS);
+  });
+
+  /**
+   * Grants the browser lease of a step at once. Three runs in a row would
+   * otherwise spend the launch-rate burst of the quota, and with sleeps
+   * disabled the last run would give up on its lease instead of waiting.
+   */
+  async function grantBrowserLease(m: WorkflowInstanceModifier, kind: 'render' | 'singlefile') {
+    await m.mockStepResult(
+      { name: `acquire-${kind}-quota-attempt-1` },
+      { granted: true, leaseId: `test-lease-${kind}` }
+    );
+  }
+
+  function failedStepCodes(status: RequestStatus, step: string): unknown[] {
+    return status.events
+      .filter((event) => event.type === 'step.failed' && event.data?.step === step)
+      .map((event) => event.data?.errorCode);
+  }
+
+  it('records a challenge page served with HTTP 200 as blocked and does not store it', async () => {
+    const id = newRequestId();
+    await using _instance = await startRun(
+      id,
+      { steps: ['render', 'singlefile'] },
+      async (m) => {
+        await grantBrowserLease(m, 'render');
+        await grantBrowserLease(m, 'singlefile');
+        await m.mockStepResult({ name: 'singlefile' }, { artifact: artifactMeta(id, 'singlefile.html') });
+      },
+      CHALLENGE_URL
+    );
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('incomplete');
+    expect(status.derived.diagnostics?.degradedSteps).toEqual(['render']);
+    expect(status.derived.diagnostics?.errorCode).toBe('ACCESS_BLOCKED');
+    expect(failedStepCodes(status, 'render')).toContain('ACCESS_BLOCKED');
+    expect(await env.ARCHIVE_BUCKET.head(getR2Key(id, 'rendered.html'))).toBeNull();
+  });
+
+  it('records a 401 or 403 singlefile navigation as blocked and stores no capture', async () => {
+    const id = newRequestId();
+    await using _instance = await startRun(
+      id,
+      { steps: ['singlefile', 'render'] },
+      async (m) => {
+        await grantBrowserLease(m, 'render');
+        await grantBrowserLease(m, 'singlefile');
+        await m.mockStepResult(
+          { name: 'render' },
+          {
+            result: {
+              uses_browser_rendering: true,
+              quota_kind_used: 'rest_request',
+              artifacts: [artifactMeta(id, 'rendered.html'), artifactMeta(id, 'rendered.md')]
+            },
+            fallbackUsed: false
+          }
+        );
+      },
+      BLOCKED_URL
+    );
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('incomplete');
+    expect(status.derived.diagnostics?.degradedSteps).toEqual(['singlefile']);
+    expect(status.derived.diagnostics?.errorCode).toBe('ACCESS_BLOCKED');
+    expect(failedStepCodes(status, 'singlefile')).toContain('ACCESS_BLOCKED');
+    expect(await env.ARCHIVE_BUCKET.head(getR2Key(id, 'singlefile.html'))).toBeNull();
+  });
+
+  it('stores an article that quotes challenge words as a successful archive', async () => {
+    const id = newRequestId();
+    await using _instance = await startRun(
+      id,
+      { steps: ['render'] },
+      (m) => grantBrowserLease(m, 'render'),
+      ARTICLE_URL
+    );
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('done');
+    expect(await env.ARCHIVE_BUCKET.head(getR2Key(id, 'rendered.html'))).not.toBeNull();
   });
 });
