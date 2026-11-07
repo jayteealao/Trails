@@ -1,9 +1,10 @@
 import { bindings, defineConfig } from "cf/config";
+import { COMPATIBILITY_DATE } from "../compatibility-date.mjs";
 
 export default defineConfig({
 	worker: {
 		name: "renderer",
-		compatibilityDate: "2025-01-01",
+		compatibilityDate: COMPATIBILITY_DATE,
 		entrypoint: "src/index.ts",
 		workersDev: false,
 		observability: {

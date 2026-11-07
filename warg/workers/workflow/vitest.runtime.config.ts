@@ -164,7 +164,7 @@ export default defineConfig(async () => {
               name: 'renderer',
               modules: true,
               script: renderer.outputFiles[0].text,
-              compatibilityDate: '2025-01-01',
+              compatibilityDate: COMPATIBILITY_DATE,
               compatibilityFlags: ['nodejs_compat'],
               bindings: { INTERNAL_API_KEY, CF_ACCOUNT_ID: 'test-account', BR_API_TOKEN: 'test-token-local-only' },
               r2Buckets: { ARCHIVE_BUCKET: 'archive' },
