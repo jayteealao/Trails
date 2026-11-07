@@ -6,13 +6,15 @@
   "scripts": {
     "dev": "wrangler dev",
     "typecheck": "tsc --noEmit",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "test": "vitest run"
   },
   "dependencies": {
     "@warg/shared": "workspace:*"
   },
   "devDependencies": {
     "cf": "1.0.0-beta.28",
+    "vitest": "4.1.10",
     "wrangler": "4.158.0"
   }
 }
