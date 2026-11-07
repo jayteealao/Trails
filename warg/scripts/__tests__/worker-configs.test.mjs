@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -136,4 +144,59 @@ test('a wrangler.jsonc section the check does not know is reported, not ignored'
     diff(wrangler, cf).join('\n'),
     /key "kv_namespaces" is not compared/
   );
+});
+
+test('a secret declared in wrangler.jsonc only is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  wrangler.secrets = {
+    required: [...(wrangler.secrets?.required ?? []), 'EXTRA_SECRET']
+  };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /bindings\.EXTRA_SECRET: wrangler\.jsonc secret, cloudflare\.config\.ts \(absent\)/
+  );
+});
+
+test('a secret declared in cloudflare.config.ts only is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  cf.worker.env.EXTRA_SECRET = { type: 'secret' };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /bindings\.EXTRA_SECRET: wrangler\.jsonc \(absent\), cloudflare\.config\.ts secret/
+  );
+});
+
+test('a wrangler.jsonc secrets setting the check does not know is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  wrangler.secrets = { ...wrangler.secrets, optional: ['EXTRA_SECRET'] };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /secrets key "optional" is not compared/
+  );
+});
+
+test('the check exits 1 and names the Worker and the secret that differ', () => {
+  // Inside warg/ so that cloudflare.config.ts can resolve cf/config.
+  const tmp = mkdtempSync(join(WARG, 'node_modules', '.tmp-worker-configs-'));
+  try {
+    const dir = join(tmp, 'renderer');
+    mkdirSync(dir);
+    const src = join(WARG, 'workers', 'renderer');
+    copyFileSync(join(src, 'cloudflare.config.ts'), join(dir, 'cloudflare.config.ts'));
+    const wrangler = parseJsonc(readFileSync(join(src, 'wrangler.jsonc'), 'utf8'));
+    wrangler.secrets = {
+      required: [...(wrangler.secrets?.required ?? []), 'EXTRA_SECRET']
+    };
+    writeFileSync(join(dir, 'wrangler.jsonc'), JSON.stringify(wrangler, null, 2));
+    const run = spawnSync(
+      process.execPath,
+      ['scripts/check-worker-configs.mjs', dir],
+      { cwd: WARG, encoding: 'utf8' }
+    );
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(run.stdout, /FAIL renderer/);
+    assert.match(run.stdout, /bindings\.EXTRA_SECRET/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
