@@ -82,7 +82,8 @@ jobs:
 
       - name: Unit tests — all workspace packages
         # Runs vitest (node-env) suites across workers/*, packages/*, pages/*,
-        # plus workers/logger (Cloudflare Workers pool via workerd), plus
+        # plus workers/logger and the workers/workflow runtime tests
+        # (Cloudflare Workers pool via workerd), plus
         # cloud-functions node:test suites. Integration suites that need the
         # Firestore emulator are scoped to *.integration.test.* and excluded
         # by each package's own test script. firebase/test lives outside the

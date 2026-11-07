@@ -156,7 +156,7 @@ describe('end state of an archive run', () => {
   it('marks the request done when every requested step succeeds', async () => {
     const id = newRequestId();
 
-    await using instance = await startRun(id, {}, async (m) => {
+    await using _instance = await startRun(id, {}, async (m) => {
       await m.mockStepResult(
         { name: 'render' },
         {
@@ -189,7 +189,7 @@ describe('end state of an archive run', () => {
     await seedLeftover(id, 'rendered.html');
     await seedLeftover(id, 'rendered.md');
 
-    await using instance = await startRun(id, {});
+    await using _instance = await startRun(id, {});
 
     expect(await waitForEnd(id)).toBe('complete');
 
