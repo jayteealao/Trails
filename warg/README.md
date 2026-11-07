@@ -311,6 +311,27 @@ To read one archive:
    `GET /status/<requestId>`. If a span attribute or log field turns out to hold
    the `request_id`, name it here.
 
+### Retiring the renderer's Browser Rendering token (two steps)
+
+The renderer reaches Browser Rendering through its `BROWSER` binding and no
+longer reads `BR_API_TOKEN` or `CF_ACCOUNT_ID`. The deploy does not remove the
+two secrets from the live worker, so remove them by hand, in this order:
+
+1. Deploy, then keep both secrets until archives through the binding have run
+   clean in production. Until then, a `wrangler rollback` of the renderer to a
+   version that still calls the REST API works with no further step.
+2. From `warg/`, delete both secrets and revoke the API token behind
+   `BR_API_TOKEN` in the Cloudflare dashboard (My Profile → API Tokens):
+
+   ```bash
+   pnpm exec wrangler secret delete BR_API_TOKEN --config workers/renderer/wrangler.jsonc
+   pnpm exec wrangler secret delete CF_ACCOUNT_ID --config workers/renderer/wrangler.jsonc
+   ```
+
+   A rollback to a REST version after this step needs both secrets set again
+   (`pnpm exec wrangler secret put <NAME> --config workers/renderer/wrangler.jsonc`)
+   and a token that is not revoked.
+
 ### Rotating the function keys (two steps)
 
 Each caller of the HTTP Cloud Functions has its own key, so a leaked key opens
