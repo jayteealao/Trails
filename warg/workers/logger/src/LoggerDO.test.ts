@@ -6,7 +6,8 @@ import type {
   ArtifactRecord,
   CanonicalRequestView,
   DerivedSummary,
-  RequestFieldsPatch
+  RequestFieldsPatch,
+  KindHealthRow
 } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 
@@ -42,6 +43,7 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  getKindHealthRows(sinceIso: string): Promise<KindHealthRow[]> | KindHealthRow[];
 }
 
 /**
@@ -1195,6 +1197,96 @@ describe('LoggerDO', () => {
         expect(result2?.nextCursor).toBeUndefined();
       }
     });
+  });
+});
+
+describe('getKindHealthRows', () => {
+  const SINCE = '2026-11-06T07:00:00.000Z';
+  const CREATED = '2026-11-07T06:00:00.000Z';
+
+  /** A fresh bucket per case, so rows of other cases never leak in. */
+  function freshBucket(): { stub: LoggerStub; raw: DurableObjectStub } {
+    const raw = env.LOGGER_DO.get(env.LOGGER_DO.idFromName(`bucket:health-${crypto.randomUUID()}`));
+    return { stub: raw as unknown as LoggerStub, raw };
+  }
+
+  async function insertArtifact(raw: DurableObjectStub, requestId: string, kind: string, createdAt: string) {
+    await runInDurableObject(raw, async (_instance, state) => {
+      state.storage.sql.exec(
+        `INSERT INTO artifacts (request_id, kind, r2_key, content_type, bytes, sha256, created_at)
+         VALUES (?, ?, ?, 'text/html', 16, 'sha', ?)`,
+        requestId,
+        kind,
+        `archives/${requestId}/${kind}`,
+        createdAt
+      );
+    });
+  }
+
+  it('keeps an artifact creation time although the step reads failed', async () => {
+    const { stub, raw } = freshBucket();
+    const requestId = `health-failed-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, CREATED);
+    await stub.appendEvent(requestId, infoEvent('workflow.started', 'Workflow started', { requestedSteps: ['singlefile'] }));
+    await stub.appendEvent(requestId, {
+      ...infoEvent('step.failed', 'singlefile failed', { step: 'singlefile', errorCode: 'ACCESS_BLOCKED' }),
+      level: 'error'
+    });
+    await insertArtifact(raw, requestId, 'singlefile.html', '2026-11-07 06:00:00');
+
+    expect(await stub.getKindHealthRows(SINCE)).toEqual([
+      {
+        requestId,
+        createdAt: CREATED,
+        requestedSteps: ['singlefile'],
+        artifacts: [{ kind: 'singlefile.html', createdAt: '2026-11-07T06:00:00Z' }]
+      }
+    ]);
+  });
+
+  it('leaves the requested steps undefined when the run never started', async () => {
+    const { stub } = freshBucket();
+    const requestId = `health-unstarted-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, CREATED);
+
+    const rows = await stub.getKindHealthRows(SINCE);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.requestedSteps).toBeUndefined();
+    expect(rows[0]?.artifacts).toEqual([]);
+  });
+
+  it('leaves the requested steps undefined when the field is missing or names an unknown step', async () => {
+    const { stub } = freshBucket();
+    const missing = `health-missing-${crypto.randomUUID()}`;
+    const bogus = `health-bogus-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId: missing, url: 'https://example.com/health' }, CREATED);
+    await stub.initRequest({ requestId: bogus, url: 'https://example.com/health' }, CREATED);
+    await stub.appendEvent(missing, infoEvent('workflow.started', 'Workflow started', { url: 'https://example.com/health' }));
+    await stub.appendEvent(bogus, infoEvent('workflow.started', 'Workflow started', { requestedSteps: ['bogus'] }));
+
+    const rows = await stub.getKindHealthRows(SINCE);
+    expect(rows.map((row) => [row.requestId, row.requestedSteps]).sort()).toEqual(
+      [[missing, undefined], [bogus, undefined]].sort()
+    );
+  });
+
+  it('does not return a secondary artifact', async () => {
+    const { stub, raw } = freshBucket();
+    const requestId = `health-manifest-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, CREATED);
+    await insertArtifact(raw, requestId, 'manifest.json', '2026-11-07 06:00:00');
+
+    const rows = await stub.getKindHealthRows(SINCE);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.artifacts).toEqual([]);
+  });
+
+  it('does not return a request created before the given time', async () => {
+    const { stub } = freshBucket();
+    const requestId = `health-old-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, '2026-11-06T06:59:59.000Z');
+
+    expect(await stub.getKindHealthRows(SINCE)).toEqual([]);
   });
 });
 
