@@ -8,8 +8,13 @@ import type {
   InitRequestPayload,
   RequestFieldsPatch,
   RequestStage,
-  TerminalState
+  TerminalState,
+  KindHealthRow,
+  KindHealthArtifact,
+  ArtifactKind,
+  WorkflowStep
 } from '@warg/shared';
+import { HEALTH_KIND_ARTIFACTS } from '@warg/shared';
 import { initSchema, migrateSchema } from './schema.js';
 import { asNumber, asString, asBoolean, asRecord } from './value-helpers.js';
 
@@ -74,6 +79,23 @@ function deriveStage(
   if (eventType === 'workflow.started') return 'queued';
   if (eventType === 'request.created') return 'queued';
   return undefined;
+}
+
+const HEALTH_STEPS = new Set<string>(Object.keys(HEALTH_KIND_ARTIFACTS));
+const HEALTH_ARTIFACT_KINDS: string[] = Object.values(HEALTH_KIND_ARTIFACTS);
+
+/** The `requestedSteps` of a `workflow.started` payload, when it is a list of known steps. */
+function requestedStepsOf(dataJson: string | null): WorkflowStep[] | undefined {
+  if (!dataJson) return undefined;
+  try {
+    const value = (JSON.parse(dataJson) as { requestedSteps?: unknown }).requestedSteps;
+    if (!Array.isArray(value)) return undefined;
+    return value.every((entry) => typeof entry === 'string' && HEALTH_STEPS.has(entry))
+      ? (value as WorkflowStep[])
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function asStringArray(value: unknown): string[] | undefined {
@@ -824,5 +846,51 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
       })),
       nextCursor
     };
+  }
+
+  /** Requests created since `sinceIso`, with requested steps and primary-artifact creation times. */
+  getKindHealthRows(sinceIso: string): KindHealthRow[] {
+    this.ensureSchema();
+
+    const requests = this.sql
+      .exec<{ request_id: string; created_at: string }>(
+        'SELECT request_id, created_at FROM requests WHERE created_at >= ?',
+        sinceIso
+      )
+      .toArray();
+    if (requests.length === 0) return [];
+
+    // The latest workflow.started of a request wins.
+    const requestedSteps = new Map<string, WorkflowStep[] | undefined>();
+    for (const row of this.sql
+      .exec<{ request_id: string; data_json: string | null }>(
+        "SELECT request_id, data_json FROM events WHERE type = 'workflow.started' ORDER BY id"
+      )
+      .toArray()) {
+      requestedSteps.set(row.request_id, requestedStepsOf(row.data_json));
+    }
+
+    const artifacts = new Map<string, KindHealthArtifact[]>();
+    for (const row of this.sql
+      .exec<{ request_id: string; kind: string; created_at: string }>(
+        `SELECT request_id, kind, strftime('%Y-%m-%dT%H:%M:%SZ', created_at) AS created_at
+         FROM artifacts WHERE kind IN (${HEALTH_ARTIFACT_KINDS.map(() => '?').join(', ')})`,
+        ...HEALTH_ARTIFACT_KINDS
+      )
+      .toArray()) {
+      const list = artifacts.get(row.request_id) ?? [];
+      list.push({ kind: row.kind as ArtifactKind, createdAt: row.created_at });
+      artifacts.set(row.request_id, list);
+    }
+
+    return requests.map((row) => {
+      const steps = requestedSteps.get(row.request_id);
+      return {
+        requestId: row.request_id,
+        createdAt: row.created_at,
+        ...(steps ? { requestedSteps: steps } : {}),
+        artifacts: artifacts.get(row.request_id) ?? []
+      };
+    });
   }
 }
