@@ -29,6 +29,8 @@ export type RequestErrorCode =
   | 'MONOLITH_INPUT_TOO_LARGE'
   | 'PERSIST_SERVICE_ERROR'
   | 'ACCESS_BLOCKED'
+  | 'R2_CREDENTIAL_INVALID'
+  | 'BROWSER_TOKEN_INVALID'
   | 'UNKNOWN_ERROR';
 
 export interface RequestDiagnostics {
