@@ -211,11 +211,21 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const normalizedOptions = this.normalizeOptions(options);
     const resumeEnabled = normalizedOptions.resumeFromCheckpoint !== false;
 
+    // Selective step execution: if options.steps is set, only run those steps
+    const requestedSteps = normalizedOptions.steps;
+    const requestedStepList: WorkflowStepType[] =
+      requestedSteps && requestedSteps.length > 0
+        ? Array.from(new Set(requestedSteps))
+        : ['render', 'singlefile', 'readability', 'monolith'];
+    const requestedStepSet = new Set<WorkflowStepType>(requestedStepList);
+    const shouldRun = (stepName: WorkflowStepType) => requestedStepSet.has(stepName);
+
     // Step 2: Log workflow.started
     await step.do('log-started', async () => {
       await logEvent(this.env, request_id, 'workflow.started', 'Workflow started', {
         url,
-        resumeFromCheckpoint: resumeEnabled
+        resumeFromCheckpoint: resumeEnabled,
+        requestedSteps: requestedStepList
       });
     });
 
@@ -244,15 +254,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await saveCheckpoint(this.env.ARCHIVE_BUCKET, state);
       return state;
     });
-
-    // Selective step execution: if options.steps is set, only run those steps
-    const requestedSteps = normalizedOptions.steps;
-    const requestedStepList: WorkflowStepType[] =
-      requestedSteps && requestedSteps.length > 0
-        ? Array.from(new Set(requestedSteps))
-        : ['render', 'singlefile', 'readability', 'monolith'];
-    const requestedStepSet = new Set<WorkflowStepType>(requestedStepList);
-    const shouldRun = (stepName: WorkflowStepType) => requestedStepSet.has(stepName);
 
     let lastPersistResult: WorkflowResult['gcsResult'];
     const partialFailures: Array<{ step: CheckpointStep | 'persist'; error: string }> = [];
