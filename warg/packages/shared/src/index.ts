@@ -42,6 +42,8 @@ export type {
   RequestDiagnostics,
   ArticleHealth
 } from './dashboard.js';
+export { R2_KEY_ERROR_NAMES, credentialFailure, isCredentialErrorCode } from './dashboard.js';
+export type { CredentialErrorCode } from './dashboard.js';
 
 export { createEvent } from './logging.js';
 

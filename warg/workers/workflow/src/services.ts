@@ -9,7 +9,7 @@ import type {
   GcsResponse,
   SinglefileParams
 } from './types.js';
-import { BROWSER_TOKEN_INVALID_REASON, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
+import { BROWSER_TOKEN_INVALID_REASON, PROXY_ERROR_PAGE_REASON, credentialFailure } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
 export interface ServiceErrorClassification {
@@ -59,11 +59,7 @@ function classifyMonolithFailureFromBody(
 ): ServiceErrorClassification | undefined {
   const parsed = parseJsonSafe(responseBody);
   if (parsed && typeof parsed === 'object' && 'code' in parsed && parsed.code === 'R2_CREDENTIAL_INVALID') {
-    return {
-      errorCode: 'R2_CREDENTIAL_INVALID',
-      retryable: false,
-      recommendedAction: 'check_api_key',
-    };
+    return credentialFailure('R2_CREDENTIAL_INVALID');
   }
 
   const message = readMessageFromResponseBody(responseBody);
@@ -149,13 +145,7 @@ function classifyRenderFailureFromBody(
   const record = parsed as Record<string, unknown>;
   if (!looksLikeRendererContentFailurePayload(record)) return undefined;
 
-  if (record.reason === BROWSER_TOKEN_INVALID_REASON) {
-    return {
-      errorCode: 'BROWSER_TOKEN_INVALID',
-      retryable: false,
-      recommendedAction: 'check_api_key',
-    };
-  }
+  if (record.reason === BROWSER_TOKEN_INVALID_REASON) return credentialFailure('BROWSER_TOKEN_INVALID');
 
   if (containsRendererNetworkClosed5006(record.details)) {
     return {

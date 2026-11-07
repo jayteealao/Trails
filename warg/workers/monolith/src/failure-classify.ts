@@ -1,3 +1,5 @@
+import { R2_KEY_ERROR_NAMES } from '@warg/shared';
+
 /**
  * Detect the Cloudflare Sandbox RPC 32 MiB size-limit error from its message.
  *
@@ -22,9 +24,12 @@ export function isRpc32MiBLimit(message: string): boolean {
  * failure on HTTP 403, or the S3 error code of a bad or deleted key.
  * The URLs are minted with the worker's R2 keys, so a 403 means the keys.
  */
+/** The shared S3 key error names, plus AccessDenied, which a presigned URL also answers for a key without write permission. */
+const R2_KEY_REJECTION = new RegExp(`\\b(${[...R2_KEY_ERROR_NAMES, 'AccessDenied'].join('|')})\\b`, 'i');
+
 export function isR2CredentialRejection(output: string): boolean {
   return (
     /returned error: 403\b/i.test(output) ||
-    /\b(SignatureDoesNotMatch|InvalidAccessKeyId|AccessDenied)\b/i.test(output)
+    R2_KEY_REJECTION.test(output)
   );
 }

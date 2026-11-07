@@ -9,7 +9,7 @@ import type {
   RequestErrorCode,
   KindHealthRow
 } from '@warg/shared';
-import { timingSafeEqual } from '@warg/shared';
+import { credentialFailure, isCredentialErrorCode, timingSafeEqual } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 import { LoggerDO } from './LoggerDO.js';
 import { asString, asNumber, asBoolean, asRecord } from './value-helpers.js';
@@ -166,8 +166,7 @@ function defaultRetryableForCode(code: RequestErrorCode): boolean {
     code !== 'INVALID_INPUT_URL' &&
     code !== 'MONOLITH_RPC_32MIB_LIMIT' &&
     code !== 'MONOLITH_INPUT_TOO_LARGE' &&
-    code !== 'R2_CREDENTIAL_INVALID' &&
-    code !== 'BROWSER_TOKEN_INVALID'
+    !isCredentialErrorCode(code)
   );
 }
 
@@ -188,7 +187,7 @@ function defaultActionForCode(code: RequestErrorCode): RequestDiagnostics['recom
     return 'investigate_service';
   }
   if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
-  if (code === 'R2_CREDENTIAL_INVALID' || code === 'BROWSER_TOKEN_INVALID') return 'check_api_key';
+  if (isCredentialErrorCode(code)) return credentialFailure(code).recommendedAction;
   return 'retry_step';
 }
 
