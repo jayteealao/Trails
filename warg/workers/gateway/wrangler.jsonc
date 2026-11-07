@@ -2,7 +2,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "gateway",
   "main": "src/index.ts",
-  "compatibility_date": "2025-01-01",
+  // Equals COMPATIBILITY_DATE in ../compatibility-date.mjs; scripts/check-worker-configs.mjs fails otherwise.
+  "compatibility_date": "2026-03-24",
   "services": [
     { "binding": "LOGGER", "service": "logger" },
     { "binding": "WORKFLOW", "service": "workflow" },

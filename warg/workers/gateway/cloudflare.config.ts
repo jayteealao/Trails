@@ -1,4 +1,5 @@
 import { bindings, defineConfig, triggers } from "cf/config";
+import { COMPATIBILITY_DATE } from "../compatibility-date.mjs";
 
 /**
  * Secret-like files were detected but not read or migrated: .dev.vars.example. Only `secrets.required` entries are migrated.
@@ -8,7 +9,7 @@ import { bindings, defineConfig, triggers } from "cf/config";
 export default defineConfig({
 	worker: {
 		name: "gateway",
-		compatibilityDate: "2025-01-01",
+		compatibilityDate: COMPATIBILITY_DATE,
 		entrypoint: "src/index.ts",
 		observability: {
 			enabled: true,
