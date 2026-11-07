@@ -152,4 +152,54 @@ describe('end state of an archive run', () => {
 
     await expectNoOutputsFailure(id, instance);
   });
+
+  it('marks the request done when every requested step succeeds', async () => {
+    const id = newRequestId();
+
+    await using instance = await startRun(id, {}, async (m) => {
+      await m.mockStepResult(
+        { name: 'render' },
+        {
+          result: {
+            uses_browser_rendering: true,
+            quota_kind_used: 'rest_request',
+            artifacts: [artifactMeta(id, 'rendered.html'), artifactMeta(id, 'rendered.md')]
+          },
+          fallbackUsed: false
+        }
+      );
+      await m.mockStepResult({ name: 'singlefile' }, { artifact: artifactMeta(id, 'singlefile.html') });
+      await m.mockStepResult(
+        { name: 'readability' },
+        { json: artifactMeta(id, 'readability.json'), md: artifactMeta(id, 'readability.md') }
+      );
+      await m.mockStepResult({ name: 'monolith-attempt-1' }, { artifact: artifactMeta(id, 'monolith.html') });
+    });
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('done');
+    expect(status.derived.terminal).toBe(true);
+    expect(status.derived.diagnostics?.degradedSteps ?? []).toEqual([]);
+  });
+
+  it('marks the request incomplete when a resumed render is the only step that succeeds', async () => {
+    const id = newRequestId();
+    await seedLeftover(id, 'rendered.html');
+    await seedLeftover(id, 'rendered.md');
+
+    await using instance = await startRun(id, {});
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('incomplete');
+    expect(status.derived.terminal).toBe(true);
+    expect([...(status.derived.diagnostics?.degradedSteps ?? [])].sort()).toEqual([
+      'monolith',
+      'readability',
+      'singlefile'
+    ]);
+  });
 });
