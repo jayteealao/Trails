@@ -75,6 +75,64 @@ function checkRateLimit(resp: Response, context: string): Response | null {
   return Response.json(rateLimited, { status: 429 });
 }
 
+interface RenderFlags {
+  includeScreenshot: boolean;
+  includePdf: boolean;
+  includeMarkdown: boolean;
+}
+
+/** The artifact kinds a render answers, in answer order, with the label of each and whether it was asked for. */
+function answerOrder(flags: RenderFlags): Array<[ArtifactKind, boolean, string]> {
+  return [
+    ['rendered.html', true, 'html'],
+    ['screenshot.png', flags.includeScreenshot, 'screenshot'],
+    ['page.pdf', flags.includePdf, 'pdf'],
+    ['rendered.md', flags.includeMarkdown, 'markdown']
+  ];
+}
+
+function requestedKinds(flags: RenderFlags): ArtifactKind[] {
+  return answerOrder(flags)
+    .filter(([, isRequested]) => isRequested)
+    .map(([kind]) => kind);
+}
+
+/**
+ * What the one page load must fetch: the HTML always comes with a load (the page
+ * detectors guard every load), plus each requested snapshot format that is not reused.
+ */
+function planPageLoad(flags: RenderFlags, reused: ReadonlyMap<ArtifactKind, ArtifactMeta>) {
+  const missingScreenshot = flags.includeScreenshot && !reused.has('screenshot.png');
+  const missingMarkdown = flags.includeMarkdown && !reused.has('rendered.md');
+  const formats: BrowserRunSnapshotFormat[] = [
+    'content',
+    ...(missingScreenshot ? (['screenshot'] as const) : []),
+    ...(missingMarkdown ? (['markdown'] as const) : [])
+  ];
+  const needsPageLoad = !reused.has('rendered.html') || missingScreenshot || missingMarkdown;
+  return { needsPageLoad, missingScreenshot, missingMarkdown, formats };
+}
+
+/** The artifacts and skip notes of the answer, in the fixed answer order. */
+function assembleAnswer(
+  flags: RenderFlags,
+  outcomes: ReadonlyMap<ArtifactKind, ArtifactMeta>,
+  misses: ReadonlyMap<ArtifactKind, string>
+): { artifacts: ArtifactMeta[]; skipped: string[] } {
+  const artifacts: ArtifactMeta[] = [];
+  const skipped: string[] = [];
+  for (const [kind, isRequested, label] of answerOrder(flags)) {
+    const meta = outcomes.get(kind);
+    if (!isRequested) skipped.push(`${label}: not requested`);
+    else if (meta) artifacts.push(meta);
+    else {
+      const miss = misses.get(kind);
+      if (miss) skipped.push(miss);
+    }
+  }
+  return { artifacts, skipped };
+}
+
 export default {
   async fetch(
     request: Request,
@@ -130,36 +188,23 @@ export default {
       const reuseScope = typeof body.reuse_scope === 'string' && body.reuse_scope ? body.reuse_scope : undefined;
 
       // Artifacts that an earlier attempt of this run already stored are listed again, not loaded again.
-      const requested: ArtifactKind[] = [
-        'rendered.html',
-        ...(includeScreenshot ? (['screenshot.png'] as const) : []),
-        ...(includePdf ? (['page.pdf'] as const) : []),
-        ...(includeMarkdown ? (['rendered.md'] as const) : [])
-      ];
+      const flags: RenderFlags = { includeScreenshot, includePdf, includeMarkdown };
       const reused = new Map<ArtifactKind, ArtifactMeta>();
       if (reuseScope) {
         const found = await Promise.all(
-          requested.map((kind) => findReusableArtifact(env.ARCHIVE_BUCKET, request_id, kind, reuseScope))
+          requestedKinds(flags).map((kind) => findReusableArtifact(env.ARCHIVE_BUCKET, request_id, kind, reuseScope))
         );
         for (const meta of found) {
           if (meta) reused.set(meta.kind, meta);
         }
       }
-      const missingScreenshot = includeScreenshot && !reused.has('screenshot.png');
-      const missingMarkdown = includeMarkdown && !reused.has('rendered.md');
-
-      // The HTML always comes with a load: the page detectors guard every load.
-      const formats: BrowserRunSnapshotFormat[] = [
-        'content',
-        ...(missingScreenshot ? (['screenshot'] as const) : []),
-        ...(missingMarkdown ? (['markdown'] as const) : [])
-      ];
+      const { needsPageLoad, missingScreenshot, missingMarkdown, formats } = planPageLoad(flags, reused);
       const outcomes = new Map<ArtifactKind, ArtifactMeta>(reused);
       const misses = new Map<ArtifactKind, string>();
       const browserApiStart = Date.now();
 
       // 1. One page load for whatever of the HTML, screenshot and Markdown is missing
-      if (!reused.has('rendered.html') || missingScreenshot || missingMarkdown) {
+      if (needsPageLoad) {
         let action: 'snapshot' | 'content' = formats.length >= 2 ? 'snapshot' : 'content';
         let pageResp = await loadPage(env, targetUrl, formats);
         let pageRateLimit = checkRateLimit(pageResp, '');
@@ -265,23 +310,7 @@ export default {
       }
 
       // 4. The answer lists every artifact of the request, stored now or reused, in a fixed order
-      const artifacts: ArtifactMeta[] = [];
-      const skipped: string[] = [];
-      const answerOrder: Array<[ArtifactKind, boolean, string]> = [
-        ['rendered.html', true, 'html'],
-        ['screenshot.png', includeScreenshot, 'screenshot'],
-        ['page.pdf', includePdf, 'pdf'],
-        ['rendered.md', includeMarkdown, 'markdown']
-      ];
-      for (const [kind, isRequested, label] of answerOrder) {
-        const meta = outcomes.get(kind);
-        if (!isRequested) skipped.push(`${label}: not requested`);
-        else if (meta) artifacts.push(meta);
-        else {
-          const miss = misses.get(kind);
-          if (miss) skipped.push(miss);
-        }
-      }
+      const { artifacts, skipped } = assembleAnswer(flags, outcomes, misses);
 
       const browserApiMs = Date.now() - browserApiStart;
       const successResponse: RenderSuccessResponse = {
