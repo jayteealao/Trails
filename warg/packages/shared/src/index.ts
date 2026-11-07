@@ -56,6 +56,8 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
+export { decodeBase64ToArrayBuffer } from './base64.js';
+
 export {
   isProxyErrorPage,
   PROXY_ERROR_PAGE_REASON,
