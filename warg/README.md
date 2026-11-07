@@ -219,6 +219,42 @@ An email with the subject `Warg archive health: the daily check failed` means
 the check itself could not run (for example the logger did not answer); its
 text holds the error.
 
+### Reading one archive's trace
+
+The six Workers an archive passes through (gateway, workflow, renderer,
+hyperrenderer, singlefile and readability) emit Cloudflare Workers traces: both
+config files of each set `observability.traces.enabled`, and
+`scripts/check-worker-configs.mjs` fails when the two files differ or when one
+of the six drops it. Logger, monolith and gcs are not traced; a call into them
+shows as a fetch span of the Worker that calls them. Every request is sampled
+(the platform default). Traces are kept for seven days, and from 2026-12-01
+they count toward Cloudflare Observability usage.
+
+The runtime emits the spans; no code creates them. Cloudflare documents spans
+for fetch calls, R2, D1 and Durable Object binding calls, RPC calls and the
+fetch and scheduled handlers, and documents linking a span across Workers for
+RPC calls only. Warg's hops are a service-binding fetch (gateway to workflow,
+workflow to each render Worker) and an asynchronous Workflow instance, so one
+archive may appear as more than one trace. The `request_id` joins them.
+
+To read one archive:
+
+1. Submit one URL and note the `requestId` of the response:
+
+   ```bash
+   curl -sS -X POST "$GATEWAY_URL/begin" \
+     -H "X-API-Key: $PUBLIC_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"url":"https://example.com/"}'
+   ```
+
+2. Poll `GET /status/<requestId>` (same header) until it is done or failed.
+3. Open Workers → Observability → Traces in the Cloudflare dashboard for the
+   last 15 minutes, or run `pnpm exec cf o11y telemetry query` with the traces
+   view, and filter by `$metadata.service` (gateway, workflow, renderer).
+4. Note each trace id and which Workers' spans it holds; join the traces of the
+   archive by its `request_id`.
+
 ### Rotating the function keys (two steps)
 
 Each caller of the HTTP Cloud Functions has its own key, so a leaked key opens
