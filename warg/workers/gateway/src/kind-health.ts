@@ -3,6 +3,13 @@ import { HEALTH_KIND_ARTIFACTS, WORKFLOW_STEPS } from '@warg/shared';
 
 const HOUR_MS = 3_600_000;
 
+/**
+ * A request younger than this may still be queued or running, so it is not yet
+ * counted as requested: at low volume a few in-flight requests would otherwise
+ * push a healthy kind under the ratio.
+ */
+export const REQUEST_SETTLE_HOURS = 1;
+
 /** The archive kinds, in the order the check reports them. */
 const KINDS: readonly WorkflowStep[] = WORKFLOW_STEPS;
 
@@ -51,9 +58,14 @@ export function evaluateKindHealth(
 ): { stats: KindStats[]; alerts: KindAlert[] } {
   const nowMs = now.getTime();
   const windowStartMs = nowMs - thresholds.windowHours * HOUR_MS;
+  const settledBeforeMs = nowMs - REQUEST_SETTLE_HOURS * HOUR_MS;
   const inWindow = (iso: string): boolean => {
     const ms = Date.parse(iso);
     return ms >= windowStartMs && ms <= nowMs;
+  };
+  const settledInWindow = (iso: string): boolean => {
+    const ms = Date.parse(iso);
+    return ms >= windowStartMs && ms <= settledBeforeMs;
   };
 
   const stats = KINDS.map((kind): KindStats => {
@@ -70,7 +82,7 @@ export function evaluateKindHealth(
       }
       // A row that predates the requested-steps field counts as asking for every kind.
       const asked = row.requestedSteps === undefined || row.requestedSteps.includes(kind);
-      if (!asked || !inWindow(row.createdAt)) continue;
+      if (!asked || !settledInWindow(row.createdAt)) continue;
       requested += 1;
       if (artifact && inWindow(artifact.createdAt)) succeeded += 1;
     }

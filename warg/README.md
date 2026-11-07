@@ -167,7 +167,8 @@ Archive health email: once a day at 08:00 UTC the gateway checks each archive
 kind and, when one is below 80% success in the last 24 hours (with at least 5
 requests) or had at least one request in the last 24 hours and no success for
 48 hours, sends one email through its `HEALTH_EMAIL` binding. A kind with no
-request in the last 24 hours does not alert. Before the first deploy that carries it, set
+request in the last 24 hours does not alert. A request of the last hour is not counted
+yet, since it may still be running. Before the first deploy that carries it, set
 `HEALTH_ALERT_FROM` and `HEALTH_ALERT_TO` with `pnpm exec wrangler secret put`
 in `workers/gateway`; the deploy refuses the gateway without them. The
 recipient must be a verified destination address in Email Routing, and the

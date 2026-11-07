@@ -50,6 +50,15 @@ function alertOf(rows: KindHealthRow[], kind: WorkflowStep) {
 }
 
 describe('evaluateKindHealth', () => {
+  it('does not yet count requests of the last hour, which may still be running', () => {
+    const rows = [...batch('singlefile', 8, 8), row('singlefile', 0.5), row('singlefile', 0.25)];
+    const stats = statsOf(rows, 'singlefile');
+    expect(stats.requested).toBe(8);
+    expect(stats.succeeded).toBe(8);
+    expect(alertOf(rows, 'singlefile')).toBeUndefined();
+  });
+
+
   it('takes the last success from the artifact creation time', () => {
     const rows = [row('singlefile', 3, 2)];
     expect(statsOf(rows, 'singlefile').lastSuccessAt).toBe(hoursAgo(2));
