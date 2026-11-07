@@ -284,7 +284,10 @@ test('the check exits 1 and names the Worker whose wrangler.jsonc date differs f
 
 test('tracing enabled in wrangler.jsonc only is reported', async () => {
   const { wrangler, cf } = await load('readability');
-  wrangler.observability = { ...wrangler.observability, traces: { enabled: true } };
+  wrangler.observability = {
+    ...wrangler.observability,
+    traces: { enabled: true }
+  };
   delete cf.worker.observability.traces;
   assert.match(diff(wrangler, cf).join('\n'), /^traces: wrangler\.jsonc/m);
 });
@@ -292,7 +295,10 @@ test('tracing enabled in wrangler.jsonc only is reported', async () => {
 test('tracing enabled in cloudflare.config.ts only is reported', async () => {
   const { wrangler, cf } = await load('readability');
   delete wrangler.observability.traces;
-  cf.worker.observability = { ...cf.worker.observability, traces: { enabled: true } };
+  cf.worker.observability = {
+    ...cf.worker.observability,
+    traces: { enabled: true }
+  };
   assert.match(diff(wrangler, cf).join('\n'), /^traces: wrangler\.jsonc/m);
 });
 
@@ -302,13 +308,22 @@ test('a tracing sampling rate that differs between the files is reported', async
     ...wrangler.observability,
     traces: { enabled: true, head_sampling_rate: 0.5 }
   };
-  cf.worker.observability = { ...cf.worker.observability, traces: { enabled: true } };
-  assert.match(diff(wrangler, cf).join('\n'), /^traces: wrangler\.jsonc .*headSamplingRate\\":0\.5/m);
+  cf.worker.observability = {
+    ...cf.worker.observability,
+    traces: { enabled: true }
+  };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /^traces: wrangler\.jsonc .*headSamplingRate\\":0\.5/m
+  );
 });
 
 test('tracing disabled in one file and absent in the other is not reported', async () => {
   const { wrangler, cf } = await load('readability');
-  wrangler.observability = { ...wrangler.observability, traces: { enabled: false } };
+  wrangler.observability = {
+    ...wrangler.observability,
+    traces: { enabled: false }
+  };
   delete cf.worker.observability.traces;
   assert.deepEqual(diff(wrangler, cf), []);
 });

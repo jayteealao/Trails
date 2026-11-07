@@ -140,7 +140,11 @@ export function fromWrangler(w) {
     }
   }
   errors.push(
-    ...observabilityKeyErrors(w.observability, 'wrangler.jsonc', 'head_sampling_rate')
+    ...observabilityKeyErrors(
+      w.observability,
+      'wrangler.jsonc',
+      'head_sampling_rate'
+    )
   );
   const bindings = {};
   for (const [name, value] of Object.entries(w.vars ?? {}))
@@ -215,7 +219,11 @@ export function fromCf(config) {
   const errors = [];
   const worker = config.worker ?? {};
   errors.push(
-    ...observabilityKeyErrors(worker.observability, 'cloudflare.config.ts', 'headSamplingRate')
+    ...observabilityKeyErrors(
+      worker.observability,
+      'cloudflare.config.ts',
+      'headSamplingRate'
+    )
   );
   const bindings = {};
   for (const [name, b] of Object.entries(worker.env ?? {})) {
