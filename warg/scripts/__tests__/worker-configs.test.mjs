@@ -18,8 +18,10 @@ import {
   compareShapes,
   fromCf,
   fromWrangler,
+  literalDateErrors,
   loadCfConfig,
-  parseJsonc
+  parseJsonc,
+  sharedDateErrors
 } from '../check-worker-configs.mjs';
 
 const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -218,6 +220,60 @@ test('the check exits 1 and names the Worker and the secret that differ', () => 
     assert.equal(run.status, 1, run.stdout + run.stderr);
     assert.match(run.stdout, /FAIL renderer/);
     assert.match(run.stdout, /bindings\.EXTRA_SECRET/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a date both files agree on but that is not the shared constant is reported', async () => {
+  const { wrangler, cf } = await load('singlefile');
+  wrangler.compatibility_date = '2026-01-01';
+  cf.worker.compatibilityDate = '2026-01-01';
+  const out = sharedDateErrors(
+    'singlefile',
+    fromWrangler(wrangler).shape,
+    fromCf(cf).shape
+  ).join('\n');
+  assert.match(out, /wrangler\.jsonc "2026-01-01", shared constant/);
+  assert.match(out, /cloudflare\.config\.ts "2026-01-01", shared constant/);
+});
+
+test('a quoted date in cloudflare.config.ts is reported', () => {
+  assert.match(
+    literalDateErrors('compatibilityDate: "2026-03-24",').join('\n'),
+    /import COMPATIBILITY_DATE/
+  );
+  assert.deepEqual(literalDateErrors('compatibilityDate: COMPATIBILITY_DATE,'), []);
+});
+
+test('a renderer date before its minimum is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  wrangler.compatibility_date = '2026-03-23';
+  cf.worker.compatibilityDate = '2026-03-23';
+  assert.match(
+    sharedDateErrors(
+      'renderer',
+      fromWrangler(wrangler).shape,
+      fromCf(cf).shape,
+      '2026-03-23'
+    ).join('\n'),
+    /before the minimum "2026-03-24" of renderer/
+  );
+});
+
+test('the check exits 1 and names the Worker whose wrangler.jsonc date differs from the shared constant', () => {
+  const { dir, cleanup } = tempWorker('gcs', (wrangler) => {
+    wrangler.compatibility_date = '2026-03-23';
+  });
+  try {
+    const run = spawnSync(
+      process.execPath,
+      ['scripts/check-worker-configs.mjs', dir],
+      { cwd: WARG, encoding: 'utf8' }
+    );
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(run.stdout, /FAIL gcs/);
+    assert.match(run.stdout, /shared constant/);
   } finally {
     cleanup();
   }
