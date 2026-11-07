@@ -385,6 +385,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
     devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: ^0.18.4
+        version: 0.18.4(@cloudflare/workers-types@5.20260711.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1)))
       cf:
         specifier: 1.0.0-beta.17
         version: 1.0.0-beta.17(@types/node@26.1.1)
