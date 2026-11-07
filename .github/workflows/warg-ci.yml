@@ -112,8 +112,11 @@ jobs:
 
       - name: Worker configs agree (cloudflare.config.ts and wrangler.jsonc)
         # cf deploy reads cloudflare.config.ts; wrangler dev and wrangler types
-        # read wrangler.jsonc. Fails when a binding, Durable Object class, cron
-        # or compatibility setting differs between the two.
+        # read wrangler.jsonc. Fails when a binding, required secret, Durable
+        # Object class, cron, compatibility setting or tracing setting differs
+        # between the two; when a worker is not on the shared compatibility date
+        # of workers/compatibility-date.mjs (or the renderer is below its
+        # minimum); and when a worker on the archive path stops tracing.
         timeout-minutes: 5
         run: |
           node scripts/check-worker-configs.mjs
