@@ -9,11 +9,14 @@
     { "binding": "MONOLITH", "service": "monolith" }
   ],
   "triggers": {
-    "crons": ["*/10 * * * *"]
+    "crons": ["*/10 * * * *", "0 8 * * *"]
   },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
   ],
+  // The daily archive health email (cron "0 8 * * *"). The recipient and the
+  // sender are secrets, so no address is in the repo.
+  "send_email": [{ "name": "HEALTH_EMAIL" }],
   "observability": { "enabled": true },
   // Deploy order: gateway must deploy AFTER monolith and workflow so its
   // service-binding targets exist (see scripts/deploy.sh Tier 3).
@@ -22,4 +25,8 @@
   // - INTERNAL_API_KEY: shared key for internal service auth (sweeps, event
   //   forwarding to logger/workflow); used on all internal sub-request calls
   // - PUBLIC_API_KEY: external client auth on POST /begin and GET /status/:id
+  // - HEALTH_ALERT_FROM: sender of the daily health email, on a domain of the
+  //   account with email sending set up
+  // - HEALTH_ALERT_TO: the one destination address of the daily health email,
+  //   verified in Email Routing
 }
