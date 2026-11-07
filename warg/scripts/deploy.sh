@@ -181,7 +181,8 @@ set -euo pipefail
 # refused dirty tree; 3 when a target ran but failed verification, a
 # secret is missing or a sign-in is missing; 130 / 143 on SIGINT / SIGTERM.
 #
-# Needs: node, git and one sign-in per target: cf signed in (`cf auth login`)
+# Needs: node 22.23+ or 24.22+, which cf requires, git and one sign-in per
+# target: cf signed in (`cf auth login`)
 # for the workers; for --with-functions firebase-tools signed in
 # (`firebase login`, FIREBASE_TOKEN or `gcloud auth application-default
 # login`) and gcloud signed in (`gcloud auth login`, the function
