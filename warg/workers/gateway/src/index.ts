@@ -520,7 +520,7 @@ export async function runDailyHealthCheck(
     } catch (err) {
       const code = typeof err === 'object' && err !== null && 'code' in err ? String(err.code) : 'unknown';
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`[gateway] health email failed (${code}): ${message}`);
+      throw new Error(`[gateway] health email failed (${code}): ${message}`, { cause: err });
     }
   }
 
