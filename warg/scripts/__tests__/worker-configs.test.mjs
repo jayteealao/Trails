@@ -85,6 +85,15 @@ test('a binding added to cloudflare.config.ts only is reported', async () => {
   );
 });
 
+test('a renderer browser binding declared in wrangler.jsonc only is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  delete cf.worker.env.BROWSER;
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /bindings\.BROWSER: wrangler\.jsonc browser, cloudflare\.config\.ts \(absent\)/
+  );
+});
+
 test('a binding that points elsewhere is reported', async () => {
   const { wrangler, cf } = await load('gateway');
   cf.worker.env.ARCHIVE_BUCKET = { type: 'r2', name: 'other-bucket' };
