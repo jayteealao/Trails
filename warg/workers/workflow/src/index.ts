@@ -620,9 +620,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         : {}),
     };
 
-    const shouldSoftFailNoRequestedOutputs = noRequestedOutputs && coreArtifactsPresent;
-
-    if ((noRequestedOutputs && !shouldSoftFailNoRequestedOutputs) || unpersistedKinds.length > 0) {
+    if (noRequestedOutputs || unpersistedKinds.length > 0) {
       const noOutputsDetails = noRequestedOutputs
         ? {
             errorCode: 'NO_OUTPUTS_PRODUCED',
