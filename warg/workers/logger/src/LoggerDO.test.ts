@@ -1317,4 +1317,28 @@ describe('Logger HTTP service routing (dual-read)', () => {
     expect((after.byStage.incomplete ?? 0) - (before.byStage.incomplete ?? 0)).toBe(1);
     expect((after.byStage.rendering ?? 0) - (before.byStage.rendering ?? 0)).toBe(1);
   });
+
+  it('POST /requests/batch — shows the code of a rejected storage key or browser token', async () => {
+    const now = new Date().toISOString();
+    const codes = ['R2_CREDENTIAL_INVALID', 'BROWSER_TOKEN_INVALID'];
+    const ids = codes.map((code) => `svc-credential-${code}-${crypto.randomUUID()}`);
+    for (const [index, code] of codes.entries()) {
+      await env.INDEX_DB.prepare(
+        `INSERT INTO requests_index (request_id, url, domain, created_at, updated_at, stage, last_error_code)
+         VALUES (?, 'https://example.com/credential', 'example.com', ?, ?, 'incomplete', ?)`
+      ).bind(ids[index], now, now, code).run();
+    }
+
+    const res = await SELF.fetch('https://logger.internal/requests/batch', {
+      method: 'POST',
+      headers: { 'X-Internal-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestIds: ids })
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      requests: Array<{ requestId: string; diagnostics: { errorCode?: string } }>;
+    };
+    const codeById = new Map(body.requests.map((entry) => [entry.requestId, entry.diagnostics.errorCode]));
+    expect(ids.map((id) => codeById.get(id))).toEqual(codes);
+  });
 });
