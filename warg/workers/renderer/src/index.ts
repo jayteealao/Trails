@@ -154,104 +154,113 @@ export default {
         ...(missingScreenshot ? (['screenshot'] as const) : []),
         ...(missingMarkdown ? (['markdown'] as const) : [])
       ];
-      const artifacts: ArtifactMeta[] = [];
-      const skipped: string[] = [];
+      const outcomes = new Map<ArtifactKind, ArtifactMeta>(reused);
+      const misses = new Map<ArtifactKind, string>();
       const browserApiStart = Date.now();
 
-      // 1. One page load: the HTML, plus the screenshot and Markdown when requested
-      const pageResp = await loadPage(env, targetUrl, formats);
-      const pageRateLimit = checkRateLimit(pageResp, '');
-      if (pageRateLimit) return pageRateLimit;
-      if (!pageResp.ok) {
-        const errorText = await pageResp.text();
-        // Stays 502: a 401/403 from this worker would read as a blocked target page.
-        return Response.json(
-          {
-            error: 'Browser Rendering /content failed',
-            status: pageResp.status,
-            details: errorText
-          },
-          { status: 502 }
-        );
-      }
-      const page = parseLoadedPage(await pageResp.json());
-      if (!page) {
-        return Response.json(
-          { error: 'Browser Rendering /content returned invalid response' },
-          { status: 502 }
-        );
-      }
-      if (isProxyErrorPage(page.html)) {
-        return Response.json(
-          {
-            error: 'Browser Rendering /content returned a proxy/network error page',
-            reason: PROXY_ERROR_PAGE_REASON,
-            url: targetUrl
-          },
-          { status: 502 }
-        );
-      }
-      if (isChallengePage(page.html)) {
-        console.warn('[renderer] Browser Rendering /content returned a challenge page:', targetUrl);
-        return accessBlockedResponse(targetUrl);
-      }
-      const htmlData = new TextEncoder().encode(page.html);
-      const htmlMeta = await storeArtifact(
-        env.ARCHIVE_BUCKET,
-        request_id,
-        'rendered.html',
-        htmlData.buffer as ArrayBuffer,
-        'text/html'
-      );
-      artifacts.push(htmlMeta);
+      // 1. One page load for whatever of the HTML, screenshot and Markdown is missing
+      if (!reused.has('rendered.html') || missingScreenshot || missingMarkdown) {
+        const pageResp = await loadPage(env, targetUrl, formats);
+        const pageRateLimit = checkRateLimit(pageResp, '');
+        if (pageRateLimit) return pageRateLimit;
+        if (!pageResp.ok) {
+          const errorText = await pageResp.text();
+          // Stays 502: a 401/403 from this worker would read as a blocked target page.
+          return Response.json(
+            {
+              error: 'Browser Rendering /content failed',
+              status: pageResp.status,
+              details: errorText
+            },
+            { status: 502 }
+          );
+        }
+        const page = parseLoadedPage(await pageResp.json());
+        if (!page) {
+          return Response.json(
+            { error: 'Browser Rendering /content returned invalid response' },
+            { status: 502 }
+          );
+        }
+        if (isProxyErrorPage(page.html)) {
+          return Response.json(
+            {
+              error: 'Browser Rendering /content returned a proxy/network error page',
+              reason: PROXY_ERROR_PAGE_REASON,
+              url: targetUrl
+            },
+            { status: 502 }
+          );
+        }
+        if (isChallengePage(page.html)) {
+          console.warn('[renderer] Browser Rendering /content returned a challenge page:', targetUrl);
+          return accessBlockedResponse(targetUrl);
+        }
 
-      // 2. Screenshot from the same load
-      if (!includeScreenshot) {
-        skipped.push('screenshot: not requested');
-      } else if (page.screenshot) {
-        const ssMeta = await storeArtifact(
-          env.ARCHIVE_BUCKET,
-          request_id,
-          'screenshot.png',
-          decodeScreenshot(page.screenshot),
-          'image/png'
-        );
-        artifacts.push(ssMeta);
-      } else {
-        skipped.push('screenshot: snapshot returned no screenshot');
+        // 2. Store the artifacts of this load before the PDF load, so a PDF failure keeps them
+        if (!reused.has('rendered.html')) {
+          const htmlData = new TextEncoder().encode(page.html);
+          outcomes.set(
+            'rendered.html',
+            await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'rendered.html', htmlData.buffer as ArrayBuffer, 'text/html', reuseScope)
+          );
+        }
+        if (missingScreenshot) {
+          if (page.screenshot) {
+            outcomes.set(
+              'screenshot.png',
+              await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', decodeScreenshot(page.screenshot), 'image/png', reuseScope)
+            );
+          } else {
+            misses.set('screenshot.png', 'screenshot: snapshot returned no screenshot');
+          }
+        }
+        if (missingMarkdown) {
+          if (page.markdown) {
+            const mdData = new TextEncoder().encode(page.markdown);
+            outcomes.set(
+              'rendered.md',
+              await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'rendered.md', mdData.buffer as ArrayBuffer, 'text/markdown', reuseScope)
+            );
+          } else {
+            misses.set('rendered.md', 'markdown: snapshot returned no markdown');
+          }
+        }
       }
 
-      // 3. PDF, when requested, takes its own load
-      if (includePdf) {
+      // 3. PDF, when requested and missing, takes its own load
+      if (includePdf && !reused.has('page.pdf')) {
         const pdfResp = await env.BROWSER.quickAction('pdf', { url: targetUrl, gotoOptions: GOTO_OPTIONS });
         const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
         if (pdfRateLimit) return pdfRateLimit;
         if (pdfResp.ok) {
           const pdfData = await pdfResp.arrayBuffer();
-          const pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
-          artifacts.push(pdfMeta);
+          outcomes.set(
+            'page.pdf',
+            await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf', reuseScope)
+          );
         } else {
-          skipped.push(`pdf: API returned ${pdfResp.status}`);
+          misses.set('page.pdf', `pdf: API returned ${pdfResp.status}`);
         }
-      } else {
-        skipped.push('pdf: not requested');
       }
 
-      // 4. Markdown from the same load
-      if (!includeMarkdown) {
-        skipped.push('markdown: not requested');
-      } else if (page.markdown) {
-        const mdData = new TextEncoder().encode(page.markdown);
-        const mdMeta = await storeArtifact(
-          env.ARCHIVE_BUCKET,
-          request_id,
-          'rendered.md',
-          mdData.buffer as ArrayBuffer,
-          'text/markdown'
-        );
-        artifacts.push(mdMeta);
-      } else {
-        skipped.push('markdown: snapshot returned no markdown');
+      // 4. The answer lists every artifact of the request, stored now or reused, in a fixed order
+      const artifacts: ArtifactMeta[] = [];
+      const skipped: string[] = [];
+      const answerOrder: Array<[ArtifactKind, boolean, string]> = [
+        ['rendered.html', true, 'html'],
+        ['screenshot.png', includeScreenshot, 'screenshot'],
+        ['page.pdf', includePdf, 'pdf'],
+        ['rendered.md', includeMarkdown, 'markdown']
+      ];
+      for (const [kind, isRequested, label] of answerOrder) {
+        const meta = outcomes.get(kind);
+        if (!isRequested) skipped.push(`${label}: not requested`);
+        else if (meta) artifacts.push(meta);
+        else {
+          const miss = misses.get(kind);
+          if (miss) skipped.push(miss);
+        }
       }
 
       const browserApiMs = Date.now() - browserApiStart;
@@ -259,7 +268,7 @@ export default {
         uses_browser_rendering: true,
         quota_kind_used: browser_quota_kind,
         artifacts,
-        meta: { skipped, browserApiMs }
+        meta: { skipped, browserApiMs, ...(reused.size > 0 && { reused: [...reused.keys()] }) }
       };
       return Response.json(successResponse);
     } catch (err) {
