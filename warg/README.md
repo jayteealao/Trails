@@ -250,6 +250,16 @@ files and its name to `TRACED_WORKERS`. Every request is sampled
 (the platform default). Traces are kept for seven days, and from 2026-12-01
 they count toward Cloudflare Observability usage.
 
+Each archive makes several spans: the gateway request, the workflow start and
+each step, every service-binding call to a render Worker, each fetch those
+Workers make, and each call to the logger, more when a step retries. The
+gateway's crons and `GET /status` polling are traced too. Before 2026-12-01,
+read the Observability usage in the dashboard after a week of traffic. To trace
+fewer requests, set `head_sampling_rate` under `observability.traces` in
+`wrangler.jsonc` and `headSamplingRate` in `cloudflare.config.ts` to the same
+value below 1 in both files of each traced Worker; the check fails when the two
+differ.
+
 The runtime emits the spans; no code creates them. Cloudflare documents spans
 for fetch calls, R2, D1 and Durable Object binding calls, RPC calls and the
 fetch and scheduled handlers, and documents linking a span across Workers for
