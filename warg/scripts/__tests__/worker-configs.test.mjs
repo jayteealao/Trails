@@ -175,19 +175,41 @@ test('a wrangler.jsonc secrets setting the check does not know is reported', asy
   );
 });
 
-test('the check exits 1 and names the Worker and the secret that differ', () => {
-  // Inside warg/ so that cloudflare.config.ts can resolve cf/config.
+/**
+ * Copies one Worker's configs into a temp folder laid out like workers/, with
+ * the shared compatibility date module beside it, after `editWrangler` changes
+ * the parsed wrangler.jsonc. Inside warg/ so that cloudflare.config.ts can
+ * resolve cf/config.
+ */
+const tempWorker = (name, editWrangler) => {
   const tmp = mkdtempSync(join(WARG, 'node_modules', '.tmp-worker-configs-'));
+  const cleanup = () => rmSync(tmp, { recursive: true, force: true });
   try {
-    const dir = join(tmp, 'renderer');
+    copyFileSync(
+      join(WARG, 'workers', 'compatibility-date.mjs'),
+      join(tmp, 'compatibility-date.mjs')
+    );
+    const dir = join(tmp, name);
     mkdirSync(dir);
-    const src = join(WARG, 'workers', 'renderer');
+    const src = join(WARG, 'workers', name);
     copyFileSync(join(src, 'cloudflare.config.ts'), join(dir, 'cloudflare.config.ts'));
     const wrangler = parseJsonc(readFileSync(join(src, 'wrangler.jsonc'), 'utf8'));
+    editWrangler(wrangler);
+    writeFileSync(join(dir, 'wrangler.jsonc'), JSON.stringify(wrangler, null, 2));
+    return { dir, cleanup };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+};
+
+test('the check exits 1 and names the Worker and the secret that differ', () => {
+  const { dir, cleanup } = tempWorker('renderer', (wrangler) => {
     wrangler.secrets = {
       required: [...(wrangler.secrets?.required ?? []), 'EXTRA_SECRET']
     };
-    writeFileSync(join(dir, 'wrangler.jsonc'), JSON.stringify(wrangler, null, 2));
+  });
+  try {
     const run = spawnSync(
       process.execPath,
       ['scripts/check-worker-configs.mjs', dir],
@@ -197,6 +219,6 @@ test('the check exits 1 and names the Worker and the secret that differ', () => 
     assert.match(run.stdout, /FAIL renderer/);
     assert.match(run.stdout, /bindings\.EXTRA_SECRET/);
   } finally {
-    rmSync(tmp, { recursive: true, force: true });
+    cleanup();
   }
 });
