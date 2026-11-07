@@ -33,6 +33,12 @@ const ARTICLE_URL = 'https://article.example/post';
 // The target URL of the R2 credential case; end-state.runtime.test.ts uses the same value.
 const R2_REJECTED_URL = 'https://r2-rejected.example/article';
 
+// The target URL of the render retry case; end-state.runtime.test.ts uses the same value.
+const RETRY_URL = 'https://retry.example/article';
+
+// The PNG signature, as the base64 text a snapshot screenshot arrives in.
+const PNG_BASE64 = btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a));
+
 const failingService = () => new Response('stubbed failure', { status: 500 });
 
 /** The target URL of a request whose JSON body names it in `url`. */
@@ -46,29 +52,55 @@ async function requestedUrl(request: Request): Promise<string | undefined> {
 const LOADED_PAGES: Record<string, string> = {
   [CHALLENGE_URL]: CLOUDFLARE_CHALLENGE_PAGE,
   [ARTICLE_URL]: ARTICLE_ABOUT_CHALLENGES,
-  [R2_REJECTED_URL]: ARTICLE_ABOUT_CHALLENGES
+  [R2_REJECTED_URL]: ARTICLE_ABOUT_CHALLENGES,
+  [RETRY_URL]: ARTICLE_ABOUT_CHALLENGES
 };
 
 /**
  * Stands in for the Browser Rendering binding that the real renderer calls:
  * `quickAction('content' | 'snapshot')` answers a recorded page for the
- * blocked-page and credential cases, and every other action or URL fails, as
- * the old renderer stub did. A service binding to this worker's entrypoint
- * gives the renderer `env.BROWSER.quickAction()` over Workers RPC.
+ * blocked-page, credential and retry cases, and every other action or URL
+ * fails, as the old renderer stub did. A service binding to this worker's
+ * entrypoint gives the renderer `env.BROWSER.quickAction()` over Workers RPC.
+ *
+ * Each call is recorded in R2 as `stand-in-calls/<encoded url>/<action>/<id>`
+ * before it is answered, so a test can count the loads of a run. For
+ * RETRY_URL the snapshot also carries a screenshot and Markdown, and the
+ * first PDF load is rate limited (429) while every later one answers a PDF.
  */
 const browserStandIn = `
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
 const LOADED_PAGES = ${JSON.stringify(LOADED_PAGES)};
+const RETRY_URL = ${JSON.stringify(RETRY_URL)};
+const PNG_BASE64 = ${JSON.stringify(PNG_BASE64)};
 
 const failure = () => new Response('stubbed failure', { status: 500 });
 
 export class BrowserStandIn extends WorkerEntrypoint {
   async quickAction(action, options) {
-    const html = LOADED_PAGES[options?.url];
+    const url = options?.url;
+    const calls = 'stand-in-calls/' + encodeURIComponent(String(url)) + '/' + action + '/';
+    const earlier = await this.env.ARCHIVE_BUCKET.list({ prefix: calls });
+    await this.env.ARCHIVE_BUCKET.put(calls + crypto.randomUUID(), '');
+    const html = LOADED_PAGES[url];
     if (html === undefined) return failure();
     if (action === 'content') return Response.json({ success: true, result: html });
-    if (action === 'snapshot') return Response.json({ success: true, result: { content: html } });
+    if (action === 'snapshot') {
+      if (url === RETRY_URL) {
+        return Response.json({ success: true, result: { content: html, screenshot: PNG_BASE64, markdown: '# Retried article' } });
+      }
+      return Response.json({ success: true, result: { content: html } });
+    }
+    if (action === 'pdf' && url === RETRY_URL) {
+      if (earlier.objects.length === 0) {
+        return Response.json(
+          { success: false, errors: [{ message: 'Rate limit exceeded', code: 429 }] },
+          { status: 429, headers: { 'Retry-After': '1' } }
+        );
+      }
+      return new Response(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]), { headers: { 'Content-Type': 'application/pdf' } });
+    }
     return failure();
   }
 }
@@ -169,7 +201,9 @@ export default defineConfig(async () => {
               name: 'browser-stand-in',
               modules: true,
               script: browserStandIn,
-              compatibilityDate: COMPATIBILITY_DATE
+              compatibilityDate: COMPATIBILITY_DATE,
+              // The same bucket as the renderer, for the record of each call.
+              r2Buckets: { ARCHIVE_BUCKET: 'archive' }
             },
             {
               name: 'renderer',
