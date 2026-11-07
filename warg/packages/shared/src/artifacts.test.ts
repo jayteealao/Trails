@@ -43,7 +43,7 @@ describe('storeArtifact', () => {
     await storeArtifact(bucket, 'req-1', 'rendered.html', bytes('<p>hi</p>'), 'text/html');
 
     expect(bucket.put).toHaveBeenCalledTimes(1);
-    expect(bucket.put.mock.calls[0][2]).toStrictEqual({ httpMetadata: { contentType: 'text/html' } });
+    expect(bucket.put.mock.calls[0]?.[2]).toStrictEqual({ httpMetadata: { contentType: 'text/html' } });
   });
 
   it('marks the object with its sha256 and the reuse scope when one is given', async () => {
@@ -52,7 +52,7 @@ describe('storeArtifact', () => {
     const meta = await storeArtifact(bucket, 'req-1', 'rendered.html', data, 'text/html', 'run-1');
     const hash = await sha256(data);
 
-    expect(bucket.put.mock.calls[0][2]).toStrictEqual({
+    expect(bucket.put.mock.calls[0]?.[2]).toStrictEqual({
       httpMetadata: { contentType: 'text/html' },
       customMetadata: { sha256: hash, reuseScope: 'run-1' },
     });
