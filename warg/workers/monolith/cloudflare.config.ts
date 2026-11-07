@@ -27,6 +27,11 @@ export default defineConfig({
 			enabled: true,
 		},
 		env: {
+			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+			INTERNAL_API_KEY: bindings.secret(),
+			R2_ACCOUNT_ID: bindings.secret(),
+			R2_ACCESS_KEY_ID: bindings.secret(),
+			R2_SECRET_ACCESS_KEY: bindings.secret(),
 			R2_BUCKET_NAME: bindings.text("warg-archives"),
 			ARCHIVE_BUCKET: bindings.r2({
 				name: "warg-archives",
