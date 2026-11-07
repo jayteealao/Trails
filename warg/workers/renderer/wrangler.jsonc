@@ -7,6 +7,8 @@
   "workers_dev": false,
   // Workers tracing: the runtime emits the spans; enabled alone turns on logs only.
   "observability": { "enabled": true, "traces": { "enabled": true } },
+  // Browser Rendering through the binding: no API token, one quickAction() per page load.
+  "browser": { "binding": "BROWSER" },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
   ],
