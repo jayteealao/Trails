@@ -13,6 +13,9 @@
 // date there fails), and wrangler.jsonc repeats it as a literal. A Worker in
 // MINIMUM_COMPATIBILITY_DATES fails when its date is before its minimum.
 //
+// A Worker in TRACED_WORKERS fails when its configs do not enable
+// observability.traces.
+//
 //   node scripts/check-worker-configs.mjs [workerDir...]
 import { build } from 'esbuild';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -25,6 +28,16 @@ const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // The earliest compatibility date each listed Worker may run on.
 export const MINIMUM_COMPATIBILITY_DATES = { renderer: '2026-03-24' };
+
+// The Workers one archive passes through; one trace needs each of them traced.
+export const TRACED_WORKERS = [
+  'gateway',
+  'workflow',
+  'renderer',
+  'hyperrenderer',
+  'singlefile',
+  'readability'
+];
 
 // Removes // and /* */ comments outside strings, then trailing commas.
 export function parseJsonc(text) {
@@ -385,6 +398,17 @@ export function sharedDateErrors(name, wranglerShape, cfShape, shared = COMPATIB
   return errors;
 }
 
+// A Worker on the archive path must enable tracing. The file-to-file
+// comparison carries the rule to cloudflare.config.ts.
+export function tracingErrors(name, wranglerShape) {
+  return TRACED_WORKERS.includes(name) &&
+    JSON.parse(wranglerShape.traces).enabled !== true
+    ? [
+        `traces: ${name} is on the archive path and must enable observability.traces in both files`
+      ]
+    : [];
+}
+
 // cloudflare.config.ts must take the date from the shared constant, not a quoted literal.
 export function literalDateErrors(source) {
   return /compatibilityDate\s*:\s*['"`]/.test(source)
@@ -410,6 +434,7 @@ export async function checkWorker(workerDir) {
     ...c.errors,
     ...compareShapes(w.shape, c.shape),
     ...sharedDateErrors(basename(workerDir), w.shape, c.shape),
+    ...tracingErrors(basename(workerDir), w.shape),
     ...literalDateErrors(readFileSync(join(workerDir, 'cloudflare.config.ts'), 'utf8')),
     ...cronErrors
   ];

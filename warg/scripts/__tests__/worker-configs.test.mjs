@@ -282,6 +282,7 @@ test('the check exits 1 and names the Worker whose wrangler.jsonc date differs f
 test('tracing enabled in wrangler.jsonc only is reported', async () => {
   const { wrangler, cf } = await load('readability');
   wrangler.observability = { ...wrangler.observability, traces: { enabled: true } };
+  delete cf.worker.observability.traces;
   assert.match(diff(wrangler, cf).join('\n'), /^traces: wrangler\.jsonc/m);
 });
 
