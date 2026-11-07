@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config';
 import {
   ARTICLE_ABOUT_CHALLENGES,
   CLOUDFLARE_CHALLENGE_PAGE
-} from '../../packages/shared/src/challenge-page.fixtures.ts';
+} from '@warg/shared/fixtures';
 import { accessBlockedResponse } from '../../packages/shared/src/render-content.ts';
 import { COMPATIBILITY_DATE } from '../compatibility-date.mjs';
 
