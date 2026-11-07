@@ -139,6 +139,8 @@ describe('end state of an archive run', () => {
     expect(status.derived.stage).toBe('incomplete');
     expect(status.derived.terminal).toBe(true);
     expect(status.derived.diagnostics?.degradedSteps).toEqual(['readability']);
+    const started = status.events.find((event) => event.type === 'workflow.started');
+    expect(started?.data?.requestedSteps).toEqual(['singlefile', 'readability']);
   });
 
   async function expectNoOutputsFailure(requestId: string, instance: WorkflowInstanceIntrospector) {
