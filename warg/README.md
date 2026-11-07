@@ -50,6 +50,9 @@ pnpm --filter @warg/gateway dev
 `scripts/deploy.sh` is the only deploy path; its header lists every flag, the
 secrets each worker needs, and how each target is verified.
 
+Deploy with Node 22.23+ or 24.22+, the range the `cf` CLI requires (CI uses
+Node 22). `warg/.nvmrc` names 24.22.2; with fnm, run `fnm use` in `warg/`.
+
 1. Commit your work. The script refuses a tree with uncommitted or untracked
    files unless you pass `--allow-dirty`, and then every label ends in `-dirty`.
 2. Sign in once, one sign-in per target: `cf auth login` (workers),
