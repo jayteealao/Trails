@@ -1,13 +1,14 @@
 import {
   accessBlockedResponse,
   decodeBase64ToArrayBuffer,
+  findReusableArtifact,
   isChallengePage,
   isProxyErrorPage,
   PROXY_ERROR_PAGE_REASON,
   storeArtifact,
   timingSafeEqual
 } from '@warg/shared';
-import type { ArtifactMeta } from '@warg/shared';
+import type { ArtifactKind, ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
   RenderSuccessResponse,
@@ -126,11 +127,32 @@ export default {
       const includeScreenshot = body.include_screenshot ?? options.includeScreenshot ?? false;
       const includePdf = body.include_pdf ?? options.includePdf ?? false;
       const includeMarkdown = body.include_markdown ?? false;
+      const reuseScope = typeof body.reuse_scope === 'string' && body.reuse_scope ? body.reuse_scope : undefined;
 
+      // Artifacts that an earlier attempt of this run already stored are listed again, not loaded again.
+      const requested: ArtifactKind[] = [
+        'rendered.html',
+        ...(includeScreenshot ? (['screenshot.png'] as const) : []),
+        ...(includePdf ? (['page.pdf'] as const) : []),
+        ...(includeMarkdown ? (['rendered.md'] as const) : [])
+      ];
+      const reused = new Map<ArtifactKind, ArtifactMeta>();
+      if (reuseScope) {
+        const found = await Promise.all(
+          requested.map((kind) => findReusableArtifact(env.ARCHIVE_BUCKET, request_id, kind, reuseScope))
+        );
+        for (const meta of found) {
+          if (meta) reused.set(meta.kind, meta);
+        }
+      }
+      const missingScreenshot = includeScreenshot && !reused.has('screenshot.png');
+      const missingMarkdown = includeMarkdown && !reused.has('rendered.md');
+
+      // The HTML always comes with a load: the page detectors guard every load.
       const formats: BrowserRunSnapshotFormat[] = [
         'content',
-        ...(includeScreenshot ? (['screenshot'] as const) : []),
-        ...(includeMarkdown ? (['markdown'] as const) : [])
+        ...(missingScreenshot ? (['screenshot'] as const) : []),
+        ...(missingMarkdown ? (['markdown'] as const) : [])
       ];
       const artifacts: ArtifactMeta[] = [];
       const skipped: string[] = [];
