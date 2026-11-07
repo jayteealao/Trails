@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BROWSER_QUOTA_LIMITS,
   evaluateAcquire,
   refillBucket,
   type QuotaLimits,
@@ -121,6 +122,75 @@ describe('evaluateAcquire — sandbox_exec', () => {
     const snap = snapshot({ browserActive: LIMITS.maxConcurrent, sandboxActive: 0 });
     const decision = evaluateAcquire('sandbox_exec', snap, LIMITS, 1_000);
     expect(decision.granted).toBe(true);
+  });
+});
+
+describe('BROWSER_QUOTA_LIMITS', () => {
+  it('holds the Browser Run defaults and the sandbox cap', () => {
+    expect(BROWSER_QUOTA_LIMITS).toEqual({
+      maxConcurrent: 200,
+      maxSandboxConcurrent: 4,
+      launchRatePerSec: 3,
+      launchBurst: 3
+    });
+  });
+
+  it('grants 200 paced browser launches and denies the 201st at the cap with a retry delay', () => {
+    let bucket: TokenBucket = { tokens: 0, lastRefillMs: undefined };
+    let now = 1_000;
+    for (let i = 0; i < 200; i += 1) {
+      const decision = evaluateAcquire(
+        'bindings_launch',
+        { browserActive: i, sandboxActive: 0, bucket },
+        BROWSER_QUOTA_LIMITS,
+        now
+      );
+      expect(decision.granted).toBe(true);
+      bucket = decision.bucket;
+      now += 334;
+    }
+    const denied = evaluateAcquire(
+      'bindings_launch',
+      { browserActive: 200, sandboxActive: 0, bucket },
+      BROWSER_QUOTA_LIMITS,
+      now
+    );
+    expect(denied.granted).toBe(false);
+    expect(denied.retryAfterMs).toBe(1_000);
+  });
+
+  it('refills an empty launch bucket at 3 per second', () => {
+    const empty: TokenBucket = { tokens: 0, lastRefillMs: 1_000 };
+    const { launchRatePerSec, launchBurst } = BROWSER_QUOTA_LIMITS;
+    expect(refillBucket(empty, 2_000, launchRatePerSec, launchBurst).tokens).toBe(3);
+
+    const early = evaluateAcquire(
+      'bindings_launch',
+      { browserActive: 0, sandboxActive: 0, bucket: empty },
+      BROWSER_QUOTA_LIMITS,
+      1_000
+    );
+    expect(early.granted).toBe(false);
+    expect(early.retryAfterMs).toBe(334);
+
+    let bucket = empty;
+    for (let i = 0; i < 3; i += 1) {
+      const decision = evaluateAcquire(
+        'bindings_launch',
+        { browserActive: i, sandboxActive: 0, bucket },
+        BROWSER_QUOTA_LIMITS,
+        2_000
+      );
+      expect(decision.granted).toBe(true);
+      bucket = decision.bucket;
+    }
+    const fourth = evaluateAcquire(
+      'bindings_launch',
+      { browserActive: 3, sandboxActive: 0, bucket },
+      BROWSER_QUOTA_LIMITS,
+      2_000
+    );
+    expect(fourth.granted).toBe(false);
   });
 });
 
