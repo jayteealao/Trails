@@ -248,6 +248,17 @@ function updateDiagnostics(
     if (recommendedAction) {
       diagnostics.recommendedAction = recommendedAction as RequestDiagnostics['recommendedAction'];
     }
+  } else if (event.level === 'warn' && asString(data?.['errorCode'])) {
+    // A step that a fallback rescued can still name a cause to act on (a
+    // rejected credential). Record the code without counting an error.
+    diagnostics.errorCode = asString(data?.['errorCode']) as RequestDiagnostics['errorCode'];
+    diagnostics.errorMessage = event.message;
+    diagnostics.errorSource = event.source;
+    diagnostics.retryable = asBoolean(data?.['retryable']) ?? diagnostics.retryable;
+    const recommendedAction = asString(data?.['recommendedAction']);
+    if (recommendedAction) {
+      diagnostics.recommendedAction = recommendedAction as RequestDiagnostics['recommendedAction'];
+    }
   }
 
   return diagnostics;

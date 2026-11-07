@@ -579,6 +579,38 @@ describe('LoggerDO', () => {
       expect(view?.derived.diagnostics?.degradedSteps).toEqual(['monolith']);
     });
 
+    it('records the code of a rejected token that the fallback rescued, without an error', async () => {
+      const requestId = `test-${crypto.randomUUID()}`;
+      const stub = getStub('bucket:2026060912');
+
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+      await stub.appendEvent(requestId, {
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'step.completed',
+        level: 'warn',
+        message: 'Step completed: render',
+        data: {
+          step: 'render',
+          fallbackUsed: true,
+          fallbackReason: 'browser_token_invalid',
+          errorCode: 'BROWSER_TOKEN_INVALID',
+          retryable: false,
+          recommendedAction: 'check_api_key',
+        },
+      });
+      await stub.appendEvent(requestId, infoEvent('workflow.completed', 'Finished cleanly', {
+        degraded: false,
+        degradedSteps: [],
+      }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.errorCount).toBe(0);
+      expect(view?.derived.diagnostics?.errorCode).toBe('BROWSER_TOKEN_INVALID');
+      expect(view?.derived.diagnostics?.recommendedAction).toBe('check_api_key');
+    });
+
     describe.each(['workflow.completed', 'request.done'] as const)('stage after %s', (type) => {
       it.each(['render', 'singlefile', 'readability', 'monolith'])(
         'is incomplete when %s degraded',
