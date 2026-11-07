@@ -15,8 +15,8 @@
     "linkedom": "0.18.13"
   },
   "devDependencies": {
-    "cf": "1.0.0-beta.17",
+    "cf": "1.0.0-beta.28",
     "vitest": "4.1.10",
-    "wrangler": "4.148.0"
+    "wrangler": "4.158.0"
   }
 }
