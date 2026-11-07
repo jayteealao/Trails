@@ -34,6 +34,9 @@ pnpm format:check
 
 ```bash
 pnpm --filter @warg/shared test
+pnpm -r --if-present run test               # every package; the gateway and workflow also run workerd tests
+pnpm --filter @warg/gateway test:runtime    # only the gateway runtime tests (workerd)
+pnpm --filter @warg/workflow test:runtime   # only the workflow runtime tests (workerd)
 ```
 
 ### Run a worker locally
