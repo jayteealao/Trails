@@ -922,6 +922,28 @@ scenario_secrets_doc_sync() {
   finish
 }
 
+# The secrets each wrangler.jsonc declares match required_secrets_for();
+# check-worker-configs.mjs ties cloudflare.config.ts to the same names.
+scenario_secrets_declared_sync() {
+  start secrets-declared-sync
+  local w want got
+  for w in "${WORKERS[@]}"; do
+    want="$(required_secrets_for "$w" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+    # The jsonc path comes first: check-worker-configs.mjs runs its own CLI
+    # when it is process.argv[1].
+    got="$(node -e '
+      const fs = require("fs");
+      if (!fs.existsSync(process.argv[1])) process.exit(0);
+      import(require("node:url").pathToFileURL(process.argv[2])).then(({ parseJsonc }) => {
+        const w = parseJsonc(fs.readFileSync(process.argv[1], "utf8"));
+        console.log((w.secrets?.required ?? []).join(" "));
+      });
+    ' "$WARG/workers/$w/wrangler.jsonc" "$WARG/scripts/check-worker-configs.mjs" 2>&1 | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+    [ "$want" = "$got" ] || fail "wrangler.jsonc of $w declares '$got', required_secrets_for() has '$want'"
+  done
+  finish
+}
+
 # function_names_for() names exactly the functions each codebase exports from
 # src/index.ts, so a new or renamed export cannot deploy unverified.
 scenario_function_exports_sync() {
@@ -1108,7 +1130,7 @@ ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker a
   sandbox-version-drift quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
   pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
-  worker-list-sync secrets-doc-sync function-exports-sync
+  worker-list-sync secrets-doc-sync secrets-declared-sync function-exports-sync
   functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env
   rules-first-stamp rules-reused-stamp rules-released-zero rules-hash-mismatch rules-storage-drift
   rules-placeholder-missing rules-gcloud-unauth rules-release-unit
