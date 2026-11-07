@@ -17,6 +17,9 @@ export default defineConfig({
 			triggers.scheduled({
 				schedule: "*/10 * * * *",
 			}),
+			triggers.scheduled({
+				schedule: "0 8 * * *",
+			}),
 		],
 		env: {
 			ARCHIVE_BUCKET: bindings.r2({
@@ -31,6 +34,7 @@ export default defineConfig({
 			MONOLITH: bindings.worker({
 				worker: "monolith",
 			}),
+			HEALTH_EMAIL: bindings.sendEmail({}),
 		},
 	},
 });

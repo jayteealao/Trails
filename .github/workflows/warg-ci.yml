@@ -55,6 +55,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Monolith image and SDK versions agree
+        # The sandbox image tag in the Dockerfile and the SDK version move by
+        # hand, and an image left behind the SDK fails every monolith archive.
+        # Fails when the two differ or the SDK is a range. It takes a second,
+        # so it runs before the slow steps.
+        timeout-minutes: 5
+        run: |
+          node scripts/check-sandbox-version.mjs
+          node --test scripts/__tests__/sandbox-version.test.mjs
+
       - name: Generate Cloudflare Workers types
         # Workers tsconfigs reference a generated `worker-configuration.d.ts`
         # produced by `wrangler types` (gitignored). Generate before typecheck.
@@ -72,7 +82,8 @@ jobs:
 
       - name: Unit tests — all workspace packages
         # Runs vitest (node-env) suites across workers/*, packages/*, pages/*,
-        # plus workers/logger (Cloudflare Workers pool via workerd), plus
+        # plus workers/logger and the workers/gateway and workers/workflow runtime tests
+        # (Cloudflare Workers pool via workerd), plus
         # cloud-functions node:test suites. Integration suites that need the
         # Firestore emulator are scoped to *.integration.test.* and excluded
         # by each package's own test script. firebase/test lives outside the

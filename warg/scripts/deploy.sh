@@ -82,7 +82,7 @@ set -euo pipefail
 # is the list the preflight reads; the deploy harness fails when this copy
 # differs from it:
 #   logger:        INTERNAL_API_KEY
-#   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY
+#   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY, HEALTH_ALERT_FROM, HEALTH_ALERT_TO
 #   workflow:      INTERNAL_API_KEY
 #   renderer:      INTERNAL_API_KEY, CF_ACCOUNT_ID, BR_API_TOKEN
 #   hyperrenderer: INTERNAL_API_KEY, HYPERBROWSER_API_KEY
@@ -93,6 +93,12 @@ set -euo pipefail
 # A failed listing (not signed in, token expired, worker not deployed yet)
 # or a missing secret stops the run before any worker is deployed; it is
 # never a warning.
+#
+# Monolith versions: a run that deploys workers stops with exit 3 on
+# worker:monolith, before any deploy, unless the sandbox image tag in
+# workers/monolith/Dockerfile equals the exact @cloudflare/sandbox version in
+# workers/monolith/package.json (scripts/check-sandbox-version.mjs).
+# --skip-checks does not skip it.
 #
 # Cloud Functions need a .env file in each cloud-functions/<fn>/ folder (copy
 # .env.example). It holds plain configuration only: a line that assigns one of
@@ -282,6 +288,11 @@ on_exit() {
   for i in "${!WARNINGS[@]}"; do
     echo "WARNING: ${WARNINGS[$i]}"
   done
+  for i in "${!TARGETS[@]}"; do
+    if [ "${TARGETS[$i]}" = "worker:gateway" ] && [ "${RESULT[$i]}" = "deployed" ]; then
+      echo "NOTE: gateway deployed; send the health check test email and confirm it arrived (warg/README.md, \"Archive health email\")"
+    fi
+  done
   echo "Exit code: $FIRST_RC"
   [ -z "$WORK_DIR" ] || rm -rf "$WORK_DIR"
   exit "$FIRST_RC"
@@ -463,7 +474,7 @@ time_after() {
 required_secrets_for() {
   case "$1" in
     logger)        echo "INTERNAL_API_KEY" ;;
-    gateway)       echo "INTERNAL_API_KEY PUBLIC_API_KEY" ;;
+    gateway)       echo "INTERNAL_API_KEY PUBLIC_API_KEY HEALTH_ALERT_FROM HEALTH_ALERT_TO" ;;
     workflow)      echo "INTERNAL_API_KEY" ;;
     renderer)      echo "INTERNAL_API_KEY CF_ACCOUNT_ID BR_API_TOKEN" ;;
     hyperrenderer) echo "INTERNAL_API_KEY HYPERBROWSER_API_KEY" ;;
@@ -1022,6 +1033,23 @@ deploy_pages() {
   done
   fail_target "$target" unverified 3 "newest commit_hash is ${newest:-none}, expected $LABEL"
 }
+
+# --- Sandbox version preflight -----------------------------------------------
+# preflight_sandbox_version: stops the run when the monolith image and SDK name
+# different versions. It sits outside the pre-checks so --skip-checks keeps it.
+preflight_sandbox_version() {
+  local output detail rc=0
+  output="$(node scripts/check-sandbox-version.mjs 2>&1)" || rc=$?
+  printf '%s\n' "$output"
+  if [ "$rc" -ne 0 ]; then
+    detail="$(printf '%s\n' "$output" | sed -n '/^FAIL /{s///p;q;}')"
+    fail_target "worker:monolith" failed 3 "${detail:-the sandbox version check exited $rc}"
+  fi
+}
+
+if [ "$SKIP_WORKERS" = false ]; then
+  preflight_sandbox_version
+fi
 
 # --- Pre-checks --------------------------------------------------------------
 if [ "$SKIP_CHECKS" = false ]; then

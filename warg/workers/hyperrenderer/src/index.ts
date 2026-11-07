@@ -1,4 +1,4 @@
-import { isProxyErrorPage, storeArtifact, timingSafeEqual } from '@warg/shared';
+import { accessBlockedResponse, isChallengePage, isProxyErrorPage, storeArtifact, timingSafeEqual } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import { capturePdfViaCdp } from './cdp-pdf.js';
 import {
@@ -269,6 +269,10 @@ export default {
         throw new Error(
           `Hyperbrowser returned a proxy/network error page instead of ${targetUrl}`,
         );
+      }
+      if (isChallengePage(html)) {
+        console.warn('[hyperrenderer] Hyperbrowser returned a challenge page:', targetUrl);
+        return accessBlockedResponse(targetUrl);
       }
 
       const htmlData = new TextEncoder().encode(html);

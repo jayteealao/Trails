@@ -34,6 +34,9 @@ pnpm format:check
 
 ```bash
 pnpm --filter @warg/shared test
+pnpm -r --if-present run test               # every package; the gateway and workflow also run workerd tests
+pnpm --filter @warg/gateway test:runtime    # only the gateway runtime tests (workerd)
+pnpm --filter @warg/workflow test:runtime   # only the workflow runtime tests (workerd)
 ```
 
 ### Run a worker locally
@@ -159,6 +162,62 @@ bundler only inside the worker folder. After an install with
 deploying. Remove the script and the `postinstall` entry once cf finds the
 bundler through the normal Node module lookup, or the workspace stops using the
 hoisted linker.
+
+Archive health email: once a day at 08:00 UTC the gateway checks each archive
+kind and, when one is below 80% success in the last 24 hours (with at least 5
+requests) or had at least one request in the last 24 hours and no success for
+48 hours, sends one email through its `HEALTH_EMAIL` binding. A kind with no
+request in the last 24 hours does not alert. A request of the last hour is not counted
+yet, since it may still be running. Before the first deploy that carries it, set
+`HEALTH_ALERT_FROM` and `HEALTH_ALERT_TO` with `pnpm exec wrangler secret put`
+in `workers/gateway`; the deploy refuses the gateway without them. The
+recipient must be a verified destination address in Email Routing, and the
+sender must be on a domain of the account with email sending enabled. The
+deploy checks only that the two secrets exist, so after the first deploy that
+carries the binding, and after any change of either address, send the test
+email below and confirm it arrived; the deploy summary prints a reminder when
+the gateway deployed. To send a real test email when any kind had a request in
+the last 24 hours, run:
+
+```bash
+curl -sS -X POST "$GATEWAY_URL/internal/health-check" \
+  -H "X-Internal-API-Key: $INTERNAL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"thresholds":{"staleAfterHours":0}}'
+```
+
+The answer is the run summary: `alertKinds` lists the kinds it alerted on and
+`emailed` says whether the email went out. A `401` means a wrong internal key,
+a `400` an out-of-range threshold. The route exists only for this test and for
+re-measuring after an alert; it needs the internal key, and its thresholds apply
+to that one call, while the daily cron always uses 80%, 5 requests and 48
+hours. The optional thresholds are `minRatio` (0 to
+1), `minRequests` (integer, 1 to 1000) and `staleAfterHours` (integer, 0 to 48).
+
+### When the health email arrives
+
+The email names each kind that needs attention, its success count and its last
+success. Look in this order:
+
+1. The dashboard overview: the stage counts and the error codes of recent
+   requests. `BROWSER_TOKEN_INVALID` or `R2_CREDENTIAL_INVALID` means a dead
+   credential, `ACCESS_BLOCKED` means sites refuse the fetch.
+2. The gateway logs, from `workers/gateway`:
+   `pnpm exec wrangler tail gateway --search "kind health"` while you re-measure
+   (step 3). The `[gateway] kind health:` line holds the numbers of each kind.
+3. Re-measure with the default thresholds. This sends the email again when a
+   kind still needs attention:
+
+   ```bash
+   curl -sS -X POST "$GATEWAY_URL/internal/health-check" \
+     -H "X-Internal-API-Key: $INTERNAL_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{}'
+   ```
+
+An email with the subject `Warg archive health: the daily check failed` means
+the check itself could not run (for example the logger did not answer); its
+text holds the error.
 
 ### Rotating the function keys (two steps)
 
@@ -450,7 +509,7 @@ new app release on the phone:
 ## Structure
 
 - `workers/` - Cloudflare Workers
-  - `gateway/` - Public API (POST /begin, GET /status/:id) + cron sweeps
+  - `gateway/` - Public API (POST /begin, GET /status/:id) + cron sweeps + the daily archive health email
   - `workflow/` - Orchestration workflow + browser/sandbox quota DO
   - `renderer/` - Browser rendering
   - `singlefile/` - SingleFile HTML extraction

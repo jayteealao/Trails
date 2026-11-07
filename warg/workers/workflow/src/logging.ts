@@ -1,5 +1,5 @@
 import type { EventType, LogEvent, LogLevel } from '@warg/shared';
-import { createEvent } from '@warg/shared';
+import { R2_KEY_ERROR_NAMES, createEvent, credentialFailure } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
 interface ClassifiedError {
@@ -76,6 +76,20 @@ function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefin
 
 export function classifyError(stepName: string, errorMsg: string): ClassifiedError {
   const msg = errorMsg.toLowerCase();
+  // A worker names a rejected credential in its answer body; the step boundary
+  // keeps only the message, so read the name from it.
+  if (msg.includes('browser_token_invalid')) return credentialFailure('BROWSER_TOKEN_INVALID');
+  if (
+    msg.includes('r2_credential_invalid') ||
+    R2_KEY_ERROR_NAMES.some((name) => msg.includes(name.toLowerCase()))
+  ) {
+    return credentialFailure('R2_CREDENTIAL_INVALID');
+  }
+  // A worker answers a site block with HTTP 401/403 (classifyServiceFailure in
+  // services.ts). The step boundary keeps only the message, so read the status from it.
+  if (/\bservice error 40[13]\b/.test(msg)) {
+    return { errorCode: 'ACCESS_BLOCKED', retryable: false, recommendedAction: 'check_access' };
+  }
   const monolithError = classifyMonolithError(msg);
   if (monolithError) return monolithError;
 
@@ -302,10 +316,11 @@ export function logStepCompletedWithDuration(
 export function stepCompletedEvent(
   stepName: string,
   startedAt: number,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  level: LogLevel = 'info'
 ): LogEvent {
   const durationMs = Date.now() - startedAt;
-  return createEvent('workflow', 'step.completed', 'info', `Step completed: ${stepName}`, {
+  return createEvent('workflow', 'step.completed', level, `Step completed: ${stepName}`, {
     step: stepName,
     ...data,
     duration_ms: durationMs

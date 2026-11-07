@@ -2,7 +2,8 @@ import { getOptionsKey, timingSafeEqual, createEvent } from '@warg/shared';
 import type {
   ArchiveOptions,
   LogEvent,
-  InitRequestPayload
+  InitRequestPayload,
+  WorkflowStep
 } from '@warg/shared';
 import {
   generateRequestId,
@@ -10,6 +11,14 @@ import {
   isValidRequestId,
   withRequestId
 } from './util.js';
+import {
+  DEFAULT_HEALTH_THRESHOLDS,
+  buildHealthEmail,
+  evaluateKindHealth,
+  parseKindHealthPayload,
+  parseThresholdOverrides
+} from './kind-health.js';
+import type { HealthThresholds, KindStats } from './kind-health.js';
 
 const LOGGER_RETRY_ATTEMPTS = 3;
 const ORPHAN_SWEEP_DEFAULT_LIMIT = 100;
@@ -477,6 +486,102 @@ export async function sweepOrphanContainers(
   return summary;
 }
 
+/** The daily cron of the archive health check; every other cron runs the sweeps. */
+export const HEALTH_CHECK_CRON = '0 8 * * *';
+const HEALTH_ROWS_HOURS = 49; // the 48-hour stale rule plus the current hour
+
+export interface HealthCheckSummary {
+  source: string;
+  checkedAt: string;
+  rows: number;
+  /** Rows of the logger answer that were malformed and left out. */
+  skippedRows: number;
+  stats: KindStats[];
+  alertKinds: WorkflowStep[];
+  emailed: boolean;
+}
+
+/** The alert email itself could not be sent. */
+export class HealthEmailError extends Error {}
+
+/**
+ * Measures each archive kind over the logger's recent requests and, when any
+ * kind needs attention, sends one email that lists them all. Logs every run.
+ */
+export async function runDailyHealthCheck(
+  env: Env,
+  now: Date,
+  source: string,
+  thresholds: HealthThresholds = DEFAULT_HEALTH_THRESHOLDS
+): Promise<HealthCheckSummary> {
+  const response = await loggerRequestStrict(env, `/health/kinds?hours=${HEALTH_ROWS_HOURS}`, 'GET');
+  const { rows, skipped } = parseKindHealthPayload(await response.json());
+  const { stats, alerts } = evaluateKindHealth(rows, now, thresholds);
+
+  const summary: HealthCheckSummary = {
+    source,
+    checkedAt: now.toISOString(),
+    rows: rows.length,
+    skippedRows: skipped,
+    stats,
+    alertKinds: alerts.map((alert) => alert.kind),
+    emailed: false
+  };
+
+  if (alerts.length > 0) {
+    const { subject, text } = buildHealthEmail(alerts, now, thresholds);
+    try {
+      await env.HEALTH_EMAIL.send({ from: env.HEALTH_ALERT_FROM, to: env.HEALTH_ALERT_TO, subject, text });
+    } catch (err) {
+      // Keep the measured numbers in the log, since the email that carried them failed.
+      console.log('[gateway] kind health:', JSON.stringify(summary));
+      const code = typeof err === 'object' && err !== null && 'code' in err ? String(err.code) : 'unknown';
+      const message = err instanceof Error ? err.message : String(err);
+      throw new HealthEmailError(`[gateway] health email failed (${code}): ${message}`, { cause: err });
+    }
+    summary.emailed = true;
+  }
+
+  console.log('[gateway] kind health:', JSON.stringify(summary));
+  return summary;
+}
+
+/**
+ * Tells the owner that the daily check could not measure the archive. A failure
+ * of this email is logged and never replaces the error of the check.
+ */
+async function reportHealthCheckFailure(env: Env, now: Date, err: unknown): Promise<void> {
+  const message = err instanceof Error ? err.message : String(err);
+  try {
+    await env.HEALTH_EMAIL.send({
+      from: env.HEALTH_ALERT_FROM,
+      to: env.HEALTH_ALERT_TO,
+      subject: 'Warg archive health: the daily check failed',
+      text: [
+        'The daily archive health check could not finish, so no archive kind was measured today.',
+        `Error: ${message}`,
+        `Checked at ${now.toISOString()}`
+      ].join('\n\n')
+    });
+  } catch (sendErr) {
+    console.error('[gateway] health check failure email failed:', sendErr);
+  }
+}
+
+/**
+ * The daily cron run. A failed check emails the owner (unless the alert email
+ * itself failed) and then rethrows, so the cron invocation is recorded as failed.
+ */
+async function runScheduledHealthCheck(env: Env, now: Date, source: string): Promise<void> {
+  try {
+    await runDailyHealthCheck(env, now, source);
+  } catch (err) {
+    console.error('[gateway] kind health check failed:', err);
+    if (!(err instanceof HealthEmailError)) await reportHealthCheckFailure(env, now, err);
+    throw err;
+  }
+}
+
 export default {
   async fetch(
     request: Request,
@@ -692,10 +797,39 @@ export default {
       }
     }
 
+    // POST /internal/health-check - run the archive health check now, with optional lower thresholds
+    if (method === 'POST' && path === '/internal/health-check') {
+      if (!verifyInternalApiKey(request, env)) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      const body: unknown = await request.json().catch(() => ({}));
+      let thresholds: HealthThresholds;
+      try {
+        thresholds = parseThresholdOverrides(
+          typeof body === 'object' && body !== null && 'thresholds' in body ? body.thresholds : undefined
+        );
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+      }
+
+      try {
+        return Response.json(await runDailyHealthCheck(env, new Date(), 'manual', thresholds));
+      } catch (err) {
+        console.error('[gateway] Error in /internal/health-check:', err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
+      }
+    }
+
     return Response.json({ error: 'Not found' }, { status: 404 });
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (controller.cron === HEALTH_CHECK_CRON) {
+      await runScheduledHealthCheck(env, new Date(controller.scheduledTime), `cron:${controller.cron}`);
+      return;
+    }
     ctx.waitUntil(
       (async () => {
         try {

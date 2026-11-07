@@ -128,6 +128,27 @@ describe('runMonolithInSandbox container lifecycle', () => {
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ['the upload', [execOk(), execFail('curl: (22) The requested URL returned error: 403')]],
+    [
+      'the download',
+      [execFail('monolith: fetch failed'), execFail('curl: (22) The requested URL returned error: 403')]
+    ]
+  ])('reports a rejected storage key when R2 refuses %s', async (_path, results) => {
+    const sandbox = fakeSandbox(results);
+
+    await expect(
+      runMonolithInSandbox(
+        createEnv(),
+        'req-r2-rejected',
+        'archives/req-r2-rejected/raw/rendered.html',
+        'https://example.com'
+      )
+    ).rejects.toMatchObject({ code: 'R2_CREDENTIAL_INVALID', status: 502, retryable: false });
+
+    expect(sandbox.stop).toHaveBeenCalledTimes(1);
+  });
+
   it('does not mask the job result when stop() itself fails', async () => {
     const sandbox = fakeSandbox([execOk(), execOk(UPLOAD_OK_STDOUT)]);
     sandbox.stop.mockRejectedValueOnce(new Error('stop exploded'));

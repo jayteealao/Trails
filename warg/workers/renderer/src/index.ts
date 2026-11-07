@@ -1,4 +1,13 @@
-import { isProxyErrorPage, PROXY_ERROR_PAGE_REASON, storeArtifact, timingSafeEqual } from '@warg/shared';
+import {
+  accessBlockedResponse,
+  BROWSER_TOKEN_INVALID_REASON,
+  isBrowserRenderingAuthError,
+  isChallengePage,
+  isProxyErrorPage,
+  PROXY_ERROR_PAGE_REASON,
+  storeArtifact,
+  timingSafeEqual
+} from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -117,8 +126,18 @@ export default {
       if (contentRateLimit) return contentRateLimit;
       if (!contentResp.ok) {
         const errorText = await contentResp.text();
+        const tokenRejected = isBrowserRenderingAuthError(contentResp.status, errorText);
+        if (tokenRejected) {
+          console.error('[renderer] Browser Rendering rejected the API token:', contentResp.status);
+        }
+        // Stays 502: a 401/403 from this worker would read as a blocked target page.
         return Response.json(
-          { error: 'Browser Rendering /content failed', status: contentResp.status, details: errorText },
+          {
+            error: 'Browser Rendering /content failed',
+            status: contentResp.status,
+            details: errorText,
+            ...(tokenRejected ? { reason: BROWSER_TOKEN_INVALID_REASON } : {})
+          },
           { status: 502 }
         );
       }
@@ -139,6 +158,10 @@ export default {
           },
           { status: 502 }
         );
+      }
+      if (isChallengePage(contentJson.result)) {
+        console.warn('[renderer] Browser Rendering /content returned a challenge page:', targetUrl);
+        return accessBlockedResponse(targetUrl);
       }
       const htmlData = new TextEncoder().encode(contentJson.result);
       const htmlMeta = await storeArtifact(

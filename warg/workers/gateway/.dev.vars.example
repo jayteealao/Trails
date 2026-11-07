@@ -1,2 +1,4 @@
 INTERNAL_API_KEY=your-internal-api-key
 PUBLIC_API_KEY=your-public-api-key
+HEALTH_ALERT_FROM=alerts@your-domain.example
+HEALTH_ALERT_TO=you@your-domain.example

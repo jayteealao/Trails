@@ -242,6 +242,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
     devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: ^0.18.4
+        version: 0.18.4(@cloudflare/workers-types@5.20260711.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1)))
       cf:
         specifier: 1.0.0-beta.17
         version: 1.0.0-beta.17(@types/node@26.1.1)
@@ -309,8 +312,8 @@ importers:
   workers/monolith:
     dependencies:
       '@cloudflare/sandbox':
-        specifier: ^0.12.3
-        version: 0.12.3
+        specifier: 0.12.14
+        version: 0.12.14
       '@warg/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -375,6 +378,9 @@ importers:
       cf:
         specifier: 1.0.0-beta.17
         version: 1.0.0-beta.17(@types/node@26.1.1)
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1))
       wrangler:
         specifier: 4.148.0
         version: 4.148.0(@cloudflare/workers-types@5.20260711.1)(@types/node@26.1.1)
@@ -385,6 +391,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
     devDependencies:
+      '@cloudflare/vitest-pool-workers':
+        specifier: ^0.18.4
+        version: 0.18.4(@cloudflare/workers-types@5.20260711.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.1)(vite@8.1.4(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.1)))
       cf:
         specifier: 1.0.0-beta.17
         version: 1.0.0-beta.17(@types/node@26.1.1)
@@ -420,8 +429,8 @@ packages:
   '@cloudflare/runtime-types@0.1.11':
     resolution: {integrity: sha512-iLOEoGkJidkJ+E5BuWeSXH137Z8oKyxsLN00/POU5rjz1+Rs5W1cq4PeHSfGd6GBR/7JL3Tt4/DK+uQhNDvxsg==}
 
-  '@cloudflare/sandbox@0.12.3':
-    resolution: {integrity: sha512-4yx+PtBCZBrS3eZteefwBfGOm+8MTZahLH8/fG/qsvqoNflzno9780FsM6HZf02gGuoDy+s9jQrXbg/h5gEvgw==}
+  '@cloudflare/sandbox@0.12.14':
+    resolution: {integrity: sha512-Y+QaTgYtK3tfu2mz7q3Egn9Yzo1gFlmM5/+0tqHaXuXZBuPfEETQ1Dj4UeL/KWd+2KFefUlBdrLL6/uAMRUj9g==}
     peerDependencies:
       '@openai/agents': ^0.3.3
       '@opencode-ai/sdk': ^1.1.40
@@ -3170,8 +3179,8 @@ packages:
   highlight.js@10.7.3:
     resolution: {integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==}
 
-  hono@4.12.29:
-    resolution: {integrity: sha512-1hNiRjawYrLq/4m3DQQjPGFg0VZkk4RjQJDff/excI6Dm9BiL75qxGrd7/c6YOxPdq6AscP3LiXhQ6fKFC1Waw==}
+  hono@4.13.16:
+    resolution: {integrity: sha512-AOLOEhvrV+iH92xXCnFr/5+3KjPKcI3xP63XJtX5spAnkznPdHijlIsUTpi7/9EhWqrTCekw5c5zh1K+YsVw7A==}
     engines: {node: '>=16.9.0'}
 
   html-entities@2.6.0:
@@ -4937,12 +4946,12 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@cloudflare/sandbox@0.12.3':
+  '@cloudflare/sandbox@0.12.14':
     dependencies:
       '@cloudflare/containers': 0.3.7
       aws4fetch: 1.0.20
       capnweb: 0.8.0
-      hono: 4.12.29
+      hono: 4.13.16
 
   '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260708.1)':
     dependencies:
@@ -5373,9 +5382,9 @@ snapshots:
       protobufjs: 7.6.5
       yargs: 17.7.3
 
-  '@hono/node-server@2.1.5(hono@4.12.29)':
+  '@hono/node-server@2.1.5(hono@4.13.16)':
     dependencies:
-      hono: 4.12.29
+      hono: 4.13.16
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -5865,7 +5874,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.32.1(zod@4.6.5)':
     dependencies:
-      '@hono/node-server': 2.1.5(hono@4.12.29)
+      '@hono/node-server': 2.1.5(hono@4.13.16)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -5875,7 +5884,7 @@ snapshots:
       eventsource-parser: 3.1.1
       express: 5.3.0
       express-rate-limit: 8.7.1(express@5.3.0)
-      hono: 4.12.29
+      hono: 4.13.16
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -7798,7 +7807,7 @@ snapshots:
 
   highlight.js@10.7.3: {}
 
-  hono@4.12.29: {}
+  hono@4.13.16: {}
 
   html-entities@2.6.0: {}
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isRpc32MiBLimit } from './failure-classify.js';
+import { isR2CredentialRejection, isRpc32MiBLimit } from './failure-classify.js';
 
 describe('isRpc32MiBLimit', () => {
   it('matches the live readFile overflow message', () => {
@@ -24,5 +24,23 @@ describe('isRpc32MiBLimit', () => {
     expect(isRpc32MiBLimit('SandboxError: HTTP error! status: 500')).toBe(false);
     expect(isRpc32MiBLimit('connection timed out')).toBe(false);
     expect(isRpc32MiBLimit('')).toBe(false);
+  });
+});
+
+describe('isR2CredentialRejection', () => {
+  it.each([
+    'curl: (22) The requested URL returned error: 403',
+    '<Code>SignatureDoesNotMatch</Code>',
+    'InvalidAccessKeyId',
+  ])('reads %s as a rejected storage key', (output) => {
+    expect(isR2CredentialRejection(output)).toBe(true);
+  });
+
+  it.each([
+    'curl: (22) The requested URL returned error: 404',
+    'curl: (22) The requested URL returned error: 4030',
+    'monolith blew up',
+  ])('does not read %s as a rejected storage key', (output) => {
+    expect(isR2CredentialRejection(output)).toBe(false);
   });
 });

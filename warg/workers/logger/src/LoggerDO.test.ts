@@ -6,7 +6,8 @@ import type {
   ArtifactRecord,
   CanonicalRequestView,
   DerivedSummary,
-  RequestFieldsPatch
+  RequestFieldsPatch,
+  KindHealthRow
 } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 
@@ -42,6 +43,7 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  getKindHealthRows(sinceIso: string): Promise<KindHealthRow[]> | KindHealthRow[];
 }
 
 /**
@@ -575,6 +577,74 @@ describe('LoggerDO', () => {
       expect(view?.derived.terminal).toBe(true);
       expect(view?.derived.diagnostics?.degraded).toBe(true);
       expect(view?.derived.diagnostics?.degradedSteps).toEqual(['monolith']);
+    });
+
+    it('records the code of a rejected token that the fallback rescued, without an error', async () => {
+      const requestId = `test-${crypto.randomUUID()}`;
+      const stub = getStub('bucket:2026060912');
+
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+      await stub.appendEvent(requestId, {
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'step.completed',
+        level: 'warn',
+        message: 'Step completed: render',
+        data: {
+          step: 'render',
+          fallbackUsed: true,
+          fallbackReason: 'browser_token_invalid',
+          errorCode: 'BROWSER_TOKEN_INVALID',
+          retryable: false,
+          recommendedAction: 'check_api_key',
+        },
+      });
+      await stub.appendEvent(requestId, infoEvent('workflow.completed', 'Finished cleanly', {
+        degraded: false,
+        degradedSteps: [],
+      }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.errorCount).toBe(0);
+      expect(view?.derived.diagnostics?.errorCode).toBe('BROWSER_TOKEN_INVALID');
+      expect(view?.derived.diagnostics?.recommendedAction).toBe('check_api_key');
+    });
+
+    describe.each(['workflow.completed', 'request.done'] as const)('stage after %s', (type) => {
+      it.each(['render', 'singlefile', 'readability', 'monolith'])(
+        'is incomplete when %s degraded',
+        async (step) => {
+          const requestId = `test-${crypto.randomUUID()}`;
+          const stub = getStub('bucket:2026060912');
+
+          await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+          await stub.appendEvent(requestId, infoEvent(type, 'Finished with a degraded step', {
+            degraded: true,
+            degradedSteps: [step],
+          }));
+
+          const view = await stub.getRequestView(requestId);
+          expect(view?.derived.stage).toBe('incomplete');
+          expect(view?.derived.terminal).toBe(true);
+          expect(view?.derived.diagnostics?.degradedSteps).toEqual([step]);
+        }
+      );
+
+      it('is done when no step degraded', async () => {
+        const requestId = `test-${crypto.randomUUID()}`;
+        const stub = getStub('bucket:2026060912');
+
+        await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+        await stub.appendEvent(requestId, infoEvent(type, 'Finished cleanly', {
+          degraded: false,
+          degradedSteps: [],
+        }));
+
+        const view = await stub.getRequestView(requestId);
+        expect(view?.derived.stage).toBe('done');
+        expect(view?.derived.terminal).toBe(true);
+      });
     });
 
     it('treats workflow.failed as terminal fallback and allows retry to reopen stage', async () => {
@@ -1162,6 +1232,111 @@ describe('LoggerDO', () => {
   });
 });
 
+describe('getKindHealthRows', () => {
+  const SINCE = '2026-11-06T07:00:00.000Z';
+  const CREATED = '2026-11-07T06:00:00.000Z';
+
+  /** A fresh bucket per case, so rows of other cases never leak in. */
+  function freshBucket(): { stub: LoggerStub; raw: DurableObjectStub } {
+    const raw = env.LOGGER_DO.get(env.LOGGER_DO.idFromName(`bucket:health-${crypto.randomUUID()}`));
+    return { stub: raw as unknown as LoggerStub, raw };
+  }
+
+  async function insertArtifact(raw: DurableObjectStub, requestId: string, kind: string, createdAt: string) {
+    await runInDurableObject(raw, async (_instance, state) => {
+      state.storage.sql.exec(
+        `INSERT INTO artifacts (request_id, kind, r2_key, content_type, bytes, sha256, created_at)
+         VALUES (?, ?, ?, 'text/html', 16, 'sha', ?)`,
+        requestId,
+        kind,
+        `archives/${requestId}/${kind}`,
+        createdAt
+      );
+    });
+  }
+
+  it('keeps the requested steps when a later workflow.started carries none', async () => {
+    const { stub } = freshBucket();
+    const requestId = `health-sweep-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, CREATED);
+    await stub.appendEvent(requestId, infoEvent('workflow.started', 'Workflow started', { requestedSteps: ['monolith'] }));
+    await stub.appendEvent(requestId, {
+      ...infoEvent('workflow.started', 'Workflow start recovered by orphan queued sweep', {}),
+      source: 'gateway'
+    });
+
+    const rows = await stub.getKindHealthRows(SINCE);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.requestedSteps).toEqual(['monolith']);
+  });
+
+  it('keeps an artifact creation time although the step reads failed', async () => {
+    const { stub, raw } = freshBucket();
+    const requestId = `health-failed-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, CREATED);
+    await stub.appendEvent(requestId, infoEvent('workflow.started', 'Workflow started', { requestedSteps: ['singlefile'] }));
+    await stub.appendEvent(requestId, {
+      ...infoEvent('step.failed', 'singlefile failed', { step: 'singlefile', errorCode: 'ACCESS_BLOCKED' }),
+      level: 'error'
+    });
+    await insertArtifact(raw, requestId, 'singlefile.html', '2026-11-07 06:00:00');
+
+    expect(await stub.getKindHealthRows(SINCE)).toEqual([
+      {
+        requestId,
+        createdAt: CREATED,
+        requestedSteps: ['singlefile'],
+        artifacts: [{ kind: 'singlefile.html', createdAt: '2026-11-07T06:00:00Z' }]
+      }
+    ]);
+  });
+
+  it('leaves the requested steps undefined when the run never started', async () => {
+    const { stub } = freshBucket();
+    const requestId = `health-unstarted-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, CREATED);
+
+    const rows = await stub.getKindHealthRows(SINCE);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.requestedSteps).toBeUndefined();
+    expect(rows[0]?.artifacts).toEqual([]);
+  });
+
+  it('leaves the requested steps undefined when the field is missing or names an unknown step', async () => {
+    const { stub } = freshBucket();
+    const missing = `health-missing-${crypto.randomUUID()}`;
+    const bogus = `health-bogus-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId: missing, url: 'https://example.com/health' }, CREATED);
+    await stub.initRequest({ requestId: bogus, url: 'https://example.com/health' }, CREATED);
+    await stub.appendEvent(missing, infoEvent('workflow.started', 'Workflow started', { url: 'https://example.com/health' }));
+    await stub.appendEvent(bogus, infoEvent('workflow.started', 'Workflow started', { requestedSteps: ['bogus'] }));
+
+    const rows = await stub.getKindHealthRows(SINCE);
+    expect(rows.map((row) => [row.requestId, row.requestedSteps]).sort()).toEqual(
+      [[missing, undefined], [bogus, undefined]].sort()
+    );
+  });
+
+  it('does not return a secondary artifact', async () => {
+    const { stub, raw } = freshBucket();
+    const requestId = `health-manifest-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, CREATED);
+    await insertArtifact(raw, requestId, 'manifest.json', '2026-11-07 06:00:00');
+
+    const rows = await stub.getKindHealthRows(SINCE);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.artifacts).toEqual([]);
+  });
+
+  it('does not return a request created before the given time', async () => {
+    const { stub } = freshBucket();
+    const requestId = `health-old-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, '2026-11-06T06:59:59.000Z');
+
+    expect(await stub.getKindHealthRows(SINCE)).toEqual([]);
+  });
+});
+
 /**
  * HTTP-layer dual-read routing tests via the SELF fetcher.
  *
@@ -1257,5 +1432,119 @@ describe('Logger HTTP service routing (dual-read)', () => {
     // No D1 row, no DO data
     const res = await servicePatch(`/request/${requestId}`, { manifestR2Key: 'some/key' });
     expect(res.status).toBe(404);
+  });
+
+  it('GET /stats — an incomplete request counts in its stage, not as active', async () => {
+    interface Stats { activeCount: number; byStage: Record<string, number> }
+    const readStats = async (): Promise<Stats> => {
+      const res = await serviceGet('/stats');
+      expect(res.status).toBe(200);
+      return (await res.json()) as Stats;
+    };
+    const before = await readStats();
+
+    const now = new Date().toISOString();
+    for (const stage of ['incomplete', 'rendering']) {
+      await env.INDEX_DB.prepare(
+        `INSERT INTO requests_index (request_id, url, domain, created_at, updated_at, stage)
+         VALUES (?, 'https://example.com/stats', 'example.com', ?, ?, ?)`
+      ).bind(`svc-stats-${stage}-${crypto.randomUUID()}`, now, now, stage).run();
+    }
+
+    const after = await readStats();
+    expect(after.activeCount - before.activeCount).toBe(1);
+    expect((after.byStage.incomplete ?? 0) - (before.byStage.incomplete ?? 0)).toBe(1);
+    expect((after.byStage.rendering ?? 0) - (before.byStage.rendering ?? 0)).toBe(1);
+  });
+
+  it('GET /stats — an incomplete request counts as finished and not as a success', async () => {
+    interface Stats { byStage: Record<string, number>; successRate: number; failureRate: number; incompleteRate: number }
+    const now = new Date().toISOString();
+    await env.INDEX_DB.prepare(
+      `INSERT INTO requests_index (request_id, url, domain, created_at, updated_at, stage)
+       VALUES (?, 'https://example.com/stats', 'example.com', ?, ?, 'incomplete')`
+    ).bind(`svc-rate-${crypto.randomUUID()}`, now, now).run();
+
+    const res = await serviceGet('/stats');
+    expect(res.status).toBe(200);
+    const stats = (await res.json()) as Stats;
+    const done = stats.byStage.done ?? 0;
+    const failed = stats.byStage.failed ?? 0;
+    const incomplete = stats.byStage.incomplete ?? 0;
+    const finished = done + failed + incomplete;
+    expect(stats.successRate).toBeCloseTo(done / finished, 3);
+    expect(stats.failureRate).toBeCloseTo(failed / finished, 3);
+    expect(stats.incompleteRate).toBeCloseTo(incomplete / finished, 3);
+    expect(stats.incompleteRate).toBeGreaterThan(0);
+  });
+
+  function servicePost(path: string, body: unknown): Promise<Response> {
+    return SELF.fetch(`https://logger.internal${path}`, {
+      method: 'POST',
+      headers: { 'X-Internal-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+
+  it('GET /health/kinds — gathers the requested steps and archive times of recent requests', async () => {
+    const requestId = `svc-health-${crypto.randomUUID()}`;
+    expect((await servicePost('/request/init', { requestId, url: 'https://example.com/health' })).status).toBe(201);
+    await servicePost('/event', {
+      requestId,
+      event: infoEvent('workflow.started', 'Workflow started', { requestedSteps: ['render'] })
+    });
+    await servicePost('/event', {
+      requestId,
+      event: infoEvent('artifact.written', 'Artifact written: rendered.html', {
+        kind: 'rendered.html',
+        r2Key: `archives/${requestId}/raw/rendered.html`,
+        bytes: 100,
+        contentType: 'text/html',
+        sha256: 'sha-health'
+      })
+    });
+
+    const res = await serviceGet('/health/kinds?hours=2');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { since: string; buckets: number; rows: KindHealthRow[] };
+    expect(body.buckets).toBeGreaterThanOrEqual(1);
+    const rows = body.rows.filter((row) => row.requestId === requestId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.requestedSteps).toEqual(['render']);
+    expect(rows[0]?.artifacts).toHaveLength(1);
+    expect(rows[0]?.artifacts[0]?.kind).toBe('rendered.html');
+    const age = Date.now() - Date.parse(rows[0]!.artifacts[0]!.createdAt);
+    expect(age).toBeGreaterThanOrEqual(-1_000);
+    expect(age).toBeLessThan(60_000);
+  });
+
+  it.each(['0', '73', 'x'])('GET /health/kinds — refuses hours=%s', async (hours) => {
+    const res = await serviceGet(`/health/kinds?hours=${hours}`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'hours must be an integer from 1 to 72' });
+  });
+
+  it('POST /requests/batch — shows the code of a rejected storage key or browser token', async () => {
+    const now = new Date().toISOString();
+    const codes = ['R2_CREDENTIAL_INVALID', 'BROWSER_TOKEN_INVALID'];
+    const ids = codes.map((code) => `svc-credential-${code}-${crypto.randomUUID()}`);
+    for (const [index, code] of codes.entries()) {
+      await env.INDEX_DB.prepare(
+        `INSERT INTO requests_index (request_id, url, domain, created_at, updated_at, stage, last_error_code)
+         VALUES (?, 'https://example.com/credential', 'example.com', ?, ?, 'incomplete', ?)`
+      ).bind(ids[index], now, now, code).run();
+    }
+
+    const res = await SELF.fetch('https://logger.internal/requests/batch', {
+      method: 'POST',
+      headers: { 'X-Internal-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestIds: ids })
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      requests: Array<{ requestId: string; diagnostics: { errorCode?: string } }>;
+    };
+    const codeById = new Map(body.requests.map((entry) => [entry.requestId, entry.diagnostics.errorCode]));
+    expect(ids.map((id) => codeById.get(id))).toEqual(codes);
   });
 });

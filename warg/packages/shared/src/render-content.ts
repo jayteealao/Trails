@@ -93,8 +93,16 @@ export const PROXY_ERROR_PAGE_REASON = 'proxy_error_page';
  * document worth archiving; callers that distinguish the two cases should
  * check emptiness before calling.
  */
+/**
+ * Longest page the proxy-error check scans. The observed error page is 275
+ * bytes, and the cap keeps the lazy regexes below from scanning a hostile page
+ * many times over.
+ */
+const MAX_PROXY_ERROR_HTML_LENGTH = 16_384;
+
 export function isProxyErrorPage(html: string): boolean {
   if (!html || html.trim().length === 0) return true;
+  if (html.length > MAX_PROXY_ERROR_HTML_LENGTH) return false;
 
   const withoutNoise = extractBodyInner(html)
     .replace(/<!--[\s\S]*?-->/g, '')
@@ -108,4 +116,150 @@ export function isProxyErrorPage(html: string): boolean {
   const text = decodeEntities(pre[1] ?? '').trim();
   if (text.length > MAX_ERROR_TEXT_LENGTH) return false;
   return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/** Markers a bot-wall vendor puts in the markup of its challenge page. */
+const CHALLENGE_MARKERS: readonly RegExp[] = [
+  /window\._cf_chl_opt\b/, // Cloudflare managed challenge
+  /\/cdn-cgi\/challenge-platform\/h\/[a-z]\/orchestrate\//, // Cloudflare challenge orchestrator (never the scripts/jsd injector)
+  /\bid=["']challenge-error-text["']/, // Cloudflare challenge page
+  /captcha-delivery\.com/, // DataDome challenge host
+  /\bpx-captcha\b/, // PerimeterX challenge
+];
+
+/** Longest visible text still treated as an interstitial; the largest sample had 489 chars. */
+const MAX_CHALLENGE_TEXT_LENGTH = 2000;
+
+/**
+ * Discriminator a worker puts in the `reason` field of its error payload when
+ * the target site blocked access (a challenge page or a 401/403 navigation).
+ */
+export const ACCESS_BLOCKED_REASON = 'access_blocked';
+
+/** Elements whose content a reader never sees as text. */
+const HIDDEN_ELEMENTS: ReadonlySet<string> = new Set(['script', 'style', 'noscript', 'template']);
+
+interface ScannedPage {
+  /** Every tag and every script body: the markup a vendor plants, never the text a writer quotes. */
+  structure: string;
+  /** Text a reader would see in the body, with entities decoded and whitespace collapsed. */
+  visibleText: string;
+}
+
+/**
+ * One forward pass over the page. Every search starts where the last one
+ * ended, so a hostile page (thousands of unclosed tags or comments) costs time
+ * linear in its length.
+ */
+function scanPage(html: string): ScannedPage {
+  const lower = html.toLowerCase();
+  const structure: string[] = [];
+  const text: string[] = [];
+  const bodyStart = lower.indexOf('<body');
+  const bodyEnd = lower.lastIndexOf('</body');
+  let i = 0;
+
+  while (i < html.length) {
+    const inBody = bodyStart === -1 || (i > bodyStart && (bodyEnd === -1 || i < bodyEnd));
+    const lt = html.indexOf('<', i);
+    const textEnd = lt === -1 ? html.length : lt;
+    if (inBody && textEnd > i) text.push(html.slice(i, textEnd));
+    if (lt === -1) break;
+
+    if (lower.startsWith('<!--', lt)) {
+      const end = lower.indexOf('-->', lt + 4);
+      if (end === -1) break;
+      i = end + 3;
+      continue;
+    }
+    if (!/[a-z!/]/.test(lower[lt + 1] ?? '')) {
+      if (inBody) text.push('<');
+      i = lt + 1;
+      continue;
+    }
+
+    const gt = html.indexOf('>', lt);
+    if (gt === -1) break;
+    structure.push(html.slice(lt, gt + 1));
+    text.push(' ');
+    i = gt + 1;
+
+    const name = /^<([a-z][\w-]*)/.exec(lower.slice(lt, Math.min(gt + 1, lt + 32)))?.[1];
+    if (name === undefined || !HIDDEN_ELEMENTS.has(name)) continue;
+    const close = lower.indexOf(`</${name}`, i);
+    if (close === -1) break;
+    if (name === 'script') structure.push(html.slice(i, close));
+    const closeEnd = html.indexOf('>', close);
+    if (closeEnd === -1) break;
+    i = closeEnd + 1;
+  }
+
+  return {
+    structure: structure.join('\n'),
+    visibleText: decodeEntities(text.join('')).replace(/\s+/g, ' ').trim()
+  };
+}
+
+/**
+ * True when `html` is a bot-wall interstitial that a site served with HTTP 200
+ * in place of the page. Callers must not archive it.
+ *
+ * Two signals must both hold: a known challenge-vendor marker in the markup (a
+ * tag or a script body, never a text node, so an article that quotes the
+ * markers is not flagged), and a near-empty visible body (an ordinary page that
+ * loads a vendor sensor script still has its article text).
+ */
+export function isChallengePage(html: string): boolean {
+  // Cheap first pass on the raw page: most pages carry no marker at all.
+  if (!CHALLENGE_MARKERS.some((marker) => marker.test(html))) return false;
+  const { structure, visibleText } = scanPage(html);
+  if (!CHALLENGE_MARKERS.some((marker) => marker.test(structure))) return false;
+  return visibleText.length <= MAX_CHALLENGE_TEXT_LENGTH;
+}
+
+/**
+ * The answer of a worker when the target site blocked access. A worker answers
+ * a site block with `403`, so the workflow records `ACCESS_BLOCKED`.
+ */
+export function accessBlockedResponse(url: string, navigationStatus?: number): Response {
+  return Response.json(
+    {
+      error: 'Target page blocked access',
+      reason: ACCESS_BLOCKED_REASON,
+      url,
+      ...(navigationStatus === undefined ? {} : { navigationStatus }),
+    },
+    { status: 403 },
+  );
+}
+
+/** Reason a worker gives when Browser Rendering rejected its API token. */
+export const BROWSER_TOKEN_INVALID_REASON = 'browser_token_invalid';
+
+/** Cloudflare API error codes for a rejected or missing token. */
+const AUTH_ERROR_CODES = new Set([10000, 9109]);
+const AUTH_ERROR_MESSAGE = /authentication error|invalid (?:api |access )?token/i;
+
+function isAuthErrorEntry(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const code = 'code' in entry ? Number(entry.code) : Number.NaN;
+  const message = 'message' in entry && typeof entry.message === 'string' ? entry.message : '';
+  return AUTH_ERROR_CODES.has(code) || AUTH_ERROR_MESSAGE.test(message);
+}
+
+/**
+ * True when a Browser Rendering REST answer rejects the API token itself
+ * (401/403 with a Cloudflare authentication error), not the target page.
+ */
+export function isBrowserRenderingAuthError(status: number, body: string): boolean {
+  if (status !== 401 && status !== 403) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // Not a Cloudflare API error body, so not a token rejection.
+    return false;
+  }
+  if (typeof parsed !== 'object' || parsed === null || !('errors' in parsed)) return false;
+  return Array.isArray(parsed.errors) && parsed.errors.some(isAuthErrorEntry);
 }

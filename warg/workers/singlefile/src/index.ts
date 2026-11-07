@@ -1,5 +1,5 @@
 import puppeteer from '@cloudflare/puppeteer';
-import { storeArtifact, timingSafeEqual } from '@warg/shared';
+import { accessBlockedResponse, isChallengePage, storeArtifact, timingSafeEqual } from '@warg/shared';
 import { SINGLEFILE_SCRIPT, SINGLEFILE_HOOK } from './singlefile-bundle.js';
 import type {
   SinglefileRequest,
@@ -262,10 +262,16 @@ export default {
         await page.evaluateOnNewDocument(SINGLEFILE_HOOK);
 
         console.log('[singlefile] Navigating to:', targetUrl);
-        await page.goto(targetUrl, {
+        const navigation = await page.goto(targetUrl, {
           waitUntil: waitUntil as 'load' | 'domcontentloaded' | 'networkidle0' | 'networkidle2',
           timeout
         });
+        // A null response is a same-document navigation, not a block.
+        const navigationStatus = navigation?.status();
+        if (navigationStatus === 401 || navigationStatus === 403) {
+          console.warn('[singlefile] Target blocked access:', targetUrl, navigationStatus);
+          return accessBlockedResponse(targetUrl, navigationStatus);
+        }
         console.log('[singlefile] Navigation complete');
 
         // Step 2: Cleanup + scroll
@@ -356,6 +362,11 @@ export default {
         }
 
         console.log('[singlefile] Capture complete, content length:', content.length);
+
+        if (isChallengePage(content)) {
+          console.warn('[singlefile] Target served a challenge page:', targetUrl);
+          return accessBlockedResponse(targetUrl);
+        }
 
         // Step 5: Store artifact
         console.log('[singlefile] Storing artifact...');

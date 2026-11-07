@@ -29,7 +29,31 @@ export type RequestErrorCode =
   | 'MONOLITH_INPUT_TOO_LARGE'
   | 'PERSIST_SERVICE_ERROR'
   | 'ACCESS_BLOCKED'
+  | 'R2_CREDENTIAL_INVALID'
+  | 'BROWSER_TOKEN_INVALID'
   | 'UNKNOWN_ERROR';
+
+/** The codes of a rejected credential. */
+export type CredentialErrorCode = 'R2_CREDENTIAL_INVALID' | 'BROWSER_TOKEN_INVALID';
+
+/**
+ * S3 error names that mean R2 refused the storage key itself. Matched without
+ * case, because classifiers read lowercased messages.
+ */
+export const R2_KEY_ERROR_NAMES: readonly string[] = ['SignatureDoesNotMatch', 'InvalidAccessKeyId'];
+
+export function isCredentialErrorCode(code: RequestErrorCode): code is CredentialErrorCode {
+  return code === 'R2_CREDENTIAL_INVALID' || code === 'BROWSER_TOKEN_INVALID';
+}
+
+/** How every classifier reports a rejected credential: a retry cannot fix it; the owner replaces the key. */
+export function credentialFailure(errorCode: CredentialErrorCode): {
+  errorCode: CredentialErrorCode;
+  retryable: false;
+  recommendedAction: 'check_api_key';
+} {
+  return { errorCode, retryable: false, recommendedAction: 'check_api_key' };
+}
 
 export interface RequestDiagnostics {
   errorCode?: RequestErrorCode;

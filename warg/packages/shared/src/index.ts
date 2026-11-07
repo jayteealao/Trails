@@ -6,6 +6,7 @@ export type {
   WorkflowStep,
   ReadabilityResult
 } from './types.js';
+export { WORKFLOW_STEPS } from './types.js';
 
 export type {
   CheckpointStep,
@@ -41,6 +42,8 @@ export type {
   RequestDiagnostics,
   ArticleHealth
 } from './dashboard.js';
+export { R2_KEY_ERROR_NAMES, credentialFailure, isCredentialErrorCode } from './dashboard.js';
+export type { CredentialErrorCode } from './dashboard.js';
 
 export { createEvent } from './logging.js';
 
@@ -53,7 +56,18 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
-export { isProxyErrorPage, PROXY_ERROR_PAGE_REASON } from './render-content.js';
+export {
+  isProxyErrorPage,
+  PROXY_ERROR_PAGE_REASON,
+  isChallengePage,
+  ACCESS_BLOCKED_REASON,
+  accessBlockedResponse,
+  isBrowserRenderingAuthError,
+  BROWSER_TOKEN_INVALID_REASON,
+} from './render-content.js';
 
 export type { ArtifactBucket } from './artifacts.js';
 export { storeArtifact } from './artifacts.js';
+
+export type { KindHealthArtifact, KindHealthRow, WorkflowStartedData } from './kind-health.js';
+export { HEALTH_KIND_ARTIFACTS } from './kind-health.js';

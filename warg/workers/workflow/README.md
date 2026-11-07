@@ -26,5 +26,6 @@ manually resubmitted; there is no automatic retry at the workflow level.
 ## Tests
 
 ```bash
-pnpm --filter @warg/workflow test
+pnpm --filter @warg/workflow test          # node tests, then the runtime tests in workerd
+pnpm --filter @warg/workflow test:runtime  # only the runtime tests (the real workflow and logger in workerd)
 ```

@@ -10,9 +10,10 @@ import type {
   ArchiveManifest,
   CheckpointStep,
   WorkflowCheckpoint,
+  WorkflowStartedData,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
+import { WORKFLOW_STEPS, getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
@@ -211,12 +212,23 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const normalizedOptions = this.normalizeOptions(options);
     const resumeEnabled = normalizedOptions.resumeFromCheckpoint !== false;
 
+    // Selective step execution: if options.steps is set, only run those steps
+    const requestedSteps = normalizedOptions.steps;
+    const requestedStepList: WorkflowStepType[] =
+      requestedSteps && requestedSteps.length > 0
+        ? Array.from(new Set(requestedSteps))
+        : [...WORKFLOW_STEPS];
+    const requestedStepSet = new Set<WorkflowStepType>(requestedStepList);
+    const shouldRun = (stepName: WorkflowStepType) => requestedStepSet.has(stepName);
+
     // Step 2: Log workflow.started
     await step.do('log-started', async () => {
-      await logEvent(this.env, request_id, 'workflow.started', 'Workflow started', {
+      const startedData: WorkflowStartedData = {
         url,
-        resumeFromCheckpoint: resumeEnabled
-      });
+        resumeFromCheckpoint: resumeEnabled,
+        requestedSteps: requestedStepList
+      };
+      await logEvent(this.env, request_id, 'workflow.started', 'Workflow started', startedData);
     });
 
     // Step 3: Check mock mode
@@ -244,15 +256,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await saveCheckpoint(this.env.ARCHIVE_BUCKET, state);
       return state;
     });
-
-    // Selective step execution: if options.steps is set, only run those steps
-    const requestedSteps = normalizedOptions.steps;
-    const requestedStepList: WorkflowStepType[] =
-      requestedSteps && requestedSteps.length > 0
-        ? Array.from(new Set(requestedSteps))
-        : ['render', 'singlefile', 'readability', 'monolith'];
-    const requestedStepSet = new Set<WorkflowStepType>(requestedStepList);
-    const shouldRun = (stepName: WorkflowStepType) => requestedStepSet.has(stepName);
 
     let lastPersistResult: WorkflowResult['gcsResult'];
     const partialFailures: Array<{ step: CheckpointStep | 'persist'; error: string }> = [];
@@ -620,9 +623,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         : {}),
     };
 
-    const shouldSoftFailNoRequestedOutputs = noRequestedOutputs && coreArtifactsPresent;
-
-    if ((noRequestedOutputs && !shouldSoftFailNoRequestedOutputs) || unpersistedKinds.length > 0) {
+    if (noRequestedOutputs || unpersistedKinds.length > 0) {
       const noOutputsDetails = noRequestedOutputs
         ? {
             errorCode: 'NO_OUTPUTS_PRODUCED',
@@ -1001,18 +1002,29 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             artifact.sha256
           )
         );
+        // The fallback rescued the render, but a rejected token is still a dead
+        // credential: record its code so the request diagnostics show it.
+        const tokenRejected = renderOutcome.fallbackReason === 'browser_token_invalid';
         events.push(
-          stepCompletedEvent('render', renderStartedAt, {
-            artifactCount: renderResult.artifacts.length,
-            ...(renderOutcome.fallbackUsed
-              ? {
-                  fallbackUsed: true,
-                  fallbackReason: renderOutcome.fallbackReason,
-                  fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
-                }
-              : {}),
-            ...(renderResult.meta ? { meta: renderResult.meta } : {})
-          })
+          stepCompletedEvent(
+            'render',
+            renderStartedAt,
+            {
+              artifactCount: renderResult.artifacts.length,
+              ...(renderOutcome.fallbackUsed
+                ? {
+                    fallbackUsed: true,
+                    fallbackReason: renderOutcome.fallbackReason,
+                    fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
+                  }
+                : {}),
+              ...(tokenRejected
+                ? { errorCode: 'BROWSER_TOKEN_INVALID', retryable: false, recommendedAction: 'check_api_key' }
+                : {}),
+              ...(renderResult.meta ? { meta: renderResult.meta } : {})
+            },
+            tokenRejected ? 'warn' : 'info'
+          )
         );
         await logEvents(this.env, requestId, events);
       });

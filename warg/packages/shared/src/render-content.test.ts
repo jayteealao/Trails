@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { isProxyErrorPage } from './render-content.js';
+import { isBrowserRenderingAuthError, isChallengePage, isProxyErrorPage } from './render-content.js';
+import {
+  ARTICLE_ABOUT_CHALLENGES,
+  CLOUDFLARE_CHALLENGE_PAGE,
+  DATADOME_CHALLENGE_PAGE,
+  LONG_PAGE_WITH_VENDOR_SENSOR,
+  NORMAL_ARTICLE_PAGE,
+  PERIMETERX_CHALLENGE_PAGE,
+  THIN_PAGE_WITH_CLOUDFLARE_SCRIPT,
+  THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT,
+} from './challenge-page.fixtures.js';
 
 // Byte-exact copy of the 275-byte stub archived by the 2026-09-04 canary:
 // Chrome's plain-text rendering of the proxy's DNS failure, served as HTTP 200.
@@ -100,5 +110,91 @@ describe('isProxyErrorPage', () => {
       '<html><body><!-- proxy --><style>pre{color:red}</style>' +
       '<pre>no such host</pre></body></html>';
     expect(isProxyErrorPage(page)).toBe(true);
+  });
+});
+
+describe('isChallengePage', () => {
+  it('flags the Cloudflare managed challenge page', () => {
+    expect(isChallengePage(CLOUDFLARE_CHALLENGE_PAGE)).toBe(true);
+  });
+
+  it('flags the DataDome challenge page', () => {
+    expect(isChallengePage(DATADOME_CHALLENGE_PAGE)).toBe(true);
+  });
+
+  it('flags the PerimeterX challenge page, which has no visible text', () => {
+    expect(isChallengePage(PERIMETERX_CHALLENGE_PAGE)).toBe(true);
+  });
+
+  it('accepts an article that quotes the challenge words and markers as text', () => {
+    expect(isChallengePage(ARTICLE_ABOUT_CHALLENGES)).toBe(false);
+  });
+
+  it('accepts a thin real page that only carries the Cloudflare bot-score injector', () => {
+    expect(isChallengePage(THIN_PAGE_WITH_CLOUDFLARE_SCRIPT)).toBe(false);
+  });
+
+  it('accepts a thin real page whose Cloudflare injector uses the versioned /h/ path', () => {
+    expect(isChallengePage(THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT)).toBe(false);
+  });
+
+  it('accepts a long article whose site loads vendor bot sensors', () => {
+    expect(isChallengePage(LONG_PAGE_WITH_VENDOR_SENSOR)).toBe(false);
+  });
+
+  it('accepts a plain article with no vendor markup', () => {
+    expect(isChallengePage(NORMAL_ARTICLE_PAGE)).toBe(false);
+  });
+
+  it.each(['<script ', '<style ', '<!--', '<noscript ', '<a'])(
+    'answers in linear time on 1 MB of unclosed %s tokens',
+    (token) => {
+      const filler = token.repeat(Math.floor(1_000_000 / token.length));
+      const hostile = `<html><body><p>window._cf_chl_opt</p><div data-x="${filler}"></div></body></html>`;
+      const start = Date.now();
+      isChallengePage(hostile);
+      expect(Date.now() - start).toBeLessThan(1_000);
+    }
+  );
+
+  it('does not scan a large page for a proxy error', () => {
+    expect(isProxyErrorPage('<html><body><pre>dial tcp: no such host</pre>' + '<div></div>'.repeat(5_000) + '</body></html>')).toBe(false);
+  });
+
+  it('leaves every recorded page to this check rather than the proxy-error check', () => {
+    const pages = [
+      CLOUDFLARE_CHALLENGE_PAGE,
+      DATADOME_CHALLENGE_PAGE,
+      PERIMETERX_CHALLENGE_PAGE,
+      ARTICLE_ABOUT_CHALLENGES,
+      THIN_PAGE_WITH_CLOUDFLARE_SCRIPT,
+      THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT,
+      LONG_PAGE_WITH_VENDOR_SENSOR,
+      NORMAL_ARTICLE_PAGE,
+    ];
+    for (const page of pages) expect(isProxyErrorPage(page)).toBe(false);
+  });
+});
+
+// The answer of the Browser Rendering API to a bogus token, read on 2026-11-07.
+const REJECTED_TOKEN_BODY =
+  '{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}';
+
+describe('isBrowserRenderingAuthError', () => {
+  it.each([
+    [401, REJECTED_TOKEN_BODY],
+    [403, REJECTED_TOKEN_BODY],
+    [403, '{"errors":[{"code":9109,"message":"Invalid access token"}]}'],
+  ])('reads HTTP %i with an authentication error body as a rejected token', (status, body) => {
+    expect(isBrowserRenderingAuthError(status, body)).toBe(true);
+  });
+
+  it.each([
+    [500, REJECTED_TOKEN_BODY],
+    [401, 'Unauthorized'],
+    [403, '{"errors":[{"code":5006,"message":"network closed"}]}'],
+    [429, REJECTED_TOKEN_BODY],
+  ])('does not read HTTP %i with body %s as a rejected token', (status, body) => {
+    expect(isBrowserRenderingAuthError(status, body)).toBe(false);
   });
 });

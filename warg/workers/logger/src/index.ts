@@ -6,9 +6,10 @@ import type {
   ArtifactRecord,
   RequestFieldsPatch,
   RequestDiagnostics,
-  RequestErrorCode
+  RequestErrorCode,
+  KindHealthRow
 } from '@warg/shared';
-import { timingSafeEqual } from '@warg/shared';
+import { credentialFailure, isCredentialErrorCode, timingSafeEqual } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 import { LoggerDO } from './LoggerDO.js';
 import { asString, asNumber, asBoolean, asRecord } from './value-helpers.js';
@@ -83,6 +84,7 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  getKindHealthRows(sinceIso: string): Promise<KindHealthRow[]> | KindHealthRow[];
 }
 
 const VALID_ERROR_CODES = new Set<RequestErrorCode>([
@@ -106,6 +108,8 @@ const VALID_ERROR_CODES = new Set<RequestErrorCode>([
   'MONOLITH_INPUT_TOO_LARGE',
   'PERSIST_SERVICE_ERROR',
   'ACCESS_BLOCKED',
+  'R2_CREDENTIAL_INVALID',
+  'BROWSER_TOKEN_INVALID',
   'UNKNOWN_ERROR',
 ]);
 
@@ -161,7 +165,8 @@ function defaultRetryableForCode(code: RequestErrorCode): boolean {
     code !== 'ACCESS_BLOCKED' &&
     code !== 'INVALID_INPUT_URL' &&
     code !== 'MONOLITH_RPC_32MIB_LIMIT' &&
-    code !== 'MONOLITH_INPUT_TOO_LARGE'
+    code !== 'MONOLITH_INPUT_TOO_LARGE' &&
+    !isCredentialErrorCode(code)
   );
 }
 
@@ -182,6 +187,7 @@ function defaultActionForCode(code: RequestErrorCode): RequestDiagnostics['recom
     return 'investigate_service';
   }
   if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
+  if (isCredentialErrorCode(code)) return credentialFailure(code).recommendedAction;
   return 'retry_step';
 }
 
@@ -713,6 +719,7 @@ async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
   const byStage: Record<string, number> = {};
   let doneCount = 0;
   let failedCount = 0;
+  let incompleteCount = 0;
   let activeCount = 0;
 
   for (const row of stageResult.results) {
@@ -720,18 +727,23 @@ async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
     byStage[stage] = row.count;
     if (stage === 'done') doneCount = row.count;
     else if (stage === 'failed') failedCount = row.count;
+    // An incomplete request has finished with a failed or degraded step; it is not active.
+    else if (stage === 'incomplete') incompleteCount = row.count;
     else activeCount += row.count;
   }
 
-  const terminal = doneCount + failedCount;
+  // Every finished request counts: an incomplete one is not a success.
+  const terminal = doneCount + failedCount + incompleteCount;
   const successRate = terminal > 0 ? doneCount / terminal : 0;
   const failureRate = terminal > 0 ? failedCount / terminal : 0;
+  const incompleteRate = terminal > 0 ? incompleteCount / terminal : 0;
 
   return Response.json({
     total,
     byStage,
     successRate: Math.round(successRate * 1000) / 1000,
     failureRate: Math.round(failureRate * 1000) / 1000,
+    incompleteRate: Math.round(incompleteRate * 1000) / 1000,
     activeCount,
     stuckCount: stuckResult?.count ?? 0,
     orphanQueue: {
@@ -886,6 +898,30 @@ async function handleBackfillDiagnostics(
 }
 
 /**
+ * GET /health/kinds handler — the rows of the daily archive health check:
+ * every request created in the last `hours` hours, with its requested steps
+ * and the creation time of each primary artifact. Reads only the hour buckets
+ * that D1 lists; pre-bucket per-request instances are not read.
+ */
+async function handleGetKindHealth(env: LoggerServiceEnv, params: URLSearchParams): Promise<Response> {
+  const raw = params.get('hours');
+  const hours = raw === null ? 49 : Number(raw);
+  if (!Number.isInteger(hours) || hours < 1 || hours > 72) {
+    return Response.json({ error: 'hours must be an integer from 1 to 72' }, { status: 400 });
+  }
+  const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+  const { results } = await env.INDEX_DB.prepare(
+    'SELECT DISTINCT substr(created_at, 1, 13) AS hour FROM requests_index WHERE created_at >= ?'
+  )
+    .bind(since)
+    .all<{ hour: string }>();
+  const perBucket = await Promise.all(
+    results.map(({ hour }) => getStubForKey(env, bucketKeyForTs(`${hour}:00:00Z`)).getKindHealthRows(since))
+  );
+  return Response.json({ since, buckets: results.length, rows: perBucket.flat() });
+}
+
+/**
  * Parse URL pathname and params.
  */
 function parseRoute(
@@ -897,7 +933,8 @@ function parseRoute(
   // Literal routes take priority over parameterized ones
   if (path === '/request/init' || path === '/event' || path === '/events/batch' ||
       path === '/artifact' || path === '/stats' || path === '/requests' ||
-      path === '/requests/batch' || path === '/maintenance/backfill-diagnostics') {
+      path === '/requests/batch' || path === '/maintenance/backfill-diagnostics' ||
+      path === '/health/kinds') {
     return { path, params };
   }
 
@@ -1087,6 +1124,11 @@ export default {
       // GET /stats - Aggregate metrics from D1 index
       if (method === 'GET' && path === '/stats') {
         return handleGetStats(env);
+      }
+
+      // GET /health/kinds - Rows of the daily archive health check
+      if (method === 'GET' && path === '/health/kinds') {
+        return handleGetKindHealth(env, params);
       }
 
       // POST /requests/batch - Batch fetch request summaries from D1 index
