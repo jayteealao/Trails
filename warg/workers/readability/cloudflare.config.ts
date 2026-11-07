@@ -10,8 +10,10 @@ export default defineConfig({
 		],
 		entrypoint: "src/index.ts",
 		workersDev: false,
+		// Workers tracing: the runtime emits the spans; enabled alone turns on logs only.
 		observability: {
 			enabled: true,
+			traces: { enabled: true },
 		},
 		env: {
 			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
