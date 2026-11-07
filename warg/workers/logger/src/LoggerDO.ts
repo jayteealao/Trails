@@ -871,14 +871,16 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
       .toArray();
     if (requests.length === 0) return [];
 
-    // The latest workflow.started of a request wins.
-    const requestedSteps = new Map<string, WorkflowStep[] | undefined>();
+    // The latest workflow.started that carries a requested-steps list wins: the
+    // gateway's orphan sweep logs a workflow.started without one.
+    const requestedSteps = new Map<string, WorkflowStep[]>();
     for (const row of this.sql
       .exec<{ request_id: string; data_json: string | null }>(
         "SELECT request_id, data_json FROM events WHERE type = 'workflow.started' ORDER BY id"
       )
       .toArray()) {
-      requestedSteps.set(row.request_id, requestedStepsOf(row.data_json));
+      const steps = requestedStepsOf(row.data_json);
+      if (steps) requestedSteps.set(row.request_id, steps);
     }
 
     const artifacts = new Map<string, KindHealthArtifact[]>();

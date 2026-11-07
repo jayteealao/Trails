@@ -1255,6 +1255,21 @@ describe('getKindHealthRows', () => {
     });
   }
 
+  it('keeps the requested steps when a later workflow.started carries none', async () => {
+    const { stub } = freshBucket();
+    const requestId = `health-sweep-${crypto.randomUUID()}`;
+    await stub.initRequest({ requestId, url: 'https://example.com/health' }, CREATED);
+    await stub.appendEvent(requestId, infoEvent('workflow.started', 'Workflow started', { requestedSteps: ['monolith'] }));
+    await stub.appendEvent(requestId, {
+      ...infoEvent('workflow.started', 'Workflow start recovered by orphan queued sweep', {}),
+      source: 'gateway'
+    });
+
+    const rows = await stub.getKindHealthRows(SINCE);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.requestedSteps).toEqual(['monolith']);
+  });
+
   it('keeps an artifact creation time although the step reads failed', async () => {
     const { stub, raw } = freshBucket();
     const requestId = `health-failed-${crypto.randomUUID()}`;
