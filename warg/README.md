@@ -264,8 +264,8 @@ Fetch spans record the full URL of each request and each outbound fetch,
 query string included (`url.full`, `url.query`). A render Worker that fetches a
 saved page therefore stores that page's URL in the trace for seven days, so a
 token or personal data in a saved URL's query string is readable by anyone with
-Observability access to the account, as it already is in Workers Logs. Keep
-that access to the people who may read the logs.
+Observability access to the account. Keep that access to the people who may
+read the logs.
 
 The runtime emits the spans; no code creates them. Cloudflare documents spans
 for fetch calls, R2, D1 and Durable Object binding calls, RPC calls and the
