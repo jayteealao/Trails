@@ -27,6 +27,8 @@ export interface RendererResponse {
   meta?: {
     skipped: string[];
     browserApiMs?: number;
+    /** Artifacts listed from an earlier attempt of the same run, not loaded again. */
+    reused?: ArtifactKind[];
     provider?: string;
     hyperbrowserJobId?: string;
     hyperbrowserScrapeMs?: number;
@@ -92,6 +94,8 @@ export interface RendererParams {
   include_screenshot?: boolean;
   include_pdf?: boolean;
   include_markdown?: boolean;
+  /** The run whose earlier attempts the renderer may reuse. */
+  reuse_scope?: string;
 }
 
 /**
