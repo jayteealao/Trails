@@ -50,6 +50,13 @@ export interface QuotaLimits {
  * rate, and the workflow worker holds no browser binding. The burst equals one
  * second of launches. The sandbox cap stays under the monolith container's
  * `max_instances` (5), which leaves churn slack.
+ *
+ * One render takes one launch token, although a render with a PDF makes two
+ * page loads (the snapshot and the PDF). That is deliberate: the renderer's
+ * loads are quick actions, which the platform limits by a separate request
+ * rate (30 per second) far above these 3 launches, and a platform 429 comes
+ * back to the render step as a retryable rate limit. The bucket paces renders;
+ * it does not count every page load.
  */
 export const BROWSER_QUOTA_LIMITS: QuotaLimits = {
   maxConcurrent: 200,

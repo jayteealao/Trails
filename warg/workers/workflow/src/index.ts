@@ -954,6 +954,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         const stub = this.env.BROWSER_QUOTA.get(
           this.env.BROWSER_QUOTA.idFromName('global')
         );
+        // One launch token per render, also when the PDF takes a second load (see BROWSER_QUOTA_LIMITS).
         const result = await stub.acquire('bindings_launch', requestId);
         if (!result.granted) {
           return { granted: false, retryAfterMs: result.retryAfterMs };
