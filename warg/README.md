@@ -251,7 +251,11 @@ for fetch calls, R2, D1 and Durable Object binding calls, RPC calls and the
 fetch and scheduled handlers, and documents linking a span across Workers for
 RPC calls only. Warg's hops are a service-binding fetch (gateway to workflow,
 workflow to each render Worker) and an asynchronous Workflow instance, so one
-archive may appear as more than one trace. The `request_id` joins them.
+archive may appear as more than one trace. No span is known to carry the
+`request_id`: the code adds no span attribute, and the request id travels in
+request bodies, not URLs. Two things do carry it: the Workflow instance id is
+the `request_id` (characters other than letters, digits, `_` and `-` become
+`_`), and `GET /status/<requestId>` lists the logger's events with their times.
 
 To read one archive:
 
@@ -268,8 +272,10 @@ To read one archive:
 3. Open Workers → Observability → Traces in the Cloudflare dashboard for the
    last 15 minutes, or run `pnpm exec cf o11y telemetry query` with the traces
    view, and filter by `$metadata.service` (gateway, workflow, renderer).
-4. Note each trace id and which Workers' spans it holds; join the traces of the
-   archive by its `request_id`.
+4. Note each trace id and which Workers' spans it holds. Join the traces of one
+   archive by the Workflow instance id and by the event times of
+   `GET /status/<requestId>`. If a span attribute or log field turns out to hold
+   the `request_id`, name it here.
 
 ### Rotating the function keys (two steps)
 
