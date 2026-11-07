@@ -9,27 +9,9 @@ import {
   PERIMETERX_CHALLENGE_PAGE,
   THIN_PAGE_WITH_CLOUDFLARE_SCRIPT,
   THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT,
+  DEAD_HOST_STUB,
+  DEAD_HOST_STUB_NO_TRAILING_NODE,
 } from './challenge-page.fixtures.js';
-
-// Byte-exact copy of the 275-byte stub archived by the 2026-09-04 canary:
-// Chrome's plain-text rendering of the proxy's DNS failure, served as HTTP 200.
-// The trailing empty, hidden <div> is part of the real page and must not
-// defeat the "nothing but a <pre>" structural test — an earlier fixture
-// dropped it, which hid the fact that the real page was still being archived.
-const DEAD_HOST_STUB =
-  '<html><head><meta name="color-scheme" content="light dark"></head>' +
-  '<body><pre style="word-wrap: break-word; white-space: pre-wrap;">' +
-  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host\n' +
-  '</pre><div id="header-bqq3lsboese" style="display: none;"></div>' +
-  '</body></html>';
-
-// The same page without the trailing empty node, kept as its own case so a
-// future change to the empty-element strip cannot silently regress either shape.
-const DEAD_HOST_STUB_NO_TRAILING_NODE =
-  '<html><head><meta name="color-scheme" content="light dark"></head>' +
-  '<body><pre style="word-wrap: break-word; white-space: pre-wrap;">' +
-  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host' +
-  '</pre></body></html>';
 
 describe('isProxyErrorPage', () => {
   it('rejects the observed dead-host proxy stub, trailing empty node and all', () => {
