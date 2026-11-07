@@ -188,6 +188,8 @@ async function connectCdpWebSocket(wsEndpoint: string): Promise<WebSocket> {
 
   const socket = response.webSocket;
   socket.accept();
+  // handleMessage decodes binary frames as ArrayBuffer; from the 2026-03-17 compatibility date Workers deliver them as Blob unless this is set.
+  socket.binaryType = 'arraybuffer';
   return socket;
 }
 
