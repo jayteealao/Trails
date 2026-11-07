@@ -174,7 +174,7 @@ class CdpClient {
   }
 }
 
-async function connectCdpWebSocket(wsEndpoint: string): Promise<WebSocket> {
+export async function connectCdpWebSocket(wsEndpoint: string): Promise<WebSocket> {
   const response = await fetch(wsEndpoint, {
     headers: {
       Upgrade: 'websocket',
