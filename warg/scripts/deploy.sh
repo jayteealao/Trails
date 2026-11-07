@@ -66,7 +66,12 @@ set -euo pipefail
 #                                     worker (first deploy of a new worker);
 #                                     repeatable; printed as a warning in the
 #                                     summary. Never put it in a package.json
-#                                     script.
+#                                     script. It skips only this script's
+#                                     listing: cf still refuses a worker whose
+#                                     declared secret is not set, so the first
+#                                     deploy of a new worker needs
+#                                     `cf deploy --secrets-file <file>` run by
+#                                     hand once.
 #   --allow-dirty                     deploy from a tree with uncommitted or
 #                                     untracked files; every label then ends
 #                                     in -dirty
@@ -80,7 +85,10 @@ set -euo pipefail
 # Required secrets per worker (checked with `cf workers secrets list` for all
 # nine workers before the first worker deploys). required_secrets_for() below
 # is the list the preflight reads; the deploy harness fails when this copy
-# differs from it:
+# differs from it. Each worker also declares the same names in its
+# cloudflare.config.ts and wrangler.jsonc, so cf and wrangler refuse to deploy
+# a worker that is missing one; the harness and scripts/check-worker-configs.mjs
+# fail when a declared copy differs:
 #   logger:        INTERNAL_API_KEY
 #   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY, HEALTH_ALERT_FROM, HEALTH_ALERT_TO
 #   workflow:      INTERNAL_API_KEY
