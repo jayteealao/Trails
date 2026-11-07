@@ -1,9 +1,10 @@
 import { bindings, defineConfig } from "cf/config";
+import { COMPATIBILITY_DATE } from "../compatibility-date.mjs";
 
 export default defineConfig({
 	worker: {
 		name: "singlefile",
-		compatibilityDate: "2025-01-01",
+		compatibilityDate: COMPATIBILITY_DATE,
 		compatibilityFlags: [
 			"nodejs_compat",
 		],
