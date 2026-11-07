@@ -1,4 +1,4 @@
-import { decodeBase64ToArrayBuffer } from './payload-decode.js';
+import { decodeBase64ToArrayBuffer } from '@warg/shared';
 import type { CdpEventMessage, HyperbrowserWaitUntil } from './types.js';
 
 interface PendingCommand {

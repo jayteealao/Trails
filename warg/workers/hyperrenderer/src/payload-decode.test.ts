@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { decodeBinaryPayload, decodeBase64ToArrayBuffer } from './payload-decode.js';
+import { decodeBase64ToArrayBuffer } from '@warg/shared';
+import { decodeBinaryPayload } from './payload-decode.js';
 
 function toText(data: ArrayBuffer): string {
   return new TextDecoder().decode(new Uint8Array(data));
