@@ -5,11 +5,12 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -386,4 +387,29 @@ test('the check exits 1 and names the Worker whose wrangler.jsonc drops tracing'
   } finally {
     cleanup();
   }
+});
+
+test('the renderer neither declares nor reads BR_API_TOKEN or CF_ACCOUNT_ID', () => {
+  // The renderer loads pages through its browser binding, so it holds no
+  // Browser Rendering API token. worker-configuration.d.ts is generated from
+  // wrangler.jsonc and is not read here.
+  const renderer = join(WARG, 'workers', 'renderer');
+  const files = [
+    'wrangler.jsonc',
+    'cloudflare.config.ts',
+    'package.json',
+    ...readdirSync(join(renderer, 'src'), { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) =>
+        relative(renderer, join(entry.parentPath, entry.name)).split(sep).join('/')
+      )
+  ];
+  const hits = [];
+  for (const file of files.sort()) {
+    const text = readFileSync(join(renderer, file), 'utf8');
+    for (const name of ['BR_API_TOKEN', 'CF_ACCOUNT_ID']) {
+      if (text.includes(name)) hits.push(`${file}: ${name}`);
+    }
+  }
+  assert.deepEqual(hits, []);
 });
