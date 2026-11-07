@@ -14,10 +14,8 @@
   ],
   // Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
   "secrets": {
-    "required": ["INTERNAL_API_KEY", "CF_ACCOUNT_ID", "BR_API_TOKEN"]
+    "required": ["INTERNAL_API_KEY"]
   }
 }
 // Secrets (via `wrangler secret put`):
 // - INTERNAL_API_KEY: shared key for internal worker auth
-// - CF_ACCOUNT_ID: Cloudflare account ID for Browser Rendering API
-// - BR_API_TOKEN: Browser Rendering API token
