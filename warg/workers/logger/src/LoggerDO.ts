@@ -12,6 +12,7 @@ import type {
   KindHealthRow,
   KindHealthArtifact,
   ArtifactKind,
+  WorkflowStartedData,
   WorkflowStep
 } from '@warg/shared';
 import { HEALTH_KIND_ARTIFACTS, WORKFLOW_STEPS } from '@warg/shared';
@@ -88,7 +89,8 @@ const HEALTH_ARTIFACT_KINDS: string[] = Object.values(HEALTH_KIND_ARTIFACTS);
 function requestedStepsOf(dataJson: string | null): WorkflowStep[] | undefined {
   if (!dataJson) return undefined;
   try {
-    const value = (JSON.parse(dataJson) as { requestedSteps?: unknown }).requestedSteps;
+    // Parsed against the shared payload of workflow.started; every field is checked below.
+    const value = (JSON.parse(dataJson) as Partial<Record<keyof WorkflowStartedData, unknown>>).requestedSteps;
     if (!Array.isArray(value)) return undefined;
     return value.every((entry) => typeof entry === 'string' && HEALTH_STEPS.has(entry))
       ? (value as WorkflowStep[])

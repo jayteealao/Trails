@@ -67,5 +67,5 @@ export {
 export type { ArtifactBucket } from './artifacts.js';
 export { storeArtifact } from './artifacts.js';
 
-export type { KindHealthArtifact, KindHealthRow } from './kind-health.js';
+export type { KindHealthArtifact, KindHealthRow, WorkflowStartedData } from './kind-health.js';
 export { HEALTH_KIND_ARTIFACTS } from './kind-health.js';

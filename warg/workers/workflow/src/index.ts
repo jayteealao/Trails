@@ -10,6 +10,7 @@ import type {
   ArchiveManifest,
   CheckpointStep,
   WorkflowCheckpoint,
+  WorkflowStartedData,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
 import { WORKFLOW_STEPS, getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
@@ -222,11 +223,12 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
 
     // Step 2: Log workflow.started
     await step.do('log-started', async () => {
-      await logEvent(this.env, request_id, 'workflow.started', 'Workflow started', {
+      const startedData: WorkflowStartedData = {
         url,
         resumeFromCheckpoint: resumeEnabled,
         requestedSteps: requestedStepList
-      });
+      };
+      await logEvent(this.env, request_id, 'workflow.started', 'Workflow started', startedData);
     });
 
     // Step 3: Check mock mode

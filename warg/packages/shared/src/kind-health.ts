@@ -8,6 +8,17 @@ export const HEALTH_KIND_ARTIFACTS: Readonly<Record<WorkflowStep, ArtifactKind>>
   monolith: 'monolith.html'
 };
 
+/**
+ * The data of a `workflow.started` event, which the workflow writes and the
+ * logger reads for the daily health check. A type alias, so it fits event data.
+ */
+export type WorkflowStartedData = {
+  url: string;
+  resumeFromCheckpoint: boolean;
+  /** The archive kinds this run asked for. */
+  requestedSteps: WorkflowStep[];
+};
+
 export interface KindHealthArtifact {
   kind: ArtifactKind;
   /** ISO-8601 UTC: when the logger recorded the artifact as written. */
