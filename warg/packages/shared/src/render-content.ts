@@ -113,7 +113,7 @@ export function isProxyErrorPage(html: string): boolean {
 /** Markers a bot-wall vendor puts in the markup of its challenge page. */
 const CHALLENGE_MARKERS: readonly RegExp[] = [
   /window\._cf_chl_opt\b/, // Cloudflare managed challenge
-  /\/cdn-cgi\/challenge-platform\/h\//, // Cloudflare challenge orchestrator (not scripts/jsd)
+  /\/cdn-cgi\/challenge-platform\/h\/[a-z]\/orchestrate\//, // Cloudflare challenge orchestrator (never the scripts/jsd injector)
   /\bid=["']challenge-error-text["']/, // Cloudflare challenge page
   /captcha-delivery\.com/, // DataDome challenge host
   /\bpx-captcha\b/, // PerimeterX challenge

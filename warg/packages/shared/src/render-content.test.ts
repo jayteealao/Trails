@@ -8,6 +8,7 @@ import {
   NORMAL_ARTICLE_PAGE,
   PERIMETERX_CHALLENGE_PAGE,
   THIN_PAGE_WITH_CLOUDFLARE_SCRIPT,
+  THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT,
 } from './challenge-page.fixtures.js';
 
 // Byte-exact copy of the 275-byte stub archived by the 2026-09-04 canary:
@@ -133,6 +134,10 @@ describe('isChallengePage', () => {
     expect(isChallengePage(THIN_PAGE_WITH_CLOUDFLARE_SCRIPT)).toBe(false);
   });
 
+  it('accepts a thin real page whose Cloudflare injector uses the versioned /h/ path', () => {
+    expect(isChallengePage(THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT)).toBe(false);
+  });
+
   it('accepts a long article whose site loads vendor bot sensors', () => {
     expect(isChallengePage(LONG_PAGE_WITH_VENDOR_SENSOR)).toBe(false);
   });
@@ -148,6 +153,7 @@ describe('isChallengePage', () => {
       PERIMETERX_CHALLENGE_PAGE,
       ARTICLE_ABOUT_CHALLENGES,
       THIN_PAGE_WITH_CLOUDFLARE_SCRIPT,
+      THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT,
       LONG_PAGE_WITH_VENDOR_SENSOR,
       NORMAL_ARTICLE_PAGE,
     ];

@@ -119,6 +119,15 @@ export const THIN_PAGE_WITH_CLOUDFLARE_SCRIPT =
   'document.body.appendChild(a);c();})();</script>' +
   '</body></html>';
 
+// A thin real page whose Cloudflare bot-score injector uses the versioned /h/<x>/scripts/jsd/ path: authored, not captured; the path shape is unconfirmed.
+export const THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT =
+  '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Short note</title></head><body>' +
+  '<main><h1>Short note</h1><p>We moved this page to a new address.</p></main>' +
+  "<script>(function(){var a=document.createElement('script');" +
+  "a.src='/cdn-cgi/challenge-platform/h/b/scripts/jsd/RAY_ID/main.js';" +
+  "document.getElementsByTagName('head')[0].appendChild(a);})();</script>" +
+  '</body></html>';
+
 // A normal article whose site also loads vendor bot sensors on every page: modelled on samples captured on 2026-11-07, identifiers replaced.
 export const LONG_PAGE_WITH_VENDOR_SENSOR =
   '<!DOCTYPE html><html lang="en"><head><title>A slow week for the harbour ferries</title>' +
