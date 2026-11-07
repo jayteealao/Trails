@@ -8,12 +8,8 @@ import {
   type TokenBucket
 } from './quota-logic.js';
 
-const LIMITS: QuotaLimits = {
-  maxConcurrent: 100,
-  maxSandboxConcurrent: 4,
-  launchRatePerSec: 1,
-  launchBurst: 3
-};
+const LIMITS: QuotaLimits = BROWSER_QUOTA_LIMITS;
+const { launchRatePerSec: RATE, launchBurst: BURST } = LIMITS;
 
 function snapshot(partial: Partial<QuotaSnapshot> = {}): QuotaSnapshot {
   return {
@@ -26,34 +22,34 @@ function snapshot(partial: Partial<QuotaSnapshot> = {}): QuotaSnapshot {
 
 describe('refillBucket', () => {
   it('starts full on first touch (lastRefillMs undefined)', () => {
-    const result = refillBucket({ tokens: 0, lastRefillMs: undefined }, 5_000, 1, 3);
+    const result = refillBucket({ tokens: 0, lastRefillMs: undefined }, 5_000, RATE, BURST);
     expect(result).toEqual({ tokens: 3, lastRefillMs: 5_000 });
   });
 
-  it('accrues one token per second at rate 1', () => {
-    const result = refillBucket({ tokens: 0, lastRefillMs: 1_000 }, 2_000, 1, 3);
-    expect(result.tokens).toBe(1);
+  it('accrues the launch rate in tokens per second', () => {
+    const result = refillBucket({ tokens: 0, lastRefillMs: 1_000 }, 2_000, RATE, BURST);
+    expect(result.tokens).toBe(3);
     expect(result.lastRefillMs).toBe(2_000);
   });
 
   it('accrues fractional tokens for sub-second elapsed', () => {
-    const result = refillBucket({ tokens: 0, lastRefillMs: 1_000 }, 1_500, 1, 3);
-    expect(result.tokens).toBeCloseTo(0.5, 6);
+    const result = refillBucket({ tokens: 0, lastRefillMs: 1_000 }, 1_500, RATE, BURST);
+    expect(result.tokens).toBeCloseTo(1.5, 6);
   });
 
   it('caps at the burst ceiling', () => {
-    const result = refillBucket({ tokens: 0, lastRefillMs: 1_000 }, 100_000, 1, 3);
+    const result = refillBucket({ tokens: 0, lastRefillMs: 1_000 }, 100_000, RATE, BURST);
     expect(result.tokens).toBe(3);
   });
 
   it('returns the same bucket reference when no time elapsed', () => {
     const bucket: TokenBucket = { tokens: 2, lastRefillMs: 1_000 };
-    expect(refillBucket(bucket, 1_000, 1, 3)).toBe(bucket);
+    expect(refillBucket(bucket, 1_000, RATE, BURST)).toBe(bucket);
   });
 
   it('does not refill on backward clock skew', () => {
     const bucket: TokenBucket = { tokens: 2, lastRefillMs: 2_000 };
-    expect(refillBucket(bucket, 1_000, 1, 3)).toBe(bucket);
+    expect(refillBucket(bucket, 1_000, RATE, BURST)).toBe(bucket);
   });
 });
 
@@ -78,21 +74,21 @@ describe('evaluateAcquire — bindings_launch', () => {
     const snap = snapshot({ bucket: { tokens: 0, lastRefillMs: 1_000 } });
     const decision = evaluateAcquire('bindings_launch', snap, LIMITS, 1_000);
     expect(decision.granted).toBe(false);
-    expect(decision.retryAfterMs).toBe(1_000); // need 1 full token at 1/sec
+    expect(decision.retryAfterMs).toBe(334); // need 1 full token at 3/sec
   });
 
   it('computes a partial-token retry from the deficit', () => {
     const snap = snapshot({ bucket: { tokens: 0.25, lastRefillMs: 1_000 } });
     const decision = evaluateAcquire('bindings_launch', snap, LIMITS, 1_000);
     expect(decision.granted).toBe(false);
-    expect(decision.retryAfterMs).toBe(750);
+    expect(decision.retryAfterMs).toBe(250);
   });
 
   it('grants once enough time has elapsed to refill a token', () => {
     const snap = snapshot({ bucket: { tokens: 0, lastRefillMs: 1_000 } });
     const decision = evaluateAcquire('bindings_launch', snap, LIMITS, 2_000);
     expect(decision.granted).toBe(true);
-    expect(decision.bucket.tokens).toBeCloseTo(0, 6);
+    expect(decision.bucket.tokens).toBeCloseTo(2, 6);
   });
 
   it('is not blocked by a saturated sandbox pool (pool isolation)', () => {
