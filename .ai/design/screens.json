@@ -24,7 +24,14 @@
       "slices": [],
       "created-at": "2026-11-07T21:31:52Z",
       "updated-at": "2026-11-07T21:31:52Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "b487e9e7fe3c057740a5e21947c9d8cef1833b22",
+          "version": "v1",
+          "at": "2026-11-07T21:39:47Z",
+          "workflow": "archive-tagging"
+        }
+      ]
     },
     "suggestion-menu": {
       "title": "Suggestion menu over the list",
@@ -37,7 +44,14 @@
       "slices": [],
       "created-at": "2026-11-07T21:31:52Z",
       "updated-at": "2026-11-07T21:31:52Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "b487e9e7fe3c057740a5e21947c9d8cef1833b22",
+          "version": "v1",
+          "at": "2026-11-07T21:39:47Z",
+          "workflow": "archive-tagging"
+        }
+      ]
     },
     "article-list-reviewed": {
       "title": "Article list after approve and dismiss",
@@ -50,7 +64,14 @@
       "slices": [],
       "created-at": "2026-11-07T21:31:53Z",
       "updated-at": "2026-11-07T21:31:53Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "b487e9e7fe3c057740a5e21947c9d8cef1833b22",
+          "version": "v1",
+          "at": "2026-11-07T21:39:47Z",
+          "workflow": "archive-tagging"
+        }
+      ]
     },
     "tag-sheet": {
       "title": "Tag sheet with Suggested and auto marks",
@@ -63,7 +84,14 @@
       "slices": [],
       "created-at": "2026-11-07T21:31:53Z",
       "updated-at": "2026-11-07T21:31:53Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "b487e9e7fe3c057740a5e21947c9d8cef1833b22",
+          "version": "v1",
+          "at": "2026-11-07T21:39:47Z",
+          "workflow": "archive-tagging"
+        }
+      ]
     }
   },
   "explore": {},
