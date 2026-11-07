@@ -82,7 +82,7 @@ set -euo pipefail
 # is the list the preflight reads; the deploy harness fails when this copy
 # differs from it:
 #   logger:        INTERNAL_API_KEY
-#   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY
+#   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY, HEALTH_ALERT_FROM, HEALTH_ALERT_TO
 #   workflow:      INTERNAL_API_KEY
 #   renderer:      INTERNAL_API_KEY, CF_ACCOUNT_ID, BR_API_TOKEN
 #   hyperrenderer: INTERNAL_API_KEY, HYPERBROWSER_API_KEY
@@ -469,7 +469,7 @@ time_after() {
 required_secrets_for() {
   case "$1" in
     logger)        echo "INTERNAL_API_KEY" ;;
-    gateway)       echo "INTERNAL_API_KEY PUBLIC_API_KEY" ;;
+    gateway)       echo "INTERNAL_API_KEY PUBLIC_API_KEY HEALTH_ALERT_FROM HEALTH_ALERT_TO" ;;
     workflow)      echo "INTERNAL_API_KEY" ;;
     renderer)      echo "INTERNAL_API_KEY CF_ACCOUNT_ID BR_API_TOKEN" ;;
     hyperrenderer) echo "INTERNAL_API_KEY HYPERBROWSER_API_KEY" ;;
