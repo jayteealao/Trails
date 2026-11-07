@@ -70,10 +70,15 @@ const KNOWN_WRANGLER_KEYS = new Set([
   'workflows',
   'browser',
   'containers',
-  'triggers'
+  'triggers',
+  'send_email'
 ]);
 
 const sorted = (xs) => [...xs].sort();
+
+// One send-email binding: its fixed destination and its allow-lists.
+const sendEmail = (destination, allowedDestinations, allowedSenders) =>
+  `send-email:${destination ?? ''}:${sorted(allowedDestinations ?? []).join(',')}:${sorted(allowedSenders ?? []).join(',')}`;
 
 // The common shape both configs reduce to.
 export function fromWrangler(w) {
@@ -100,6 +105,13 @@ export function fromWrangler(w) {
   for (const b of w.workflows ?? [])
     bindings[b.binding] = `workflow:${b.name}:${b.class_name}`;
   if (w.browser) bindings[w.browser.binding] = 'browser';
+  for (const b of w.send_email ?? []) {
+    bindings[b.name] = sendEmail(
+      b.destination_address,
+      b.allowed_destination_addresses,
+      b.allowed_sender_addresses
+    );
+  }
 
   const exportsOut = {};
   for (const m of w.migrations ?? []) {
@@ -162,6 +174,13 @@ export function fromCf(config) {
         break;
       case 'browser':
         bindings[name] = 'browser';
+        break;
+      case 'send-email':
+        bindings[name] = sendEmail(
+          b.destinationAddress,
+          b.allowedDestinationAddresses,
+          b.allowedSenderAddresses
+        );
         break;
       default:
         errors.push(

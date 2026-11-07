@@ -107,6 +107,12 @@ test('a cron changed in one file is reported', async () => {
   assert.match(diff(wrangler, cf).join('\n'), /crons:/);
 });
 
+test('a send-email destination set in one file is reported', async () => {
+  const { wrangler, cf } = await load('gateway');
+  wrangler.send_email[0].destination_address = 'owner@example.com';
+  assert.match(diff(wrangler, cf).join('\n'), /bindings\.HEALTH_EMAIL:/);
+});
+
 test('a compatibility date or flag that differs is reported', async () => {
   const { wrangler, cf } = await load('singlefile');
   wrangler.compatibility_date = '2026-01-01';
