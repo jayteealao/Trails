@@ -94,8 +94,7 @@ function shouldMarkIncompleteFromDiagnostics(
   diagnostics: RequestDiagnostics | undefined
 ): boolean {
   if (!diagnostics?.degraded) return false;
-  const degradedSteps = diagnostics.degradedSteps ?? [];
-  return degradedSteps.includes('monolith');
+  return (diagnostics.degradedSteps?.length ?? 0) > 0;
 }
 
 function isArtifactKind(value: string): value is ArtifactRecord['kind'] {
@@ -246,7 +245,7 @@ function extractDomain(url: string): string {
 /**
  * Apply a single event to a mutable DerivedSummary in-place.
  * Encapsulates the stage machine, terminal flags, errorCount, lastEventTs,
- * diagnostics update, and the degraded-monolith incomplete override.
+ * diagnostics update, and the degraded incomplete override.
  * Pure with respect to storage — no SQL side-effects.
  */
 function applyEventToDerived(derived: DerivedSummary, event: LogEvent): void {
