@@ -1410,6 +1410,52 @@ describe('Logger HTTP service routing (dual-read)', () => {
     expect((after.byStage.rendering ?? 0) - (before.byStage.rendering ?? 0)).toBe(1);
   });
 
+  function servicePost(path: string, body: unknown): Promise<Response> {
+    return SELF.fetch(`https://logger.internal${path}`, {
+      method: 'POST',
+      headers: { 'X-Internal-API-Key': API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+
+  it('GET /health/kinds — gathers the requested steps and archive times of recent requests', async () => {
+    const requestId = `svc-health-${crypto.randomUUID()}`;
+    expect((await servicePost('/request/init', { requestId, url: 'https://example.com/health' })).status).toBe(201);
+    await servicePost('/event', {
+      requestId,
+      event: infoEvent('workflow.started', 'Workflow started', { requestedSteps: ['render'] })
+    });
+    await servicePost('/event', {
+      requestId,
+      event: infoEvent('artifact.written', 'Artifact written: rendered.html', {
+        kind: 'rendered.html',
+        r2Key: `archives/${requestId}/raw/rendered.html`,
+        bytes: 100,
+        contentType: 'text/html',
+        sha256: 'sha-health'
+      })
+    });
+
+    const res = await serviceGet('/health/kinds?hours=2');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { since: string; buckets: number; rows: KindHealthRow[] };
+    expect(body.buckets).toBeGreaterThanOrEqual(1);
+    const rows = body.rows.filter((row) => row.requestId === requestId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.requestedSteps).toEqual(['render']);
+    expect(rows[0]?.artifacts).toHaveLength(1);
+    expect(rows[0]?.artifacts[0]?.kind).toBe('rendered.html');
+    const age = Date.now() - Date.parse(rows[0]!.artifacts[0]!.createdAt);
+    expect(age).toBeGreaterThanOrEqual(-1_000);
+    expect(age).toBeLessThan(60_000);
+  });
+
+  it.each(['0', '73', 'x'])('GET /health/kinds — refuses hours=%s', async (hours) => {
+    const res = await serviceGet(`/health/kinds?hours=${hours}`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'hours must be an integer from 1 to 72' });
+  });
+
   it('POST /requests/batch — shows the code of a rejected storage key or browser token', async () => {
     const now = new Date().toISOString();
     const codes = ['R2_CREDENTIAL_INVALID', 'BROWSER_TOKEN_INVALID'];
