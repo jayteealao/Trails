@@ -96,6 +96,8 @@ export interface RendererParams {
   include_markdown?: boolean;
   /** The run whose earlier attempts the renderer may reuse. */
   reuse_scope?: string;
+  /** True on the first attempt of the render step, when there is nothing to reuse yet. */
+  first_attempt?: boolean;
 }
 
 /**

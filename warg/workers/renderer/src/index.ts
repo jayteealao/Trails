@@ -195,7 +195,7 @@ export default {
       // Artifacts that an earlier attempt of this run already stored are listed again, not loaded again.
       const flags: RenderFlags = { includeScreenshot, includePdf, includeMarkdown };
       const reused = new Map<ArtifactKind, ArtifactMeta>();
-      if (reuseScope) {
+      if (reuseScope && body.first_attempt !== true) {
         const found = await Promise.all(
           requestedKinds(flags).map((kind) => findReusableArtifact(env.ARCHIVE_BUCKET, request_id, kind, reuseScope))
         );

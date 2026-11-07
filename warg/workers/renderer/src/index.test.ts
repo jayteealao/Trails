@@ -585,6 +585,22 @@ describe('a retry of the same run', () => {
     expect(kinds(second.body)).toEqual(['rendered.html', 'screenshot.png', 'page.pdf', 'rendered.md']);
   });
 
+  it('never reads the bucket head on the first attempt, and still marks what it stores for a retry', async () => {
+    const bucket = memoryBucket();
+
+    const { response } = await render(
+      [snapshotAnswer({ content: NORMAL_ARTICLE_PAGE, screenshot: PNG_BASE64 })],
+      { ...RETRY, include_screenshot: true, first_attempt: true },
+      AUTH,
+      bucket,
+    );
+
+    expect(response.status).toBe(200);
+    expect(bucket.head).not.toHaveBeenCalled();
+    const stored = [...bucket.objects].find(([key]) => key.endsWith('/rendered.html'))?.[1];
+    expect(stored?.customMetadata?.reuseScope).toBe('run-1');
+  });
+
   it('never reads the bucket head without a reuse scope', async () => {
     const bucket = memoryBucket();
     await seed(bucket, 'rendered.html', 'run-1');

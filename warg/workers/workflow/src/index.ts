@@ -979,7 +979,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           retries: { limit: 3, delay: '10 seconds', backoff: 'exponential' },
           timeout: '5 minutes'
         },
-        async () => {
+        async (ctx) => {
           return await callRendererWith403Fallback(this.env, {
             request_id: requestId,
             url,
@@ -988,7 +988,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             include_pdf: options.includePdf,
             include_markdown: options.includeMarkdown ?? true,
             // Every attempt of this step shares the run id, so a retry reuses what an earlier attempt stored.
-            reuse_scope: reuseScope
+            reuse_scope: reuseScope,
+            first_attempt: ctx.attempt === 1
           });
         }
       );

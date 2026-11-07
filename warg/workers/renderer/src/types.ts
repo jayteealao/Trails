@@ -21,6 +21,12 @@ export interface RenderRequest {
    * attempt of this run stored is listed again instead of being loaded again.
    */
   reuse_scope?: string;
+  /**
+   * True on the first attempt of the step: no earlier attempt can have stored
+   * anything, so the renderer skips the reuse lookups. Artifacts are still
+   * marked with `reuse_scope` for a later attempt.
+   */
+  first_attempt?: boolean;
 }
 
 /**
