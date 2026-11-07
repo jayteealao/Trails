@@ -338,6 +338,7 @@ function looksLikeRendererContentFailurePayload(payload: unknown): boolean {
   const error = record.error;
   if (typeof error !== 'string') return false;
 
+  // The renderer's failure text for any failed page load (content or snapshot); change both sides together.
   return error.includes('Browser Rendering /content failed');
 }
 

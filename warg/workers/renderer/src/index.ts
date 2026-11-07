@@ -236,6 +236,8 @@ export default {
             JSON.stringify({ request_id, action, status: pageResp.status })
           );
           // Stays 502: a 401/403 from this worker would read as a blocked target page.
+          // The error text is a contract with the workflow's fallback (workflow services.ts) and covers
+          // content and snapshot loads alike: change both sides together.
           return Response.json(
             {
               error: 'Browser Rendering /content failed',
