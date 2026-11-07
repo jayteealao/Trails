@@ -16,6 +16,9 @@ const ARTICLE_URL = 'https://article.example/post';
 // The target URL that the stubs of vitest.runtime.config.ts answer with a rejected credential.
 const R2_REJECTED_URL = 'https://r2-rejected.example/article';
 
+// The target URL whose first PDF load the browser stand-in of vitest.runtime.config.ts rate-limits.
+const RETRY_URL = 'https://retry.example/article';
+
 interface RequestStatus {
   derived: {
     stage: string;
@@ -333,5 +336,57 @@ describe('credential failures', () => {
     expect(status.derived.diagnostics?.degradedSteps).toEqual(['monolith']);
     expect(status.derived.diagnostics?.errorCode).toBe('R2_CREDENTIAL_INVALID');
     expect(failedStepCodes(status, 'monolith')).toContain('R2_CREDENTIAL_INVALID');
+  });
+});
+
+describe('render step retry', () => {
+  beforeAll(async () => {
+    await applyD1Migrations(env.INDEX_DB, env.TEST_MIGRATIONS);
+  });
+
+  /** The actions the browser stand-in recorded for a URL, one entry per call. */
+  async function recordedLoads(url: string): Promise<string[]> {
+    const prefix = `stand-in-calls/${encodeURIComponent(url)}/`;
+    const listed = await env.ARCHIVE_BUCKET.list({ prefix });
+    return listed.objects.map((object) => object.key.slice(prefix.length).split('/')[0] ?? '').sort();
+  }
+
+  it('completes a retried render with one load of each kind and one copy of each artifact', async () => {
+    const id = newRequestId();
+    await using _instance = await startRun(
+      id,
+      { steps: ['render'], includeScreenshot: true, includePdf: true },
+      (m) => grantLease(m, 'render'),
+      RETRY_URL
+    );
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('done');
+
+    // The first attempt loads the snapshot and is rate limited on the PDF; the retry loads only the PDF.
+    expect(await recordedLoads(RETRY_URL)).toEqual(['pdf', 'pdf', 'snapshot']);
+
+    const stored = await env.ARCHIVE_BUCKET.list({ prefix: `archives/${id}/raw/` });
+    expect(stored.objects.map((object) => object.key.split('/').pop()).sort()).toEqual([
+      'page.pdf',
+      'rendered.html',
+      'rendered.md',
+      'screenshot.png'
+    ]);
+
+    const written = status.events
+      .filter((event) => event.type === 'artifact.written')
+      .map((event) => event.data?.kind)
+      .sort();
+    expect(written).toEqual(['page.pdf', 'rendered.html', 'rendered.md', 'screenshot.png']);
+
+    const renderCompleted = status.events.find(
+      (event) => event.type === 'step.completed' && event.data?.step === 'render'
+    );
+    expect(renderCompleted?.data?.meta).toMatchObject({
+      reused: ['rendered.html', 'screenshot.png', 'rendered.md']
+    });
   });
 });
