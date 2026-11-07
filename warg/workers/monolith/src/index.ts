@@ -11,7 +11,7 @@ import {
   SANDBOX_OUTPUT_PATH
 } from './monolith-command.js';
 import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-presign.js';
-import { isRpc32MiBLimit } from './failure-classify.js';
+import { isR2CredentialRejection, isRpc32MiBLimit } from './failure-classify.js';
 
 /**
  * Sandbox DO binding with a 5m `sleepAfter` backstop (the upstream default
@@ -69,8 +69,23 @@ function normalizeSandboxId(requestId: string): string {
   return `${base}-${suffix}`;
 }
 
+/**
+ * R2 refused the worker's storage key. Answered with 502, not 401/403, which
+ * would read as a blocked target page; not retryable, as a retry cannot fix a key.
+ */
+function r2CredentialError(): MonolithServiceError {
+  return new MonolithServiceError(
+    'R2 rejected the storage credential of the presigned URL (HTTP 403)',
+    'R2_CREDENTIAL_INVALID',
+    502,
+    false
+  );
+}
+
 function classifySandboxFailure(stderr: string, stdout: string): MonolithServiceError {
   const message = `${stderr}\n${stdout}`.toLowerCase();
+
+  if (isR2CredentialRejection(message)) return r2CredentialError();
 
   if (isRpc32MiBLimit(message)) {
     return new MonolithServiceError(
@@ -255,6 +270,7 @@ export async function runMonolithInSandbox(
           exitCode: curl.exitCode,
           stderr: curl.stderr.slice(0, 500)
         });
+        if (isR2CredentialRejection(curl.stderr)) throw r2CredentialError();
       }
     }
 
