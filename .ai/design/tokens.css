@@ -1,0 +1,43 @@
+/* From the token roles of DESIGN.md. wf.mjs design tokens writes this file; do not edit it. */
+:root {
+  --ground: #F5FBFF;
+  --ground-dark: #00111F;
+  --surface: #FFFFFF;
+  --surface-dark: #001B33;
+  --surface-variant: #E5F4FD;
+  --surface-variant-dark: #0F2A45;
+  --text: #03045E;
+  --text-dark: #CAF0F8;
+  --text-secondary: #023E8A;
+  --text-secondary-dark: #B7CCE0;
+  --accent: #023E8A;
+  --accent-dark: #00B4D8;
+  --on-accent: #FFFFFF;
+  --on-accent-dark: #03045E;
+  --accent-container: #CAF0F8;
+  --accent-container-dark: #005D85;
+  --chip-applied: #D7E0EC;
+  --chip-applied-dark: #00344D;
+  --border: #B7CCE0;
+  --border-dark: #20374E;
+  --outline: #51708A;
+  --focus: #0077B6;
+  --focus-dark: #56C7E5;
+  --scrim: #00111F99;
+  --error: #BA1A1A;
+  --error-dark: #FFB4AB;
+  --font-body: Roboto, system-ui, sans-serif;
+  --font-display: Piazzolla, Georgia, serif;
+  --font-script: Norican, cursive;
+  --text-sm: 13px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --shadow-raised: 0 2px 8px #00111F33;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
+}
