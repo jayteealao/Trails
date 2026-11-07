@@ -242,7 +242,11 @@ hyperrenderer, singlefile and readability) emit Cloudflare Workers traces: both
 config files of each set `observability.traces.enabled`, and
 `scripts/check-worker-configs.mjs` fails when the two files differ or when one
 of the six drops it. Logger, monolith and gcs are not traced; a call into them
-shows as a fetch span of the Worker that calls them. Every request is sampled
+shows as a fetch span of the Worker that calls them. Every Worker of an archive
+calls the logger for each event, so tracing it would multiply the spans of each
+archive without adding a hop. To follow a failure inside one of the three,
+read its Workers Logs, or add `traces: { enabled: true }` to both of its config
+files and its name to `TRACED_WORKERS`. Every request is sampled
 (the platform default). Traces are kept for seven days, and from 2026-12-01
 they count toward Cloudflare Observability usage.
 
