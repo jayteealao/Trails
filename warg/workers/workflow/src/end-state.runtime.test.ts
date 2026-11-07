@@ -3,7 +3,7 @@ import type { WorkflowInstanceIntrospector, WorkflowInstanceModifier } from 'clo
 import { env } from 'cloudflare:workers';
 import { getR2Key } from '@warg/shared';
 import type { ArtifactKind, ArtifactMeta } from '@warg/shared';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ArchiveOptionsExtended } from './types.js';
 
 const URL_UNDER_TEST = 'https://example.com/article';
@@ -84,6 +84,18 @@ async function startRun(
   return instance;
 }
 
+/** Waits for the run to finish, so a run that ends the wrong way fails on its status. */
+async function waitForEnd(requestId: string): Promise<string> {
+  const instance = await env.ARCHIVE_WORKFLOW.get(requestId);
+  await vi.waitFor(
+    async () => {
+      expect(['complete', 'errored', 'terminated']).toContain((await instance.status()).status);
+    },
+    { timeout: 20_000, interval: 50 }
+  );
+  return (await instance.status()).status;
+}
+
 describe('end state of an archive run', () => {
   beforeAll(async () => {
     await applyD1Migrations(env.INDEX_DB, env.TEST_MIGRATIONS);
@@ -100,5 +112,44 @@ describe('end state of an archive run', () => {
     expect(status.derived.stage).toBe('incomplete');
     expect(status.derived.terminal).toBe(true);
     expect(status.derived.diagnostics?.degradedSteps).toEqual(['readability']);
+  });
+
+  async function expectNoOutputsFailure(requestId: string, instance: WorkflowInstanceIntrospector) {
+    expect(await waitForEnd(requestId)).toBe('errored');
+
+    const error = await instance.getError();
+    expect(error.message).toContain('No requested outputs were produced');
+
+    const status = await readStatus(requestId);
+    expect(status.derived.stage).toBe('failed');
+    expect(status.derived.diagnostics?.errorCode).toBe('NO_OUTPUTS_PRODUCED');
+  }
+
+  it('fails the run when the only requested step fails beside a leftover singlefile', async () => {
+    const id = newRequestId();
+    await seedLeftover(id, 'singlefile.html');
+
+    await using instance = await startRun(id, { steps: ['monolith'] });
+
+    await expectNoOutputsFailure(id, instance);
+  });
+
+  it('fails the run when the only requested step fails beside leftover render and readability', async () => {
+    const id = newRequestId();
+    await seedLeftover(id, 'rendered.html');
+    await seedLeftover(id, 'readability.json');
+
+    await using instance = await startRun(id, { steps: ['monolith'] });
+
+    await expectNoOutputsFailure(id, instance);
+  });
+
+  it('fails the run when every default step fails beside a leftover rendered page', async () => {
+    const id = newRequestId();
+    await seedLeftover(id, 'rendered.html');
+
+    await using instance = await startRun(id, {});
+
+    await expectNoOutputsFailure(id, instance);
   });
 });

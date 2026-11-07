@@ -75,7 +75,9 @@ export default defineConfig(async () => {
       })
     ],
     test: {
-      include: ['src/**/*.runtime.test.ts']
+      include: ['src/**/*.runtime.test.ts'],
+      // A run that retries its failing services takes several seconds.
+      testTimeout: 30_000
     }
   };
 });
