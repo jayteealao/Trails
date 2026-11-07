@@ -7,9 +7,15 @@ vi.mock('@cloudflare/puppeteer', () => ({ default: { launch: vi.fn() } }));
 
 const KEY = 'test-internal-key';
 const TARGET_URL = 'https://example.com/a';
+// A SingleFile capture of a Cloudflare challenge: SingleFile drops scripts, the challenge markup stays.
+const CAPTURED_CHALLENGE_PAGE =
+  '<html><head><title>Just a moment...</title></head><body>' +
+  '<h1 id="challenge-title">example.com</h1>' +
+  '<p id="challenge-body-1">Verifying you are human. This may take a few seconds.</p>' +
+  '<div id="challenge-error-text"></div></body></html>';
 
 /** A puppeteer page whose navigation answers `status`, or `null` when `status` is undefined. */
-function fakePage(status: number | undefined) {
+function fakePage(status: number | undefined, captured = 'x'.repeat(200)) {
   return {
     setDefaultTimeout: vi.fn(),
     on: vi.fn(),
@@ -21,12 +27,12 @@ function fakePage(status: number | undefined) {
       .mockResolvedValueOnce(undefined) // scroll script
       .mockResolvedValueOnce(undefined) // SingleFile script
       .mockResolvedValueOnce(true) // availability check
-      .mockResolvedValueOnce({ content: 'x'.repeat(200) }), // capture
+      .mockResolvedValueOnce({ content: captured }), // capture
   };
 }
 
-async function runCapture(status: number | undefined) {
-  const page = fakePage(status);
+async function runCapture(status: number | undefined, captured?: string) {
+  const page = fakePage(status, captured);
   const browser = { newPage: async () => page, close: vi.fn().mockResolvedValue(undefined) };
   vi.mocked(puppeteer.launch).mockResolvedValue(
     // The handler only calls newPage() and close() on the browser.
@@ -74,5 +80,19 @@ describe('singlefile navigation status', () => {
     expect(response.status).toBe(200);
     expect(bucket.put).toHaveBeenCalledOnce();
     expect(bucket.put.mock.calls[0]?.[0]).toBe(getR2Key('req-1', 'singlefile.html'));
+  });
+});
+
+describe('singlefile challenge page', () => {
+  beforeEach(() => {
+    vi.mocked(puppeteer.launch).mockReset();
+  });
+
+  it('refuses to store a challenge page that the target served with HTTP 200', async () => {
+    const { response, bucket } = await runCapture(200, CAPTURED_CHALLENGE_PAGE);
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ reason: 'access_blocked', url: TARGET_URL });
+    expect(bucket.put).not.toHaveBeenCalled();
   });
 });

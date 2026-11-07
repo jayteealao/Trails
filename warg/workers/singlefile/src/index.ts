@@ -1,5 +1,5 @@
 import puppeteer from '@cloudflare/puppeteer';
-import { accessBlockedResponse, storeArtifact, timingSafeEqual } from '@warg/shared';
+import { accessBlockedResponse, isChallengePage, storeArtifact, timingSafeEqual } from '@warg/shared';
 import { SINGLEFILE_SCRIPT, SINGLEFILE_HOOK } from './singlefile-bundle.js';
 import type {
   SinglefileRequest,
@@ -362,6 +362,11 @@ export default {
         }
 
         console.log('[singlefile] Capture complete, content length:', content.length);
+
+        if (isChallengePage(content)) {
+          console.warn('[singlefile] Target served a challenge page:', targetUrl);
+          return accessBlockedResponse(targetUrl);
+        }
 
         // Step 5: Store artifact
         console.log('[singlefile] Storing artifact...');
