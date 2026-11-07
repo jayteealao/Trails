@@ -577,6 +577,42 @@ describe('LoggerDO', () => {
       expect(view?.derived.diagnostics?.degradedSteps).toEqual(['monolith']);
     });
 
+    describe.each(['workflow.completed', 'request.done'] as const)('stage after %s', (type) => {
+      it.each(['render', 'singlefile', 'readability', 'monolith'])(
+        'is incomplete when %s degraded',
+        async (step) => {
+          const requestId = `test-${crypto.randomUUID()}`;
+          const stub = getStub('bucket:2026060912');
+
+          await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+          await stub.appendEvent(requestId, infoEvent(type, 'Finished with a degraded step', {
+            degraded: true,
+            degradedSteps: [step],
+          }));
+
+          const view = await stub.getRequestView(requestId);
+          expect(view?.derived.stage).toBe('incomplete');
+          expect(view?.derived.terminal).toBe(true);
+          expect(view?.derived.diagnostics?.degradedSteps).toEqual([step]);
+        }
+      );
+
+      it('is done when no step degraded', async () => {
+        const requestId = `test-${crypto.randomUUID()}`;
+        const stub = getStub('bucket:2026060912');
+
+        await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+        await stub.appendEvent(requestId, infoEvent(type, 'Finished cleanly', {
+          degraded: false,
+          degradedSteps: [],
+        }));
+
+        const view = await stub.getRequestView(requestId);
+        expect(view?.derived.stage).toBe('done');
+        expect(view?.derived.terminal).toBe(true);
+      });
+    });
+
     it('treats workflow.failed as terminal fallback and allows retry to reopen stage', async () => {
       const requestId = `test-${Date.now()}-5c`;
       const stub = getStub('bucket:2026060912');
