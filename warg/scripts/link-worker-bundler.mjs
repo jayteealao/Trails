@@ -1,6 +1,6 @@
 // Links the workspace's wrangler into each worker's own node_modules.
 //
-// `cf deploy` (cf 1.0.0-beta.17, its project-discovery step) looks for the
+// `cf deploy` (cf 1.0.0-beta.28, its project-discovery step) looks for the
 // Wrangler bundler only at `<worker dir>/node_modules/wrangler` and does not
 // walk up to the workspace root. This workspace installs with
 // `node-linker=hoisted`, so pnpm puts wrangler only in the root node_modules.

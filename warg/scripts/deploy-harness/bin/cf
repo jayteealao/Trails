@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stub of the cf CLI for scripts/deploy-harness/run.sh. Answers with the JSON
-# shapes cf 1.0.0-beta.17 prints, with synthetic ids. Scenario variables hold
+# shapes cf 1.0.0-beta.28 prints, with synthetic ids. Scenario variables hold
 # space-separated lists:
 #   H_SECRETS_FAIL=<w>             `workers secrets list` exits 1
 #   H_SECRETS_MISSING=<w>:<NAME>   the listing omits that secret
