@@ -1,4 +1,5 @@
 import { bindings, defineConfig, defineContainer, exports } from "cf/config";
+import { COMPATIBILITY_DATE } from "../compatibility-date.mjs";
 
 // The container application keeps the name wrangler derived for it
 // (`<worker name>-<class_name>`, lower-cased), so the deploy updates the live
@@ -17,7 +18,7 @@ const sandbox = defineContainer({
 export default defineConfig({
 	worker: {
 		name: "monolith",
-		compatibilityDate: "2025-01-01",
+		compatibilityDate: COMPATIBILITY_DATE,
 		compatibilityFlags: [
 			"nodejs_compat",
 		],
