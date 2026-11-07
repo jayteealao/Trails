@@ -505,7 +505,7 @@ new app release on the phone:
 ## Structure
 
 - `workers/` - Cloudflare Workers
-  - `gateway/` - Public API (POST /begin, GET /status/:id) + cron sweeps
+  - `gateway/` - Public API (POST /begin, GET /status/:id) + cron sweeps + the daily archive health email
   - `workflow/` - Orchestration workflow + browser/sandbox quota DO
   - `renderer/` - Browser rendering
   - `singlefile/` - SingleFile HTML extraction
