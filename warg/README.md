@@ -219,8 +219,10 @@ The email names each kind that needs attention, its success count and its last
 success. Look in this order:
 
 1. The dashboard overview: the stage counts and the error codes of recent
-   requests. `BROWSER_TOKEN_INVALID` or `R2_CREDENTIAL_INVALID` means a dead
-   credential, `ACCESS_BLOCKED` means sites refuse the fetch.
+   requests. `R2_CREDENTIAL_INVALID` means a dead credential, `ACCESS_BLOCKED`
+   means sites refuse the fetch. `BROWSER_TOKEN_INVALID` appears only on
+   requests from before the renderer moved to its browser binding, which needs
+   no token.
 2. The gateway logs, from `workers/gateway`:
    `pnpm exec wrangler tail gateway --search "kind health"` while you re-measure
    (step 3). The `[gateway] kind health:` line holds the numbers of each kind.

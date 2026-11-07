@@ -145,6 +145,7 @@ function classifyRenderFailureFromBody(
   const record = parsed as Record<string, unknown>;
   if (!looksLikeRendererContentFailurePayload(record)) return undefined;
 
+  // No renderer sends this reason any more; kept so an answer from a renderer version before the browser binding still classifies.
   if (record.reason === BROWSER_TOKEN_INVALID_REASON) return credentialFailure('BROWSER_TOKEN_INVALID');
 
   if (containsRendererNetworkClosed5006(record.details)) {

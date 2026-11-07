@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isBrowserRenderingAuthError, isChallengePage, isProxyErrorPage } from './render-content.js';
+import { isChallengePage, isProxyErrorPage } from './render-content.js';
 import {
   ARTICLE_ABOUT_CHALLENGES,
   CLOUDFLARE_CHALLENGE_PAGE,
@@ -155,29 +155,6 @@ describe('isChallengePage', () => {
       NORMAL_ARTICLE_PAGE,
     ];
     for (const page of pages) expect(isProxyErrorPage(page)).toBe(false);
-  });
-});
-
-// The answer of the Browser Rendering API to a bogus token, read on 2026-11-07.
-const REJECTED_TOKEN_BODY =
-  '{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}';
-
-describe('isBrowserRenderingAuthError', () => {
-  it.each([
-    [401, REJECTED_TOKEN_BODY],
-    [403, REJECTED_TOKEN_BODY],
-    [403, '{"errors":[{"code":9109,"message":"Invalid access token"}]}'],
-  ])('reads HTTP %i with an authentication error body as a rejected token', (status, body) => {
-    expect(isBrowserRenderingAuthError(status, body)).toBe(true);
-  });
-
-  it.each([
-    [500, REJECTED_TOKEN_BODY],
-    [401, 'Unauthorized'],
-    [403, '{"errors":[{"code":5006,"message":"network closed"}]}'],
-    [429, REJECTED_TOKEN_BODY],
-  ])('does not read HTTP %i with body %s as a rejected token', (status, body) => {
-    expect(isBrowserRenderingAuthError(status, body)).toBe(false);
   });
 });
 
