@@ -1,9 +1,9 @@
 // Checks that each worker's two configs agree.
 //
 // `cf deploy` reads workers/<w>/cloudflare.config.ts; `wrangler dev` and
-// `wrangler types` still read workers/<w>/wrangler.jsonc. A binding, Durable
-// Object class, cron trigger or compatibility setting changed in one file and
-// not the other either breaks local dev and the generated types, or ships a
+// `wrangler types` still read workers/<w>/wrangler.jsonc. A binding, required
+// secret, Durable Object class, cron trigger or compatibility setting changed
+// in one file and not the other either breaks local dev and the generated types, or ships a
 // worker that differs from what was tested. This script loads both files for
 // every worker that has a cloudflare.config.ts, reduces each to the same
 // shape, and exits 1 on any difference.
@@ -71,7 +71,8 @@ const KNOWN_WRANGLER_KEYS = new Set([
   'browser',
   'containers',
   'triggers',
-  'send_email'
+  'send_email',
+  'secrets'
 ]);
 
 const sorted = (xs) => [...xs].sort();
@@ -105,6 +106,14 @@ export function fromWrangler(w) {
   for (const b of w.workflows ?? [])
     bindings[b.binding] = `workflow:${b.name}:${b.class_name}`;
   if (w.browser) bindings[w.browser.binding] = 'browser';
+  for (const name of w.secrets?.required ?? []) bindings[name] = 'secret';
+  for (const key of Object.keys(w.secrets ?? {})) {
+    if (key !== 'required') {
+      errors.push(
+        `wrangler.jsonc secrets key "${key}" is not compared by this check; extend scripts/check-worker-configs.mjs`
+      );
+    }
+  }
   for (const b of w.send_email ?? []) {
     bindings[b.name] = sendEmail(
       b.destination_address,
@@ -174,6 +183,9 @@ export function fromCf(config) {
         break;
       case 'browser':
         bindings[name] = 'browser';
+        break;
+      case 'secret':
+        bindings[name] = 'secret';
         break;
       case 'send-email':
         bindings[name] = sendEmail(
