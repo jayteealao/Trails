@@ -175,3 +175,34 @@ export function accessBlockedResponse(url: string, navigationStatus?: number): R
     { status: 403 },
   );
 }
+
+/** Reason a worker gives when Browser Rendering rejected its API token. */
+export const BROWSER_TOKEN_INVALID_REASON = 'browser_token_invalid';
+
+/** Cloudflare API error codes for a rejected or missing token. */
+const AUTH_ERROR_CODES = new Set([10000, 9109]);
+const AUTH_ERROR_MESSAGE = /authentication error|invalid (?:api |access )?token/i;
+
+function isAuthErrorEntry(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const code = 'code' in entry ? Number(entry.code) : Number.NaN;
+  const message = 'message' in entry && typeof entry.message === 'string' ? entry.message : '';
+  return AUTH_ERROR_CODES.has(code) || AUTH_ERROR_MESSAGE.test(message);
+}
+
+/**
+ * True when a Browser Rendering REST answer rejects the API token itself
+ * (401/403 with a Cloudflare authentication error), not the target page.
+ */
+export function isBrowserRenderingAuthError(status: number, body: string): boolean {
+  if (status !== 401 && status !== 403) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // Not a Cloudflare API error body, so not a token rejection.
+    return false;
+  }
+  if (typeof parsed !== 'object' || parsed === null || !('errors' in parsed)) return false;
+  return Array.isArray(parsed.errors) && parsed.errors.some(isAuthErrorEntry);
+}

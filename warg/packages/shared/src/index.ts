@@ -59,6 +59,8 @@ export {
   isChallengePage,
   ACCESS_BLOCKED_REASON,
   accessBlockedResponse,
+  isBrowserRenderingAuthError,
+  BROWSER_TOKEN_INVALID_REASON,
 } from './render-content.js';
 
 export type { ArtifactBucket } from './artifacts.js';
