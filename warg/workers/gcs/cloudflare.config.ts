@@ -13,6 +13,10 @@ export default defineConfig({
 			enabled: true,
 		},
 		env: {
+			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+			INTERNAL_API_KEY: bindings.secret(),
+			ARCHIVE_GATEWAY_KEY: bindings.secret(),
+			CLOUD_FN_BASE_URL: bindings.secret(),
 			ARCHIVE_BUCKET: bindings.r2({
 				name: "warg-archives",
 			}),
