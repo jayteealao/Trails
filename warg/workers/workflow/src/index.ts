@@ -982,7 +982,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           return await callRendererWith403Fallback(this.env, {
             request_id: requestId,
             url,
-            browser_quota_kind: 'rest_request',
+            browser_quota_kind: 'bindings_launch',
             include_screenshot: options.includeScreenshot,
             include_pdf: options.includePdf,
             include_markdown: options.includeMarkdown ?? true
