@@ -15,6 +15,9 @@ export default defineConfig({
 			enabled: true,
 		},
 		env: {
+			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+			INTERNAL_API_KEY: bindings.secret(),
+			HYPERBROWSER_API_KEY: bindings.secret(),
 			HYPERBROWSER_BASE_URL: bindings.text("https://api.hyperbrowser.ai"),
 			HYPERBROWSER_STEALTH: bindings.text("auto"),
 			HYPERBROWSER_WAIT_UNTIL: bindings.text("load"),

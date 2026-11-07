@@ -18,7 +18,9 @@
   },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
-  ]
+  ],
+  // Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+  "secrets": { "required": ["INTERNAL_API_KEY", "HYPERBROWSER_API_KEY"] }
 }
 // Secrets (via `wrangler secret put`):
 // - INTERNAL_API_KEY: shared key for internal worker auth
