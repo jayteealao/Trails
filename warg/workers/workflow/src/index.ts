@@ -353,7 +353,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         markCheckpointStepStarted(checkpoint, 'render', { resumed: resumeEnabled });
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
 
-        renderResult = await this.renderWithQuota(step, request_id, url, normalizedOptions);
+        renderResult = await this.renderWithQuota(step, request_id, url, normalizedOptions, event.instanceId);
         recordArtifacts(checkpoint, 'render', renderResult.artifacts);
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
         markRequestedStepSucceeded('render');
@@ -943,7 +943,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     step: WorkflowStep,
     requestId: string,
     url: string,
-    options: ArchiveOptionsExtended
+    options: ArchiveOptionsExtended,
+    reuseScope: string
   ): Promise<RenderStepResult> {
     // Acquire quota (sleep-reschedule between denied attempts)
     const { leaseId } = await acquireQuotaWithSleep(
@@ -985,7 +986,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             browser_quota_kind: 'bindings_launch',
             include_screenshot: options.includeScreenshot,
             include_pdf: options.includePdf,
-            include_markdown: options.includeMarkdown ?? true
+            include_markdown: options.includeMarkdown ?? true,
+            // Every attempt of this step shares the run id, so a retry reuses what an earlier attempt stored.
+            reuse_scope: reuseScope
           });
         }
       );
