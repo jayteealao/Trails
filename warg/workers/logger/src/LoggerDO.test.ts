@@ -1294,4 +1294,27 @@ describe('Logger HTTP service routing (dual-read)', () => {
     const res = await servicePatch(`/request/${requestId}`, { manifestR2Key: 'some/key' });
     expect(res.status).toBe(404);
   });
+
+  it('GET /stats — an incomplete request counts in its stage, not as active', async () => {
+    interface Stats { activeCount: number; byStage: Record<string, number> }
+    const readStats = async (): Promise<Stats> => {
+      const res = await serviceGet('/stats');
+      expect(res.status).toBe(200);
+      return (await res.json()) as Stats;
+    };
+    const before = await readStats();
+
+    const now = new Date().toISOString();
+    for (const stage of ['incomplete', 'rendering']) {
+      await env.INDEX_DB.prepare(
+        `INSERT INTO requests_index (request_id, url, domain, created_at, updated_at, stage)
+         VALUES (?, 'https://example.com/stats', 'example.com', ?, ?, ?)`
+      ).bind(`svc-stats-${stage}-${crypto.randomUUID()}`, now, now, stage).run();
+    }
+
+    const after = await readStats();
+    expect(after.activeCount - before.activeCount).toBe(1);
+    expect((after.byStage.incomplete ?? 0) - (before.byStage.incomplete ?? 0)).toBe(1);
+    expect((after.byStage.rendering ?? 0) - (before.byStage.rendering ?? 0)).toBe(1);
+  });
 });

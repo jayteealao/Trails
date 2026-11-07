@@ -720,7 +720,8 @@ async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
     byStage[stage] = row.count;
     if (stage === 'done') doneCount = row.count;
     else if (stage === 'failed') failedCount = row.count;
-    else activeCount += row.count;
+    // An incomplete request has finished; it is not active.
+    else if (stage !== 'incomplete') activeCount += row.count;
   }
 
   const terminal = doneCount + failedCount;
