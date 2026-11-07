@@ -8,13 +8,23 @@
 // every worker that has a cloudflare.config.ts, reduces each to the same
 // shape, and exits 1 on any difference.
 //
+// Both files must also carry the shared compatibility date of
+// workers/compatibility-date.mjs: cloudflare.config.ts imports it (a quoted
+// date there fails), and wrangler.jsonc repeats it as a literal. A Worker in
+// MINIMUM_COMPATIBILITY_DATES fails when its date is before its minimum.
+//
 //   node scripts/check-worker-configs.mjs [workerDir...]
 import { build } from 'esbuild';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { COMPATIBILITY_DATE } from '../workers/compatibility-date.mjs';
+
 const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+// The earliest compatibility date each listed Worker may run on.
+export const MINIMUM_COMPATIBILITY_DATES = { renderer: '2026-03-24' };
 
 // Removes // and /* */ comments outside strings, then trailing commas.
 export function parseJsonc(text) {
@@ -312,6 +322,40 @@ export function sourceCronErrors(source, crons) {
   return errors;
 }
 
+/**
+ * Each file's compatibility date must be the shared constant, and a Worker with
+ * a minimum date must not be before it. ISO dates compare as strings.
+ */
+export function sharedDateErrors(name, wranglerShape, cfShape, shared = COMPATIBILITY_DATE) {
+  const errors = [];
+  for (const [file, shape] of [
+    ['wrangler.jsonc', wranglerShape],
+    ['cloudflare.config.ts', cfShape]
+  ]) {
+    if (shape.compatibilityDate !== shared) {
+      errors.push(
+        `compatibilityDate: ${file} ${JSON.stringify(shape.compatibilityDate)}, shared constant ${JSON.stringify(shared)} (workers/compatibility-date.mjs)`
+      );
+    }
+  }
+  const minimum = MINIMUM_COMPATIBILITY_DATES[name];
+  if (minimum && !(wranglerShape.compatibilityDate >= minimum)) {
+    errors.push(
+      `compatibilityDate ${JSON.stringify(wranglerShape.compatibilityDate)} is before the minimum ${JSON.stringify(minimum)} of ${name}`
+    );
+  }
+  return errors;
+}
+
+// cloudflare.config.ts must take the date from the shared constant, not a quoted literal.
+export function literalDateErrors(source) {
+  return /compatibilityDate\s*:\s*['"`]/.test(source)
+    ? [
+        'cloudflare.config.ts sets compatibilityDate to a literal; import COMPATIBILITY_DATE from ../compatibility-date.mjs'
+      ]
+    : [];
+}
+
 export async function checkWorker(workerDir) {
   const wrangler = parseJsonc(
     readFileSync(join(workerDir, 'wrangler.jsonc'), 'utf8')
@@ -323,7 +367,14 @@ export async function checkWorker(workerDir) {
   const cronErrors = existsSync(indexPath)
     ? sourceCronErrors(readFileSync(indexPath, 'utf8'), w.shape.crons)
     : [];
-  return [...w.errors, ...c.errors, ...compareShapes(w.shape, c.shape), ...cronErrors];
+  return [
+    ...w.errors,
+    ...c.errors,
+    ...compareShapes(w.shape, c.shape),
+    ...sharedDateErrors(basename(workerDir), w.shape, c.shape),
+    ...literalDateErrors(readFileSync(join(workerDir, 'cloudflare.config.ts'), 'utf8')),
+    ...cronErrors
+  ];
 }
 
 async function main() {
