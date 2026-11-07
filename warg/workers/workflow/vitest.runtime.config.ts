@@ -7,6 +7,7 @@ import {
   CLOUDFLARE_CHALLENGE_PAGE
 } from '../../packages/shared/src/challenge-page.fixtures.ts';
 import { accessBlockedResponse } from '../../packages/shared/src/render-content.ts';
+import { COMPATIBILITY_DATE } from '../compatibility-date.mjs';
 
 const INTERNAL_API_KEY = 'runtime-test-key-local-only';
 
@@ -153,7 +154,7 @@ export default defineConfig(async () => {
               name: 'logger',
               modules: true,
               script: logger.outputFiles[0].text,
-              compatibilityDate: '2025-01-01',
+              compatibilityDate: COMPATIBILITY_DATE,
               compatibilityFlags: ['nodejs_compat'],
               bindings: { INTERNAL_API_KEY },
               durableObjects: { LOGGER_DO: { className: 'LoggerDO', useSQLite: true } },
