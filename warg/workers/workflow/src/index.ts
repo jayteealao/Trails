@@ -1002,9 +1002,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
             artifact.sha256
           )
         );
-        // The fallback rescued the render, but a rejected token is still a dead
-        // credential: record its code so the request diagnostics show it.
-        const tokenRejected = renderOutcome.fallbackReason === 'browser_token_invalid';
         events.push(
           stepCompletedEvent(
             'render',
@@ -1018,12 +1015,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
                     fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
                   }
                 : {}),
-              ...(tokenRejected
-                ? { errorCode: 'BROWSER_TOKEN_INVALID', retryable: false, recommendedAction: 'check_api_key' }
-                : {}),
               ...(renderResult.meta ? { meta: renderResult.meta } : {})
             },
-            tokenRejected ? 'warn' : 'info'
+            'info'
           )
         );
         await logEvents(this.env, requestId, events);
