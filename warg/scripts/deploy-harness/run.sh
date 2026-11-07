@@ -393,6 +393,24 @@ scenario_secret_missing_last_worker() {
   finish
 }
 
+# The renderer loads pages through its browser binding, so an account where it
+# holds only INTERNAL_API_KEY (no Browser Rendering API token or account id)
+# passes the preflight.
+scenario_renderer_internal_key_only() {
+  start renderer-internal-key-only
+  local missing="" n
+  for n in $H_ALL_SECRETS; do
+    [ "$n" = "INTERNAL_API_KEY" ] || missing="$missing renderer:$n"
+  done
+  run_deploy renderer-internal-key-only "H_SECRETS_MISSING=$missing" -- --skip-checks
+  expect_rc 0
+  expect_row "worker:renderer" deployed "$UUID"
+  expect_no_out 'missing secret'
+  [ "$(required_secrets_for renderer)" = "INTERNAL_API_KEY" ] ||
+    fail "required_secrets_for renderer prints '$(required_secrets_for renderer)', expected INTERNAL_API_KEY"
+  finish
+}
+
 scenario_allow_missing_secrets() {
   start allow-missing-secrets
   run_deploy allow-missing-secrets H_SECRETS_FAIL=renderer H_NO_DEPLOYMENTS=renderer -- --skip-checks --allow-missing-secrets renderer
@@ -1126,7 +1144,7 @@ scenario_secret_in_env() {
   finish
 }
 
-ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
+ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker renderer-internal-key-only allow-missing-secrets
   sandbox-version-drift quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
   pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
