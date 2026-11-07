@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -21,7 +22,9 @@ import {
   literalDateErrors,
   loadCfConfig,
   parseJsonc,
-  sharedDateErrors
+  sharedDateErrors,
+  TRACED_WORKERS,
+  tracingErrors
 } from '../check-worker-configs.mjs';
 
 const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -317,4 +320,46 @@ test('an observability key the check does not compare is reported', async () => 
     diff(wrangler, cf).join('\n'),
     /wrangler\.jsonc observability key "logs" is not compared/
   );
+});
+
+test('a Worker on the archive path without tracing is reported', async () => {
+  const { wrangler } = await load('renderer');
+  delete wrangler.observability.traces;
+  assert.match(
+    tracingErrors('renderer', fromWrangler(wrangler).shape).join('\n'),
+    /renderer is on the archive path/
+  );
+});
+
+test('a Worker off the archive path may leave tracing off', async () => {
+  const { wrangler } = await load('logger');
+  assert.deepEqual(tracingErrors('logger', fromWrangler(wrangler).shape), []);
+});
+
+test('every traced Worker is a Worker folder with a cloudflare.config.ts', () => {
+  for (const name of TRACED_WORKERS) {
+    assert.ok(
+      existsSync(join(WARG, 'workers', name, 'cloudflare.config.ts')),
+      name
+    );
+  }
+});
+
+test('the check exits 1 and names the Worker whose wrangler.jsonc drops tracing', () => {
+  const { dir, cleanup } = tempWorker('singlefile', (wrangler) => {
+    delete wrangler.observability.traces;
+  });
+  try {
+    const run = spawnSync(
+      process.execPath,
+      ['scripts/check-worker-configs.mjs', dir],
+      { cwd: WARG, encoding: 'utf8' }
+    );
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(run.stdout, /FAIL singlefile/);
+    assert.match(run.stdout, /^\s+traces: wrangler\.jsonc/m);
+    assert.match(run.stdout, /singlefile is on the archive path/);
+  } finally {
+    cleanup();
+  }
 });
