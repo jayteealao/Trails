@@ -9,7 +9,7 @@ import type {
   GcsResponse,
   SinglefileParams
 } from './types.js';
-import { PROXY_ERROR_PAGE_REASON } from '@warg/shared';
+import { BROWSER_TOKEN_INVALID_REASON, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
 export interface ServiceErrorClassification {
@@ -57,6 +57,15 @@ function readMessageFromResponseBody(responseBody: string): string | undefined {
 function classifyMonolithFailureFromBody(
   responseBody: string
 ): ServiceErrorClassification | undefined {
+  const parsed = parseJsonSafe(responseBody);
+  if (parsed && typeof parsed === 'object' && 'code' in parsed && parsed.code === 'R2_CREDENTIAL_INVALID') {
+    return {
+      errorCode: 'R2_CREDENTIAL_INVALID',
+      retryable: false,
+      recommendedAction: 'check_api_key',
+    };
+  }
+
   const message = readMessageFromResponseBody(responseBody);
   if (!message) return undefined;
   const lower = message.toLowerCase();
@@ -139,6 +148,14 @@ function classifyRenderFailureFromBody(
   if (!parsed || typeof parsed !== 'object') return undefined;
   const record = parsed as Record<string, unknown>;
   if (!looksLikeRendererContentFailurePayload(record)) return undefined;
+
+  if (record.reason === BROWSER_TOKEN_INVALID_REASON) {
+    return {
+      errorCode: 'BROWSER_TOKEN_INVALID',
+      retryable: false,
+      recommendedAction: 'check_api_key',
+    };
+  }
 
   if (containsRendererNetworkClosed5006(record.details)) {
     return {
@@ -365,7 +382,8 @@ export type RendererFallbackReason =
   | 'browser_rendering_403'
   | 'browser_rendering_5006'
   | 'browser_rendering_6000'
-  | 'browser_rendering_proxy_error_page';
+  | 'browser_rendering_proxy_error_page'
+  | 'browser_token_invalid';
 
 function ensureRendererResponseShape(
   result: RendererResponse,
@@ -416,6 +434,11 @@ export function getRendererFallbackReason(error: unknown): RendererFallbackReaso
       typeof record.status === 'number'
         ? record.status
         : Number(record.status);
+    // A token rejected with 403 still falls back, as any Browser Rendering 403
+    // did; a 401 gets no fallback, as before. The reason names the cause.
+    if (record.reason === BROWSER_TOKEN_INVALID_REASON) {
+      return status === 403 ? 'browser_token_invalid' : undefined;
+    }
     if (status === 403) return 'browser_rendering_403';
     if (containsRendererNetworkClosed5006(record.details)) {
       return 'browser_rendering_5006';

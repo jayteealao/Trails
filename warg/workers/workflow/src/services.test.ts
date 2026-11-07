@@ -472,12 +472,12 @@ describe('monolith service classification', () => {
 });
 
 describe('rejected credentials', () => {
-  function tokenRejectedBody(status: number, reason: string | undefined = BROWSER_TOKEN_INVALID_REASON) {
+  function tokenRejectedBody(status: number, named: boolean = true) {
     return {
       error: 'Browser Rendering /content failed',
       status,
       details: '{"errors":[{"code":10000,"message":"Authentication error"}]}',
-      ...(reason ? { reason } : {}),
+      ...(named ? { reason: BROWSER_TOKEN_INVALID_REASON } : {}),
     };
   }
 
@@ -500,7 +500,7 @@ describe('rejected credentials', () => {
   });
 
   it('keeps the 403 fallback reason of a payload without the token reason', () => {
-    expect(getRendererFallbackReason(renderError(tokenRejectedBody(403, undefined)))).toBe('browser_rendering_403');
+    expect(getRendererFallbackReason(renderError(tokenRejectedBody(403, false)))).toBe('browser_rendering_403');
   });
 
   it('classifies a renderer answer that names a rejected token as BROWSER_TOKEN_INVALID', async () => {
