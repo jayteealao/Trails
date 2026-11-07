@@ -372,8 +372,7 @@ export type RendererFallbackReason =
   | 'browser_rendering_403'
   | 'browser_rendering_5006'
   | 'browser_rendering_6000'
-  | 'browser_rendering_proxy_error_page'
-  | 'browser_token_invalid';
+  | 'browser_rendering_proxy_error_page';
 
 function ensureRendererResponseShape(
   result: RendererResponse,
@@ -424,11 +423,6 @@ export function getRendererFallbackReason(error: unknown): RendererFallbackReaso
       typeof record.status === 'number'
         ? record.status
         : Number(record.status);
-    // A token rejected with 403 still falls back, as any Browser Rendering 403
-    // did; a 401 gets no fallback, as before. The reason names the cause.
-    if (record.reason === BROWSER_TOKEN_INVALID_REASON) {
-      return status === 403 ? 'browser_token_invalid' : undefined;
-    }
     if (status === 403) return 'browser_rendering_403';
     if (containsRendererNetworkClosed5006(record.details)) {
       return 'browser_rendering_5006';
