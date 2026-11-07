@@ -6,7 +6,8 @@ import type {
   ArtifactRecord,
   RequestFieldsPatch,
   RequestDiagnostics,
-  RequestErrorCode
+  RequestErrorCode,
+  KindHealthRow
 } from '@warg/shared';
 import { timingSafeEqual } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
@@ -83,6 +84,7 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  getKindHealthRows(sinceIso: string): Promise<KindHealthRow[]> | KindHealthRow[];
 }
 
 const VALID_ERROR_CODES = new Set<RequestErrorCode>([
@@ -892,6 +894,30 @@ async function handleBackfillDiagnostics(
 }
 
 /**
+ * GET /health/kinds handler — the rows of the daily archive health check:
+ * every request created in the last `hours` hours, with its requested steps
+ * and the creation time of each primary artifact. Reads only the hour buckets
+ * that D1 lists; pre-bucket per-request instances are not read.
+ */
+async function handleGetKindHealth(env: LoggerServiceEnv, params: URLSearchParams): Promise<Response> {
+  const raw = params.get('hours');
+  const hours = raw === null ? 49 : Number(raw);
+  if (!Number.isInteger(hours) || hours < 1 || hours > 72) {
+    return Response.json({ error: 'hours must be an integer from 1 to 72' }, { status: 400 });
+  }
+  const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+  const { results } = await env.INDEX_DB.prepare(
+    'SELECT DISTINCT substr(created_at, 1, 13) AS hour FROM requests_index WHERE created_at >= ?'
+  )
+    .bind(since)
+    .all<{ hour: string }>();
+  const perBucket = await Promise.all(
+    results.map(({ hour }) => getStubForKey(env, bucketKeyForTs(`${hour}:00:00Z`)).getKindHealthRows(since))
+  );
+  return Response.json({ since, buckets: results.length, rows: perBucket.flat() });
+}
+
+/**
  * Parse URL pathname and params.
  */
 function parseRoute(
@@ -903,7 +929,8 @@ function parseRoute(
   // Literal routes take priority over parameterized ones
   if (path === '/request/init' || path === '/event' || path === '/events/batch' ||
       path === '/artifact' || path === '/stats' || path === '/requests' ||
-      path === '/requests/batch' || path === '/maintenance/backfill-diagnostics') {
+      path === '/requests/batch' || path === '/maintenance/backfill-diagnostics' ||
+      path === '/health/kinds') {
     return { path, params };
   }
 
@@ -1093,6 +1120,11 @@ export default {
       // GET /stats - Aggregate metrics from D1 index
       if (method === 'GET' && path === '/stats') {
         return handleGetStats(env);
+      }
+
+      // GET /health/kinds - Rows of the daily archive health check
+      if (method === 'GET' && path === '/health/kinds') {
+        return handleGetKindHealth(env, params);
       }
 
       // POST /requests/batch - Batch fetch request summaries from D1 index
