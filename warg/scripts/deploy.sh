@@ -288,6 +288,11 @@ on_exit() {
   for i in "${!WARNINGS[@]}"; do
     echo "WARNING: ${WARNINGS[$i]}"
   done
+  for i in "${!TARGETS[@]}"; do
+    if [ "${TARGETS[$i]}" = "worker:gateway" ] && [ "${RESULT[$i]}" = "deployed" ]; then
+      echo "NOTE: gateway deployed; send the health check test email and confirm it arrived (warg/README.md, \"Archive health email\")"
+    fi
+  done
   echo "Exit code: $FIRST_RC"
   [ -z "$WORK_DIR" ] || rm -rf "$WORK_DIR"
   exit "$FIRST_RC"

@@ -168,8 +168,12 @@ request in the last 24 hours does not alert. Before the first deploy that carrie
 `HEALTH_ALERT_FROM` and `HEALTH_ALERT_TO` with `pnpm exec wrangler secret put`
 in `workers/gateway`; the deploy refuses the gateway without them. The
 recipient must be a verified destination address in Email Routing, and the
-sender must be on a domain of the account with email sending enabled. To send a
-real test email when any kind had a request in the last 24 hours, run:
+sender must be on a domain of the account with email sending enabled. The
+deploy checks only that the two secrets exist, so after the first deploy that
+carries the binding, and after any change of either address, send the test
+email below and confirm it arrived; the deploy summary prints a reminder when
+the gateway deployed. To send a real test email when any kind had a request in
+the last 24 hours, run:
 
 ```bash
 curl -sS -X POST "$GATEWAY_URL/internal/health-check" \
