@@ -22,6 +22,11 @@ export default defineConfig({
 			}),
 		],
 		env: {
+			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+			INTERNAL_API_KEY: bindings.secret(),
+			PUBLIC_API_KEY: bindings.secret(),
+			HEALTH_ALERT_FROM: bindings.secret(),
+			HEALTH_ALERT_TO: bindings.secret(),
 			ARCHIVE_BUCKET: bindings.r2({
 				name: "warg-archives",
 			}),

@@ -21,6 +21,9 @@
   // Deploy order: gateway must deploy AFTER monolith and workflow so its
   // service-binding targets exist (see scripts/deploy.sh Tier 3).
 
+  // Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+  "secrets": { "required": ["INTERNAL_API_KEY", "PUBLIC_API_KEY", "HEALTH_ALERT_FROM", "HEALTH_ALERT_TO"] },
+
   // Secrets (via `wrangler secret put`):
   // - INTERNAL_API_KEY: shared key for internal service auth (sweeps, event
   //   forwarding to logger/workflow); used on all internal sub-request calls
