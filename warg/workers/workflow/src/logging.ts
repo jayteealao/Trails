@@ -76,6 +76,18 @@ function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefin
 
 export function classifyError(stepName: string, errorMsg: string): ClassifiedError {
   const msg = errorMsg.toLowerCase();
+  // A worker names a rejected credential in its answer body; the step boundary
+  // keeps only the message, so read the name from it.
+  if (msg.includes('browser_token_invalid')) {
+    return { errorCode: 'BROWSER_TOKEN_INVALID', retryable: false, recommendedAction: 'check_api_key' };
+  }
+  if (
+    msg.includes('r2_credential_invalid') ||
+    msg.includes('signaturedoesnotmatch') ||
+    msg.includes('invalidaccesskeyid')
+  ) {
+    return { errorCode: 'R2_CREDENTIAL_INVALID', retryable: false, recommendedAction: 'check_api_key' };
+  }
   // A worker answers a site block with HTTP 401/403 (classifyServiceFailure in
   // services.ts). The step boundary keeps only the message, so read the status from it.
   if (/\bservice error 40[13]\b/.test(msg)) {
