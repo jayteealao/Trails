@@ -30,14 +30,8 @@ const CHALLENGE_URL = 'https://challenge.example/article';
 const BLOCKED_URL = 'https://blocked.example/article';
 const ARTICLE_URL = 'https://article.example/post';
 
-// The target URLs of the credential cases; end-state.runtime.test.ts uses the same values.
-const TOKEN_REJECTED_URL = 'https://token-rejected.example/article';
-const TOKEN_FORBIDDEN_URL = 'https://token-forbidden.example/article';
+// The target URL of the R2 credential case; end-state.runtime.test.ts uses the same value.
 const R2_REJECTED_URL = 'https://r2-rejected.example/article';
-
-// The answer of the Browser Rendering API to a bogus token, read on 2026-11-07.
-const REJECTED_TOKEN_BODY =
-  '{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}';
 
 const failingService = () => new Response('stubbed failure', { status: 500 });
 
@@ -48,28 +42,39 @@ async function requestedUrl(request: Request): Promise<string | undefined> {
   return typeof body.url === 'string' ? body.url : undefined;
 }
 
+/** The recorded page the browser binding loads for each target URL of the blocked-page and credential cases. */
+const LOADED_PAGES: Record<string, string> = {
+  [CHALLENGE_URL]: CLOUDFLARE_CHALLENGE_PAGE,
+  [ARTICLE_URL]: ARTICLE_ABOUT_CHALLENGES,
+  [R2_REJECTED_URL]: ARTICLE_ABOUT_CHALLENGES
+};
+
 /**
- * Stands in for the Browser Rendering REST API that the real renderer calls:
- * `/content` answers a recorded page for the blocked-page and credential
- * cases, the recorded token rejection for the token cases, and every other
- * call fails, as the old renderer stub did.
+ * Stands in for the Browser Rendering binding that the real renderer calls:
+ * `quickAction('content' | 'snapshot')` answers a recorded page for the
+ * blocked-page and credential cases, and every other action or URL fails, as
+ * the old renderer stub did. A service binding to this worker's entrypoint
+ * gives the renderer `env.BROWSER.quickAction()` over Workers RPC.
  */
-async function browserRenderingStandIn(request: Request): Promise<Response> {
-  if (request.method !== 'POST' || !new URL(request.url).pathname.endsWith('/browser-rendering/content')) {
-    return failingService();
+const browserStandIn = `
+import { WorkerEntrypoint } from 'cloudflare:workers';
+
+const LOADED_PAGES = ${JSON.stringify(LOADED_PAGES)};
+
+const failure = () => new Response('stubbed failure', { status: 500 });
+
+export class BrowserStandIn extends WorkerEntrypoint {
+  async quickAction(action, options) {
+    const html = LOADED_PAGES[options?.url];
+    if (html === undefined) return failure();
+    if (action === 'content') return Response.json({ success: true, result: html });
+    if (action === 'snapshot') return Response.json({ success: true, result: { content: html } });
+    return failure();
   }
-  const url = await requestedUrl(request);
-  if (url === CHALLENGE_URL) return Response.json({ success: true, result: CLOUDFLARE_CHALLENGE_PAGE });
-  if (url === ARTICLE_URL) return Response.json({ success: true, result: ARTICLE_ABOUT_CHALLENGES });
-  if (url === R2_REJECTED_URL) return Response.json({ success: true, result: ARTICLE_ABOUT_CHALLENGES });
-  if (url === TOKEN_REJECTED_URL || url === TOKEN_FORBIDDEN_URL) {
-    return new Response(REJECTED_TOKEN_BODY, {
-      status: url === TOKEN_REJECTED_URL ? 401 : 403,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-  return failingService();
 }
+
+export default { fetch: failure };
+`;
 
 /** singlefile answers the block of a 403 navigation for BLOCKED_URL, and fails otherwise. */
 async function singlefileStub(request: Request): Promise<Response> {
@@ -161,14 +166,20 @@ export default defineConfig(async () => {
               d1Databases: { INDEX_DB: 'idx' }
             },
             {
+              name: 'browser-stand-in',
+              modules: true,
+              script: browserStandIn,
+              compatibilityDate: COMPATIBILITY_DATE
+            },
+            {
               name: 'renderer',
               modules: true,
               script: renderer.outputFiles[0].text,
               compatibilityDate: COMPATIBILITY_DATE,
               compatibilityFlags: ['nodejs_compat'],
-              bindings: { INTERNAL_API_KEY, CF_ACCOUNT_ID: 'test-account', BR_API_TOKEN: 'test-token-local-only' },
+              bindings: { INTERNAL_API_KEY },
               r2Buckets: { ARCHIVE_BUCKET: 'archive' },
-              outboundService: browserRenderingStandIn
+              serviceBindings: { BROWSER: { name: 'browser-stand-in', entrypoint: 'BrowserStandIn' } }
             }
           ]
         }
