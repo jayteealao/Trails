@@ -1,10 +1,10 @@
 import type { ArtifactKind, KindHealthArtifact, KindHealthRow, WorkflowStep } from '@warg/shared';
-import { HEALTH_KIND_ARTIFACTS } from '@warg/shared';
+import { HEALTH_KIND_ARTIFACTS, WORKFLOW_STEPS } from '@warg/shared';
 
 const HOUR_MS = 3_600_000;
 
 /** The archive kinds, in the order the check reports them. */
-const KINDS: readonly WorkflowStep[] = ['render', 'singlefile', 'readability', 'monolith'];
+const KINDS: readonly WorkflowStep[] = WORKFLOW_STEPS;
 
 export interface HealthThresholds {
   /** Alert when the success ratio of the window is below this. */

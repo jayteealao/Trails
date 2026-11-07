@@ -12,7 +12,7 @@ import type {
   WorkflowCheckpoint,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
+import { WORKFLOW_STEPS, getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
@@ -216,7 +216,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     const requestedStepList: WorkflowStepType[] =
       requestedSteps && requestedSteps.length > 0
         ? Array.from(new Set(requestedSteps))
-        : ['render', 'singlefile', 'readability', 'monolith'];
+        : [...WORKFLOW_STEPS];
     const requestedStepSet = new Set<WorkflowStepType>(requestedStepList);
     const shouldRun = (stepName: WorkflowStepType) => requestedStepSet.has(stepName);
 

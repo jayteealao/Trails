@@ -6,6 +6,7 @@ export type {
   WorkflowStep,
   ReadabilityResult
 } from './types.js';
+export { WORKFLOW_STEPS } from './types.js';
 
 export type {
   CheckpointStep,

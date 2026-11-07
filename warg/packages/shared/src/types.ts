@@ -37,7 +37,10 @@ export interface ArchiveManifest {
 /**
  * Options for starting an archive request.
  */
-export type WorkflowStep = 'render' | 'singlefile' | 'readability' | 'monolith';
+/** Every archive step, in run order: the one list of what an archive kind is. */
+export const WORKFLOW_STEPS = ['render', 'singlefile', 'readability', 'monolith'] as const;
+
+export type WorkflowStep = (typeof WORKFLOW_STEPS)[number];
 
 export interface ArchiveOptions {
   url: string;

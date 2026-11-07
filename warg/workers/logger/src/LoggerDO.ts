@@ -14,7 +14,7 @@ import type {
   ArtifactKind,
   WorkflowStep
 } from '@warg/shared';
-import { HEALTH_KIND_ARTIFACTS } from '@warg/shared';
+import { HEALTH_KIND_ARTIFACTS, WORKFLOW_STEPS } from '@warg/shared';
 import { initSchema, migrateSchema } from './schema.js';
 import { asNumber, asString, asBoolean, asRecord } from './value-helpers.js';
 
@@ -81,7 +81,7 @@ function deriveStage(
   return undefined;
 }
 
-const HEALTH_STEPS = new Set<string>(Object.keys(HEALTH_KIND_ARTIFACTS));
+const HEALTH_STEPS = new Set<string>(WORKFLOW_STEPS);
 const HEALTH_ARTIFACT_KINDS: string[] = Object.values(HEALTH_KIND_ARTIFACTS);
 
 /** The `requestedSteps` of a `workflow.started` payload, when it is a list of known steps. */
