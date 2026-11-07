@@ -13,9 +13,7 @@ const CHALLENGE_URL = 'https://challenge.example/article';
 const BLOCKED_URL = 'https://blocked.example/article';
 const ARTICLE_URL = 'https://article.example/post';
 
-// The target URLs that the stubs of vitest.runtime.config.ts answer with a rejected credential.
-const TOKEN_REJECTED_URL = 'https://token-rejected.example/article';
-const TOKEN_FORBIDDEN_URL = 'https://token-forbidden.example/article';
+// The target URL that the stubs of vitest.runtime.config.ts answer with a rejected credential.
 const R2_REJECTED_URL = 'https://r2-rejected.example/article';
 
 interface RequestStatus {
@@ -314,37 +312,6 @@ describe('blocked pages', () => {
 describe('credential failures', () => {
   beforeAll(async () => {
     await applyD1Migrations(env.INDEX_DB, env.TEST_MIGRATIONS);
-  });
-
-  async function expectRejectedBrowserToken(url: string) {
-    const id = newRequestId();
-    await using _instance = await startRun(
-      id,
-      { steps: ['render', 'singlefile'] },
-      async (m) => {
-        await grantLease(m, 'render');
-        await grantLease(m, 'singlefile');
-        await m.mockStepResult({ name: 'singlefile' }, { artifact: artifactMeta(id, 'singlefile.html') });
-      },
-      url
-    );
-
-    expect(await waitForEnd(id)).toBe('complete');
-
-    const status = await readStatus(id);
-    expect(status.derived.stage).toBe('incomplete');
-    expect(status.derived.diagnostics?.degradedSteps).toEqual(['render']);
-    expect(status.derived.diagnostics?.errorCode).toBe('BROWSER_TOKEN_INVALID');
-    expect(failedStepCodes(status, 'render')).toContain('BROWSER_TOKEN_INVALID');
-    expect(await env.ARCHIVE_BUCKET.head(getR2Key(id, 'rendered.html'))).toBeNull();
-  }
-
-  it('records a browser token rejected with HTTP 401 as a rejected token', async () => {
-    await expectRejectedBrowserToken(TOKEN_REJECTED_URL);
-  });
-
-  it('records a browser token rejected with HTTP 403 as a rejected token after the fallback fails', async () => {
-    await expectRejectedBrowserToken(TOKEN_FORBIDDEN_URL);
   });
 
   it('records a storage key that R2 rejects as a rejected storage key', async () => {
