@@ -283,6 +283,16 @@ describe('partial snapshot', () => {
     expect(body.meta?.skipped).toContain('markdown: snapshot returned no markdown');
   });
 
+  it('keeps the HTML and skips a screenshot that is not valid base64', async () => {
+    const { response, body } = await render([snapshotAnswer({ content: NORMAL_ARTICLE_PAGE, screenshot: '***not base64***' })], {
+      include_screenshot: true,
+    });
+
+    expect(response.status).toBe(200);
+    expect(kinds(body)).toEqual(['rendered.html']);
+    expect(body.meta?.skipped).toContain('screenshot: snapshot screenshot is not valid base64');
+  });
+
   it('keeps the HTML and lists both misses', async () => {
     const { response, body } = await render([snapshotAnswer({ content: NORMAL_ARTICLE_PAGE, screenshot: '', markdown: '' })], {
       include_screenshot: true,

@@ -54,9 +54,14 @@ function parseLoadedPage(json: unknown): LoadedPage | undefined {
   return { html, screenshot: optionalString(result.screenshot), markdown: optionalString(result.markdown) };
 }
 
-/** Screenshot bytes from base64 text, with or without a data-URI prefix. */
-function decodeScreenshot(screenshot: string): ArrayBuffer {
-  return decodeBase64ToArrayBuffer(screenshot.replace(/^data:[^,]*;base64,/i, ''));
+/** Screenshot bytes from base64 text, with or without a data-URI prefix; undefined when the text is not base64. */
+function decodeScreenshot(screenshot: string): ArrayBuffer | undefined {
+  try {
+    return decodeBase64ToArrayBuffer(screenshot.replace(/^data:[^,]*;base64,/i, ''));
+  } catch (err) {
+    console.error('[renderer] snapshot screenshot is not valid base64:', err instanceof Error ? err.message : String(err));
+    return undefined;
+  }
 }
 
 /**
@@ -271,11 +276,14 @@ export default {
           );
         }
         if (missingScreenshot) {
-          if (page.screenshot) {
+          const screenshotData = page.screenshot ? decodeScreenshot(page.screenshot) : undefined;
+          if (screenshotData) {
             outcomes.set(
               'screenshot.png',
-              await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', decodeScreenshot(page.screenshot), 'image/png', reuseScope)
+              await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', screenshotData, 'image/png', reuseScope)
             );
+          } else if (page.screenshot) {
+            misses.set('screenshot.png', 'screenshot: snapshot screenshot is not valid base64');
           } else {
             misses.set('screenshot.png', misses.get('screenshot.png') ?? 'screenshot: snapshot returned no screenshot');
           }
