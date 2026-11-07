@@ -169,9 +169,19 @@ request in the last 24 hours does not alert. Before the first deploy that carrie
 in `workers/gateway`; the deploy refuses the gateway without them. The
 recipient must be a verified destination address in Email Routing, and the
 sender must be on a domain of the account with email sending enabled. To send a
-test email when any kind had a request in the last 24 hours, call
-`POST /internal/health-check` on the gateway with the internal key and the body
-`{"thresholds":{"staleAfterHours":0}}`; the answer lists the kinds it alerted on.
+real test email when any kind had a request in the last 24 hours, run:
+
+```bash
+curl -sS -X POST "$GATEWAY_URL/internal/health-check" \
+  -H "X-Internal-API-Key: $INTERNAL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"thresholds":{"staleAfterHours":0}}'
+```
+
+The answer is the run summary: `alertKinds` lists the kinds it alerted on and
+`emailed` says whether the email went out. A `401` means a wrong internal key,
+a `400` an out-of-range threshold. The optional thresholds are `minRatio` (0 to
+1), `minRequests` (integer, 1 to 1000) and `staleAfterHours` (integer, 0 to 48).
 
 ### When the health email arrives
 
