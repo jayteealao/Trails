@@ -11,8 +11,10 @@ export default defineConfig({
 		name: "gateway",
 		compatibilityDate: COMPATIBILITY_DATE,
 		entrypoint: "src/index.ts",
+		// Workers tracing: the runtime emits the spans; enabled alone turns on logs only.
 		observability: {
 			enabled: true,
+			traces: { enabled: true },
 		},
 		triggers: [
 			triggers.scheduled({

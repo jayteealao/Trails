@@ -18,7 +18,8 @@
   // The daily archive health email (cron "0 8 * * *"). The recipient and the
   // sender are secrets, so no address is in the repo.
   "send_email": [{ "name": "HEALTH_EMAIL" }],
-  "observability": { "enabled": true },
+  // Workers tracing: the runtime emits the spans; enabled alone turns on logs only.
+  "observability": { "enabled": true, "traces": { "enabled": true } },
   // Deploy order: gateway must deploy AFTER monolith and workflow so its
   // service-binding targets exist (see scripts/deploy.sh Tier 3).
 
