@@ -88,12 +88,20 @@ secrets each worker needs, and how each target is verified.
    exits with that command's code; 2 means a usage error or a refused dirty
    tree, 3 a failed verification or a missing secret.
 
-First deploy of a new worker: the secret check cannot list secrets of a worker
-that does not exist yet, so pass the flag for that worker only, then set its
-secrets and deploy again without it:
+First deploy of a new worker: each worker declares its required secrets in
+`cloudflare.config.ts` and `wrangler.jsonc`, and cf refuses to deploy a worker
+whose declared secret is not set. A worker that does not exist yet has no
+secrets, so the script cannot deploy it the first time. The
+`--allow-missing-secrets <worker>` flag skips only the script's own secret
+listing for that worker; it does not get past cf. Deploy the new worker once by
+hand from its folder, with its secret values in a local file that is never
+committed, then deploy through the script as usual:
 
 ```bash
-pnpm run deploy -- --allow-missing-secrets <worker>
+cd workers/<worker>
+../../node_modules/.bin/cf deploy --secrets-file <file>
+cd ../..
+pnpm run deploy
 ```
 
 Cloud Function bundles: each function deploys as one esbuild bundle. The
