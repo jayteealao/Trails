@@ -109,3 +109,69 @@ export function isProxyErrorPage(html: string): boolean {
   if (text.length > MAX_ERROR_TEXT_LENGTH) return false;
   return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text));
 }
+
+/** Markers a bot-wall vendor puts in the markup of its challenge page. */
+const CHALLENGE_MARKERS: readonly RegExp[] = [
+  /window\._cf_chl_opt\b/, // Cloudflare managed challenge
+  /\/cdn-cgi\/challenge-platform\/h\//, // Cloudflare challenge orchestrator (not scripts/jsd)
+  /\bid=["']challenge-error-text["']/, // Cloudflare challenge page
+  /captcha-delivery\.com/, // DataDome challenge host
+  /\bpx-captcha\b/, // PerimeterX challenge
+];
+
+/** Longest visible text still treated as an interstitial; the largest sample had 489 chars. */
+const MAX_CHALLENGE_TEXT_LENGTH = 2000;
+
+/**
+ * Discriminator a worker puts in the `reason` field of its error payload when
+ * the target site blocked access (a challenge page or a 401/403 navigation).
+ */
+export const ACCESS_BLOCKED_REASON = 'access_blocked';
+
+/** Every tag and every script body: the markup a vendor plants, never the text a writer quotes. */
+function extractStructure(html: string): string {
+  const tags = html.match(/<[a-zA-Z!/][^>]*>/g) ?? [];
+  const scripts = Array.from(html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), (m) => m[1] ?? '');
+  return [...tags, ...scripts].join('\n');
+}
+
+/** Text a reader would see in the body, with entities decoded and whitespace collapsed. */
+function extractVisibleText(html: string): string {
+  const withoutHidden = extractBodyInner(html)
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+  return decodeEntities(withoutHidden.replace(/<[^>]*>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * True when `html` is a bot-wall interstitial that a site served with HTTP 200
+ * in place of the page. Callers must not archive it.
+ *
+ * Two signals must both hold: a known challenge-vendor marker in the markup (a
+ * tag or a script body, never a text node, so an article that quotes the
+ * markers is not flagged), and a near-empty visible body (an ordinary page that
+ * loads a vendor sensor script still has its article text).
+ */
+export function isChallengePage(html: string): boolean {
+  const structure = extractStructure(html);
+  if (!CHALLENGE_MARKERS.some((marker) => marker.test(structure))) return false;
+  return extractVisibleText(html).length <= MAX_CHALLENGE_TEXT_LENGTH;
+}
+
+/**
+ * The answer of a worker when the target site blocked access. A worker answers
+ * a site block with `403`, so the workflow records `ACCESS_BLOCKED`.
+ */
+export function accessBlockedResponse(url: string, navigationStatus?: number): Response {
+  return Response.json(
+    {
+      error: 'Target page blocked access',
+      reason: ACCESS_BLOCKED_REASON,
+      url,
+      ...(navigationStatus === undefined ? {} : { navigationStatus }),
+    },
+    { status: 403 },
+  );
+}
