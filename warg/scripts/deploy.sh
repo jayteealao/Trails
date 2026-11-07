@@ -92,7 +92,7 @@ set -euo pipefail
 #   logger:        INTERNAL_API_KEY
 #   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY, HEALTH_ALERT_FROM, HEALTH_ALERT_TO
 #   workflow:      INTERNAL_API_KEY
-#   renderer:      INTERNAL_API_KEY, CF_ACCOUNT_ID, BR_API_TOKEN
+#   renderer:      INTERNAL_API_KEY
 #   hyperrenderer: INTERNAL_API_KEY, HYPERBROWSER_API_KEY
 #   singlefile:    INTERNAL_API_KEY
 #   readability:   INTERNAL_API_KEY
@@ -485,7 +485,7 @@ required_secrets_for() {
     logger)        echo "INTERNAL_API_KEY" ;;
     gateway)       echo "INTERNAL_API_KEY PUBLIC_API_KEY HEALTH_ALERT_FROM HEALTH_ALERT_TO" ;;
     workflow)      echo "INTERNAL_API_KEY" ;;
-    renderer)      echo "INTERNAL_API_KEY CF_ACCOUNT_ID BR_API_TOKEN" ;;
+    renderer)      echo "INTERNAL_API_KEY" ;;
     hyperrenderer) echo "INTERNAL_API_KEY HYPERBROWSER_API_KEY" ;;
     singlefile)    echo "INTERNAL_API_KEY" ;;
     readability)   echo "INTERNAL_API_KEY" ;;
