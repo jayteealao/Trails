@@ -1457,6 +1457,27 @@ describe('Logger HTTP service routing (dual-read)', () => {
     expect((after.byStage.rendering ?? 0) - (before.byStage.rendering ?? 0)).toBe(1);
   });
 
+  it('GET /stats — an incomplete request counts as finished and not as a success', async () => {
+    interface Stats { byStage: Record<string, number>; successRate: number; failureRate: number; incompleteRate: number }
+    const now = new Date().toISOString();
+    await env.INDEX_DB.prepare(
+      `INSERT INTO requests_index (request_id, url, domain, created_at, updated_at, stage)
+       VALUES (?, 'https://example.com/stats', 'example.com', ?, ?, 'incomplete')`
+    ).bind(`svc-rate-${crypto.randomUUID()}`, now, now).run();
+
+    const res = await serviceGet('/stats');
+    expect(res.status).toBe(200);
+    const stats = (await res.json()) as Stats;
+    const done = stats.byStage.done ?? 0;
+    const failed = stats.byStage.failed ?? 0;
+    const incomplete = stats.byStage.incomplete ?? 0;
+    const finished = done + failed + incomplete;
+    expect(stats.successRate).toBeCloseTo(done / finished, 3);
+    expect(stats.failureRate).toBeCloseTo(failed / finished, 3);
+    expect(stats.incompleteRate).toBeCloseTo(incomplete / finished, 3);
+    expect(stats.incompleteRate).toBeGreaterThan(0);
+  });
+
   function servicePost(path: string, body: unknown): Promise<Response> {
     return SELF.fetch(`https://logger.internal${path}`, {
       method: 'POST',

@@ -720,6 +720,7 @@ async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
   const byStage: Record<string, number> = {};
   let doneCount = 0;
   let failedCount = 0;
+  let incompleteCount = 0;
   let activeCount = 0;
 
   for (const row of stageResult.results) {
@@ -727,19 +728,23 @@ async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
     byStage[stage] = row.count;
     if (stage === 'done') doneCount = row.count;
     else if (stage === 'failed') failedCount = row.count;
-    // An incomplete request has finished; it is not active.
-    else if (stage !== 'incomplete') activeCount += row.count;
+    // An incomplete request has finished with a failed or degraded step; it is not active.
+    else if (stage === 'incomplete') incompleteCount = row.count;
+    else activeCount += row.count;
   }
 
-  const terminal = doneCount + failedCount;
+  // Every finished request counts: an incomplete one is not a success.
+  const terminal = doneCount + failedCount + incompleteCount;
   const successRate = terminal > 0 ? doneCount / terminal : 0;
   const failureRate = terminal > 0 ? failedCount / terminal : 0;
+  const incompleteRate = terminal > 0 ? incompleteCount / terminal : 0;
 
   return Response.json({
     total,
     byStage,
     successRate: Math.round(successRate * 1000) / 1000,
     failureRate: Math.round(failureRate * 1000) / 1000,
+    incompleteRate: Math.round(incompleteRate * 1000) / 1000,
     activeCount,
     stuckCount: stuckResult?.count ?? 0,
     orphanQueue: {
