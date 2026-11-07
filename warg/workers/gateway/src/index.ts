@@ -494,10 +494,15 @@ export interface HealthCheckSummary {
   source: string;
   checkedAt: string;
   rows: number;
+  /** Rows of the logger answer that were malformed and left out. */
+  skippedRows: number;
   stats: KindStats[];
   alertKinds: WorkflowStep[];
   emailed: boolean;
 }
+
+/** The alert email itself could not be sent. */
+export class HealthEmailError extends Error {}
 
 /**
  * Measures each archive kind over the logger's recent requests and, when any
@@ -510,7 +515,7 @@ export async function runDailyHealthCheck(
   thresholds: HealthThresholds = DEFAULT_HEALTH_THRESHOLDS
 ): Promise<HealthCheckSummary> {
   const response = await loggerRequestStrict(env, `/health/kinds?hours=${HEALTH_ROWS_HOURS}`, 'GET');
-  const rows = parseKindHealthPayload(await response.json());
+  const { rows, skipped } = parseKindHealthPayload(await response.json());
   const { stats, alerts } = evaluateKindHealth(rows, now, thresholds);
 
   if (alerts.length > 0) {
@@ -520,7 +525,7 @@ export async function runDailyHealthCheck(
     } catch (err) {
       const code = typeof err === 'object' && err !== null && 'code' in err ? String(err.code) : 'unknown';
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`[gateway] health email failed (${code}): ${message}`, { cause: err });
+      throw new HealthEmailError(`[gateway] health email failed (${code}): ${message}`, { cause: err });
     }
   }
 
@@ -528,12 +533,49 @@ export async function runDailyHealthCheck(
     source,
     checkedAt: now.toISOString(),
     rows: rows.length,
+    skippedRows: skipped,
     stats,
     alertKinds: alerts.map((alert) => alert.kind),
     emailed: alerts.length > 0
   };
   console.log('[gateway] kind health:', JSON.stringify(summary));
   return summary;
+}
+
+/**
+ * Tells the owner that the daily check could not measure the archive. A failure
+ * of this email is logged and never replaces the error of the check.
+ */
+async function reportHealthCheckFailure(env: Env, now: Date, err: unknown): Promise<void> {
+  const message = err instanceof Error ? err.message : String(err);
+  try {
+    await env.HEALTH_EMAIL.send({
+      from: env.HEALTH_ALERT_FROM,
+      to: env.HEALTH_ALERT_TO,
+      subject: 'Warg archive health: the daily check failed',
+      text: [
+        'The daily archive health check could not finish, so no archive kind was measured today.',
+        `Error: ${message}`,
+        `Checked at ${now.toISOString()}`
+      ].join('\n\n')
+    });
+  } catch (sendErr) {
+    console.error('[gateway] health check failure email failed:', sendErr);
+  }
+}
+
+/**
+ * The daily cron run. A failed check emails the owner (unless the alert email
+ * itself failed) and then rethrows, so the cron invocation is recorded as failed.
+ */
+async function runScheduledHealthCheck(env: Env, now: Date, source: string): Promise<void> {
+  try {
+    await runDailyHealthCheck(env, now, source);
+  } catch (err) {
+    console.error('[gateway] kind health check failed:', err);
+    if (!(err instanceof HealthEmailError)) await reportHealthCheckFailure(env, now, err);
+    throw err;
+  }
 }
 
 export default {
@@ -781,11 +823,7 @@ export default {
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (controller.cron === HEALTH_CHECK_CRON) {
-      ctx.waitUntil(
-        runDailyHealthCheck(env, new Date(controller.scheduledTime), `cron:${controller.cron}`).catch((err: unknown) =>
-          console.error('[gateway] kind health check failed:', err)
-        )
-      );
+      await runScheduledHealthCheck(env, new Date(controller.scheduledTime), `cron:${controller.cron}`);
       return;
     }
     ctx.waitUntil(

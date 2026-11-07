@@ -153,15 +153,20 @@ describe('parseThresholdOverrides', () => {
 describe('parseKindHealthPayload', () => {
   it('returns the rows of a valid payload', () => {
     const rows = [row('render', 2, 1), { requestId: 'r', createdAt: hoursAgo(1), artifacts: [] }];
-    expect(parseKindHealthPayload({ since: hoursAgo(49), buckets: 1, rows })).toEqual(rows);
+    expect(parseKindHealthPayload({ since: hoursAgo(49), buckets: 1, rows })).toEqual({ rows, skipped: 0 });
+  });
+
+  it('refuses a payload without a rows list', () => {
+    expect(() => parseKindHealthPayload({})).toThrow(/\[gateway\] health rows:/);
   });
 
   it.each([
-    ['a missing rows list', {}],
-    ['a non-string createdAt', { rows: [{ requestId: 'r', createdAt: 5, artifacts: [] }] }],
-    ['an unknown step', { rows: [{ requestId: 'r', createdAt: hoursAgo(1), requestedSteps: ['bogus'], artifacts: [] }] }]
-  ])('refuses %s', (_name, raw) => {
-    expect(() => parseKindHealthPayload(raw)).toThrow(/\[gateway\] health rows:/);
+    ['a non-string createdAt', { requestId: 'r', createdAt: 5, artifacts: [] }],
+    ['an unknown step', { requestId: 'r', createdAt: hoursAgo(1), requestedSteps: ['bogus'], artifacts: [] }],
+    ['an unknown artifact kind', { requestId: 'r', createdAt: hoursAgo(1), artifacts: [{ kind: 'x', createdAt: hoursAgo(1) }] }]
+  ])('leaves out and counts a row with %s, and keeps the others', (_name, bad) => {
+    const good = row('render', 2, 1);
+    expect(parseKindHealthPayload({ rows: [bad, good] })).toEqual({ rows: [good], skipped: 1 });
   });
 });
 

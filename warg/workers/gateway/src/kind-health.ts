@@ -120,30 +120,52 @@ function rowError(message: string): Error {
   return new Error(`[gateway] health rows: ${message}`);
 }
 
-/** Validates the logger's `/health/kinds` answer and returns its rows. */
-export function parseKindHealthPayload(raw: unknown): KindHealthRow[] {
+/** The rows of the logger's `/health/kinds` answer, and how many were left out as malformed. */
+export interface ParsedKindHealth {
+  rows: KindHealthRow[];
+  skipped: number;
+}
+
+function parseRow(entry: unknown, index: number): KindHealthRow {
+  if (!isRecord(entry)) throw rowError(`row ${index} must be an object`);
+  const { requestId, createdAt, requestedSteps, artifacts } = entry;
+  if (typeof requestId !== 'string') throw rowError(`row ${index} requestId must be a string`);
+  if (!isIsoTime(createdAt)) throw rowError(`row ${index} createdAt must be a time`);
+  if (!Array.isArray(artifacts)) throw rowError(`row ${index} artifacts must be an array`);
+
+  const parsedArtifacts = artifacts.map((artifact: unknown): KindHealthArtifact => {
+    if (!isRecord(artifact) || !isHealthArtifactKind(artifact.kind) || !isIsoTime(artifact.createdAt)) {
+      throw rowError(`row ${index} has an invalid artifact`);
+    }
+    return { kind: artifact.kind, createdAt: artifact.createdAt };
+  });
+
+  if (requestedSteps === undefined) return { requestId, createdAt, artifacts: parsedArtifacts };
+  if (!Array.isArray(requestedSteps) || !requestedSteps.every(isWorkflowStep)) {
+    throw rowError(`row ${index} requestedSteps must list known steps`);
+  }
+  return { requestId, createdAt, requestedSteps, artifacts: parsedArtifacts };
+}
+
+/**
+ * Validates the logger's `/health/kinds` answer. A payload without a rows list
+ * throws; a single malformed row is left out and counted, so one bad row never
+ * blinds the check for every kind.
+ */
+export function parseKindHealthPayload(raw: unknown): ParsedKindHealth {
   if (!isRecord(raw) || !Array.isArray(raw.rows)) throw rowError('rows must be an array');
 
-  return raw.rows.map((entry: unknown, index): KindHealthRow => {
-    if (!isRecord(entry)) throw rowError(`row ${index} must be an object`);
-    const { requestId, createdAt, requestedSteps, artifacts } = entry;
-    if (typeof requestId !== 'string') throw rowError(`row ${index} requestId must be a string`);
-    if (!isIsoTime(createdAt)) throw rowError(`row ${index} createdAt must be a time`);
-    if (!Array.isArray(artifacts)) throw rowError(`row ${index} artifacts must be an array`);
-
-    const parsedArtifacts = artifacts.map((artifact: unknown): KindHealthArtifact => {
-      if (!isRecord(artifact) || !isHealthArtifactKind(artifact.kind) || !isIsoTime(artifact.createdAt)) {
-        throw rowError(`row ${index} has an invalid artifact`);
-      }
-      return { kind: artifact.kind, createdAt: artifact.createdAt };
-    });
-
-    if (requestedSteps === undefined) return { requestId, createdAt, artifacts: parsedArtifacts };
-    if (!Array.isArray(requestedSteps) || !requestedSteps.every(isWorkflowStep)) {
-      throw rowError(`row ${index} requestedSteps must list known steps`);
+  const rows: KindHealthRow[] = [];
+  let skipped = 0;
+  raw.rows.forEach((entry: unknown, index) => {
+    try {
+      rows.push(parseRow(entry, index));
+    } catch (err) {
+      skipped += 1;
+      console.warn(err instanceof Error ? err.message : String(err));
     }
-    return { requestId, createdAt, requestedSteps, artifacts: parsedArtifacts };
   });
+  return { rows, skipped };
 }
 
 const THRESHOLD_LIMITS: Record<'minRatio' | 'minRequests' | 'staleAfterHours', { min: number; max: number; integer: boolean }> = {

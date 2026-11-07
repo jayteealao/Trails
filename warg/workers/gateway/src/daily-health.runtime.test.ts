@@ -47,7 +47,7 @@ interface Harness {
   loggerPaths: string[];
 }
 
-function harness(rows: KindHealthRow[]): Harness {
+function harness(rows: unknown[], options: { loggerDown?: boolean } = {}): Harness {
   const loggerPaths: string[] = [];
   const send = vi.fn(async () => ({ messageId: 'm-1' }));
   const logger = {
@@ -55,6 +55,7 @@ function harness(rows: KindHealthRow[]): Harness {
       const url = new URL(input instanceof Request ? input.url : input.toString());
       loggerPaths.push(url.pathname);
       if (url.pathname === '/health/kinds') {
+        if (options.loggerDown) return new Response('logger down', { status: 503 });
         return Response.json({ since: new Date(NOW_MS - 49 * HOUR).toISOString(), buckets: 1, rows });
       }
       if (url.pathname === '/requests') return Response.json({ requests: [] });
@@ -126,6 +127,38 @@ describe('daily archive health check', () => {
     const lines = log.mock.calls.filter((call) => call[0] === '[gateway] kind health:');
     expect(lines).toHaveLength(1);
     expect(String(lines[0]![1])).toContain('"emailed":false');
+  });
+
+  it('emails the owner and fails the cron run when the check cannot read the logger', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { testEnv, send } = harness([], { loggerDown: true });
+
+    await expect(runCron(testEnv, DAILY_CRON)).rejects.toThrow();
+
+    const email = sentEmail(send);
+    expect(email.subject).toBe('Warg archive health: the daily check failed');
+    expect(email.text).toContain('no archive kind was measured');
+  });
+
+  it('keeps the error of the check when the failure email cannot be sent either', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { testEnv, send } = harness([], { loggerDown: true });
+    send.mockRejectedValueOnce(new Error('send refused'));
+
+    await expect(runCron(testEnv, DAILY_CRON)).rejects.toThrow(/logger|503/i);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('measures the other rows when one row is malformed', async () => {
+    const log = vi.spyOn(console, 'log');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { testEnv, send } = harness([{ requestId: 'bad', createdAt: 5, artifacts: [] }, ...rowsFor('singlefile', 10, 7)]);
+
+    await runCron(testEnv, DAILY_CRON);
+
+    expect(sentEmail(send).text).toContain('7/10');
+    const line = log.mock.calls.find((call) => call[0] === '[gateway] kind health:');
+    expect(String(line?.[1])).toContain('"skippedRows":1');
   });
 
   it('does not run the check on the ten-minute cron', async () => {
