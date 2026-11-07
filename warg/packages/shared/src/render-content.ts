@@ -93,8 +93,16 @@ export const PROXY_ERROR_PAGE_REASON = 'proxy_error_page';
  * document worth archiving; callers that distinguish the two cases should
  * check emptiness before calling.
  */
+/**
+ * Longest page the proxy-error check scans. The observed error page is 275
+ * bytes, and the cap keeps the lazy regexes below from scanning a hostile page
+ * many times over.
+ */
+const MAX_PROXY_ERROR_HTML_LENGTH = 16_384;
+
 export function isProxyErrorPage(html: string): boolean {
   if (!html || html.trim().length === 0) return true;
+  if (html.length > MAX_PROXY_ERROR_HTML_LENGTH) return false;
 
   const withoutNoise = extractBodyInner(html)
     .replace(/<!--[\s\S]*?-->/g, '')
@@ -128,21 +136,68 @@ const MAX_CHALLENGE_TEXT_LENGTH = 2000;
  */
 export const ACCESS_BLOCKED_REASON = 'access_blocked';
 
-/** Every tag and every script body: the markup a vendor plants, never the text a writer quotes. */
-function extractStructure(html: string): string {
-  const tags = html.match(/<[a-zA-Z!/][^>]*>/g) ?? [];
-  const scripts = Array.from(html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi), (m) => m[1] ?? '');
-  return [...tags, ...scripts].join('\n');
+/** Elements whose content a reader never sees as text. */
+const HIDDEN_ELEMENTS: ReadonlySet<string> = new Set(['script', 'style', 'noscript', 'template']);
+
+interface ScannedPage {
+  /** Every tag and every script body: the markup a vendor plants, never the text a writer quotes. */
+  structure: string;
+  /** Text a reader would see in the body, with entities decoded and whitespace collapsed. */
+  visibleText: string;
 }
 
-/** Text a reader would see in the body, with entities decoded and whitespace collapsed. */
-function extractVisibleText(html: string): string {
-  const withoutHidden = extractBodyInner(html)
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style|noscript|template)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
-  return decodeEntities(withoutHidden.replace(/<[^>]*>/g, ' '))
-    .replace(/\s+/g, ' ')
-    .trim();
+/**
+ * One forward pass over the page. Every search starts where the last one
+ * ended, so a hostile page (thousands of unclosed tags or comments) costs time
+ * linear in its length.
+ */
+function scanPage(html: string): ScannedPage {
+  const lower = html.toLowerCase();
+  const structure: string[] = [];
+  const text: string[] = [];
+  const bodyStart = lower.indexOf('<body');
+  const bodyEnd = lower.lastIndexOf('</body');
+  let i = 0;
+
+  while (i < html.length) {
+    const inBody = bodyStart === -1 || (i > bodyStart && (bodyEnd === -1 || i < bodyEnd));
+    const lt = html.indexOf('<', i);
+    const textEnd = lt === -1 ? html.length : lt;
+    if (inBody && textEnd > i) text.push(html.slice(i, textEnd));
+    if (lt === -1) break;
+
+    if (lower.startsWith('<!--', lt)) {
+      const end = lower.indexOf('-->', lt + 4);
+      if (end === -1) break;
+      i = end + 3;
+      continue;
+    }
+    if (!/[a-z!/]/.test(lower[lt + 1] ?? '')) {
+      if (inBody) text.push('<');
+      i = lt + 1;
+      continue;
+    }
+
+    const gt = html.indexOf('>', lt);
+    if (gt === -1) break;
+    structure.push(html.slice(lt, gt + 1));
+    text.push(' ');
+    i = gt + 1;
+
+    const name = /^<([a-z][\w-]*)/.exec(lower.slice(lt, Math.min(gt + 1, lt + 32)))?.[1];
+    if (name === undefined || !HIDDEN_ELEMENTS.has(name)) continue;
+    const close = lower.indexOf(`</${name}`, i);
+    if (close === -1) break;
+    if (name === 'script') structure.push(html.slice(i, close));
+    const closeEnd = html.indexOf('>', close);
+    if (closeEnd === -1) break;
+    i = closeEnd + 1;
+  }
+
+  return {
+    structure: structure.join('\n'),
+    visibleText: decodeEntities(text.join('')).replace(/\s+/g, ' ').trim()
+  };
 }
 
 /**
@@ -155,9 +210,11 @@ function extractVisibleText(html: string): string {
  * loads a vendor sensor script still has its article text).
  */
 export function isChallengePage(html: string): boolean {
-  const structure = extractStructure(html);
+  // Cheap first pass on the raw page: most pages carry no marker at all.
+  if (!CHALLENGE_MARKERS.some((marker) => marker.test(html))) return false;
+  const { structure, visibleText } = scanPage(html);
   if (!CHALLENGE_MARKERS.some((marker) => marker.test(structure))) return false;
-  return extractVisibleText(html).length <= MAX_CHALLENGE_TEXT_LENGTH;
+  return visibleText.length <= MAX_CHALLENGE_TEXT_LENGTH;
 }
 
 /**

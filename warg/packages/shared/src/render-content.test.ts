@@ -146,6 +146,21 @@ describe('isChallengePage', () => {
     expect(isChallengePage(NORMAL_ARTICLE_PAGE)).toBe(false);
   });
 
+  it.each(['<script ', '<style ', '<!--', '<noscript ', '<a'])(
+    'answers in linear time on 1 MB of unclosed %s tokens',
+    (token) => {
+      const filler = token.repeat(Math.floor(1_000_000 / token.length));
+      const hostile = `<html><body><p>window._cf_chl_opt</p><div data-x="${filler}"></div></body></html>`;
+      const start = Date.now();
+      isChallengePage(hostile);
+      expect(Date.now() - start).toBeLessThan(1_000);
+    }
+  );
+
+  it('does not scan a large page for a proxy error', () => {
+    expect(isProxyErrorPage('<html><body><pre>dial tcp: no such host</pre>' + '<div></div>'.repeat(5_000) + '</body></html>')).toBe(false);
+  });
+
   it('leaves every recorded page to this check rather than the proxy-error check', () => {
     const pages = [
       CLOUDFLARE_CHALLENGE_PAGE,
