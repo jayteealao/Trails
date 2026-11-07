@@ -180,3 +180,53 @@ describe('isBrowserRenderingAuthError', () => {
     expect(isBrowserRenderingAuthError(status, body)).toBe(false);
   });
 });
+
+// The differences a serialization taken after the page's scripts ran can add
+// to the same page: a doctype, script-set attributes on <html> and <body>, an
+// empty node injected at the end of the body, and newlines between tags.
+function asSnapshotSerialization(html: string): string {
+  const withDoctype = /^<!doctype/i.test(html) ? html : `<!DOCTYPE html>${html}`;
+  const withAttributes = withDoctype
+    .replace(/<html\b/i, '<html class="js"')
+    .replace(/<body\b/i, '<body data-loaded="true"');
+  const injected = /<\/body>/i.test(withAttributes)
+    ? withAttributes.replace(/<\/body>/i, '<div id="injected-root"></div></body>')
+    : `${withAttributes}<div id="injected-root"></div>`;
+  return injected.replace(/></g, '>\n<');
+}
+
+const SHORT_LEGITIMATE_PAGE =
+  '<html><head><title>Note</title></head><body>' +
+  '<h1>XCOM 2</h1><p>A short post, but a real one.</p>' +
+  '</body></html>';
+
+const bareNetworkError = (message: string): string => `<html><body><pre>${message}</pre></body></html>`;
+
+describe('detector verdicts on snapshot HTML', () => {
+  const rows: Array<[string, string, { proxy: boolean; challenge: boolean }]> = [
+    ['dead-host stub', DEAD_HOST_STUB, { proxy: true, challenge: false }],
+    ['dead-host stub without its trailing node', DEAD_HOST_STUB_NO_TRAILING_NODE, { proxy: true, challenge: false }],
+    ['connection refused error', bareNetworkError('net::ERR_CONNECTION_REFUSED'), { proxy: true, challenge: false }],
+    ['connection reset error', bareNetworkError('connection reset by peer'), { proxy: true, challenge: false }],
+    ['i/o timeout error', bareNetworkError('dial tcp 10.0.0.1:443: i/o timeout'), { proxy: true, challenge: false }],
+    ['connection closed error', bareNetworkError('read tcp: connection closed'), { proxy: true, challenge: false }],
+    ['Cloudflare challenge', CLOUDFLARE_CHALLENGE_PAGE, { proxy: false, challenge: true }],
+    ['DataDome challenge', DATADOME_CHALLENGE_PAGE, { proxy: false, challenge: true }],
+    ['PerimeterX challenge', PERIMETERX_CHALLENGE_PAGE, { proxy: false, challenge: true }],
+    ['thin page with the Cloudflare script', THIN_PAGE_WITH_CLOUDFLARE_SCRIPT, { proxy: false, challenge: false }],
+    ['thin page with the versioned Cloudflare script', THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT, { proxy: false, challenge: false }],
+    ['long page with a vendor sensor', LONG_PAGE_WITH_VENDOR_SENSOR, { proxy: false, challenge: false }],
+    ['article about challenges', ARTICLE_ABOUT_CHALLENGES, { proxy: false, challenge: false }],
+    ['normal article', NORMAL_ARTICLE_PAGE, { proxy: false, challenge: false }],
+    ['short legitimate page', SHORT_LEGITIMATE_PAGE, { proxy: false, challenge: false }],
+  ];
+
+  it.each(rows)('%s gets the same verdict as /content HTML and as snapshot HTML', (_name, html, expected) => {
+    const snapshot = asSnapshotSerialization(html);
+    expect(snapshot).not.toBe(html);
+    const fromContent = { proxy: isProxyErrorPage(html), challenge: isChallengePage(html) };
+    const fromSnapshot = { proxy: isProxyErrorPage(snapshot), challenge: isChallengePage(snapshot) };
+    expect(fromContent).toEqual(expected);
+    expect(fromSnapshot).toEqual(fromContent);
+  });
+});
