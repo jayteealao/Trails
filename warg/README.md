@@ -163,6 +163,14 @@ Two configs per worker: `cloudflare.config.ts` is what `cf deploy` reads, and
 binding in both; `node scripts/check-worker-configs.mjs` (run in CI) fails when
 they disagree.
 
+The compatibility date of all nine workers lives in
+`workers/compatibility-date.mjs`. Each `cloudflare.config.ts` imports it and
+each `wrangler.jsonc` repeats it as a literal, because JSONC cannot import; the
+same check fails when a file differs from it or quotes its own date. The
+renderer may not go below 2026-03-24, the first date with `quickAction()` on
+the browser binding. Raise the date on purpose: read the compatibility flags
+the new date turns on, then run each worker's tests and `wrangler dev`.
+
 Each worker's `node_modules/wrangler` is a link that the root `postinstall`
 (`scripts/link-worker-bundler.mjs`) creates, because `cf deploy` looks for the
 bundler only inside the worker folder. After an install with

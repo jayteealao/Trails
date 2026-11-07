@@ -26,7 +26,8 @@ import { COMPATIBILITY_DATE } from '../workers/compatibility-date.mjs';
 
 const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// The earliest compatibility date each listed Worker may run on.
+// The earliest compatibility date each listed Worker may run on. The renderer
+// needs 2026-03-24 for quickAction() on the browser binding.
 export const MINIMUM_COMPATIBILITY_DATES = { renderer: '2026-03-24' };
 
 // The Workers one archive passes through; one trace needs each of them traced.
