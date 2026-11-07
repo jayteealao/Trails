@@ -270,8 +270,18 @@ To read one archive:
 
 2. Poll `GET /status/<requestId>` (same header) until it is done or failed.
 3. Open Workers → Observability → Traces in the Cloudflare dashboard for the
-   last 15 minutes, or run `pnpm exec cf o11y telemetry query` with the traces
-   view, and filter by `$metadata.service` (gateway, workflow, renderer).
+   last 15 minutes and filter by `$metadata.service` (gateway, workflow,
+   renderer). From a shell in `warg/`, the same 15 minutes of traces (the query
+   needs the dataset; without it the API answers 400):
+
+   ```bash
+   pnpm exec cf o11y telemetry query --query-id one-archive --view traces \
+     --preview --limit 20 --parameters-datasets cloudflare-workers \
+     --timeframe-from $(( ($(date +%s) - 900) * 1000 )) \
+     --timeframe-to $(( $(date +%s) * 1000 ))
+   ```
+
+   Each trace in the output names its Workers in `$metadata.service`.
 4. Note each trace id and which Workers' spans it holds. Join the traces of one
    archive by the Workflow instance id and by the event times of
    `GET /status/<requestId>`. If a span attribute or log field turns out to hold
