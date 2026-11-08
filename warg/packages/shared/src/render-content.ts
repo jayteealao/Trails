@@ -11,6 +11,10 @@
  * contain nothing but a single `<pre>`, AND that block's short text must read
  * as a network error. Prose that merely quotes an error string still has other
  * markup around it and is accepted.
+ *
+ * Detection only runs on documents up to `PROXY_ERROR_PAGE_MAX_LENGTH`
+ * characters; anything longer is a real page. Contentless void tags and empty
+ * elements beside the `<pre>` are ignored, so they cannot hide a stub.
  */
 
 /**
