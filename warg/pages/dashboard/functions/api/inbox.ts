@@ -13,6 +13,10 @@ interface DashboardArticlesResponse {
   articles?: unknown[];
 }
 
+interface CompletedTodayResponse {
+  completedToday?: unknown;
+}
+
 function buildApiUrl(baseUrl: string, path: string, search?: URLSearchParams): string {
   const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
   const url = new URL(path, base);
@@ -62,15 +66,24 @@ async function fetchFailedRequests(env: Env): Promise<unknown[]> {
   return body.requests ?? [];
 }
 
-function completedTodayCount(articles: unknown[]): number {
-  const now = Date.now();
-  const oneDayMs = 24 * 60 * 60 * 1000;
-  return articles.filter((article) => {
-    const createdAt = (article as { created_at?: string }).created_at;
-    if (!createdAt) return false;
-    const ts = Date.parse(createdAt);
-    return !Number.isNaN(ts) && now - ts <= oneDayMs;
-  }).length;
+// The dashboard API owns the completed-today count (articles completed since
+// UTC midnight); the inbox shows it as given.
+async function fetchCompletedToday(env: Env): Promise<number> {
+  const response = await fetch(buildApiUrl(env.DASHBOARD_API_URL, 'stats/completed-today'), {
+    headers: { 'X-Internal-API-Key': env.DASHBOARD_API_KEY },
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Dashboard API returned ${response.status}`);
+  }
+
+  const body = (await response.json()) as CompletedTodayResponse;
+  if (typeof body.completedToday !== 'number' || !Number.isFinite(body.completedToday)) {
+    throw new Error('Dashboard API returned no completed-today count');
+  }
+  return body.completedToday;
 }
 
 export const onRequestGet: PagesFunction<Env> = async (context) => {
@@ -81,12 +94,14 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       incompleteArticles,
       processingArticles,
       recentlyCompleted,
+      completedToday,
     ] = await Promise.all([
       fetchFailedRequests(context.env),
       fetchDashboardArticles(context.env, 'failed', 50),
       fetchDashboardArticles(context.env, 'incomplete', 50),
       fetchDashboardArticles(context.env, 'processing', 50),
       fetchDashboardArticles(context.env, 'complete', 25),
+      fetchCompletedToday(context.env),
     ]);
 
     const payload = {
@@ -104,7 +119,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       counts: {
         needsAttention: failedRequests.length + failedArticles.length + incompleteArticles.length,
         inProgress: processingArticles.length,
-        completedToday: completedTodayCount(recentlyCompleted),
+        completedToday,
       },
     };
 

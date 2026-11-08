@@ -963,8 +963,10 @@ describe('inbox key split', () => {
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
     } as any;
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-      jsonResponse({ articles: [] })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) =>
+      new URL(String(input)).pathname.endsWith('/stats/completed-today')
+        ? jsonResponse({ completedToday: 0, since: '2026-11-08T00:00:00.000Z' })
+        : jsonResponse({ articles: [] })
     );
 
     const { onRequestGet } = await import('../inbox.js');
