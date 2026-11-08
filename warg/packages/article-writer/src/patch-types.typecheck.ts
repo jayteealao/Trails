@@ -21,6 +21,9 @@ import type {
   UserArticleErrorPatch,
   UserArticleLinkPatch,
   UserArticleResolvedLinkPatch,
+  Pocket,
+  PocketField,
+  PocketInput,
 } from './index.js';
 
 // Compiled by `tsc --noEmit` only (never built or run). Each assignment is a
@@ -192,3 +195,9 @@ const _finalizeEntry: ArchiveFinalizePatch = {
     not_an_entry_field: 1,
   },
 };
+
+// The pocket projection's result is a valid pocket write with exactly the
+// pocket field names: a field added to one and not the other fails the compile.
+const _pocketIsInput = (pocket: Pocket): PocketInput => pocket;
+type SameKeys<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const _pocketKeys: SameKeys<keyof Pocket, PocketField> = true;
