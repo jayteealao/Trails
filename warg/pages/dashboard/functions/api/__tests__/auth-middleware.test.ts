@@ -46,8 +46,14 @@ function basic(credential: string): string {
 
 type MiddlewareContext = Parameters<typeof onRequest>[0];
 
-async function run(path: string, method: string, authorization?: string, secret: string | typeof UNSET = SECRET) {
-  const headers = new Headers();
+async function run(
+  path: string,
+  method: string,
+  authorization?: string,
+  secret: string | typeof UNSET = SECRET,
+  extraHeaders: Record<string, string> = {},
+) {
+  const headers = new Headers(extraHeaders);
   if (authorization !== undefined) headers.set('Authorization', authorization);
   const request = new Request('https://dashboard.example.com' + path, { method, headers });
   const next = vi.fn(async () => new Response('handler', { status: 299 }));
@@ -156,6 +162,56 @@ describe('dashboard sign-in check', () => {
         expect(await response.text()).toBe(NOT_CONFIGURED);
         expect(next).not.toHaveBeenCalled();
       }
+    });
+  });
+
+  describe('writes started by another site', () => {
+    const writes = routeMethods.filter(({ method }) => method !== 'GET');
+    const reads = routeMethods.filter(({ method }) => method === 'GET');
+
+    it('finds the write routes on disk', () => {
+      expect(writes.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it.each([
+      ['another origin', { Origin: 'https://evil.example' }],
+      ['an opaque origin', { Origin: 'null' }],
+      ['a cross-site fetch', { 'Sec-Fetch-Site': 'cross-site' }],
+      ['a same-site fetch from another host', { 'Sec-Fetch-Site': 'same-site' }],
+      ['a cross-site fetch that claims the dashboard origin', { 'Sec-Fetch-Site': 'cross-site', Origin: 'https://dashboard.example.com' }],
+    ])('refuses a signed-in write from %s', async (_label, extra) => {
+      for (const { path, method } of writes) {
+        const { response, next } = await run(path, method, basic(SECRET), SECRET, extra);
+        expect(response.status, `${method} ${path}`).toBe(403);
+        expect(await response.text()).toBe('Cross-site request refused.');
+        expect(next).not.toHaveBeenCalled();
+      }
+    });
+
+    it.each([
+      ['the dashboard itself', { Origin: 'https://dashboard.example.com', 'Sec-Fetch-Site': 'same-origin' }],
+      ['the dashboard origin alone', { Origin: 'https://dashboard.example.com' }],
+      ['a typed address', { 'Sec-Fetch-Site': 'none' }],
+      ['a client that is not a browser', {}],
+    ])('passes a signed-in write from %s', async (_label, extra) => {
+      for (const { path, method } of writes) {
+        const { response, next } = await run(path, method, basic(SECRET), SECRET, extra);
+        expect(response.status, `${method} ${path}`).toBe(299);
+        expect(next).toHaveBeenCalledOnce();
+      }
+    });
+
+    it('still passes a signed-in read from another site', async () => {
+      for (const { path, method } of reads) {
+        const { response } = await run(path, method, basic(SECRET), SECRET, { 'Sec-Fetch-Site': 'cross-site' });
+        expect(response.status, `${method} ${path}`).toBe(299);
+      }
+    });
+
+    it('asks for sign-in before it looks at the origin', async () => {
+      const { path, method } = writes[0]!;
+      const { response } = await run(path, method, undefined, SECRET, { Origin: 'https://evil.example' });
+      expect(response.status).toBe(401);
     });
   });
 });

@@ -54,10 +54,41 @@ async function matchesSecret(candidate: Uint8Array, secret: string): Promise<boo
   return crypto.subtle.timingSafeEqual(candidateDigest, secretDigest);
 }
 
+// A signed-in browser sends the credential with every request to the
+// dashboard, including one that a page on another site starts. Reads are safe
+// (the other site cannot see the answer), but a write from another site is
+// refused, so a page elsewhere cannot use the operator's sign-in to queue or
+// retry archives.
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function crossSiteWriteRefused(): Response {
+  return new Response('Cross-site request refused.', {
+    status: 403,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
+}
+
+// True when a browser says the request comes from another site. A client that
+// is not a browser sends neither header, and a cross-site attack needs a browser.
+function isCrossSite(request: Request): boolean {
+  const fetchSite = request.headers.get('Sec-Fetch-Site');
+  if (fetchSite) return fetchSite !== 'same-origin' && fetchSite !== 'none';
+  const origin = request.headers.get('Origin');
+  if (!origin) return false;
+  try {
+    return new URL(origin).origin !== new URL(request.url).origin;
+  } catch {
+    return true; // An opaque origin ("null") is never the dashboard itself.
+  }
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const secret = context.env.DASHBOARD_AUTH;
   if (!secret) return authNotConfigured();
   const candidate = credentialBytes(context.request.headers.get('Authorization'));
   if (!candidate || !(await matchesSecret(candidate, secret))) return signInRequired();
+  if (!READ_METHODS.has(context.request.method.toUpperCase()) && isCrossSite(context.request)) {
+    return crossSiteWriteRefused();
+  }
   return context.next();
 };
