@@ -9,7 +9,6 @@ import type {
   ArtifactKind,
   ArtifactMeta,
   CheckpointStep,
-  WorkflowCheckpoint,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
 import { getR2Key, timingSafeEqual } from '@warg/shared';
@@ -41,7 +40,6 @@ import {
   updateManifestKey
 } from './logging.js';
 import { runMockPipeline } from './mock.js';
-import type { PersistedArtifacts } from './persist.js';
 import { persistArtifactsIncremental, snapshotPersistedArtifacts, writeManifest } from './persist.js';
 import {
   createCheckpoint,
@@ -291,7 +289,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       if (artifacts.length === 0) return;
 
       try {
-        const persistResult = await this.persistArtifactsIncremental(
+        const persistResult = await persistArtifactsIncremental(
+          this.env,
           step,
           checkpoint,
           request_id,
@@ -582,7 +581,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     await persistStepArtifacts('final', 'final_reconcile');
 
     const finalArtifacts = getAllArtifacts(checkpoint);
-    const manifestKey = await this.writeManifest(
+    const manifestKey = await writeManifest(
+      this.env,
       step,
       request_id,
       url,
@@ -870,39 +870,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         await stub.release(leaseId);
       });
     }
-  }
-
-  private async persistArtifactsIncremental(
-    step: WorkflowStep,
-    checkpoint: WorkflowCheckpoint,
-    requestId: string,
-    url: string,
-    stepName: CheckpointStep | 'final',
-    artifacts: ArtifactMeta[],
-    reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile',
-    persistedBefore: PersistedArtifacts
-  ): Promise<WorkflowResult['gcsResult'] | undefined> {
-    return persistArtifactsIncremental(
-      this.env,
-      step,
-      checkpoint,
-      requestId,
-      url,
-      stepName,
-      artifacts,
-      reason,
-      persistedBefore
-    );
-  }
-
-  private async writeManifest(
-    step: WorkflowStep,
-    requestId: string,
-    url: string,
-    artifacts: ArtifactMeta[],
-    manifestKey: string
-  ): Promise<string> {
-    return writeManifest(this.env, step, requestId, url, artifacts, manifestKey);
   }
 
   /**
