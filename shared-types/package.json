@@ -2,5 +2,9 @@
   "name": "shared-types",
   "private": true,
   "type": "module",
-  "description": "Cross-stack schema docs + drift checks shared between android/ and warg/."
+  "description": "Cross-stack schema docs + drift checks shared between android/ and warg/.",
+  "scripts": {
+    "check": "node --experimental-strip-types check-drift.ts",
+    "test": "node --experimental-strip-types --test check-drift.test.ts"
+  }
 }
