@@ -4,56 +4,15 @@ import {
   backfillSharedArticleBaseFields,
   bootstrapSharedArticle,
   buildBootstrapBackfillPatch,
+  projectPocket,
   readSharedArticle,
   resolveCanonicalItemId,
   setUserArticleResolvedLink,
-  type PocketInput,
 } from '@warg/article-writer';
 import { getDashboardUserId } from './config.js';
 import { extractDomain } from './util.js';
 
 const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
-
-function asString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function asPocketTime(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  if (
-    typeof value === 'object' &&
-    value !== null &&
-    'toDate' in value &&
-    typeof (value as { toDate: unknown }).toDate === 'function'
-  ) {
-    const date = (value as { toDate: () => Date }).toDate();
-    return Math.floor(date.getTime() / 1000);
-  }
-  return 0;
-}
-
-export function buildPocket(userDoc: Record<string, unknown>, canonicalItemId: string): PocketInput {
-  const pocket = userDoc['pocket'];
-  const pocketObj =
-    pocket && typeof pocket === 'object'
-      ? (pocket as Record<string, unknown>)
-      : undefined;
-
-  return {
-    favorite: asString(pocketObj?.['favorite'] ?? userDoc['favorite'], ''),
-    resolved_id: asString(
-      pocketObj?.['resolved_id'] ?? userDoc['resolvedId'],
-      canonicalItemId
-    ),
-    status: asString(pocketObj?.['status'] ?? userDoc['status'], ''),
-    time_added: asPocketTime(pocketObj?.['time_added'] ?? userDoc['timeAdded']),
-    time_read: asPocketTime(pocketObj?.['time_read'] ?? userDoc['timeRead']),
-  };
-}
 
 /**
  * POST /articles/:itemId/bootstrap handler.
@@ -99,7 +58,7 @@ export async function handleBootstrapArticle(
     itemId: canonicalItemId,
     url,
     domain: extractDomain(url),
-    pocket: buildPocket(userDoc, canonicalItemId),
+    pocket: projectPocket(userDoc, canonicalItemId),
   };
 
   const articleRef = db.collection('articles').doc(canonicalItemId);
