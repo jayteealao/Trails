@@ -224,6 +224,7 @@ RULES_ONLY=false
 SKIP_CHECKS=false
 ALLOW_DIRTY=false
 FORCE_FUNCTIONS=false
+DRY_RUN=false
 DIRTY=false
 ALLOW_MISSING=()
 ALL_FLAG=false
@@ -339,6 +340,7 @@ while [ $# -gt 0 ]; do
     --skip-checks) SKIP_CHECKS=true ;;
     --allow-dirty) ALLOW_DIRTY=true ;;
     --force-functions) FORCE_FUNCTIONS=true ;;
+    --dry-run) DRY_RUN=true ;;
     --allow-missing-secrets)
       [ $# -ge 2 ] || usage_error "--allow-missing-secrets needs a worker name"
       is_worker "$2" || usage_error "--allow-missing-secrets: unknown worker '$2' (one of: ${WORKERS[*]})"
@@ -437,6 +439,20 @@ elif [ "$ALL_FLAG" = true ]; then
 fi
 if [ "$WITH_PAGES" = true ]; then
   register_target "pages:dashboard"
+fi
+
+# --dry-run stops here: the summary lists every target these flags would
+# deploy as "planned", before any check, preflight, sign-in or deploy.
+if [ "$DRY_RUN" = true ]; then
+  for i in "${!TARGETS[@]}"; do
+    if [ "${RESULT[$i]}" = skipped ] && [ "${DETAIL[$i]}" = "-" ]; then
+      RESULT[i]="planned"
+      [ "${TARGETS[$i]}" != "pages:dashboard" ] || DETAIL[i]="project $PAGES_PROJECT (pages/dashboard)"
+    fi
+  done
+  echo "=== Dry run: nothing deployed ==="
+  FIRST_RC=0
+  exit 0
 fi
 
 WORK_DIR="$(mktemp -d)"
