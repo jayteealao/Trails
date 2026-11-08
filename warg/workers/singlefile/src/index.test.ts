@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PROXY_ERROR_PAGE_MAX_LENGTH, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 
 // The fake page resolves every capture with whatever the current test sets here.
 let capturedContent = '';
@@ -59,6 +60,41 @@ async function runCapture(content: string, bucket = makeBucket()) {
   return { response, body, bucket };
 }
 
+// Byte-exact copy of the 275-byte stub archived by the 2026-09-04 canary:
+// Chrome's plain-text rendering of the proxy's DNS failure, served as HTTP 200.
+const DEAD_HOST_STUB =
+  '<html><head><meta name="color-scheme" content="light dark"></head>' +
+  '<body><pre style="word-wrap: break-word; white-space: pre-wrap;">' +
+  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host\n' +
+  '</pre><div id="header-bqq3lsboese" style="display: none;"></div>' +
+  '</body></html>';
+
+// The same stub as SingleFile serialises it: a doctype, its "saved with"
+// comment, a head with charset, inlined styles, referrer and canonical tags,
+// and the hidden <div> removed.
+const SINGLEFILE_STUB_CAPTURE =
+  '<!DOCTYPE html> <html><!--\n Page saved with SingleFile \n url: https://www.explorminate.net/post \n' +
+  ' saved date: Fri Sep 04 2026 10:12:31 GMT+0000 (Coordinated Universal Time)\n-->' +
+  '<head><meta charset=utf-8><meta name=color-scheme content="light dark">' +
+  '<style>pre{word-wrap:break-word;white-space:pre-wrap}</style>' +
+  '<meta name=referrer content=no-referrer>' +
+  '<link rel=canonical href=https://www.explorminate.net/post></head>' +
+  '<body><pre style="word-wrap:break-word;white-space:pre-wrap">' +
+  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host\n' +
+  '</pre></body></html>';
+
+/** The stub, padded with whitespace before `</body>` to exactly `length` characters. */
+function padStubTo(length: number): string {
+  const padding = ' '.repeat(length - DEAD_HOST_STUB.length);
+  return DEAD_HOST_STUB.replace('</body>', `${padding}</body>`);
+}
+
+const STUB_REJECTION = {
+  error: 'SingleFile capture returned a proxy/network error page',
+  reason: PROXY_ERROR_PAGE_REASON,
+  url: TARGET_URL,
+};
+
 function makeArticle(): string {
   const paragraph =
     '<p>The archive keeps a faithful copy of the page so it can be read long after the original is gone. ' +
@@ -105,6 +141,49 @@ describe('singlefile capture validation', () => {
         contentType: 'text/html',
       },
     });
+    expect(bucket.put).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('singlefile proxy error page rejection', () => {
+  it('rejects the 275-byte proxy error stub and stores nothing', async () => {
+    expect(DEAD_HOST_STUB.length).toBe(275);
+
+    const { response, body, bucket } = await runCapture(DEAD_HOST_STUB);
+
+    expect(response.status).toBe(502);
+    expect(body).toEqual(STUB_REJECTION);
+    expect(bucket.put).not.toHaveBeenCalled();
+  });
+
+  it('rejects the stub as SingleFile serialises it and stores nothing', async () => {
+    expect(SINGLEFILE_STUB_CAPTURE.length).toBeLessThan(PROXY_ERROR_PAGE_MAX_LENGTH);
+
+    const { response, body, bucket } = await runCapture(SINGLEFILE_STUB_CAPTURE);
+
+    expect(response.status).toBe(502);
+    expect(body).toEqual(STUB_REJECTION);
+    expect(bucket.put).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stub-shaped capture right at the detector length limit', async () => {
+    const capture = padStubTo(PROXY_ERROR_PAGE_MAX_LENGTH);
+    expect(capture.length).toBe(PROXY_ERROR_PAGE_MAX_LENGTH);
+
+    const { response, body, bucket } = await runCapture(capture);
+
+    expect(response.status).toBe(502);
+    expect(body).toEqual(STUB_REJECTION);
+    expect(bucket.put).not.toHaveBeenCalled();
+  });
+
+  it('stores a capture one character past the limit without scanning it', async () => {
+    const capture = padStubTo(PROXY_ERROR_PAGE_MAX_LENGTH + 1);
+    expect(capture.length).toBe(PROXY_ERROR_PAGE_MAX_LENGTH + 1);
+
+    const { response, bucket } = await runCapture(capture);
+
+    expect(response.status).toBe(200);
     expect(bucket.put).toHaveBeenCalledTimes(1);
   });
 });
