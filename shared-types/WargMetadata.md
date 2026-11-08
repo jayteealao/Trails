@@ -105,7 +105,7 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 | `archives.rendered.compression_ratio` | `articles/{id}` | as `archives.rendered` | written on finalize |
 | `archives.rendered.started_at` | `articles/{id}` | as `archives.rendered` | an ISO string, written on upload start |
 | `archives.rendered.created_at` | `articles/{id}` | as `archives.rendered` | an ISO string, written on finalize |
-| `pocket` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill | |
+| `pocket` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill | built from the user article only by `projectPocket` of `@warg/article-writer` (a create by the re-derive pass stores an empty map) |
 | `pocket.favorite` | `articles/{id}` | as `pocket` | |
 | `pocket.resolved_id` | `articles/{id}` | as `pocket` | |
 | `pocket.status` | `articles/{id}` | as `pocket` | |
