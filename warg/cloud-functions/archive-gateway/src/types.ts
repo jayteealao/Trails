@@ -1,6 +1,6 @@
 // GCS worker contract — keep in sync with workers/gcs/src/types.ts
 
-import type { GatewayArchiveKey } from '@warg/article-writer';
+import type { GatewayArchiveKey, Pocket } from '@warg/article-writer';
 
 /**
  * Log level for events.
@@ -178,13 +178,7 @@ export interface ArticleDocument {
   domain: string;
   created_at: FirebaseFirestore.Timestamp;
   updated_at: FirebaseFirestore.Timestamp;
-  pocket: {
-    favorite: string;
-    resolved_id: string;
-    status: string;
-    time_added: number;
-    time_read: number;
-  };
+  pocket: Pocket;
   metadata: {
     byline: string;
     excerpt: string;
