@@ -507,3 +507,53 @@ describe('begin drops unknown option keys the same way every time', () => {
     expect(logged.some((line) => line.includes('"a":1'))).toBe(false);
   });
 });
+
+describe('begin caller kinds', () => {
+  const url = 'https://example.com/article';
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('accepts the public key for a body without dryRun or steps', async () => {
+    const { env, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const body = { url, request_id: 'req-pk-1', includeScreenshot: true, includePdf: false };
+    const response = await gateway.fetch(publicPost('/begin', body), env, {} as ExecutionContext);
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ requestId: 'req-pk-1' });
+    const [stored] = storedOptions(env) as Record<string, unknown>[];
+    expect(stored).not.toHaveProperty('dryRun');
+    expect(stored).not.toHaveProperty('steps');
+    expect(workflowFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a call with no key', async () => {
+    const { env, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const request = new Request(`${GATEWAY}/begin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, request_id: 'req-pk-1' })
+    });
+    const response = await gateway.fetch(request, env, {} as ExecutionContext);
+    const data = (await response.json()) as { code?: unknown };
+
+    expect(response.status).toBe(401);
+    expect(data.code).toBe('UNAUTHORIZED');
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a wrong internal key when no public key is sent', async () => {
+    const { env, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const response = await gateway.fetch(
+      internalPost('/begin', { url, request_id: 'req-pk-1' }, 'wrong'),
+      env,
+      {} as ExecutionContext
+    );
+    const data = (await response.json()) as { code?: unknown };
+
+    expect(response.status).toBe(401);
+    expect(data.code).toBe('UNAUTHORIZED');
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+});
