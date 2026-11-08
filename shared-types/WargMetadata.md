@@ -33,34 +33,58 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 
 | Field | Lives on | Write kinds | Notes |
 | ----- | -------- | ----------- | ----- |
-| `item_id` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing | the document id |
-| `url` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing | |
-| `normalizedUrl` | `articles/{id}` | createSharedArticleInTransaction | the link lookup key |
-| `domain` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing | |
-| `created_at` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields | |
-| `updated_at` | `articles/{id}` | bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing | |
-| `status` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, markSharedArticleArchiveStarted, markSharedArticleFailed, markSharedArticleProcessing | `pending`, `processing`, `failed` |
-| `archives` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle | written empty |
-| `pocket` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields | |
+| `item_id` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill | the document id |
+| `url` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill | |
+| `normalizedUrl` | `articles/{id}` | createSharedArticleInTransaction, setSharedArticleNormalizedUrlInBulk | the link lookup key |
+| `domain` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill | |
+| `created_at` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill | |
+| `updated_at` | `articles/{id}` | bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill, markSharedArticleBackfillBegun, recordSharedArticleBackfillFailure, settleStuckSharedArticle | |
+| `status` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, markSharedArticleArchiveStarted, markSharedArticleFailed, markSharedArticleProcessing, setSharedArticleDerivedStatus | `pending`, `processing`, `failed`; the status trigger writes the derived value |
+| `archives` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, upsertSharedArticleForBackfill, recordSharedArticleBackfillFailure, settleStuckSharedArticle | written empty on create; the gateway writes its own archive keys, and copySharedArticleArchiveInBulk copies one whole `archives.<archive key>` entry from a merged duplicate |
+| `archives.gateway_begin` | `articles/{id}` | recordSharedArticleBackfillFailure | the failed archive start of the backfill |
+| `archives.gateway_begin.status` | `articles/{id}` | as `archives.gateway_begin` | `failed` |
+| `archives.gateway_begin.error` | `articles/{id}` | as `archives.gateway_begin` | |
+| `archives.gateway_begin.created_at` | `articles/{id}` | as `archives.gateway_begin` | an ISO string |
+| `archives.workflow_settlement` | `articles/{id}` | settleStuckSharedArticle | a batch item that never finished |
+| `archives.workflow_settlement.status` | `articles/{id}` | as `archives.workflow_settlement` | `stuck` |
+| `archives.workflow_settlement.error` | `articles/{id}` | as `archives.workflow_settlement` | |
+| `archives.workflow_settlement.created_at` | `articles/{id}` | as `archives.workflow_settlement` | an ISO string |
+| `pocket` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill | |
 | `pocket.favorite` | `articles/{id}` | as `pocket` | |
 | `pocket.resolved_id` | `articles/{id}` | as `pocket` | |
 | `pocket.status` | `articles/{id}` | as `pocket` | |
 | `pocket.time_added` | `articles/{id}` | as `pocket` | |
 | `pocket.time_read` | `articles/{id}` | as `pocket` | |
-| `stats` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields | |
+| `stats` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill | |
 | `stats.last_accessed` | `articles/{id}` | as `stats` | |
 | `stats.total_saves` | `articles/{id}` | as `stats`, countSharedArticleSaveInTransaction | |
 | `stats.total_views` | `articles/{id}` | as `stats` | |
 | `stats.last_saved_at` | `articles/{id}` | countSharedArticleSaveInTransaction | |
-| `warg_request_id` | `articles/{id}` | markSharedArticleArchiveStarted, markSharedArticleProcessing | |
-| `processing_started_at` | `articles/{id}` | markSharedArticleArchiveStarted, markSharedArticleProcessing | |
-| `error` | `articles/{id}` | markSharedArticleFailed | |
-| `failed_at` | `articles/{id}` | markSharedArticleFailed | |
-| `canonicalId` | `users/{uid}/articles/{id}` | linkUserArticleInTransaction | server-owned link, see `MarkerSchema.md` |
-| `resolvedId` | `users/{uid}/articles/{id}` | linkUserArticleInTransaction, setUserArticleResolvedLink | |
-| `archival_triggered` | `users/{uid}/articles/{id}` | markUserArticleArchivalTriggered, setUserArticleResolvedLink | |
+| `warg_request_id` | `articles/{id}` | markSharedArticleArchiveStarted, markSharedArticleProcessing, markSharedArticleBackfillBegun | |
+| `processing_started_at` | `articles/{id}` | markSharedArticleArchiveStarted, markSharedArticleProcessing, markSharedArticleBackfillBegun | |
+| `error` | `articles/{id}` | markSharedArticleFailed, recordSharedArticleBackfillFailure, settleStuckSharedArticle, markSharedArticleBackfillBegun | markSharedArticleBackfillBegun deletes it |
+| `failed_at` | `articles/{id}` | markSharedArticleFailed, recordSharedArticleBackfillFailure, settleStuckSharedArticle | |
+| `retry_count` | `articles/{id}` | upsertSharedArticleForBackfill, recordSharedArticleBackfillFailure | the archive starts the backfill made |
+| `status_updated_at` | `articles/{id}` | setSharedArticleDerivedStatus | |
+| `failure` | `articles/{id}` | recordSharedArticleBackfillFailure | the last failed archive start |
+| `failure.class` | `articles/{id}` | as `failure` | `ACCESS_OR_AUTH`, `WORKFLOW_TRIGGER`, `TRANSIENT_UPSTREAM`, `DATA_ISSUE` |
+| `failure.last_seen_at` | `articles/{id}` | as `failure` | |
+| `failure.count` | `articles/{id}` | as `failure` | incremented |
+| `failure.last_error_message` | `articles/{id}` | as `failure` | |
+| `failure.first_seen_at` | `articles/{id}` | as `failure` | written on the first failure only |
+| `mergedInto` | `articles/{id}` | markSharedArticleMergedInBulk | the winner of a merged duplicate |
+| `canonicalId` | `users/{uid}/articles/{id}` | linkUserArticleInTransaction, clearUserArticleCanonicalId, moveUserArticleCanonicalIdInBulk, setUserArticleLinkInBulk, clearUserArticleCanonicalIdInBulk | server-owned link, see `MarkerSchema.md` |
+| `resolvedId` | `users/{uid}/articles/{id}` | linkUserArticleInTransaction, setUserArticleResolvedLink, setUserArticleLinkInBulk, enqueueUserArticle | |
+| `archival_triggered` | `users/{uid}/articles/{id}` | markUserArticleArchivalTriggered, setUserArticleResolvedLink, enqueueUserArticle | |
 | `error` | `users/{uid}/articles/{id}` | recordUserArticleError | |
 | `error_at` | `users/{uid}/articles/{id}` | recordUserArticleError | |
+| `url` | `users/{uid}/articles/{id}` | enqueueUserArticle | the app writes it on its own saves |
+| `favorite` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
+| `status` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
+| `timeAdded` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
+| `timeRead` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
+| `queued_at` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
+| `queued_by` | `users/{uid}/articles/{id}` | enqueueUserArticle | `dashboard` |
 
 ## Producer
 
