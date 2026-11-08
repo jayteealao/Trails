@@ -751,6 +751,72 @@ describe('archive-content proxy', () => {
     expect(headers['X-Internal-API-Key']).toBe('dash-key');
     expect(Object.values(headers)).not.toContain('internal-key');
   });
+
+  describe('sandbox content security policy', () => {
+    const SCRIPTED_HTML = '<!doctype html><p>stored</p><script>window.__ran = true;</script>';
+
+    async function serveArchive(query: string, upstreamType: string): Promise<Response> {
+      const env = {
+        DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+        DASHBOARD_API_KEY: 'dash-key',
+      } as any;
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+        const url = String(input);
+        if (url.startsWith('https://dashboard-api.example.com/signed-url')) {
+          return jsonResponse({ url: 'https://signed.example.com/archive' });
+        }
+        return new Response(SCRIPTED_HTML, {
+          status: 200,
+          headers: { 'Content-Type': upstreamType },
+        });
+      });
+      const { onRequestGet } = await import('../archive-content.js');
+      const request = createRequest(
+        `https://dashboard.example.com/api/archive-content?itemId=abc12345&${query}`
+      );
+      return onRequestGet({ env, request, params: {} } as any);
+    }
+
+    it('sandboxes a stored HTML archive without allowing scripts', async () => {
+      const response = await serveArchive('archiveKey=rendered', 'text/html; charset=utf-8');
+      expect(response.status).toBe(200);
+      const csp = response.headers.get('Content-Security-Policy') ?? '';
+      expect(csp).toContain('sandbox');
+      expect(csp).not.toContain('allow-scripts');
+    });
+
+    it.each(['singlefile', 'monolith', 'readability', 'markdown', 'screenshot'])(
+      'sandboxes the %s archive served under its inferred type',
+      async (archiveKey) => {
+        const response = await serveArchive(`archiveKey=${archiveKey}`, 'application/octet-stream');
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+      }
+    );
+
+    it('keeps the sandbox on a download', async () => {
+      const response = await serveArchive('archiveKey=rendered&download=1', 'text/html');
+      expect(response.headers.get('Content-Disposition')).toContain('attachment');
+      expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+    });
+
+    it('leaves a PDF unsandboxed so it opens inline', async () => {
+      const response = await serveArchive('archiveKey=pdf', 'application/octet-stream');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('application/pdf');
+      expect(response.headers.get('Content-Security-Policy')).toBeNull();
+    });
+
+    it('recognises a PDF media type with parameters and mixed case', async () => {
+      const response = await serveArchive('archiveKey=pdf', 'Application/PDF; qs=0.9');
+      expect(response.headers.get('Content-Security-Policy')).toBeNull();
+    });
+
+    it('sandboxes HTML served under the pdf key', async () => {
+      const response = await serveArchive('archiveKey=pdf', 'text/html');
+      expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+    });
+  });
 });
 
 // --- Dashboard list proxy (dashboard-api) ---
