@@ -192,6 +192,33 @@ function isDeadHostFailure(details: unknown): boolean {
   return DEAD_HOST_ERROR_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+function classifySinglefileFailureFromBody(
+  responseBody: string
+): ServiceErrorClassification | undefined {
+  const parsed = parseJsonSafe(responseBody);
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const record = parsed as Record<string, unknown>;
+  // The worker captured the proxy's error page for a host it cannot reach;
+  // another capture reaches it no better.
+  if (record.reason === PROXY_ERROR_PAGE_REASON) {
+    return {
+      errorCode: 'SINGLEFILE_SERVICE_ERROR',
+      retryable: false,
+      recommendedAction: 'inspect_url',
+    };
+  }
+  // The worker marks page-environment edge cases (Trusted Types, selector
+  // errors) as recoverable: a fresh browser often captures the page.
+  if (record.recoverable === true) {
+    return {
+      errorCode: 'SINGLEFILE_EDGE_CASE',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
+  return undefined;
+}
+
 function classifyServiceFailure(path: string, status: number): ServiceErrorClassification {
   if (status === 401 || status === 403) {
     return {
@@ -231,6 +258,10 @@ function classifyServiceFailureWithBody(
   }
   if (path === '/render') {
     const classified = classifyRenderFailureFromBody(responseBody);
+    if (classified) return classified;
+  }
+  if (path === '/singlefile') {
+    const classified = classifySinglefileFailureFromBody(responseBody);
     if (classified) return classified;
   }
   return classifyServiceFailure(path, status);
