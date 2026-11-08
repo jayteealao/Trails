@@ -73,3 +73,66 @@ test('a GET answers 405 and touches nothing', async () => {
   assert.deepEqual(out, { status: 405, body: { error: 'Method not allowed' } });
   assertNothingTouched();
 });
+
+const artifact = (kind: string, contentType: string, compressed?: boolean) => ({
+  kind,
+  filename: kind,
+  bytes: 10,
+  contentType,
+  sha256: 'abc',
+  ...(compressed === undefined ? {} : { compressed })
+});
+
+const uploadBody = (extra: Record<string, unknown> = {}) => ({
+  request_id: ID,
+  url: 'https://example.com/a',
+  artifacts: [artifact('singlefile.html', 'text/html', true), artifact('page.pdf', 'application/pdf')],
+  ...extra
+});
+
+const uploaded = (kind: string, gcsPath: string) => ({
+  kind,
+  gcs_path: gcsPath,
+  bytes: 10,
+  sha256: 'abc',
+  content_type: 'application/octet-stream',
+  compressed_size: 4,
+  compression_ratio: 0.4
+});
+
+const finalizeBody = (extra: Record<string, unknown> = {}) => ({
+  request_id: ID,
+  firestore_doc_id: ID,
+  uploaded: [uploaded('page.pdf', `archives/${ID}/pdf/output.pdf`)],
+  ...extra
+});
+
+const ROUTES = [
+  { path: '/create-upload', body: uploadBody },
+  { path: '/finalize', body: finalizeBody }
+];
+
+for (const { path, body } of ROUTES) {
+  test(`${path} without a caller key answers 401 and touches nothing`, async () => {
+    const out = await send(gatewayRequest({ path, body: body() }));
+    assert.deepEqual(out, { status: 401, body: { error: 'Unauthorized' } });
+    assertNothingTouched();
+  });
+
+  test(`${path} with a wrong caller key answers 401 and touches nothing`, async () => {
+    const out = await send(gatewayRequest({ path, key: 'wrong-k', body: body() }));
+    assert.deepEqual(out, { status: 401, body: { error: 'Unauthorized' } });
+    assertNothingTouched();
+  });
+
+  test(`${path} with no caller key configured answers 500 and touches nothing`, async () => {
+    Reflect.deleteProperty(process.env, 'ARCHIVE_GATEWAY_KEY');
+    try {
+      const out = await send(gatewayRequest({ path, key: KEY, body: body() }));
+      assert.deepEqual(out, { status: 500, body: { error: 'Server misconfigured' } });
+      assertNothingTouched();
+    } finally {
+      process.env['ARCHIVE_GATEWAY_KEY'] = KEY;
+    }
+  });
+}
