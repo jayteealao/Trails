@@ -1,7 +1,7 @@
 /**
  * Cross-stack schema drift check.
  *
- * Verifies three contracts:
+ * Verifies four contracts:
  *  1. The canonical metadata field names of `shared-types/WargMetadata.md`
  *     ("## Firestore field names (snake_case)") appear, as property keys
  *     (`name:` or `name?:`), in each metadata producer, checked and named on
@@ -23,6 +23,12 @@
  *     a `canonicalId` token in its backup or its Article model, and reads the
  *     "canonicalId" string key in ArchiveService.kt; the doc's "Server-owned
  *     link fields" table lists it.
+ *  4. The user article the app writes (users/{uid}/articles/{id}) — every
+ *     field of "## User article fields read by the server" in
+ *     `shared-types/WargMetadata.md` is a whole string literal in the app's
+ *     user-article wire type (UserArticleWire.kt), which also carries no
+ *     `canonicalId` and no `articleMarkers` token. An absent or empty section
+ *     fails the check.
  *
  * Every match is of a whole name: a field never counts as present inside a
  * longer word (`title` in `subtitle`). It is still a text check, not a parser:
@@ -92,6 +98,9 @@ const TRAILS_BACKUP_WRITER =
   'android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt';
 const TRAILS_ARTICLE_MODEL =
   'android/app/src/main/java/com/jayteealao/trails/data/local/database/Article.kt';
+// The one app file that spells the stored names of the user article.
+const TRAILS_USER_ARTICLE_WIRE =
+  'android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt';
 
 
 function readFile(relativePath: string): string {
@@ -127,6 +136,7 @@ function hasStringLiteral(src: string, name: string): boolean {
 
 const METADATA_FIELDS_HEADING = 'Firestore field names (snake_case)';
 const ACCEPTED_DIFFERENCES_HEADING = 'Accepted differences';
+const USER_ARTICLE_FIELDS_HEADING = 'User article fields read by the server';
 
 function extractCanonicalFields(md: string): string[] {
   // Pull names from the first table column of the metadata section only: lines
@@ -187,6 +197,21 @@ function extractAcceptedDifferences(md: string): AcceptedDifference[] {
   return rows;
 }
 
+// First-column field names of "## User article fields read by the server". An
+// absent or empty section is drift: the app's wire names would go unchecked.
+function extractUserArticleFields(md: string): string[] {
+  const fields: string[] = [];
+  for (const line of sectionLines(md, USER_ARTICLE_FIELDS_HEADING)) {
+    const match = line.match(/^\|\s*`([a-zA-Z_][a-zA-Z0-9_]*)`\s*\|/);
+    if (match) fields.push(match[1]);
+  }
+  if (fields.length === 0) {
+    console.error(`[drift] no fields parsed from ${CANONICAL_DOC} "## ${USER_ARTICLE_FIELDS_HEADING}" — section missing or table format changed?`);
+    process.exit(1);
+  }
+  return fields;
+}
+
 function extractMarkerFields(md: string): string[] {
   return extractSectionFields(md, 'Firestore field names');
 }
@@ -245,11 +270,13 @@ function checkTrailsLinkContract(): boolean {
   const backupSrc = readFile(TRAILS_BACKUP_WRITER);
   const archiveSrc = readFile(TRAILS_SOURCE);
   const articleSrc = readFile(TRAILS_ARTICLE_MODEL);
+  const wireSrc = readFile(TRAILS_USER_ARTICLE_WIRE);
   let drift = false;
 
   for (const [path, src] of [
     [TRAILS_BACKUP_WRITER, backupSrc],
     [TRAILS_SOURCE, archiveSrc],
+    [TRAILS_USER_ARTICLE_WIRE, wireSrc],
   ] as const) {
     if (hasToken(src, MARKER_COLLECTION)) {
       console.error(`[drift] ${path} references "${MARKER_COLLECTION}"; the app must not write markers.`);
@@ -259,6 +286,7 @@ function checkTrailsLinkContract(): boolean {
   for (const [path, src] of [
     [TRAILS_BACKUP_WRITER, backupSrc],
     [TRAILS_ARTICLE_MODEL, articleSrc],
+    [TRAILS_USER_ARTICLE_WIRE, wireSrc],
   ] as const) {
     if (hasToken(src, CANONICAL_ID_FIELD)) {
       console.error(`[drift] ${path} references "${CANONICAL_ID_FIELD}"; it is a server-owned field the app never stores or writes.`);
@@ -275,6 +303,21 @@ function checkTrailsLinkContract(): boolean {
   }
 
   return drift;
+}
+
+// Returns true if the app's user-article wire type lacks a field the server reads.
+function checkUserArticleWire(doc: string): boolean {
+  const fields = extractUserArticleFields(doc);
+  console.log(`[drift] user-article fields: ${fields.join(', ')}`);
+
+  const missing = findMissing(readFile(TRAILS_USER_ARTICLE_WIRE), fields, hasStringLiteral);
+  if (missing.length > 0) {
+    console.error(
+      `[drift] ${TRAILS_USER_ARTICLE_WIRE} (app user-article wire) is missing user-article field(s): ${missing.join(', ')}`,
+    );
+    return true;
+  }
+  return false;
 }
 
 // Returns true if a metadata file lacks a canonical field that no accepted
@@ -345,12 +388,17 @@ function main(): void {
     drift = true;
   }
 
+  // The user article the app writes: the names the server reads.
+  if (checkUserArticleWire(doc)) {
+    drift = true;
+  }
+
   if (drift) {
     console.error('[drift] FAIL — update shared-types/*.md or the affected source.');
     process.exit(1);
   }
 
-  console.log('[drift] OK — metadata, marker and server-owned link contracts intact.');
+  console.log('[drift] OK — metadata, marker, server-owned link and user-article contracts intact.');
 }
 
 main();
