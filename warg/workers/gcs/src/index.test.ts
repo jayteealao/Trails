@@ -463,3 +463,47 @@ describe('edges', () => {
     });
   });
 });
+
+describe('signed-url', () => {
+  it('answers 500 and uploads nothing when /create-upload fails', async () => {
+    const bucket = bucketFor(manifest(THREE_KINDS));
+    const calls = stubNetwork({
+      createUpload: () => new Response('signer down', { status: 500 })
+    });
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({
+      error: 'Internal error',
+      message: expect.stringContaining('Cloud Function /create-upload failed: 500')
+    });
+    expect(summarize(calls)).toEqual(['create-upload']);
+  });
+
+  it('answers 500 for contract drift when a compressible artifact gets a non-.gz path', async () => {
+    const bucket = bucketFor(manifest(THREE_KINDS));
+    const calls = stubNetwork({
+      createUpload: (body) =>
+        Response.json({
+          firestore_doc_id: DOC_ID,
+          uploads: body.artifacts.map((a) => ({
+            kind: a.kind,
+            signed_url: `https://upload.test/${a.kind}`,
+            gcs_path:
+              a.kind === 'singlefile.html' ? 'archives/req-1/singlefile/output.html' : GCS_PATHS[a.kind],
+            expires_at: '2026-11-08T01:00:00Z'
+          }))
+        })
+    });
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({
+      error: 'Internal error',
+      message: expect.stringContaining('Contract drift')
+    });
+    expect(summarize(calls)).toEqual(['create-upload']);
+  });
+});
