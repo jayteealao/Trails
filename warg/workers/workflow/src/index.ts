@@ -23,7 +23,7 @@ import type {
 } from './types.js';
 import {
   callRendererForStep,
-  callSinglefile,
+  callSinglefileForStep,
   callReadability,
   callMonolith,
   callGcs,
@@ -1094,11 +1094,11 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           timeout: '3 minutes'
         },
         async () => {
-          return await callSinglefile(this.env, {
-            request_id: requestId,
-            url,
-            options_r2_key: optionsR2Key
-          });
+          return await callSinglefileForStep(
+            this.env,
+            { request_id: requestId, url, options_r2_key: optionsR2Key },
+            (m) => new NonRetryableError(m)
+          );
         }
       );
 
