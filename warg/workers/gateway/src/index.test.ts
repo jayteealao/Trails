@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import gateway from './index.js';
-import { GATEWAY_ERROR_CODES } from './util.js';
+import { GATEWAY_ERROR_CODES, MAX_OPTIONS_BYTES } from './util.js';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -434,5 +434,76 @@ describe('begin accepts valid options as before', () => {
     expect(response.status).toBe(201);
     expect(storedOptions(env)).toEqual([{ url }]);
     expect(workflowFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('begin rejects malformed options before any write', () => {
+  const url = 'https://example.com/article';
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each<{ name: string; body: unknown; code?: string; id?: string; idNot?: string }>([
+    { name: 'a null body', body: null },
+    { name: 'a string body', body: 'text' },
+    { name: 'a number body', body: 42 },
+    { name: 'an empty array body', body: [] },
+    { name: 'an array of options', body: [{ url }] },
+    { name: 'a string for a boolean', body: { url, request_id: 'req-ok-5', includePdf: 'yes' }, id: 'req-ok-5' },
+    { name: 'a number for a boolean', body: { url, request_id: 'req-ok-5', includeScreenshot: 1 }, id: 'req-ok-5' },
+    { name: 'a string for the steps', body: { url, request_id: 'req-ok-5', steps: 'render' }, id: 'req-ok-5' },
+    { name: 'an unknown step name', body: { url, request_id: 'req-ok-5', steps: ['bogus'] }, id: 'req-ok-5' },
+    { name: 'a number for the url', body: { url: 123, request_id: 'req-ok-5' }, id: 'req-ok-5' },
+    { name: 'a number for the request id', body: { url, request_id: 123 }, code: 'INVALID_REQUEST_ID', idNot: '123' },
+    {
+      name: 'options over the size limit',
+      body: { url: 'https://e.com/' + 'a'.repeat(MAX_OPTIONS_BYTES), request_id: 'req-ok-5' },
+      id: 'req-ok-5'
+    }
+  ])('rejects before any write: $name', async ({ body, code = 'INVALID_OPTIONS', id, idNot }) => {
+    const { env, loggerFetch, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const response = await gateway.fetch(publicPost('/begin', JSON.stringify(body)), env, {} as ExecutionContext);
+    const data = (await response.json()) as { error?: unknown; code?: unknown; id?: unknown };
+
+    expect(response.status).toBe(400);
+    expect(data.code).toBe(code);
+    expect(typeof data.error).toBe('string');
+    expect(data.error).not.toBe('');
+    expect(typeof data.id).toBe('string');
+    expect(data.id).not.toBe('');
+    expect(response.headers.get('X-Request-Id')).toBe(data.id);
+    if (id !== undefined) {
+      expect(data.id).toBe(id);
+    }
+    if (idNot !== undefined) {
+      expect(data.id).not.toBe(idNot);
+    }
+    expect(env.ARCHIVE_BUCKET.put).not.toHaveBeenCalled();
+    expect(loggerFetch).not.toHaveBeenCalled();
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('begin drops unknown option keys the same way every time', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('stores only the known keys on every call and logs the dropped names without values', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const url = 'https://example.com/article';
+    const body = { url, request_id: 'req-ok-6', foo: 1, nested: { a: 1 } };
+    const { env } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+
+    const first = await gateway.fetch(publicPost('/begin', body), env, {} as ExecutionContext);
+    const second = await gateway.fetch(publicPost('/begin', body), env, {} as ExecutionContext);
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(storedOptions(env)).toEqual([{ url }, { url }]);
+    const logged = warnSpy.mock.calls.map((args) => JSON.stringify(args));
+    expect(logged.some((line) => line.includes('foo') && line.includes('nested'))).toBe(true);
+    expect(logged.some((line) => line.includes('"a":1'))).toBe(false);
   });
 });
