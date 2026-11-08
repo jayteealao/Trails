@@ -12,6 +12,7 @@ import {
   isPlainObject,
   isValidArchiveUrl,
   isValidRequestId,
+  PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS,
   validateArchiveOptions,
   withRequestId
 } from './util.js';
@@ -492,11 +493,16 @@ export default {
     const path = url.pathname;
     const method = request.method;
 
-    // Public endpoints require X-API-Key authentication
-    if (
-      (method === 'POST' && path === '/begin') ||
-      (method === 'GET' && path.startsWith('/status/'))
-    ) {
+    // /begin takes the internal key (checked first, so a caller sending both is internal) or the public key;
+    // /status/* takes the public key.
+    let callerKind: 'internal' | 'public' = 'public';
+    if (method === 'POST' && path === '/begin') {
+      if (verifyInternalApiKey(request, env)) {
+        callerKind = 'internal';
+      } else if (!verifyPublicApiKey(request, env)) {
+        return errorResponse(401, GATEWAY_ERROR_CODES.UNAUTHORIZED, 'Unauthorized', errorIdFor(undefined));
+      }
+    } else if (method === 'GET' && path.startsWith('/status/')) {
       if (!verifyPublicApiKey(request, env)) {
         return errorResponse(401, GATEWAY_ERROR_CODES.UNAUTHORIZED, 'Unauthorized', errorIdFor(undefined));
       }
@@ -538,6 +544,18 @@ export default {
         const validation = validateArchiveOptions(fields);
         if (!validation.ok) {
           return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_OPTIONS, validation.message, requestId);
+        }
+        // Only the internal key may choose a dry run or the step list
+        if (callerKind === 'public') {
+          const forbiddenKey = PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS.find((key) => fields[key] !== undefined);
+          if (forbiddenKey) {
+            return errorResponse(
+              403,
+              GATEWAY_ERROR_CODES.OPTION_NOT_ALLOWED,
+              `${forbiddenKey} is not allowed with the public key`,
+              requestId
+            );
+          }
         }
         if (validation.droppedKeys.length > 0) {
           console.warn('[gateway] /begin dropped unknown option keys', {
