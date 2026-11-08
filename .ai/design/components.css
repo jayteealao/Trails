@@ -98,3 +98,44 @@ body { margin: 0; font-family: var(--font-body); font-size: var(--text-md); line
 
 /* ---------- background layer under an overlay (no text) ---------- */
 .ghost { display: block; background: var(--surface-variant); border-radius: var(--radius-sm); }
+
+/* ---------- app-frame: detail variant (back, "Article", Settings; no bottom navigation) ---------- */
+.app-frame--detail .app-frame__bar { background: var(--surface); }
+.app-frame--detail .app-frame__title { font-size: 22px; }
+.app-frame--detail .app-frame__body { max-width: none; display: flex; flex-direction: column; }
+
+/* ---------- archive-tab-row (ArticleDetailTabRow: M3 ScrollableTabRow at the bottom; icon + label, fixed order by kind, D-007 D-008) ---------- */
+.archive-tab-row { display: flex; overflow-x: auto; scrollbar-width: none; padding: 0 var(--space-4); background: var(--surface); border-top: 1px solid var(--border); flex: none; }
+.archive-tab-row::-webkit-scrollbar { display: none; }
+.archive-tab-row__tab { position: relative; flex: none; min-width: 90px; height: 64px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0 var(--space-4); box-sizing: border-box; color: var(--text-secondary); text-decoration: none; font: 500 var(--text-sm)/1.2 var(--font-body); }
+.archive-tab-row__tab:hover { background: var(--surface-variant); }
+.archive-tab-row__tab[aria-selected="true"] { color: var(--accent); }
+.archive-tab-row__tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+.archive-tab-row__label { white-space: nowrap; }
+
+/* ---------- reader-text (ArticleMarkdown: 16dp gutter (D-006) and a Read-mode heading scale (D-005) over the renderer defaults) ---------- */
+.reader-text { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) var(--space-4); color: var(--text); font: 400 var(--text-md)/24px var(--font-body); overflow-wrap: anywhere; }
+.reader-text p, .reader-text ul, .reader-text ol, .reader-text figure { margin: 0 0 var(--space-3); }
+.reader-text ul, .reader-text ol { padding-left: 24px; }
+.reader-text li { margin: 2px 0; }
+.reader-text a { color: var(--accent); text-decoration: underline; padding: 2.5px 0; } /* the tap area is the 24dp text line */
+.reader-text h1 { font: 600 28px/36px var(--font-display); margin: var(--space-2) 0 var(--space-3); }
+.reader-text h2 { font: 600 23px/30px var(--font-display); margin: var(--space-4) 0 var(--space-2); }
+.reader-text h3 { font: 600 19px/26px var(--font-display); margin: var(--space-3) 0 var(--space-1); }
+.reader-text em { font-style: italic; }
+.reader-text img, .reader-text__figure { display: block; width: 100%; height: auto; border-radius: 0; }
+.reader-text__figure { aspect-ratio: 16 / 9; background: var(--surface-variant); }
+.reader-text__broken { display: flex; align-items: center; gap: var(--space-2); min-height: 48px; padding: var(--space-2) var(--space-3); border: 1px dashed var(--border); color: var(--text-secondary); font-size: var(--text-sm); }
+/* the column keeps a reading measure on wide screens */
+.reader-text > * { max-width: 680px; margin-left: auto; margin-right: auto; }
+/* quiet notice in the column: waiting, offline, no text, failed */
+.reader-text__notice { max-width: 34ch; margin: 96px auto 0; padding: 0 var(--space-4); text-align: center; color: var(--text-secondary); }
+.reader-text__notice .icon { width: 40px; height: 40px; color: var(--text-secondary); }
+.reader-text__notice h2 { margin: var(--space-3) 0 var(--space-2); font: 600 var(--text-lg)/1.3 var(--font-display); color: var(--text); }
+.reader-text__notice p { margin: 0; font-size: var(--text-md); line-height: 1.5; }
+.reader-text__notice--error .icon { color: var(--error); }
+.reader-text__skeleton { padding: var(--space-4); }
+.reader-text__skeleton .skeleton-line { margin-bottom: var(--space-3); }
+
+/* ---------- canvas annotation (not product UI): the step of a flow ---------- */
+.flow-note { margin: 0; padding: var(--space-2) var(--space-4); font-size: var(--text-sm); color: var(--text-secondary); background: var(--ground); border-bottom: 1px solid var(--border); }
