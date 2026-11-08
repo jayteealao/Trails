@@ -8,6 +8,7 @@
  */
 import type { WorkflowStep } from 'cloudflare:workers';
 import type {
+  ArtifactKind,
   ArtifactMeta,
   ArchiveManifest,
   CheckpointStep,
@@ -17,7 +18,7 @@ import { getStepManifestKey, sha256 } from '@warg/shared';
 import type { WorkflowResult } from './types.js';
 import { callGcs } from './services.js';
 import { logEvent } from './logging.js';
-import { markArtifactsPersisted, saveCheckpoint } from './checkpoint.js';
+import { loadCheckpoint, markArtifactsPersisted, saveCheckpoint } from './checkpoint.js';
 
 /**
  * Suffix for a persist's manifest key and step names, derived only from the
@@ -44,6 +45,42 @@ export async function persistManifestSuffix(
   return digest.slice(0, 16);
 }
 
+/** The artifacts a stored checkpoint records as persisted, by kind. */
+export type PersistedArtifacts = Partial<
+  Record<ArtifactKind, { r2Key: string; sha256: string; gcsPath?: string }>
+>;
+
+/**
+ * Reads, once per instance, which artifacts its stored checkpoint already
+ * records as persisted.
+ *
+ * An instance that was running when the persist step names changed resumes
+ * under the new names, so its earlier persists are not found in its history.
+ * The stored checkpoint still says what those persists uploaded until the run
+ * saves its checkpoint again, so this must run right after the checkpoint is
+ * loaded. The step result is cached, so later replays see the same snapshot.
+ */
+export async function snapshotPersistedArtifacts(
+  env: Env,
+  step: WorkflowStep,
+  requestId: string,
+  optionsR2Key: string
+): Promise<PersistedArtifacts> {
+  return await step.do('checkpoint-persisted-snapshot', async () => {
+    const stored = await loadCheckpoint(env.ARCHIVE_BUCKET, requestId, optionsR2Key);
+    const persisted: PersistedArtifacts = {};
+    for (const artifact of Object.values(stored?.artifacts ?? {})) {
+      if (!artifact?.persisted) continue;
+      persisted[artifact.kind] = {
+        r2Key: artifact.r2Key,
+        sha256: artifact.sha256,
+        gcsPath: artifact.gcsPath,
+      };
+    }
+    return persisted;
+  });
+}
+
 export async function persistArtifactsIncremental(
   env: Env,
   step: WorkflowStep,
@@ -52,19 +89,42 @@ export async function persistArtifactsIncremental(
   url: string,
   stepName: CheckpointStep | 'final',
   artifacts: ArtifactMeta[],
-  reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile'
+  reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile',
+  persistedBefore: PersistedArtifacts = {}
 ): Promise<WorkflowResult['gcsResult'] | undefined> {
   if (artifacts.length === 0) {
     return undefined;
   }
 
-  const suffix = await persistManifestSuffix(requestId, stepName, artifacts);
+  // Same content already persisted by an earlier run of this instance: mark it
+  // and upload only the rest.
+  const isPersistedBefore = (artifact: ArtifactMeta): boolean => {
+    const before = persistedBefore[artifact.kind];
+    return before?.r2Key === artifact.r2Key && before.sha256 === artifact.sha256;
+  };
+  const already = artifacts.filter(isPersistedBefore);
+  const remaining = artifacts.filter((artifact) => !isPersistedBefore(artifact));
+  if (already.length > 0) {
+    markArtifactsPersisted(
+      checkpoint,
+      already.map((artifact) => ({
+        kind: artifact.kind,
+        gcsPath: persistedBefore[artifact.kind]?.gcsPath,
+      }))
+    );
+  }
+  if (remaining.length === 0) {
+    await saveCheckpoint(env.ARCHIVE_BUCKET, checkpoint);
+    return undefined;
+  }
+
+  const suffix = await persistManifestSuffix(requestId, stepName, remaining);
   const manifestKey = await writeManifest(
     env,
     step,
     requestId,
     url,
-    artifacts,
+    remaining,
     getStepManifestKey(requestId, stepName, suffix)
   );
 
@@ -72,7 +132,7 @@ export async function persistArtifactsIncremental(
     checkpointStep: stepName,
     reason,
     resumed: true,
-    artifactCount: artifacts.length,
+    artifactCount: remaining.length,
   });
 
   markArtifactsPersisted(
