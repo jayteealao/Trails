@@ -561,6 +561,18 @@ export async function callRendererWith403Fallback(
 }
 
 /**
+ * Rethrows a step failure: a `ServiceCallError` classified as not retryable goes
+ * through `makeNonRetryable` so the step fails at once; every other error is
+ * rethrown unchanged and keeps the step's retry policy.
+ */
+function rethrowForStep(error: unknown, makeNonRetryable: (message: string) => Error): never {
+  if (error instanceof ServiceCallError && !error.classification.retryable) {
+    throw makeNonRetryable(error.message);
+  }
+  throw error;
+}
+
+/**
  * Body of the workflow's render step. A failure classified as not retryable is
  * rethrown through `makeNonRetryable` so the step fails at once instead of
  * spending its retries on a page that cannot render; every other error is
@@ -575,10 +587,7 @@ export async function callRendererForStep(
   try {
     return await callRendererWith403Fallback(env, params);
   } catch (error) {
-    if (error instanceof ServiceCallError && !error.classification.retryable) {
-      throw makeNonRetryable(error.message);
-    }
-    throw error;
+    rethrowForStep(error, makeNonRetryable);
   }
 }
 
@@ -597,6 +606,24 @@ export function callSinglefile(
     env.INTERNAL_API_KEY,
     180000 // 3 minute timeout
   );
+}
+
+/**
+ * Body of the workflow's singlefile step. A failure classified as not retryable
+ * (such as a captured proxy error page) is rethrown through `makeNonRetryable`
+ * so the step fails at once; every other error keeps the step's retry policy.
+ * The factory is injected so this module stays free of runtime-only imports.
+ */
+export async function callSinglefileForStep(
+  env: Env,
+  params: SinglefileParams,
+  makeNonRetryable: (message: string) => Error
+): Promise<DerivativeResponse> {
+  try {
+    return await callSinglefile(env, params);
+  } catch (error) {
+    rethrowForStep(error, makeNonRetryable);
+  }
 }
 
 /**
