@@ -23,6 +23,47 @@ report() {
   violations=$((violations + 1))
 }
 
+# paths_missing <file> <event> <path>: prints nothing when on.<event>.paths lists <path>
+# (quoted or not, block or flow list), else the line to blame
+paths_missing() {
+  awk -v q="'" -v event="$2" -v want="$3" '
+    function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+    {
+      sub(/\r$/, "")
+      gsub(/"/, "")
+      gsub(q, "")
+      if ($0 ~ /^[[:space:]]*(#.*)?$/) next
+      match($0, /^[[:space:]]*/)
+      ind = RLENGTH
+      body = substr($0, ind + 1)
+      if (ind == 0) { inon = ($0 ~ /^on:/); inev = 0; inpaths = 0; next }
+      if (!inon) next
+      if (inpaths && (ind > pathsind || (ind == pathsind && body ~ /^-/))) {
+        if (body ~ /^-/) {
+          item = substr(body, 2)
+          sub(/#.*/, "", item)
+          if (trim(item) == want) found = 1
+        }
+        next
+      }
+      inpaths = 0
+      if (inev && ind <= evind) inev = 0
+      if (!inev && index(body, event ":") == 1) { inev = 1; evind = ind; evline = NR; next }
+      if (inev && body ~ /^paths:/) {
+        pathsline = NR
+        if (body ~ /\[/) {
+          list = body
+          sub(/^[^[]*\[/, "", list)
+          sub(/\].*/, "", list)
+          n = split(list, items, ",")
+          for (i = 1; i <= n; i++) if (trim(items[i]) == want) found = 1
+        } else { inpaths = 1; pathsind = ind }
+      }
+    }
+    END { if (!found) print (pathsline ? pathsline : (evline ? evline : 1)) }
+  ' "$1"
+}
+
 shopt -s nullglob
 files=("$dir"/*.yml "$dir"/*.yaml)
 if [ "${#files[@]}" -eq 0 ]; then
@@ -104,32 +145,7 @@ for f in "${files[@]}"; do
     if ! grep -qE '^[[:space:]]*(-[[:space:]]+)?(run:[[:space:]]*)?node[[:space:]]+scripts/check-article-writes\.mjs([[:space:]]|$)' "$f"; then
       report "$f:1: article-write-guard: no step runs node scripts/check-article-writes.mjs"
     fi
-    # prints nothing when on.pull_request.paths lists warg/**, else the line to blame
-    missing=$(awk -v q="'" '
-      {
-        sub(/\r$/, "")
-        gsub(/"/, "")
-        gsub(q, "")
-        if ($0 ~ /^[[:space:]]*(#.*)?$/) next
-        match($0, /^[[:space:]]*/)
-        ind = RLENGTH
-        if (ind == 0) { inon = ($0 ~ /^on:/); inpr = 0; inpaths = 0; next }
-        if (!inon) next
-        if (inpaths && (ind > pathsind || (ind == pathsind && $0 ~ /^[[:space:]]*-/))) {
-          if ($0 ~ /^[[:space:]]*-[[:space:]]*warg\/\*\*[[:space:]]*(#.*)?$/) found = 1
-          next
-        }
-        inpaths = 0
-        if (inpr && ind <= prind) inpr = 0
-        if (!inpr && $0 ~ /^[[:space:]]*pull_request:/) { inpr = 1; prind = ind; prline = NR; next }
-        if (inpr && $0 ~ /^[[:space:]]*paths:/) {
-          pathsline = NR
-          if ($0 ~ /\[/) { if ($0 ~ /[\[,][[:space:]]*warg\/\*\*[[:space:]]*[],]/) found = 1 }
-          else { inpaths = 1; pathsind = ind }
-        }
-      }
-      END { if (!found) print (pathsline ? pathsline : (prline ? prline : 1)) }
-    ' "$f")
+    missing=$(paths_missing "$f" pull_request 'warg/**')
     if [ -n "$missing" ]; then
       report "$f:$missing: article-write-guard: pull_request paths lack 'warg/**'"
     fi
