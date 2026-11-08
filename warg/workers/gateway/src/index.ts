@@ -13,6 +13,7 @@ const LOGGER_RETRY_ATTEMPTS = 3;
 const ORPHAN_SWEEP_DEFAULT_LIMIT = 100;
 const ORPHAN_SWEEP_DEFAULT_MIN_AGE_MS = 10 * 60 * 1000;
 const ORPHAN_SWEEP_WORKFLOW_ATTEMPTS = 2;
+const ORPHAN_SWEEP_MAX_PAGES = 5;
 
 interface LoggerRequestRow {
   requestId?: string;
@@ -228,6 +229,14 @@ function verifyInternalApiKey(request: Request, env: Env): boolean {
   return timingSafeEqual(apiKey, env.INTERNAL_API_KEY);
 }
 
+/**
+ * Read the queued rows the orphan sweep may retrigger, oldest stuck rows first.
+ *
+ * The logger returns only queued rows with no event that are older than the cutoff, oldest
+ * first, so a burst of young rows cannot hide the stuck ones. The gateway still drops rows it
+ * cannot start (no id or url), so it pages, up to ORPHAN_SWEEP_MAX_PAGES pages. Every page is
+ * read before any retrigger, so the sweep's own writes do not shift the offsets.
+ */
 async function fetchQueuedOrphanCandidates(
   env: Env,
   limit: number,
@@ -235,40 +244,52 @@ async function fetchQueuedOrphanCandidates(
 ): Promise<{ scanned: number; candidates: OrphanQueuedCandidate[] }> {
   const safeLimit = Math.min(Math.max(limit, 1), 500);
   const safeMinAgeMs = Math.max(minAgeMs, 60_000);
-  const response = await loggerRequestStrict(
-    env,
-    `/requests?status=queued&limit=${safeLimit}`,
-    'GET'
-  );
-  const payload = (await response.json()) as LoggerRequestListResponse;
-  const rows = Array.isArray(payload.requests) ? payload.requests : [];
   const nowMs = Date.now();
+  const cutoffIso = new Date(nowMs - safeMinAgeMs).toISOString();
   const candidates: OrphanQueuedCandidate[] = [];
+  let scanned = 0;
 
-  for (const row of rows) {
-    const requestId = typeof row.requestId === 'string' ? row.requestId : null;
-    const url = typeof row.url === 'string' ? row.url : null;
-    const createdAt =
-      typeof row.createdAt === 'string' && row.createdAt.length > 0 ? row.createdAt : null;
-    const hasLastEvent =
-      typeof row.lastEventTs === 'string' && row.lastEventTs.trim().length > 0;
-    const queuedStage = row.stage === 'queued' || row.stage == null;
-    const createdAtMs = createdAt ? Date.parse(createdAt) : Number.NaN;
-    const isOldEnough =
-      Number.isFinite(createdAtMs) && nowMs - createdAtMs >= safeMinAgeMs;
-
-    if (!requestId || !url || !createdAt) continue;
-    if (!queuedStage || hasLastEvent || !isOldEnough) continue;
-
-    candidates.push({
-      requestId,
-      url,
-      createdAt,
-      optionsR2Key: getOptionsKey(requestId)
+  for (let page = 0; page < ORPHAN_SWEEP_MAX_PAGES; page += 1) {
+    const query = new URLSearchParams({
+      status: 'queued',
+      events: 'none',
+      to: cutoffIso,
+      order: 'asc',
+      limit: String(safeLimit),
+      offset: String(page * safeLimit)
     });
+    const response = await loggerRequestStrict(env, `/requests?${query.toString()}`, 'GET');
+    const payload = (await response.json()) as LoggerRequestListResponse;
+    const rows = Array.isArray(payload.requests) ? payload.requests : [];
+    scanned += rows.length;
+
+    for (const row of rows) {
+      const requestId = typeof row.requestId === 'string' ? row.requestId : null;
+      const url = typeof row.url === 'string' ? row.url : null;
+      const createdAt =
+        typeof row.createdAt === 'string' && row.createdAt.length > 0 ? row.createdAt : null;
+      const hasLastEvent =
+        typeof row.lastEventTs === 'string' && row.lastEventTs.trim().length > 0;
+      const queuedStage = row.stage === 'queued' || row.stage == null;
+      const createdAtMs = createdAt ? Date.parse(createdAt) : Number.NaN;
+      const isOldEnough =
+        Number.isFinite(createdAtMs) && nowMs - createdAtMs >= safeMinAgeMs;
+
+      if (!requestId || !url || !createdAt) continue;
+      if (!queuedStage || hasLastEvent || !isOldEnough) continue;
+
+      candidates.push({
+        requestId,
+        url,
+        createdAt,
+        optionsR2Key: getOptionsKey(requestId)
+      });
+    }
+
+    if (rows.length < safeLimit || candidates.length >= safeLimit) break;
   }
 
-  return { scanned: rows.length, candidates };
+  return { scanned, candidates: candidates.slice(0, safeLimit) };
 }
 
 async function startWorkflowWithRetry(
