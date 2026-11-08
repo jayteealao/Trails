@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
@@ -16,7 +16,22 @@ const LOGGER_PORT = Number(process.env.E2E_LOGGER_PORT ?? '18797');
 // run gets a fresh registry folder, so a stale entry left by an earlier run
 // cannot break the connection. It is made once in the runner; the test
 // workers inherit the variable and make no folder of their own.
-const REGISTRY = (process.env.E2E_WRANGLER_REGISTRY ??= mkdtempSync(join(tmpdir(), 'warg-e2e-registry-')));
+const REGISTRY_PREFIX = 'warg-e2e-registry-';
+// Registry folders of earlier runs are removed when they are older than this,
+// so the temp folder does not fill up and a run still going is left alone.
+const STALE_REGISTRY_MS = 60 * 60 * 1000;
+
+function removeStaleRegistries(): void {
+  const now = Date.now();
+  for (const name of readdirSync(tmpdir())) {
+    if (!name.startsWith(REGISTRY_PREFIX)) continue;
+    const path = join(tmpdir(), name);
+    if (now - statSync(path).mtimeMs > STALE_REGISTRY_MS) rmSync(path, { recursive: true, force: true });
+  }
+}
+
+if (process.env.E2E_WRANGLER_REGISTRY === undefined) removeStaleRegistries();
+const REGISTRY = (process.env.E2E_WRANGLER_REGISTRY ??= mkdtempSync(join(tmpdir(), REGISTRY_PREFIX)));
 
 // The dashboard credential of the local server under test (test strings only).
 export const E2E_AUTH_USER = 'e2e-user';
