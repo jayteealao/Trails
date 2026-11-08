@@ -58,6 +58,8 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
+export { LEASE_TTL_MS, isLeaseStale } from './lease.js';
+
 export {
   isDeadHostErrorText,
   isProxyErrorPage,
