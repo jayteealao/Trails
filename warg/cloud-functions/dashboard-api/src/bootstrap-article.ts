@@ -34,7 +34,7 @@ function asPocketTime(value: unknown): number {
   return 0;
 }
 
-function buildPocket(userDoc: Record<string, unknown>, canonicalItemId: string): PocketInput {
+export function buildPocket(userDoc: Record<string, unknown>, canonicalItemId: string): PocketInput {
   const pocket = userDoc['pocket'];
   const pocketObj =
     pocket && typeof pocket === 'object'
