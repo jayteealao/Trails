@@ -13,11 +13,23 @@
  * markup around it and is accepted.
  */
 
-const NETWORK_ERROR_PATTERNS: readonly RegExp[] = [
+/**
+ * Network-error signatures that mean the target host cannot be reached at all:
+ * its name does not resolve, or nothing accepts the connection. Retrying the
+ * same browser against such a host fails the same way, so a render failure
+ * carrying one of these is not worth another attempt. Timeouts, resets and
+ * closed connections are deliberately absent: those can clear on a retry.
+ */
+export const DEAD_HOST_ERROR_PATTERNS: readonly RegExp[] = [
   /dial tcp\b/i,
   /no such host\b/i,
-  /\bERR_[A-Z][A-Z_]{2,}/,
   /connection refused\b/i,
+  /\bERR_(?:NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|CONNECTION_REFUSED|ADDRESS_UNREACHABLE)\b/,
+];
+
+const NETWORK_ERROR_PATTERNS: readonly RegExp[] = [
+  ...DEAD_HOST_ERROR_PATTERNS,
+  /\bERR_[A-Z][A-Z_]{2,}/,
   /connection reset\b/i,
   /connection closed\b/i,
   /timed out\b/i,
