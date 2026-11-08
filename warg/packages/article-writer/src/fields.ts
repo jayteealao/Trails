@@ -20,6 +20,43 @@ export const ARCHIVE_EVENT_KEYS = ['gateway_begin', 'workflow_settlement'] as co
 /** The fields of an archive entry the backfill writes. */
 export const ARCHIVE_EVENT_FIELDS = ['status', 'error', 'created_at'] as const;
 
+/** The archive entries the archive gateway writes, under `archives`: one per stored artifact kind. */
+export const GATEWAY_ARCHIVE_KEYS = [
+  'singlefile',
+  'monolith',
+  'readability',
+  'markdown',
+  'pdf',
+  'screenshot',
+  'rendered',
+] as const;
+
+/** The fields of an archive entry the archive gateway writes. */
+export const GATEWAY_ARCHIVE_ENTRY_FIELDS = [
+  'status',
+  'gcs_path',
+  'gcs_bucket',
+  'compressed_size',
+  'compression_ratio',
+  'started_at',
+  'created_at',
+] as const;
+
+/**
+ * The fields of the shared article's `metadata` map, which the archive gateway
+ * writes on finalize. Their contract is the "Firestore field names
+ * (snake_case)" table of shared-types/WargMetadata.md.
+ */
+export const METADATA_FIELDS = [
+  'title',
+  'excerpt',
+  'byline',
+  'word_count',
+  'published_time',
+  'site_name',
+  'lead_image',
+] as const;
+
 /** Every field the server writes on `articles/{id}`. */
 export const SHARED_ARTICLE_FIELDS = [
   'item_id',
@@ -34,6 +71,10 @@ export const SHARED_ARTICLE_FIELDS = [
     `archives.${key}` as const,
     ...ARCHIVE_EVENT_FIELDS.map((f) => `archives.${key}.${f}` as const),
   ]),
+  ...GATEWAY_ARCHIVE_KEYS.flatMap((key) => [
+    `archives.${key}` as const,
+    ...GATEWAY_ARCHIVE_ENTRY_FIELDS.map((f) => `archives.${key}.${f}` as const),
+  ]),
   'pocket',
   ...POCKET_FIELDS.map((f) => `pocket.${f}` as const),
   'stats',
@@ -47,6 +88,9 @@ export const SHARED_ARTICLE_FIELDS = [
   'failure',
   ...FAILURE_FIELDS.map((f) => `failure.${f}` as const),
   'mergedInto',
+  'metadata',
+  ...METADATA_FIELDS.map((f) => `metadata.${f}` as const),
+  'images',
 ] as const;
 
 /** Every field the server writes on `users/{uid}/articles/{id}`. */
@@ -70,6 +114,9 @@ export type StatsField = (typeof STATS_FIELDS)[number];
 export type FailureField = (typeof FAILURE_FIELDS)[number];
 export type ArchiveEventKey = (typeof ARCHIVE_EVENT_KEYS)[number];
 export type ArchiveEventField = (typeof ARCHIVE_EVENT_FIELDS)[number];
+export type GatewayArchiveKey = (typeof GATEWAY_ARCHIVE_KEYS)[number];
+export type GatewayArchiveEntryField = (typeof GATEWAY_ARCHIVE_ENTRY_FIELDS)[number];
+export type MetadataField = (typeof METADATA_FIELDS)[number];
 export type SharedArticleField = (typeof SHARED_ARTICLE_FIELDS)[number];
 export type UserArticleField = (typeof USER_ARTICLE_FIELDS)[number];
 
