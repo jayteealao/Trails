@@ -166,25 +166,38 @@ the row then).
 
 ## Producer
 
-Warg writes these fields via `FinalizeRequest.metadata` defined in
-[`warg/cloud-functions/archive-gateway/src/types.ts`](../warg/cloud-functions/archive-gateway/src/types.ts).
-The Firestore document shape is also typed there as `ArticleDocument`.
+The Warg gcs worker produces the metadata map:
+`buildFinalizeMetadata()` in
+[`warg/workers/gcs/src/metadata.ts`](../warg/workers/gcs/src/metadata.ts)
+builds it from the readability result, and `FinalizeRequest.metadata` in
+[`warg/workers/gcs/src/types.ts`](../warg/workers/gcs/src/types.ts) types the
+finalize request that carries it. The archive gateway receives that request:
+`FinalizeRequest.metadata` and the Firestore document shape `ArticleDocument`
+in
+[`warg/cloud-functions/archive-gateway/src/types.ts`](../warg/cloud-functions/archive-gateway/src/types.ts)
+type what it writes to the article document. The drift check reads all three
+files and names the one that lacks a field.
 
 ## Consumer
 
 Trails reads five of these fields (`title`, `excerpt`, `byline`, `word_count`
-and `lead_image`) via `WargMetadata` defined in
+and `lead_image`) by their string keys from the metadata map, into
+`WargMetadata`, in
 [`android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt`](../android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt).
 Trails treats all of them as nullable in case the Warg pipeline hasn't
-finalized yet.
+finalized yet. The fields it does not read are listed under "Accepted
+differences" above.
 
 ## Adding a new field
 
 1. Add a row to the table above.
-2. Add it to `FinalizeRequest.metadata` and `ArticleDocument.metadata` in
+2. Add it to `buildFinalizeMetadata()` in `warg/workers/gcs/src/metadata.ts`,
+   to `FinalizeRequest.metadata` in `warg/workers/gcs/src/types.ts`, and to
+   `FinalizeRequest.metadata` and `ArticleDocument.metadata` in
    `warg/cloud-functions/archive-gateway/src/types.ts`.
-3. Optionally add it to Trails' `WargMetadata` data class if Trails needs
-   to surface it.
+3. Add it to Trails' `WargMetadata` data class if Trails needs to surface it.
+   If Trails does not read it, add a row for it under "Accepted differences"
+   with the reason.
 4. Update `firebase/firestore.rules` if the field has a validation rule.
 5. Run `node --experimental-strip-types shared-types/check-drift.ts`
    locally to confirm.
