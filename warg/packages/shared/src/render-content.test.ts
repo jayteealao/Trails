@@ -102,3 +102,71 @@ describe('isProxyErrorPage', () => {
     expect(isProxyErrorPage(page)).toBe(true);
   });
 });
+
+// Shell of the observed stub, so each case below differs from the real page
+// only by the markup it adds beside the error <pre>.
+const STUB_PRE =
+  '<pre style="word-wrap: break-word; white-space: pre-wrap;">' +
+  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host\n' +
+  '</pre>';
+
+function stubPage(before: string, after: string): string {
+  return (
+    '<html><head><meta name="color-scheme" content="light dark"></head>' +
+    `<body>${before}${STUB_PRE}${after}</body></html>`
+  );
+}
+
+describe('isProxyErrorPage — void tags and empty nodes beside the pre', () => {
+  it('rejects the stub with a line break after the pre', () => {
+    expect(isProxyErrorPage(stubPage('', '<br>'))).toBe(true);
+  });
+
+  it('rejects the stub with a meta tag before the pre inside the body', () => {
+    expect(isProxyErrorPage(stubPage('<meta charset="utf-8">', ''))).toBe(true);
+  });
+
+  it('rejects the stub with a stylesheet link before the pre', () => {
+    expect(isProxyErrorPage(stubPage('<link rel="stylesheet" href="x.css">', ''))).toBe(true);
+  });
+
+  it('rejects the stub with an image after the pre', () => {
+    expect(isProxyErrorPage(stubPage('', '<img src="pixel.gif" alt="">'))).toBe(true);
+  });
+
+  it('rejects the stub with self-closing void tags', () => {
+    expect(isProxyErrorPage(stubPage('<br/>', '<img src="p.gif" />'))).toBe(true);
+  });
+
+  it('rejects the stub with an element that holds only a line break', () => {
+    expect(isProxyErrorPage(stubPage('', '<div><br></div>'))).toBe(true);
+  });
+
+  it('rejects the real stub shape: hidden empty div and a line break beside the pre', () => {
+    const page = stubPage('', '<div id="header-bqq3lsboese" style="display: none;"></div><br>');
+    expect(page.length).toBeGreaterThanOrEqual(275);
+    expect(page.length).toBeLessThanOrEqual(400);
+    expect(isProxyErrorPage(page)).toBe(true);
+  });
+
+  it('accepts a line break beside a pre that holds ordinary code', () => {
+    const page =
+      '<html><body><pre>function add(a, b) { return a + b; }</pre><br></body></html>';
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+
+  it('accepts an image beside prose and an error pre', () => {
+    const page =
+      '<html><body><img src="diagram.png" alt="">' +
+      '<p>The proxy answered with this error:</p>' +
+      '<pre>dial tcp: lookup example.com on 1.1.1.1:53: no such host</pre>' +
+      '</body></html>';
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+
+  it('accepts a line break beside a pre whose error text is too long to be a message', () => {
+    const text = `dial tcp: no such host ${'x'.repeat(600)}`;
+    const page = `<html><body><pre>${text}</pre><br></body></html>`;
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+});
