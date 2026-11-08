@@ -47,6 +47,17 @@ const NETWORK_ERROR_PATTERNS: readonly RegExp[] = [
  */
 const MAX_ERROR_TEXT_LENGTH = 512;
 
+/**
+ * Longest input, in characters (`string.length`), that is examined as a
+ * possible proxy error page.
+ *
+ * A proxy error page is a few hundred characters: the observed stub is 275
+ * bytes and its message is capped at `MAX_ERROR_TEXT_LENGTH`. A document longer
+ * than this is a real page, never a stub, so it is accepted without being
+ * scanned — the detector's cost stays bounded however large the render is.
+ */
+export const PROXY_ERROR_PAGE_MAX_LENGTH = 64 * 1024;
+
 const ENTITIES: Record<string, string> = {
   '&amp;': '&',
   '&lt;': '<',
@@ -115,9 +126,11 @@ export const PROXY_ERROR_PAGE_REASON = 'proxy_error_page';
  *
  * Empty or whitespace-only input reports true because it is likewise not a
  * document worth archiving; callers that distinguish the two cases should
- * check emptiness before calling.
+ * check emptiness before calling. Input longer than
+ * `PROXY_ERROR_PAGE_MAX_LENGTH` reports false without being read.
  */
 export function isProxyErrorPage(html: string): boolean {
+  if (html.length > PROXY_ERROR_PAGE_MAX_LENGTH) return false;
   if (!html || html.trim().length === 0) return true;
 
   const withoutNoise = extractBodyInner(html)
