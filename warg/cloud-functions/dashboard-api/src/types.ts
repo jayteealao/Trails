@@ -98,3 +98,12 @@ export interface ArticleListResponse {
   /** Cursor for the next page of the unfiltered list; null on the last page and for a filtered list. */
   nextCursor: string | null;
 }
+
+/**
+ * Response of GET /stats/completed-today: the articles that became complete
+ * since `since`, the start of the current UTC day (ISO).
+ */
+export interface CompletedTodayResponse {
+  completedToday: number;
+  since: string;
+}
