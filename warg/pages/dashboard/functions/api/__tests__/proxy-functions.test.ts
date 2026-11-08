@@ -516,6 +516,9 @@ describe('inbox proxy', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
       const url = String(input);
       const parsed = new URL(url);
+      if (parsed.pathname.endsWith('/stats/completed-today')) {
+        return jsonResponse({ completedToday: 1, since: '2026-11-08T00:00:00.000Z' });
+      }
       const filter = parsed.searchParams.get('filter');
       if (filter === 'failed') return jsonResponse({ articles: [{ item_id: 'a1' }] });
       if (filter === 'incomplete') return jsonResponse({ articles: [{ item_id: 'a2' }] });
@@ -541,6 +544,87 @@ describe('inbox proxy', () => {
     expect(data.needsAttention.incompleteArticles).toHaveLength(1);
     expect(data.inProgress.processingArticles).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  // Three articles completed moments ago: a rolling 24 h count over them
+  // would give 3, so a different answer proves the count is passed through.
+  const SINCE = '2026-11-08T00:00:00.000Z';
+
+  function setupInbox(completedToday: () => Response) {
+    const env = {
+      LOGGER: createMockFetcher(async () => jsonResponse({ requests: [] })),
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
+      INTERNAL_API_KEY: 'internal-key',
+    };
+    const now = new Date().toISOString();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const parsed = new URL(String(input));
+      if (parsed.pathname.endsWith('/stats/completed-today')) return completedToday();
+      if (parsed.searchParams.get('filter') === 'complete') {
+        return jsonResponse({
+          articles: [
+            { item_id: 'c1', created_at: now },
+            { item_id: 'c2', created_at: now },
+            { item_id: 'c3', created_at: now },
+          ],
+        });
+      }
+      return jsonResponse({ articles: [] });
+    });
+    return { env, fetchMock };
+  }
+
+  async function runInbox(env: ReturnType<typeof setupInbox>['env']) {
+    const { onRequestGet } = await import('../inbox.js');
+    const request = createRequest('https://dashboard.example.com/api/inbox');
+    // sdlc-debt: a partial Pages context, cast like the other cases of this file; a typed context builder would remove it.
+    return onRequestGet({ env, request, params: {} } as any);
+  }
+
+  it('passes the completed-today count from the dashboard api through unchanged', async () => {
+    const { env, fetchMock } = setupInbox(() => jsonResponse({ completedToday: 7, since: SINCE }));
+
+    const response = await runInbox(env);
+    const data = (await response.json()) as { counts: { completedToday: number } };
+
+    expect(response.status).toBe(200);
+    expect(data.counts.completedToday).toBe(7);
+
+    const calls = fetchMock.mock.calls.filter(
+      ([input]) => new URL(String(input)).pathname === '/stats/completed-today'
+    );
+    expect(calls).toHaveLength(1);
+    const [input, init] = calls[0];
+    expect(new URL(String(input)).origin).toBe('https://dashboard-api.example.com');
+    expect(new Headers(init?.headers).get('X-Internal-API-Key')).toBe('dash-key');
+  });
+
+  it('shows a zero count from the dashboard api even when recent rows exist', async () => {
+    const { env } = setupInbox(() => jsonResponse({ completedToday: 0, since: SINCE }));
+
+    const response = await runInbox(env);
+    const data = (await response.json()) as { counts: { completedToday: number } };
+
+    expect(response.status).toBe(200);
+    expect(data.counts.completedToday).toBe(0);
+  });
+
+  it('fails the inbox when the completed-today call fails', async () => {
+    const { env } = setupInbox(() => errorResponse('boom', 500));
+
+    const response = await runInbox(env);
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'boom' });
+  });
+
+  it('fails the inbox when the completed-today answer has no count', async () => {
+    const { env } = setupInbox(() => jsonResponse({ since: SINCE }));
+
+    const response = await runInbox(env);
+
+    expect(response.status).toBe(500);
   });
 });
 
