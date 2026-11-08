@@ -56,6 +56,11 @@ export default defineConfig({
         ` --binding DASHBOARD_API_URL=http://127.0.0.1:${STUB_PORT}/` +
         ' --binding DASHBOARD_API_KEY=e2e-key' +
         ` --binding DASHBOARD_AUTH=${E2E_AUTH_USER}:${E2E_AUTH_PASSWORD}` +
+        // The infra check points the infra function's Cloudflare API calls
+        // at the stub that its spec starts on STUB_PORT (test strings only).
+        ' --binding CF_API_TOKEN=e2e-cf-token' +
+        ' --binding CF_ACCOUNT_ID=e2e-account' +
+        ` --binding CF_API_URL=http://127.0.0.1:${STUB_PORT}/client/v4` +
         ' --service LOGGER=logger',
       url: `http://127.0.0.1:${PAGES_PORT}/`,
       env: { WRANGLER_REGISTRY_PATH: REGISTRY },
