@@ -5,6 +5,10 @@ import type {
   InitRequestPayload
 } from '@warg/shared';
 import {
+  GATEWAY_ERROR_CODES,
+  INTERNAL_ERROR_MESSAGE,
+  errorIdFor,
+  errorResponse,
   generateRequestId,
   isValidArchiveUrl,
   isValidRequestId,
@@ -493,28 +497,33 @@ export default {
       (method === 'GET' && path.startsWith('/status/'))
     ) {
       if (!verifyPublicApiKey(request, env)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        return errorResponse(401, GATEWAY_ERROR_CODES.UNAUTHORIZED, 'Unauthorized', errorIdFor(undefined));
       }
     }
 
     // POST /begin - Start a new archive request
     if (method === 'POST' && path === '/begin') {
+      // The id of an error response: a fresh correlation id until the request id is known and valid.
+      let errorId = errorIdFor(undefined);
       try {
         let body: ArchiveOptions & { request_id?: string };
         try {
           body = (await request.json()) as ArchiveOptions & { request_id?: string };
         } catch {
-          return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_JSON, 'Invalid JSON', errorId);
         }
 
         // Use client-provided request_id or generate one
         const requestId = body.request_id ?? generateRequestId();
         if (body.request_id && !isValidRequestId(requestId)) {
-          return Response.json(
-            { error: 'Invalid request_id format (UUID v4 or 1-40 char alphanumeric/hyphen/underscore required)' },
-            { status: 400 }
+          return errorResponse(
+            400,
+            GATEWAY_ERROR_CODES.INVALID_REQUEST_ID,
+            'Invalid request_id format (UUID v4 or 1-40 char alphanumeric/hyphen/underscore required)',
+            errorId
           );
         }
+        errorId = requestId;
 
         // Validate URL presence and format
         const urlError = !body.url
@@ -536,7 +545,7 @@ export default {
               recommendedAction: 'inspect_url'
             })
           );
-          return withRequestId(Response.json({ error: urlError }, { status: 400 }), requestId);
+          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_INPUT_URL, urlError, requestId);
         }
 
         const optionsR2Key = getOptionsKey(requestId);
@@ -605,26 +614,25 @@ export default {
             })
           );
           // Return non-2xx so clients don't treat request creation as a successful start.
-          return withRequestId(
-            Response.json(
-              {
-                requestId,
-                error: 'Workflow trigger failed',
-                errorCode: 'WORKFLOW_TRIGGER_FAILED',
-                workflowStatus,
-                workflowError: workflowErrorBody
-              },
-              { status: 502 }
-            ),
-            requestId
+          return errorResponse(
+            502,
+            GATEWAY_ERROR_CODES.WORKFLOW_TRIGGER_FAILED,
+            'Workflow trigger failed',
+            requestId,
+            {
+              requestId,
+              errorCode: 'WORKFLOW_TRIGGER_FAILED',
+              workflowStatus,
+              workflowError: workflowErrorBody
+            }
           );
         }
 
         return withRequestId(Response.json({ requestId }, { status: 201 }), requestId);
       } catch (err) {
-        console.error('[gateway] Error in /begin:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
+        console.error('[gateway] Error in /begin', { id: errorId, message: errMsg }, err);
+        return errorResponse(500, GATEWAY_ERROR_CODES.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE, errorId);
       }
     }
 
