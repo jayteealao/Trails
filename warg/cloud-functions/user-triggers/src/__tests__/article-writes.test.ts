@@ -185,3 +185,51 @@ test('a first save starts the archive once with the saved link and the shared ar
   assert.equal(await r.result, 'created');
   assert.deepEqual(payloads, [{ url: URL, request_id: ITEM, includeScreenshot: true, includePdf: true }]);
 });
+
+// Delivers a save to an existing store, so a test can deliver the same event twice.
+function runOn(
+  store: ReturnType<typeof makeRecordingDb>,
+  opts: { beginArchive: BeginArchive; eventTimeMs?: number }
+): Promise<string> {
+  return handleUserArticleCreated(
+    { db: store.db, userId: USER, itemId: ITEM, data: saveData, eventTimeMs: opts.eventTimeMs },
+    { beginArchive: opts.beginArchive, nowMs: () => 10_000_000 }
+  );
+}
+
+const archiveStartedWrites = () => [
+  direct(`articles/${ITEM}`, {
+    warg_request_id: 'req-00001',
+    status: 'processing',
+    processing_started_at: '<timestamp>',
+  }),
+  direct(USER_PATH, { archival_triggered: true }),
+];
+
+test('the same save delivered again after the archive started calls nothing and writes nothing', async () => {
+  const store = makeRecordingDb({ users: { [`${USER}/articles/${ITEM}`]: saveData } });
+  let calls = 0;
+  const beginArchive: BeginArchive = async (payload) => {
+    calls += 1;
+    return okArchive(payload);
+  };
+  assert.equal(await runOn(store, { beginArchive }), 'created');
+  const writesAfterFirst = store.writes.length;
+  assert.equal(await runOn(store, { beginArchive }), 'already-linked');
+  assert.equal(calls, 1);
+  assert.deepEqual(store.writes.slice(writesAfterFirst), []);
+});
+
+test('a save delivered again after a failed start inside the retry window starts the archive once', async () => {
+  const store = makeRecordingDb({ users: { [`${USER}/articles/${ITEM}`]: saveData } });
+  let calls = 0;
+  const counted = (inner: BeginArchive): BeginArchive => async (payload) => {
+    calls += 1;
+    return inner(payload);
+  };
+  await assert.rejects(runOn(store, { beginArchive: counted(failingArchive), eventTimeMs: 10_000_000 }), /gateway down/);
+  assert.deepEqual(store.writes, createWrites());
+  assert.equal(await runOn(store, { beginArchive: counted(okArchive), eventTimeMs: 10_000_000 }), 'already-linked');
+  assert.equal(calls, 2);
+  assert.deepEqual(store.writes.slice(createWrites().length), archiveStartedWrites());
+});
