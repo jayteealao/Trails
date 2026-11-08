@@ -70,12 +70,14 @@ describe('GET /requests', () => {
     );
 
     expect(rows.map((r) => r.requestId)).toEqual([`${prefix}-c`, `${prefix}-b`, `${prefix}-a`]);
-    expect(rows[1].lastEventTs).toBe('1999-01-01T01:00:01.000Z');
+    expect(rows[1]?.lastEventTs).toBe('1999-01-01T01:00:01.000Z');
   });
 });
 
 describe('GET /requests for the orphan sweep', () => {
-  const sweepQuery = 'status=queued&events=none&to=2000-01-01T00:30:00.000Z&order=asc';
+  // The from bound keeps the 1999 rows of the test above out of these pages.
+  const sweepQuery =
+    'status=queued&events=none&from=2000-01-01T00:00:00.000Z&to=2000-01-01T00:30:00.000Z&order=asc';
   const prefix = `list-burst-${Date.now()}`;
   const stuckIds = [1, 2, 3, 4, 5].map((i) => `${prefix}-stuck-${i}`);
 
