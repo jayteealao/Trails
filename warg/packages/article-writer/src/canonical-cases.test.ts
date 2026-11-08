@@ -350,7 +350,9 @@ const POCKET_CASES: Array<Row<Record<string, unknown>, Record<keyof Pocket, unkn
       trigger: pocket('', '', '', TIME, 0),
     },
     survivor: pocket('', SHARED, '', 12, 0),
-    why: 'as P5: a Timestamp becomes its seconds; the backfill and the trigger change (the trigger also as P1)',
+    why:
+      'as P5: a Timestamp becomes its seconds; a URL queued from the dashboard is stored with a Timestamp ' +
+      'timeAdded, so this row is reached today; the backfill and the trigger change (the trigger also as P1)',
   },
   {
     name: 'P7 favorite a number',
