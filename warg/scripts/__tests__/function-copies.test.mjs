@@ -90,7 +90,6 @@ test('the reader shared-id shape accepts every id a creator makes, and the creat
 // the list when its callers move to the module, and a file that adds a copy
 // fails the test.
 const KNOWN_COPIES = [
-  'backfill-archiver/src/canonical.ts',
   'user-triggers/src/handler.ts',
   'user-triggers/src/link.ts',
 ];

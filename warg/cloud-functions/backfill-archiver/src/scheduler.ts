@@ -10,12 +10,12 @@ import type {
 import {
   buildBackfillUpsertPatch,
   markSharedArticleBackfillBegun,
+  projectPocket,
   recordSharedArticleBackfillFailure,
   setUserArticleResolvedLink,
   settleStuckSharedArticle,
   upsertSharedArticleForBackfill,
 } from '@warg/article-writer';
-import { buildPocket } from './canonical.js';
 import {
   resolveCanonicalCandidates,
   type CanonicalCandidate,
@@ -570,7 +570,7 @@ async function upsertArticleBeforeBegin(
       itemId: candidate.canonicalItemId,
       url: candidate.url,
       domain: candidate.domain,
-      pocket: buildPocket(candidate.primaryUserData, candidate.canonicalItemId),
+      pocket: projectPocket(candidate.primaryUserData, candidate.canonicalItemId),
       retryCount,
     },
     Timestamp.fromMillis(nowMs)
