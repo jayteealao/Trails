@@ -337,3 +337,48 @@ describe('gateway rejects with one error contract', () => {
     expect(response.headers.get('X-Request-Id')).toBe('req-ok-1');
   });
 });
+
+describe('gateway 500 never leaks the secret of a thrown error', () => {
+  const SECRET_ERROR = (): Error => new Error('token=sk-live-SECRET123');
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function expectSecretKeptServerSide(request: Request, options: CreateEnvOptions): Promise<void> {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { env } = createEnv(options);
+    const response = await gateway.fetch(request, env, {} as ExecutionContext);
+    const body = (await response.json()) as { id: string };
+
+    expect(response.status).toBe(500);
+    expect(body).toEqual({ error: 'Internal error', code: 'INTERNAL_ERROR', id: body.id });
+    expect(typeof body.id).toBe('string');
+    expect(JSON.stringify(body)).not.toContain('SECRET123');
+    const logged = errorSpy.mock.calls.map((args) =>
+      args.map((arg) => (arg instanceof Error ? arg.message : JSON.stringify(arg))).join(' ')
+    );
+    expect(logged.some((line) => line.includes(body.id) && line.includes('SECRET123'))).toBe(true);
+  }
+
+  it('secret: begin keeps the raw text in the server log with the id', async () => {
+    await expectSecretKeptServerSide(
+      publicPost('/begin', { url: 'https://example.com', request_id: 'req-ok-1' }),
+      { bucketPut: async () => Promise.reject(SECRET_ERROR()) }
+    );
+  });
+
+  it('secret: internal log keeps the raw text in the server log with the id', async () => {
+    await expectSecretKeptServerSide(
+      internalPost('/internal/log', { requestId: 'req-log-1', event: { type: 'step.started' } }),
+      {
+        logger: (url) => {
+          if (url === 'https://logger/event') {
+            throw SECRET_ERROR();
+          }
+          return undefined;
+        }
+      }
+    );
+  });
+});
