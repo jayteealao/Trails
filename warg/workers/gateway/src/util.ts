@@ -1,4 +1,4 @@
-import { WORKFLOW_STEPS, type ArchiveOptions } from '@warg/shared';
+import { ARCHIVE_OPTION_BOOLEAN_KEYS, WORKFLOW_STEPS, type ArchiveOptions } from '@warg/shared';
 
 /**
  * Generate a unique request ID (UUIDv4-like).
@@ -203,17 +203,6 @@ export function errorResponse(
 export const MAX_OPTIONS_BYTES = 16 * 1024;
 
 /**
- * The archive option keys whose value must be a boolean when present.
- */
-export const ARCHIVE_OPTION_BOOLEAN_KEYS = [
-  'includeScreenshot',
-  'includePdf',
-  'includeMarkdown',
-  'resumeFromCheckpoint',
-  'dryRun'
-] as const;
-
-/**
  * The archive option keys a public-key caller may not send: only the internal key
  * chooses a dry run or the step list. Their presence, whatever the value, is refused.
  */
@@ -268,7 +257,25 @@ export function resolveRequestIdOwner(
  * Archive options as the gateway stores them: only known keys, each of the right type.
  * The url is optional here; the begin handler checks its presence and format.
  */
-export type GatewayArchiveOptions = Omit<ArchiveOptions, 'url'> & { url?: string; dryRun?: boolean };
+export type GatewayArchiveOptions = Omit<ArchiveOptions, 'url'> & { url?: string };
+
+/**
+ * Every ArchiveOptions key that validateArchiveOptions checks and keeps. Adding a key to
+ * ArchiveOptions without a check here fails to compile instead of being dropped at /begin.
+ */
+const VALIDATED_OPTION_KEYS = {
+  url: true,
+  steps: true,
+  includeScreenshot: true,
+  includePdf: true,
+  includeMarkdown: true,
+  resumeFromCheckpoint: true,
+  dryRun: true
+} as const satisfies Record<keyof ArchiveOptions, true>;
+
+function isValidatedOptionKey(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(VALIDATED_OPTION_KEYS, key);
+}
 
 /**
  * True for a JSON object value: not null, not an array, not a primitive.
@@ -292,6 +299,10 @@ export function validateArchiveOptions(
   const droppedKeys: string[] = [];
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined) continue;
+    if (!isValidatedOptionKey(key)) {
+      droppedKeys.push(key);
+      continue;
+    }
     if (key === 'url') {
       if (typeof value !== 'string') return { ok: false, message: 'url must be a string' };
     } else if (BOOLEAN_KEYS.has(key)) {
@@ -300,9 +311,6 @@ export function validateArchiveOptions(
       if (!Array.isArray(value) || !value.every((step) => typeof step === 'string' && STEP_NAMES.has(step))) {
         return { ok: false, message: `steps must be an array of ${WORKFLOW_STEPS.join(', ')}` };
       }
-    } else {
-      droppedKeys.push(key);
-      continue;
     }
     options[key] = value;
   }

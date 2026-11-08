@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { ARCHIVE_OPTION_BOOLEAN_KEYS } from '@warg/shared';
 import {
   generateRequestId,
   isValidArchiveUrl,
@@ -12,7 +13,6 @@ import {
   isPlainObject,
   validateArchiveOptions,
   MAX_OPTIONS_BYTES,
-  ARCHIVE_OPTION_BOOLEAN_KEYS,
   PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS,
   PUBLIC_STATUS_STREAM_MAX_MS,
   capEventStream,

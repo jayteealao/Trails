@@ -5,6 +5,7 @@ import {
 } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
 import type {
+  ArchiveOptions,
   ArtifactKind,
   ArtifactMeta,
   CheckpointStep,
@@ -16,7 +17,6 @@ import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
   WorkflowParams,
-  ArchiveOptionsExtended,
   RenderStepResult,
   WorkflowResult
 } from './types.js';
@@ -204,7 +204,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         );
         throw new NonRetryableError(`Options not found: ${options_r2_key}`);
       }
-      return obj.json<ArchiveOptionsExtended>();
+      return obj.json<ArchiveOptions>();
     });
 
     const normalizedOptions = this.normalizeOptions(options);
@@ -694,8 +694,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     };
   }
 
-  private normalizeOptions(options: ArchiveOptionsExtended): ArchiveOptionsExtended {
-    const normalized: ArchiveOptionsExtended = {
+  private normalizeOptions(options: ArchiveOptions): ArchiveOptions {
+    const normalized: ArchiveOptions = {
       ...options,
       resumeFromCheckpoint: options.resumeFromCheckpoint ?? true,
     };
@@ -714,7 +714,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     return normalized;
   }
 
-  private requiredRenderArtifacts(options: ArchiveOptionsExtended): ArtifactKind[] {
+  private requiredRenderArtifacts(options: ArchiveOptions): ArtifactKind[] {
     const required: ArtifactKind[] = ['rendered.html'];
     if (options.includeMarkdown ?? true) {
       required.push('rendered.md');
@@ -912,7 +912,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     step: WorkflowStep,
     requestId: string,
     url: string,
-    options: ArchiveOptionsExtended
+    options: ArchiveOptions
   ): Promise<RenderStepResult> {
     // Acquire quota (sleep-reschedule between denied attempts)
     const { leaseId } = await acquireQuotaWithSleep(
