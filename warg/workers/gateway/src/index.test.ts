@@ -738,3 +738,167 @@ describe('public status stream is capped', () => {
     expect(loggerFetch).not.toHaveBeenCalled();
   });
 });
+
+describe('begin refuses a request id owned by another caller', () => {
+  const url = 'https://example.com/article';
+  const started = () => jsonResponse({ instanceId: 'wf-1', status: 'started' }, 201);
+
+  /** A stored options object whose custom metadata records the given owner (or none). */
+  function storedWith(customMetadata: Record<string, string>) {
+    return async (): Promise<R2Object | null> => ({ customMetadata }) as unknown as R2Object;
+  }
+
+  /** The custom metadata of each ARCHIVE_BUCKET.put call, in call order. */
+  function putMetadata(bucketPut: ReturnType<typeof vi.fn>): unknown[] {
+    return bucketPut.mock.calls.map((args) => (args[2] as R2PutOptions | undefined)?.customMetadata);
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('answers 409 to a public caller over an id owned by the internal key and touches nothing', async () => {
+    const { env, bucketHead, bucketPut, loggerFetch, workflowFetch } = createEnv({
+      workflowReply: started,
+      bucketHead: storedWith({ owner: 'internal' })
+    });
+    const response = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-own-1' }),
+      env,
+      {} as ExecutionContext
+    );
+    const data = (await response.json()) as { code?: unknown; id?: unknown };
+
+    expect(response.status).toBe(409);
+    expect(data.code).toBe('REQUEST_ID_CONFLICT');
+    expect(data.id).toBe('req-own-1');
+    expect(response.headers.get('X-Request-Id')).toBe('req-own-1');
+    expect(bucketHead).toHaveBeenCalledWith('archives/req-own-1/input/options.json');
+    expect(bucketPut).not.toHaveBeenCalled();
+    expect(loggerFetch).not.toHaveBeenCalled();
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+
+  it('answers 409 before the url check logs anything', async () => {
+    const { env, bucketPut, loggerFetch, workflowFetch } = createEnv({
+      workflowReply: started,
+      bucketHead: storedWith({ owner: 'internal' })
+    });
+    const response = await gateway.fetch(
+      publicPost('/begin', { url: 'ftp://example.com/x', request_id: 'req-own-1' }),
+      env,
+      {} as ExecutionContext
+    );
+    const data = (await response.json()) as { code?: unknown };
+
+    expect(response.status).toBe(409);
+    expect(data.code).toBe('REQUEST_ID_CONFLICT');
+    expect(bucketPut).not.toHaveBeenCalled();
+    expect(loggerFetch).not.toHaveBeenCalled();
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts the owner repeating its own public id, each time keeping the owner', async () => {
+    const { env, bucketPut, workflowFetch } = createEnv({
+      workflowReply: started,
+      bucketHead: storedWith({ owner: 'public' })
+    });
+    for (let i = 0; i < 2; i++) {
+      const response = await gateway.fetch(
+        publicPost('/begin', { url, request_id: 'req-own-2' }),
+        env,
+        {} as ExecutionContext
+      );
+      expect(response.status).toBe(201);
+      expect(await response.json()).toEqual({ requestId: 'req-own-2' });
+    }
+    expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }, { owner: 'public' }]);
+    expect(workflowFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts the internal key repeating its own id', async () => {
+    const { env, bucketPut } = createEnv({ workflowReply: started, bucketHead: storedWith({ owner: 'internal' }) });
+    const response = await gateway.fetch(
+      internalPost('/begin', { url, request_id: 'req-own-3' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(putMetadata(bucketPut)).toEqual([{ owner: 'internal' }]);
+  });
+
+  it('lets the internal key re-run a public id and keeps the public owner', async () => {
+    const { env, bucketPut, workflowFetch } = createEnv({
+      workflowReply: started,
+      bucketHead: storedWith({ owner: 'public' })
+    });
+    const response = await gateway.fetch(
+      internalPost('/begin', { url, request_id: 'req-own-4' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }]);
+    expect(workflowFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the caller as owner of a new id after one lookup', async () => {
+    const { env, bucketHead, bucketPut } = createEnv({ workflowReply: started });
+    const response = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-new-1' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ requestId: 'req-new-1' });
+    expect(bucketHead).toHaveBeenCalledTimes(1);
+    expect(bucketHead).toHaveBeenCalledWith('archives/req-new-1/input/options.json');
+    expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }]);
+  });
+
+  it('records the caller as owner of a generated id without a lookup', async () => {
+    const { env, bucketHead, bucketPut } = createEnv({ workflowReply: started });
+    const response = await gateway.fetch(publicPost('/begin', { url }), env, {} as ExecutionContext);
+
+    expect(response.status).toBe(201);
+    expect(bucketHead).not.toHaveBeenCalled();
+    expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }]);
+  });
+
+  it('gives an id stored without an owner to the caller', async () => {
+    const { env, bucketPut } = createEnv({ workflowReply: started, bucketHead: storedWith({}) });
+    const response = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-legacy-1' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }]);
+  });
+
+  it('answers 500 and writes nothing when the owner lookup fails', async () => {
+    const { env, bucketPut, loggerFetch, workflowFetch } = createEnv({
+      workflowReply: started,
+      bucketHead: async () => {
+        throw new Error('r2 unavailable');
+      }
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-own-5' }),
+      env,
+      {} as ExecutionContext
+    );
+    const data = (await response.json()) as { code?: unknown };
+
+    expect(response.status).toBe(500);
+    expect(data.code).toBe('INTERNAL_ERROR');
+    expect(bucketPut).not.toHaveBeenCalled();
+    expect(loggerFetch).not.toHaveBeenCalled();
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+});
