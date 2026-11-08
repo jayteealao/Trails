@@ -76,6 +76,11 @@ set -euo pipefail
 #                                     codebase no longer holds, without asking;
 #                                     printed as a warning in the summary.
 #                                     Never put it in a package.json script.
+#   --dry-run                         list the targets this run would deploy,
+#                                     the Pages project included, with result
+#                                     planned, then exit 0; runs no check,
+#                                     preflight or deploy; the dirty-tree
+#                                     refusal still applies
 #
 # Required secrets per worker (checked with `cf workers secrets list` for all
 # nine workers before the first worker deploys). required_secrets_for() below
@@ -173,10 +178,11 @@ set -euo pipefail
 #              worker.
 #
 # Summary: an EXIT trap prints one line per planned target on every exit,
-#   TARGET  RESULT (deployed|failed|unverified|skipped)  DETAIL  LABEL
+#   TARGET  RESULT (deployed|failed|unverified|skipped|planned)  DETAIL  LABEL
 # where DETAIL is the version id, the update times or the reason; then the
 # warnings and the exit code. The first failure stops the run; targets not
-# reached read "skipped". --all without --with-rules adds one row
+# reached read "skipped"; "planned" appears only under --dry-run. --all
+# without --with-rules adds one row
 # `rules  skipped  not deployed (pass --with-rules)`.
 #
 # Exit codes: the failing command's own code; 2 for a usage error or a
@@ -301,7 +307,7 @@ trap 'exit 143' TERM
 
 usage_error() {
   echo "ERROR: $1" >&2
-  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--force-functions] [--allow-missing-secrets <worker>]..." >&2
+  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--force-functions] [--dry-run] [--allow-missing-secrets <worker>]..." >&2
   FIRST_RC=2
   exit 2
 }
