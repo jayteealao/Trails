@@ -1,10 +1,11 @@
 import type { Request, Response } from 'express';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import type {
-  FinalizeRequest,
-  FinalizeResponse,
-  ArchiveEntry
-} from './types.js';
+import {
+  buildArchiveFinalizePatch,
+  finalizeSharedArticleArchives,
+  type GatewayArchiveEntries
+} from '@warg/article-writer';
+import type { FinalizeRequest, FinalizeResponse } from './types.js';
 import { KIND_TO_ARCHIVE_KEY } from './types.js';
 import { logEvent } from './logging.js';
 
@@ -37,7 +38,7 @@ export async function handleFinalize(
     const docRef = db.collection('articles').doc(firestore_doc_id);
 
     // Build update object for archives (only kinds with archive entries)
-    const updates: Record<string, ArchiveEntry> = {};
+    const updates: GatewayArchiveEntries = {};
 
     for (const artifact of uploaded) {
       const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
@@ -59,16 +60,13 @@ export async function handleFinalize(
     }
 
     // Update Firestore document with archives, metadata, and images
-    const firestoreUpdate: Record<string, unknown> = {
-      ...Object.fromEntries(
-        Object.entries(updates).map(([key, value]) => [`archives.${key}`, value])
-      ),
-      updated_at: Timestamp.now(),
-    };
-    if (body.metadata) firestoreUpdate['metadata'] = body.metadata;
-    if (body.images) firestoreUpdate['images'] = body.images;
-
-    await docRef.update(firestoreUpdate);
+    await finalizeSharedArticleArchives(
+      docRef,
+      buildArchiveFinalizePatch(
+        { archives: updates, metadata: body.metadata, images: body.images },
+        Timestamp.now()
+      )
+    );
 
     console.log(`[finalize] Firestore document updated: ${firestore_doc_id}`);
 
