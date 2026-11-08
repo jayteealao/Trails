@@ -11,6 +11,7 @@ import type {
 import { timingSafeEqual } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 import { LoggerDO } from './LoggerDO.js';
+import { buildRequestListQuery } from './request-list-query.js';
 import { asString, asNumber, asBoolean, asRecord } from './value-helpers.js';
 
 export { LoggerDO };
@@ -1129,46 +1130,8 @@ export default {
 
       // GET /requests - List requests from D1 index
       if (method === 'GET' && path === '/requests') {
-        const domain = params.get('domain');
-        const status = params.get('status');
-        const q = params.get('q');
-        const from = params.get('from');
-        const to = params.get('to');
-        const limitVal = Math.min(Math.max(parseInt(params.get('limit') ?? '', 10) || 50, 1), 1000);
-        const offsetVal = Math.min(Math.max(parseInt(params.get('offset') ?? '', 10) || 0, 0), 100000);
-
-        let query = 'SELECT * FROM requests_index';
-        const conditions: string[] = [];
-        const bindings: (string | number)[] = [];
-
-        if (domain) {
-          conditions.push('domain = ?');
-          bindings.push(domain);
-        }
-        if (status) {
-          conditions.push('stage = ?');
-          bindings.push(status);
-        }
-        if (q) {
-          conditions.push("url LIKE '%' || ? || '%'");
-          bindings.push(q);
-        }
-        if (from) {
-          conditions.push('created_at >= ?');
-          bindings.push(from);
-        }
-        if (to) {
-          conditions.push('created_at <= ?');
-          bindings.push(to);
-        }
-        if (conditions.length > 0) {
-          query += ' WHERE ' + conditions.join(' AND ');
-        }
-
-        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-        bindings.push(limitVal, offsetVal);
-
-        const result = await env.INDEX_DB.prepare(query).bind(...bindings).all<RequestsIndexRow>();
+        const { sql, bindings } = buildRequestListQuery(params);
+        const result = await env.INDEX_DB.prepare(sql).bind(...bindings).all<RequestsIndexRow>();
 
         return Response.json({
           requests: result.results.map((row: RequestsIndexRow) => ({
