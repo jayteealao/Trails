@@ -1,6 +1,7 @@
 import { afterEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as firestore from 'firebase-admin/firestore';
+import { normalizeUrl } from '@warg/url-normalizer';
 import { makeRecordingDb } from './recording-firestore.js';
 
 // Drives the deployed save trigger end to end: the event's time feeds the retry
@@ -108,4 +109,31 @@ test('a created user article calls the gateway once with its link, records the s
   assert.equal(await deliver(e), null);
   assert.equal(posts.length, 1);
   assert.equal(store.writes.length, writesAfterFirst);
+});
+
+test('a save of a link that already has a shared article links to it without a gateway call', async () => {
+  const store = seed({
+    users: { [`${USER}/articles/${ITEM}`]: saveData },
+    articles: { shared01: { url: URL, normalizedUrl: normalizeUrl(URL), created_at: firestore.Timestamp.fromMillis(1000) } },
+  });
+  answer([]);
+  assert.equal(await deliver(event({ data: saveData })), null);
+  assert.deepEqual(posts, []);
+  assert.equal(store.docs.get(USER_PATH)?.['canonicalId'], 'shared01');
+});
+
+test('a save with an invalid article id is skipped and the error is noted on the user article', async () => {
+  const store = seed({ users: { [`${USER}/articles/bad`]: { url: URL } } });
+  answer([]);
+  assert.equal(await deliver(event({ itemId: 'bad', data: { url: URL } })), null);
+  assert.deepEqual(posts, []);
+  assert.equal(store.docs.get(`users/${USER}/articles/bad`)?.['error'], 'Invalid article id');
+});
+
+test('a save without a link is skipped and the error is noted on the user article', async () => {
+  const store = seed({ users: { [`${USER}/articles/${ITEM}`]: { title: 'x' } } });
+  answer([]);
+  assert.equal(await deliver(event({ data: { title: 'x' } })), null);
+  assert.deepEqual(posts, []);
+  assert.equal(store.docs.get(USER_PATH)?.['error'], 'Missing URL');
 });
