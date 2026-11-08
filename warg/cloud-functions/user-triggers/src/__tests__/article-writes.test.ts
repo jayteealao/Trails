@@ -172,3 +172,16 @@ test('an archive start that fails inside the retry window throws and records no 
   await assert.rejects(r.result, /gateway down/);
   assert.deepEqual(r.writes, createWrites());
 });
+
+test('a first save starts the archive once with the saved link and the shared article id', async () => {
+  const payloads: unknown[] = [];
+  const r = await run({
+    data: saveData,
+    beginArchive: async (payload) => {
+      payloads.push(payload);
+      return { requestId: 'req-00001' };
+    },
+  });
+  assert.equal(await r.result, 'created');
+  assert.deepEqual(payloads, [{ url: URL, request_id: ITEM, includeScreenshot: true, includePdf: true }]);
+});
