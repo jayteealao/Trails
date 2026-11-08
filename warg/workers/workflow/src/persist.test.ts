@@ -1,9 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkflowStep } from 'cloudflare:workers';
-import type { ArtifactMeta, ArchiveManifest, WorkflowCheckpoint } from '@warg/shared';
+import type { ArtifactMeta, ArchiveManifest, CheckpointStep, WorkflowCheckpoint } from '@warg/shared';
 import { getCheckpointKey, getOptionsKey, getR2Key } from '@warg/shared';
-import { createCheckpoint, markArtifactsPersisted, recordArtifacts } from './checkpoint.js';
-import { persistArtifactsIncremental, persistManifestSuffix, writeManifest } from './persist.js';
+import {
+  createCheckpoint,
+  getUnpersistedArtifacts,
+  markArtifactsPersisted,
+  recordArtifacts,
+} from './checkpoint.js';
+import type { PersistedArtifacts } from './persist.js';
+import {
+  persistArtifactsIncremental,
+  persistManifestSuffix,
+  snapshotPersistedArtifacts,
+  writeManifest,
+} from './persist.js';
 
 const REQUEST_ID = 'req-persist-1';
 const URL = 'https://example.com/article';
@@ -103,7 +114,11 @@ function makeEnv(bucket: ReturnType<typeof makeBucket>) {
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   });
-  const loggerFetch = vi.fn(async () => new Response('ok', { status: 200 }));
+  const loggerBodies: string[] = [];
+  const loggerFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+    loggerBodies.push(String(init?.body));
+    return new Response('ok', { status: 200 });
+  });
   // Only the bindings the persist helpers touch are provided.
   const env = {
     ARCHIVE_BUCKET: bucket.bucket,
@@ -111,7 +126,7 @@ function makeEnv(bucket: ReturnType<typeof makeBucket>) {
     LOGGER: { fetch: loggerFetch },
     INTERNAL_API_KEY: 'test-key',
   } as unknown as Env;
-  return { env, gcsFetch, gcsBodies, loggerFetch };
+  return { env, gcsFetch, gcsBodies, loggerFetch, loggerBodies };
 }
 
 function artifact(kind: ArtifactMeta['kind'], contentType: string, bytes: number): ArtifactMeta {
@@ -389,5 +404,195 @@ describe('persistArtifactsIncremental — replay-stable names', () => {
     expect(laterCall?.manifest_key).toBe(firstCall?.manifest_key);
     expect(first.names[0]).toBe(`write-manifest-${firstCall?.manifest_key.split('/').pop() ?? ''}`);
     expect(fresh.names).toEqual(first.names);
+  });
+});
+
+describe('persist after a deploy that renamed the persist steps', () => {
+  const OPTIONS_KEY = getOptionsKey(REQUEST_ID);
+
+  type PersistReason = 'step_succeeded' | 'resume_persist_only' | 'final_reconcile';
+
+  function persistWith(
+    env: Env,
+    step: WorkflowStep,
+    checkpoint: WorkflowCheckpoint,
+    stepName: CheckpointStep | 'final',
+    artifacts: ArtifactMeta[],
+    reason: PersistReason,
+    persistedBefore: PersistedArtifacts
+  ) {
+    return persistArtifactsIncremental(
+      env,
+      step,
+      checkpoint,
+      REQUEST_ID,
+      URL,
+      stepName,
+      artifacts,
+      reason,
+      persistedBefore
+    );
+  }
+
+  /**
+   * Replays the persist sequence of one run, as the run does after its
+   * checkpoint is loaded: snapshot, render, singlefile, then the final
+   * reconcile of whatever is still unpersisted.
+   */
+  async function replayRun(env: Env, cache: Map<string, unknown>) {
+    const run = makeReplayStep(cache);
+    const persistedBefore = await snapshotPersistedArtifacts(env, run.step, REQUEST_ID, OPTIONS_KEY);
+    // The cached load-init result: the state before any persist of the run.
+    const checkpoint = makeCheckpoint();
+    for (const stepName of ['render', 'singlefile'] as const) {
+      const pending = getUnpersistedArtifacts(checkpoint, [stepName]);
+      if (pending.length > 0) {
+        await persistWith(env, run.step, checkpoint, stepName, pending, 'step_succeeded', persistedBefore);
+      }
+    }
+    const remaining = getUnpersistedArtifacts(checkpoint);
+    if (remaining.length > 0) {
+      await persistWith(env, run.step, checkpoint, 'final', remaining, 'final_reconcile', persistedBefore);
+    }
+    return { run, checkpoint };
+  }
+
+  function checkpointPuts(bucket: ReturnType<typeof makeBucket>): number {
+    return bucket.bucket.put.mock.calls.filter(([key]) => key === getCheckpointKey(REQUEST_ID)).length;
+  }
+
+  function manifestArtifactKinds(bucket: ReturnType<typeof makeBucket>, manifestKey: string): string[] {
+    const manifest = JSON.parse(bucket.objects.get(manifestKey) ?? '{"artifacts":[]}') as ArchiveManifest;
+    return manifest.artifacts.map((a) => a.kind);
+  }
+
+  it('keeps the names and the single upload of a new instance when nothing was persisted before', async () => {
+    const plainBucket = makeBucket();
+    const plain = makeEnv(plainBucket);
+    const plainRun = makeReplayStep();
+    await persistRender(plain.env, plainRun.step, makeCheckpoint());
+
+    const bucket = makeBucket();
+    const withSnapshot = makeEnv(bucket);
+    const run = makeReplayStep();
+    await persistWith(
+      withSnapshot.env,
+      run.step,
+      makeCheckpoint(),
+      'render',
+      renderArtifacts,
+      'step_succeeded',
+      {}
+    );
+
+    expect(run.names).toEqual(plainRun.names);
+    expect(run.names).toHaveLength(4);
+    expect(withSnapshot.gcsFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not upload artifacts again that an earlier run already persisted under the old step names', async () => {
+    const cache = new Map<string, unknown>();
+    seedOldHistory(cache, 'render', renderArtifacts);
+    const bucket = makeBucket(persistedCheckpoint(['rendered.html', 'screenshot.png']));
+    const { env, gcsFetch } = makeEnv(bucket);
+    const run = makeReplayStep(cache);
+
+    const persistedBefore = await snapshotPersistedArtifacts(env, run.step, REQUEST_ID, OPTIONS_KEY);
+    const checkpoint = makeCheckpoint();
+    const result = await persistWith(
+      env,
+      run.step,
+      checkpoint,
+      'render',
+      renderArtifacts,
+      'step_succeeded',
+      persistedBefore
+    );
+
+    expect(result).toBeUndefined();
+    expect(gcsFetch).not.toHaveBeenCalled();
+    expect(run.names).toEqual(['checkpoint-persisted-snapshot']);
+    expect(manifestKeys(bucket.objects)).toEqual([]);
+    expect(checkpoint.artifacts['rendered.html']).toMatchObject({
+      persisted: true,
+      gcsPath: gcsPathOf('rendered.html'),
+    });
+    expect(checkpoint.artifacts['screenshot.png']).toMatchObject({
+      persisted: true,
+      gcsPath: gcsPathOf('screenshot.png'),
+    });
+    expect(checkpoint.artifacts['singlefile.html']?.persisted).toBe(false);
+    expect(checkpointPuts(bucket)).toBe(1);
+  });
+
+  it('uploads an artifact again when its content differs from the one recorded as persisted', async () => {
+    const stored = persistedCheckpoint(['rendered.html', 'screenshot.png']);
+    const storedHtml = stored.artifacts['rendered.html'];
+    if (storedHtml) storedHtml.sha256 = 'sha-earlier-content';
+    const bucket = makeBucket(stored);
+    const { env, gcsFetch, gcsBodies } = makeEnv(bucket);
+    const run = makeReplayStep();
+
+    const persistedBefore = await snapshotPersistedArtifacts(env, run.step, REQUEST_ID, OPTIONS_KEY);
+    await persistWith(env, run.step, makeCheckpoint(), 'render', renderArtifacts, 'step_succeeded', persistedBefore);
+
+    expect(gcsFetch).toHaveBeenCalledTimes(1);
+    expect(manifestArtifactKinds(bucket, gcsBodies[0]?.manifest_key ?? '')).toEqual(['rendered.html']);
+  });
+
+  it('uploads only the artifacts the stored checkpoint does not record as persisted', async () => {
+    const cache = new Map<string, unknown>();
+    seedOldHistory(cache, 'render', [renderedHtml]);
+    const bucket = makeBucket(persistedCheckpoint(['rendered.html']));
+    const { env, gcsFetch, gcsBodies } = makeEnv(bucket);
+    const run = makeReplayStep(cache);
+
+    const persistedBefore = await snapshotPersistedArtifacts(env, run.step, REQUEST_ID, OPTIONS_KEY);
+    const checkpoint = makeCheckpoint();
+    await persistWith(env, run.step, checkpoint, 'render', renderArtifacts, 'step_succeeded', persistedBefore);
+
+    expect(gcsFetch).toHaveBeenCalledTimes(1);
+    expect(manifestArtifactKinds(bucket, gcsBodies[0]?.manifest_key ?? '')).toEqual(['screenshot.png']);
+    expect(checkpoint.artifacts['rendered.html']?.persisted).toBe(true);
+    expect(checkpoint.artifacts['screenshot.png']?.persisted).toBe(true);
+  });
+
+  it('completes an in-flight run with every artifact persisted and no repeated persist events', async () => {
+    const cache = new Map<string, unknown>();
+    seedOldHistory(cache, 'render', renderArtifacts);
+    const bucket = makeBucket(persistedCheckpoint(['rendered.html', 'screenshot.png']));
+    const { env, gcsFetch, gcsBodies, loggerBodies } = makeEnv(bucket);
+
+    const first = await replayRun(env, cache);
+
+    expect(gcsFetch).toHaveBeenCalledTimes(1);
+    expect(manifestArtifactKinds(bucket, gcsBodies[0]?.manifest_key ?? '')).toEqual(['singlefile.html']);
+    expect(getUnpersistedArtifacts(first.checkpoint)).toEqual([]);
+    const persistEvents = loggerBodies.filter((body) => body.includes('"persist.'));
+    expect(persistEvents).toHaveLength(2);
+    expect(persistEvents.every((body) => body.includes('"checkpointStep":"singlefile"'))).toBe(true);
+    expect(loggerBodies.some((body) => body.includes('"checkpointStep":"render"'))).toBe(false);
+    expect(first.run.names.filter((name) => name === 'checkpoint-persisted-snapshot')).toHaveLength(1);
+
+    // The instance sleeps again and replays on the same history.
+    const second = await replayRun(env, cache);
+
+    expect(second.run.names).toEqual(first.run.names);
+    expect(gcsFetch).toHaveBeenCalledTimes(1);
+    expect(getUnpersistedArtifacts(second.checkpoint)).toEqual([]);
+  });
+
+  it('uploads once more and still completes when the earlier run never saved its persisted flags', async () => {
+    const cache = new Map<string, unknown>();
+    seedOldHistory(cache, 'render', renderArtifacts);
+    const bucket = makeBucket(makeCheckpoint());
+    const { env, gcsFetch, gcsBodies } = makeEnv(bucket);
+
+    const { checkpoint } = await replayRun(env, cache);
+
+    expect(gcsFetch).toHaveBeenCalledTimes(2);
+    const uploaded = gcsBodies.map((body) => manifestArtifactKinds(bucket, body.manifest_key));
+    expect(uploaded).toEqual([['rendered.html', 'screenshot.png'], ['singlefile.html']]);
+    expect(getUnpersistedArtifacts(checkpoint)).toEqual([]);
   });
 });
