@@ -22,6 +22,16 @@ class UserArticleWireWriteTest {
         assertSameWire(GOLDEN_NULLS, nullsArticle().toBackupFields())
     }
 
+    @Test
+    fun `the wire type writes the golden map of a full article`() {
+        assertSameWire(GOLDEN_FULL, fullArticle().toUserArticleWire().toFirestore())
+    }
+
+    @Test
+    fun `the wire type writes the golden map of an article with every nullable property null`() {
+        assertSameWire(GOLDEN_NULLS, nullsArticle().toUserArticleWire().toFirestore())
+    }
+
     companion object {
         /** An article with every one of its properties set to a distinct, non-default value. */
         fun fullArticle() = Article(
