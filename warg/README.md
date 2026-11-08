@@ -79,6 +79,14 @@ secrets each worker needs, and how each target is verified.
    Plain `pnpm deploy` is pnpm's own built-in command and does not run the
    script; use `pnpm run deploy` or one of the `deploy:*` scripts.
 
+   The dashboard inbox reads its completed-today count from dashboard-api
+   (`GET /stats/completed-today`), and the inbox answers 500 when that call
+   fails. Deploy dashboard-api with or before the dashboard (`--all`, or
+   `--with-functions --with-pages`; the script deploys the functions before
+   the dashboard). A `--with-pages` run alone, or a run that holds dashboard-api
+   back at the link check, can ship a dashboard whose dashboard-api lacks the
+   route; deploy the functions next.
+
 4. Read the summary. The script prints one line per target on every exit:
    `deployed` (the platform shows this run's version id, update time or commit
    hash), `failed`, `unverified` (the command succeeded but the platform did not
