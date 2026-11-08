@@ -3,9 +3,21 @@ import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 
 const T0 = 1_700_000_000_000;
 
-/** A quota object over an in-memory storage fake, with the alarm recorded. */
-function makeDo() {
-  let stored: unknown;
+type MonolithFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+interface MakeDoOptions {
+  /** What the fake monolith answers; defaults to a 200 ok for every stop. */
+  monolithFetch?: MonolithFetch;
+  /** State already in storage when the object starts, as an earlier run left it. */
+  stored?: unknown;
+}
+
+/**
+ * A quota object over an in-memory storage fake, with the alarm recorded and
+ * a fake monolith binding that records each container stop.
+ */
+function makeDo(options: MakeDoOptions = {}) {
+  let stored: unknown = options.stored;
   const setAlarm = vi.fn();
   const storage = {
     get: async () => stored,
@@ -14,10 +26,15 @@ function makeDo() {
     },
     setAlarm
   };
+  const monolithFetch = vi.fn<MonolithFetch>(
+    options.monolithFetch ?? (async () => Response.json({ ok: true }))
+  );
   // The class only touches ctx.storage; the fake stands in for the runtime state.
   const ctx = { storage } as unknown as DurableObjectState;
-  const quota = new BrowserQuotaDO(ctx, {} as Env);
-  return { quota, setAlarm };
+  // The class reads only these two bindings of its env.
+  const env = { INTERNAL_API_KEY: 'internal-key', MONOLITH: { fetch: monolithFetch } } as unknown as Env;
+  const quota = new BrowserQuotaDO(ctx, env);
+  return { quota, setAlarm, monolithFetch, storage };
 }
 
 async function sandboxRequestIds(quota: BrowserQuotaDO): Promise<string[]> {
