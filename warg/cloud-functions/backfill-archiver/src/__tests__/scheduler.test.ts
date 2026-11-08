@@ -727,3 +727,78 @@ test('run lease: a live lease of another run skips the run, an expired one is ta
   );
   assert.deepEqual(leaseOf(lost), { owner: 'other-run', expires_at: T0 + 10 * MIN });
 });
+
+test('open batch: an article in progress makes the run wait; an all-failed batch is queued and ends the run', async () => {
+  const batchEntry = (id: string, host: string) => ({
+    item_id: id,
+    url: `https://${host}/page`,
+    domain: host,
+    sent_at: Timestamp.fromMillis(T0 - 5 * MIN),
+    retry_count: 0,
+  });
+
+  // One article still archiving: the run waits and keeps the batch.
+  const w = harness();
+  seedCompletedPass(w, { time_updated: T0 - 30 * MIN, item_id: '' }, {
+    batch: [batchEntry('sharedW001', 'w1.example')],
+    batch_started_at: Timestamp.fromMillis(T0 - 5 * MIN),
+  });
+  w.fake.put('articles/sharedW001', {
+    url: 'https://w1.example/page',
+    status: 'processing',
+    processing_started_at: Timestamp.fromMillis(T0 - 5 * MIN),
+  });
+  await runBackfill(w.deps());
+  assert.equal(w.tracker()['last_run_result'], 'waiting');
+  assert.equal(w.tracker()['last_run_summary']['considered'], 1);
+  assert.equal(queries(w).length, 0);
+  assert.equal(w.sent.length, 0);
+  assert.deepEqual((w.tracker()['batch'] as Array<Record<string, unknown>>).map((e) => e['item_id']), ['sharedW001']);
+
+  // Every article failed: both are queued and the run ends before any scan.
+  const f = harness();
+  seedCompletedPass(f, { time_updated: T0 - 30 * MIN, item_id: '' }, {
+    batch: [batchEntry('sharedX001', 'x1.example'), batchEntry('sharedX002', 'x2.example')],
+    batch_started_at: Timestamp.fromMillis(T0 - 5 * MIN),
+  });
+  f.fake.put('articles/sharedX001', { url: 'https://x1.example/page', status: 'failed', retry_count: 0 });
+  f.fake.put('articles/sharedX002', { url: 'https://x2.example/page', status: 'failed', retry_count: 0 });
+  await runBackfill(f.deps());
+  const tracker = f.tracker();
+  assert.deepEqual(
+    (tracker['retry_queue'] as Array<Record<string, unknown>>).map((e) => [e['item_id'], ms(e['not_before'])]),
+    [
+      ['sharedX001', T0 + RETRY_DELAY_MS],
+      ['sharedX002', T0 + RETRY_DELAY_MS],
+    ]
+  );
+  assert.equal(tracker['total_failed'], 2);
+  assert.equal(tracker['last_run_result'], 'settled');
+  assert.equal(queries(f).length, 0, 'an all-failed settlement reads no user articles');
+});
+
+test('retry list: a due entry whose domain is backed off is held until the backoff ends', async () => {
+  const h = harness();
+  const until = T0 + 30 * MIN;
+  seedCompletedPass(h, { time_updated: T0 - 30 * MIN, item_id: '' }, {
+    domain_backoff: {
+      'h1.example': { consecutive_failures: 2, backoff_until: Timestamp.fromMillis(until), last_error: 'x' },
+    },
+    retry_queue: [
+      {
+        item_id: 'sharedH001',
+        url: 'https://h1.example/page',
+        domain: 'h1.example',
+        retry_count: 1,
+        not_before: Timestamp.fromMillis(T0 - 1),
+      },
+    ],
+  });
+  h.fake.put('articles/sharedH001', { url: 'https://h1.example/page', status: 'failed', retry_count: 1 });
+
+  await runBackfill(h.deps());
+
+  assert.equal(h.sent.length, 0);
+  const queue = h.tracker()['retry_queue'] as Array<Record<string, unknown>>;
+  assert.deepEqual(queue.map((e) => [e['item_id'], ms(e['not_before'])]), [['sharedH001', until]]);
+});
