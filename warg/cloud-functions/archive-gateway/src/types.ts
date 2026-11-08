@@ -1,5 +1,7 @@
 // GCS worker contract — keep in sync with workers/gcs/src/types.ts
 
+import type { GatewayArchiveKey } from '@warg/article-writer';
+
 /**
  * Log level for events.
  */
@@ -208,7 +210,7 @@ export interface ArticleDocument {
  * readability.json → metadata (no archive entry)
  * manifest.json → not persisted to GCS
  */
-export const KIND_TO_ARCHIVE_KEY: Partial<Record<ArtifactKind, string>> = {
+export const KIND_TO_ARCHIVE_KEY: Partial<Record<ArtifactKind, GatewayArchiveKey>> = {
   'singlefile.html': 'singlefile',
   'monolith.html': 'monolith',
   'readability.md': 'readability',

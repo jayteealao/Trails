@@ -2,11 +2,15 @@ import type { Request, Response } from 'express';
 import type { GetSignedUrlConfig } from '@google-cloud/storage';
 import { Storage } from '@google-cloud/storage';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import {
+  buildArchiveUploadJournalPatch,
+  journalSharedArticleUploads,
+  type GatewayArchiveEntries
+} from '@warg/article-writer';
 import type {
   CreateUploadRequest,
   CreateUploadResponse,
   UploadEntry,
-  ArticleDocument,
   ArtifactKind,
   ArchiveEntry
 } from './types.js';
@@ -90,7 +94,7 @@ export async function handleCreateUpload(
     // GCS object (path is canonical from request_id+kind) and promote the
     // archive entry from `uploading` to `success`.
     const startedAt = new Date().toISOString();
-    const archives: Record<string, ArchiveEntry> = {};
+    const archives: GatewayArchiveEntries = {};
     for (const artifact of artifacts) {
       const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
       if (!archiveKey) continue;
@@ -110,19 +114,13 @@ export async function handleCreateUpload(
       };
     }
 
-    const docData: Partial<ArticleDocument> = {
-      item_id: request_id,
-      url,
-      domain: extractDomain(url),
-      updated_at: now,
-      archives
-    };
-
-    if (!existingDoc.exists) {
-      docData.created_at = now;
-    }
-
-    await docRef.set(docData, { merge: true });
+    await journalSharedArticleUploads(
+      docRef,
+      buildArchiveUploadJournalPatch(
+        { itemId: request_id, url, domain: extractDomain(url), archives, isNew: !existingDoc.exists },
+        now
+      )
+    );
     console.log(`[create-upload] Firestore document created/updated: ${request_id}`);
 
     // Generate signed URLs for each artifact
