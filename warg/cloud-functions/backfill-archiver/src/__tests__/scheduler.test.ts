@@ -565,3 +565,43 @@ test('the change scan after a pass starts CHANGE_MARKER_MARGIN_MS before the pas
     assert.deepEqual(q[0]!.filters, [['timeUpdated', '>=', P - CHANGE_MARKER_MARGIN_MS]], label);
   }
 });
+
+test('articles out of retries, abandoned as bad data or still in progress are linked but not sent', async () => {
+  const h = harness();
+  seedCompletedPass(h, { time_updated: T0 - 30 * MIN, item_id: '' });
+  userArticle(h, 'itemE0001', { timeUpdated: T0 - 7 * MIN, canonicalId: 'sharedE001' });
+  h.fake.put('articles/sharedE001', { url: 'https://iteme0001.example/page', status: 'failed', retry_count: 2 });
+  userArticle(h, 'itemE0002', { timeUpdated: T0 - 6 * MIN, canonicalId: 'sharedE002' });
+  h.fake.put('articles/sharedE002', {
+    url: 'https://iteme0002.example/page',
+    status: 'failed',
+    retry_count: 0,
+    failure: { class: 'DATA_ISSUE', last_seen_at: Timestamp.fromMillis(T0 - 60 * MIN) },
+  });
+  userArticle(h, 'itemE0003', { timeUpdated: T0 - 5 * MIN, canonicalId: 'sharedE003' });
+  h.fake.put('articles/sharedE003', {
+    url: 'https://iteme0003.example/page',
+    status: 'processing',
+    processing_started_at: Timestamp.fromMillis(T0 - 5 * MIN),
+  });
+
+  await runBackfill(h.deps());
+
+  const tracker = h.tracker();
+  assert.equal(h.sent.length, 0);
+  assert.equal((tracker['retry_queue'] as unknown[]).length, 0);
+  assert.equal(tracker['last_run_result'], 'idle');
+  assert.equal(tracker['last_run_summary']['linked_only'], 1);
+  assert.deepEqual(
+    ['itemE0001', 'itemE0002', 'itemE0003'].map((id) => {
+      const doc = h.fake.read(`users/${USER}/articles/${id}`)!;
+      return [doc['resolvedId'], doc['archival_triggered']];
+    }),
+    [
+      ['sharedE001', undefined],
+      ['sharedE002', undefined],
+      ['sharedE003', true],
+    ]
+  );
+  assert.deepEqual(tracker['change_marker'], { time_updated: T0 - 5 * MIN, item_id: 'itemE0003' });
+});
