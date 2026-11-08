@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import type { ArticleListItem, CompletedTodayResponse } from './types.js';
 import { CORE_ARCHIVES } from './types.js';
 import { getDashboardUserId } from './config.js';
-import { readMergedUserArticles } from './list-articles.js';
+import { MAX_FILTERED_ARTICLES, readMergedUserArticles } from './list-articles.js';
 
 const CORE_KEYS: ReadonlySet<string> = new Set(CORE_ARCHIVES);
 
@@ -57,6 +57,7 @@ async function countForDay(db: Firestore, userId: string, since: Date): Promise<
   return {
     completedToday: countCompletedSince(items, since.getTime()),
     since: since.toISOString(),
+    truncated: items.length >= MAX_FILTERED_ARTICLES,
   };
 }
 

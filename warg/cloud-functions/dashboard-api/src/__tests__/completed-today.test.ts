@@ -6,6 +6,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { COMPLETED_TODAY_TTL_MS, handleCompletedToday, startOfUtcDay } from '../completed-today.js';
 import { dashboardApi } from '../index.js';
 import { makeFakeDb } from './fake-firestore.js';
+import { MAX_FILTERED_ARTICLES } from '../list-articles.js';
 
 const NOW = new Date('2026-11-08T12:00:00Z');
 const TODAY = '2026-11-08T00:00:00.000Z';
@@ -92,7 +93,7 @@ test('only articles completed since UTC midnight are counted', async () => {
   await handleCompletedToday({} as Request, res, { db, userId: 'u', now: () => NOW, cache: new Map() });
 
   assert.equal(captured.status, 200);
-  assert.deepEqual(captured.body, { completedToday: 4, since: TODAY });
+  assert.deepEqual(captured.body, { completedToday: 4, since: TODAY, truncated: false });
 });
 
 test('a count is reused for a short while, then read again', async () => {
@@ -113,7 +114,7 @@ test('a count is reused for a short while, then read again', async () => {
   now += COMPLETED_TODAY_TTL_MS - 1;
   bodies.push(await call());
   assert.equal(log.getAllCalls, 1);
-  for (const body of bodies) assert.deepEqual(body, { completedToday: 1, since: TODAY });
+  for (const body of bodies) assert.deepEqual(body, { completedToday: 1, since: TODAY, truncated: false });
 
   // Once the time is up, the next load reads again.
   now += 1;
@@ -122,7 +123,7 @@ test('a count is reused for a short while, then read again', async () => {
 
   // A new UTC day reads again at once, with the new day start.
   now = Date.parse('2026-11-09T00:00:01Z');
-  assert.deepEqual(await call(), { completedToday: 0, since: '2026-11-09T00:00:00.000Z' });
+  assert.deepEqual(await call(), { completedToday: 0, since: '2026-11-09T00:00:00.000Z', truncated: false });
   assert.equal(log.getAllCalls, 3);
 });
 
@@ -143,6 +144,17 @@ test('a failed read is not reused', async () => {
     );
   }
   assert.equal(reads, 2);
+});
+
+test('the count says when the user has more articles than it reads', async () => {
+  const ids = Array.from({ length: MAX_FILTERED_ARTICLES }, (_, i) => `a${i}`);
+  const { db } = makeFakeDb({
+    userArticles: Object.fromEntries(ids.map((id) => [id, userDoc(id)])),
+    articles: { a0: complete([TODAY, TODAY, TODAY, TODAY]) },
+  });
+  const { res, captured } = captureResponse();
+  await handleCompletedToday({} as Request, res, { db, userId: 'u', now: () => NOW, cache: new Map() });
+  assert.deepEqual(captured.body, { completedToday: 1, since: TODAY, truncated: true });
 });
 
 const KEY_NAMES = ['DASHBOARD_API_KEY', 'INTERNAL_API_KEY', 'KEY_ROTATION_DUAL_ACCEPT'];

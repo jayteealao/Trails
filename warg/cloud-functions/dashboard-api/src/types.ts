@@ -102,8 +102,13 @@ export interface ArticleListResponse {
 /**
  * Response of GET /stats/completed-today: the articles that became complete
  * since `since`, the start of the current UTC day (ISO).
+ *
+ * The count covers the dashboard user's most recently added articles only (the
+ * cap of the filtered list); `truncated` is true when the user has more, so an
+ * older article that completed today may be missing from the count.
  */
 export interface CompletedTodayResponse {
   completedToday: number;
   since: string;
+  truncated: boolean;
 }
