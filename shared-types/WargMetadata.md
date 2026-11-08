@@ -164,6 +164,25 @@ the row then).
 | `published_time` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | the app does not show it yet; Warg-only |
 | `site_name` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | the app does not show it yet; Warg-only |
 
+## User article fields read by the server
+
+The app writes the user article `users/{uid}/articles/{id}` by these names
+through
+[`android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt`](../android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt),
+and the cloud functions read them. The drift check fails when one of them is
+not a string literal in that file.
+
+| Field | Read by |
+| ----- | ------- |
+| `url` | `user-triggers/src/handler.ts`, `dashboard-api/src/bootstrap-article.ts`, `dashboard-api/src/list-articles.ts`, `dashboard-api/src/mark-processing.ts`, `backfill-archiver/src/canonical-candidates.ts`, `backfill-archiver/src/index.ts` |
+| `title` | `dashboard-api/src/list-articles.ts` |
+| `favorite` | `packages/article-writer/src/pocket.ts` (`projectPocket`) |
+| `status` | `packages/article-writer/src/pocket.ts` (`projectPocket`), `backfill-archiver/src/index.ts` |
+| `timeAdded` | `packages/article-writer/src/pocket.ts` (`projectPocket`), `dashboard-api/src/list-articles.ts` (order) |
+| `timeRead` | `packages/article-writer/src/pocket.ts` (`projectPocket`) |
+| `timeUpdated` | `backfill-archiver/src/scheduler.ts` |
+| `deletedAt` | `backfill-scripts/src/rederive.ts` |
+
 ## Producer
 
 The Warg gcs worker produces the metadata map:
@@ -205,3 +224,6 @@ differences" above.
 A new field of the shared article or the user article (outside `metadata`)
 gets a row in "Articles document fields" above and its name in the field
 lists of `warg/packages/article-writer/src/fields.ts`, in the same commit.
+
+A user-article field the server starts to read gets a row in "User article
+fields read by the server" above, in the same commit.

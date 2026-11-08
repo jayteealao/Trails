@@ -22,6 +22,21 @@ check reads. The drift check test copies this tree and breaks one file per case.
 | `published_time` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | fixture: the app does not read the published time |
 | `site_name` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | fixture: the app does not read the site name |
 
+## User article fields read by the server
+
+The app writes these names on the user article through `UserArticleWire.kt`.
+
+| Field | Read by |
+| ----- | ------- |
+| `url` | fixture |
+| `title` | fixture |
+| `favorite` | fixture |
+| `status` | fixture |
+| `timeAdded` | fixture |
+| `timeRead` | fixture |
+| `timeUpdated` | fixture |
+| `deletedAt` | fixture |
+
 ## Producer
 
 The fixture producer files under `warg/`.
