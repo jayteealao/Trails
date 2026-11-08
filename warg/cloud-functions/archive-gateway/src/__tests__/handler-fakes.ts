@@ -1,4 +1,5 @@
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
+import type { Request } from 'firebase-functions/v2/https';
 
 // Stand-ins for the archive gateway's router tests: Cloud Storage signing, the
 // gateway's event log endpoint (through the global fetch), and the request and
