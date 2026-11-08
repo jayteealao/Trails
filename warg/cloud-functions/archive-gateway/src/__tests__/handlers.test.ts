@@ -136,3 +136,9 @@ for (const { path, body } of ROUTES) {
     }
   });
 }
+
+test('an authorised POST to an unknown path answers 404 and touches nothing', async () => {
+  const out = await send(gatewayRequest({ path: '/other', key: KEY, body: uploadBody() }));
+  assert.deepEqual(out, { status: 404, body: { error: 'Not found', path: '/other' } });
+  assertNothingTouched();
+});
