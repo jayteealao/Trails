@@ -31,3 +31,11 @@ export async function userArticleSet(uid: string, id: string): Promise<void> {
   const ref = getFirestore().collection('users').doc(uid).collection('articles').doc(id);
   await ref.set({ title: 'x' }); // fixture: user article set
 }
+
+export async function afterTrailingMarker(uid: string, id: string): Promise<void> {
+  const db = getFirestore();
+  const marker = db.collection('users').doc(uid).collection('articleMarkers').doc(id);
+  const article = db.collection('articles').doc(id);
+  await marker.set({ id }); // article-write-check: not-an-article (article marker)
+  await article.set({ title: 'x' }, { merge: true }); // fixture: write after a trailing marker
+}

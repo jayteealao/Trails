@@ -13,7 +13,7 @@
 // Every such write counts as an article write: the articles document is
 // written only through the writer module, which lives outside the scanned
 // tree. A write to another document (a tracker, a marker) is exempt when its
-// line or the line above carries
+// own line, or a comment-only line just above it, carries
 //
 //   // article-write-check: not-an-article (<what the document is>)
 //
@@ -78,9 +78,14 @@ function firestoreWriteOwner(checker, call, method) {
   return WRITE_METHODS[owner]?.includes(method) ? owner : null;
 }
 
+// The marker on the write's own line, or on a comment-only line just above.
+// A trailing marker on the line above belongs to that line's write, so it
+// does not exempt the next one.
 function exempt(sourceFile, line) {
   const lines = sourceFile.text.split(/\r?\n/);
-  return [lines[line - 1], lines[line - 2]].some((t) => t?.includes(MARKER));
+  const own = lines[line - 1] ?? '';
+  const above = (lines[line - 2] ?? '').trim();
+  return own.includes(MARKER) || (above.startsWith('//') && above.includes(MARKER));
 }
 
 // isScanned: (repo-relative path) => boolean.

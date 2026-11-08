@@ -52,7 +52,7 @@ test('each direct write of the fixture is one finding, and nothing else is', () 
   const file = join(FIXTURES, 'direct-writes.ts');
   const { stdout } = run(file);
   const expected = fixtureLines(file).map((f) => `${repoPath(file)}:${f.line}`);
-  assert.equal(expected.length, 5);
+  assert.equal(expected.length, 6);
   assert.deepEqual(
     findings(stdout).map((l) => l.split(' ')[0]),
     expected
