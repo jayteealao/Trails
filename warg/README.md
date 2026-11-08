@@ -467,7 +467,10 @@ archives (rendered, readability, markdown, singlefile) succeeds, so a core
 archive that is run again today counts its article again. The count reads the
 same 2,000 most recently added articles as a filtered list; `truncated` is true
 when the user has more, and an older article completed today is then missing
-from the count. One count is reused for a minute.
+from the count. One count is reused for a minute. The inbox shows this value
+as `counts.completedToday` under "Completed today"; before, the dashboard
+counted a rolling 24 hours over its 25 most recent completed articles, so the
+number can differ from the old one, most around UTC midnight.
 
 **Second-account check.** After deploy two (step 6 of
 [Rotating the function keys](#rotating-the-function-keys-two-steps)), with the
