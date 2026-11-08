@@ -131,9 +131,10 @@ jobs:
           node --test scripts/__tests__/article-writes.test.mjs
 
       - name: Copied function helpers agree
-        # Each function bundles alone, so the shared-id shapes, the link
-        # resolution, the key compare and the rotation switch are copied; this
-        # fails when one copy changes and the others do not.
+        # Each function bundles alone, so the shared-id shapes, the key compare
+        # and the rotation switch are copied; this fails when one copy changes
+        # and the others do not, and when a function adds its own link reader
+        # or pocket projection instead of importing the article module.
         timeout-minutes: 5
         run: node --test scripts/__tests__/function-copies.test.mjs
 

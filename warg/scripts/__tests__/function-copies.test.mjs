@@ -86,11 +86,7 @@ test('the reader shared-id shape accepts every id a creator makes, and the creat
 });
 
 // The link reader and the pocket projection are defined once, in
-// @warg/article-writer. These files still hold an older copy; each one leaves
-// the list when its callers move to the module, and a file that adds a copy
-// fails the test.
-const KNOWN_COPIES = [];
-
+// @warg/article-writer; a cloud function that adds its own copy fails the test.
 const COPY_DECLARATION =
   /\bconst SHARED_ID_SHAPE\b|\bfunction (?:resolveCanonical(?!Candidates)\w*|readCanonicalId|mergedTarget\w*|followMergedIntoOnce|readSharedArticle\w*|buildPocket|pocketFromSave|asPocketTime|projectPocket)\s*[(<]/;
 const SURVIVORS = ['resolveCanonicalItemId', 'readCanonicalId', 'mergedTargetOf', 'readSharedArticle', 'readSharedArticles', 'projectPocket'];
@@ -123,23 +119,18 @@ function importedNames(text, from) {
   return names;
 }
 
-test('no cloud function defines its own link reader or pocket projection beyond the known copies', () => {
+test('no cloud function defines its own link reader or pocket projection', () => {
   const copies = functionSources().filter((rel) => COPY_DECLARATION.test(readFileSync(resolve(functionsDir, rel), 'utf8')));
-  assert.deepEqual(copies, KNOWN_COPIES);
+  assert.deepEqual(copies, []);
 });
 
 test('every caller of the link reader or the pocket projection imports it from the article module', () => {
   for (const rel of functionSources()) {
-    if (KNOWN_COPIES.includes(rel)) continue;
     const text = readFileSync(resolve(functionsDir, rel), 'utf8');
     const fromModule = importedNames(text, (spec) => spec === '@warg/article-writer');
-    // A caller of a copy that has not moved yet imports it from that copy.
-    const fromCopy = importedNames(text, (spec) =>
-      KNOWN_COPIES.includes(`${rel.split('/')[0]}/src/${spec.replace(/^\.\//, '').replace(/\.js$/, '.ts')}`),
-    );
     for (const name of SURVIVORS) {
       if (!new RegExp(`\\b${name}\\s*\\(`).test(text)) continue;
-      assert.ok(fromModule.has(name) || fromCopy.has(name), `${rel} calls ${name} without importing it from @warg/article-writer`);
+      assert.ok(fromModule.has(name),`${rel} calls ${name} without importing it from @warg/article-writer`);
     }
   }
 });
