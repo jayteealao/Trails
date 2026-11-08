@@ -410,11 +410,13 @@ describe('begin accepts valid options as before', () => {
   });
 
   it.each([
-    { name: 'the backfill body', body: { url, request_id: 'req-ok-2', includeScreenshot: true, includePdf: false } },
-    { name: 'the dashboard body', body: { url, request_id: 'req-ok-3', steps: ['singlefile'] } }
-  ])('accepts valid options: $name', async ({ body }) => {
+    { name: 'the backfill body', body: { url, request_id: 'req-ok-2', includeScreenshot: true, includePdf: false }, internal: false },
+    // The dashboard sends steps, which only the internal key may choose.
+    { name: 'the dashboard body', body: { url, request_id: 'req-ok-3', steps: ['singlefile'] }, internal: true }
+  ])('accepts valid options: $name', async ({ body, internal }) => {
     const { env, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
-    const response = await gateway.fetch(publicPost('/begin', body), env, {} as ExecutionContext);
+    const request = internal ? internalPost('/begin', body) : publicPost('/begin', body);
+    const response = await gateway.fetch(request, env, {} as ExecutionContext);
 
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ requestId: body.request_id });
@@ -555,5 +557,67 @@ describe('begin caller kinds', () => {
     expect(response.status).toBe(401);
     expect(data.code).toBe('UNAUTHORIZED');
     expect(workflowFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('begin keeps dryRun and steps for the internal key', () => {
+  const url = 'https://example.com/article';
+  const CASES = [
+    { name: 'dryRun', extra: { dryRun: true }, key: 'dryRun' },
+    { name: 'a steps list', extra: { steps: ['render'] }, key: 'steps' },
+    { name: 'dryRun and steps', extra: { dryRun: true, steps: ['singlefile', 'monolith'] }, key: 'dryRun' },
+    { name: 'dryRun false', extra: { dryRun: false }, key: 'dryRun' },
+    { name: 'an empty steps list', extra: { steps: [] }, key: 'steps' }
+  ];
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(CASES)('public key with $name answers 403 before anything is stored or started', async ({ extra, key }) => {
+    const { env, loggerFetch, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const response = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-pk-2', ...extra }),
+      env,
+      {} as ExecutionContext
+    );
+    const data = (await response.json()) as { error?: string; code?: unknown; id?: unknown };
+
+    expect(response.status).toBe(403);
+    expect(data.code).toBe('OPTION_NOT_ALLOWED');
+    expect(data.error).toContain(key);
+    expect(data.id).toBe('req-pk-2');
+    expect(response.headers.get('X-Request-Id')).toBe('req-pk-2');
+    expect(env.ARCHIVE_BUCKET.put).not.toHaveBeenCalled();
+    expect(loggerFetch).not.toHaveBeenCalled();
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(CASES)('internal key with $name is accepted and the options keep the fields', async ({ extra }) => {
+    const { env, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const response = await gateway.fetch(
+      internalPost('/begin', { url, request_id: 'req-ik-1', ...extra }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ requestId: 'req-ik-1' });
+    expect(storedOptions(env)).toEqual([{ url, ...extra }]);
+    expect(workflowFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a call with both keys is treated as internal', async () => {
+    const { env, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const request = new Request(`${GATEWAY}/begin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': 'public-key', 'X-Internal-API-Key': 'internal-key' },
+      body: JSON.stringify({ url, request_id: 'req-ik-2', dryRun: true, steps: ['render'] })
+    });
+    const response = await gateway.fetch(request, env, {} as ExecutionContext);
+
+    expect(response.status).toBe(201);
+    expect(storedOptions(env)).toEqual([{ url, dryRun: true, steps: ['render'] }]);
+    expect(workflowFetch).toHaveBeenCalledTimes(1);
   });
 });
