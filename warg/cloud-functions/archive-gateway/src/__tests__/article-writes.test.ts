@@ -161,3 +161,100 @@ test('create-upload without artifacts answers 400 and writes nothing', async () 
   assert.equal(status, 400);
   assert.deepEqual(fake.writes, []);
 });
+
+const uploaded = (kind: string, gcsPath: string) => ({
+  kind,
+  gcs_path: gcsPath,
+  bytes: 10,
+  sha256: 'abc',
+  content_type: 'application/octet-stream',
+  compressed_size: 4,
+  compression_ratio: 0.4
+});
+
+const success = (gcsPath: string) => ({
+  status: 'success',
+  gcs_path: `gs://${BUCKET}/${gcsPath}`,
+  gcs_bucket: BUCKET,
+  compressed_size: 4,
+  compression_ratio: 0.4,
+  created_at: ISO
+});
+
+const METADATA = {
+  byline: 'A. Writer',
+  excerpt: 'An excerpt',
+  published_time: null,
+  site_name: 'Example',
+  title: 'A title',
+  word_count: 120,
+  lead_image: null
+};
+
+const finalizeBody = (extra: Record<string, unknown>) => ({
+  request_id: ID,
+  firestore_doc_id: ID,
+  ...extra
+});
+
+test('finalize updates the dotted archive entries, updated_at, metadata and images', async () => {
+  fake = makeFakeFirestore({ [PATH]: { item_id: ID } });
+  const images = [{ src: 'https://example.com/i.png', width: 10 }];
+  const status = await call(
+    handleFinalize,
+    finalizeBody({
+      uploaded: [
+        uploaded('rendered.html', 'archives/req-1/rendered/output.html.gz'),
+        uploaded('screenshot.png', 'archives/req-1/screenshot/output.png')
+      ],
+      metadata: METADATA,
+      images
+    })
+  );
+  assert.equal(status, 200);
+  assert.deepEqual(fake.writes, [
+    {
+      method: 'update',
+      path: PATH,
+      merge: false,
+      data: {
+        'archives.rendered': success('archives/req-1/rendered/output.html.gz'),
+        'archives.screenshot': success('archives/req-1/screenshot/output.png'),
+        updated_at: TS,
+        metadata: METADATA,
+        images
+      }
+    }
+  ]);
+});
+
+test('finalize with no uploads and metadata only updates updated_at and metadata', async () => {
+  fake = makeFakeFirestore({ [PATH]: { item_id: ID } });
+  const status = await call(handleFinalize, finalizeBody({ uploaded: [], metadata: METADATA }));
+  assert.equal(status, 200);
+  assert.deepEqual(fake.writes, [
+    { method: 'update', path: PATH, merge: false, data: { updated_at: TS, metadata: METADATA } }
+  ]);
+});
+
+test('finalize of a kind with no archive entry and no metadata updates only updated_at', async () => {
+  fake = makeFakeFirestore({ [PATH]: { item_id: ID } });
+  const status = await call(
+    handleFinalize,
+    finalizeBody({ uploaded: [uploaded('readability.json', 'archives/req-1/readability/output.json')] })
+  );
+  assert.equal(status, 200);
+  assert.deepEqual(fake.writes, [
+    { method: 'update', path: PATH, merge: false, data: { updated_at: TS } }
+  ]);
+});
+
+test('finalize of a missing article attempts the update and answers 500', async () => {
+  fake = makeFakeFirestore();
+  const status = await call(handleFinalize, finalizeBody({ uploaded: [] }));
+  assert.equal(status, 500);
+  assert.deepEqual(fake.writes, [
+    { method: 'update', path: PATH, merge: false, data: { updated_at: TS } }
+  ]);
+  assert.equal(fake.docs.has(PATH), false);
+});
