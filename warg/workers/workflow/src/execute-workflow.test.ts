@@ -239,4 +239,27 @@ describe('ArchiveWorkflow.run', () => {
     expect(checkpoint).toBeDefined();
     expect(JSON.parse(checkpoint ?? '{}')).toMatchObject({ lastFailure: { step: 'workflow' } });
   });
+
+  describe('resume', () => {
+    it('replays a restarted instance without persisting render again, under the same step names', async () => {
+      const first = await runRequest({});
+      const firstResult = resultOf(first.outcome);
+
+      // The engine replays an instance from its step history: keep the results
+      // up to the end of the render persist, as if the instance stopped there.
+      const restartCache = new Map<string, unknown>();
+      for (const [key, value] of first.run.cache) {
+        restartCache.set(key, value);
+        if (key.startsWith('log-persist-complete-render-')) break;
+      }
+      expect([...restartCache.keys()].some((key) => key.startsWith('persist-gcs-render-'))).toBe(true);
+
+      const second = await runRequest({}, { bucket: first.fake.bucket }, makeFakeStep(restartCache));
+
+      expect(resultOf(second.outcome).manifestKey).toBe(firstResult.manifestKey);
+      expect(second.run.names).toEqual(first.run.names);
+      expect(second.fake.calls.RENDERER).toHaveLength(0);
+      expect(persistedSteps(second.fake).sort()).toEqual(['monolith', 'readability', 'singlefile']);
+    });
+  });
 });
