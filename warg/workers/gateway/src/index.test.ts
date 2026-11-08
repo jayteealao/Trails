@@ -140,7 +140,7 @@ describe('gateway begin hardening', () => {
   });
 
   it('supports dry-run orphan queued sweep via internal endpoint', async () => {
-    const { env, workflowFetch } = createEnv();
+    const { env, workflowFetch, loggerFetch, loggerEvents } = createEnv();
     const request = new Request('https://gateway.jayteealao.workers.dev/internal/sweep-orphan-queued', {
       method: 'POST',
       headers: {
@@ -166,6 +166,16 @@ describe('gateway begin hardening', () => {
     expect(data.retriggered).toBe(0);
     expect(data.skipped).toBe(1);
     expect(workflowFetch).not.toHaveBeenCalled();
+
+    const listUrls = loggerFetch.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname === '/requests');
+    expect(listUrls).toHaveLength(1);
+    expect(listUrls[0]?.searchParams.get('events')).toBe('none');
+    expect(listUrls[0]?.searchParams.get('order')).toBe('asc');
+    expect(listUrls[0]?.searchParams.has('to')).toBe(true);
+    expect(loggerFetch.mock.calls.some(([input]) => String(input) === 'https://logger/event')).toBe(false);
+    expect(loggerEvents).toEqual([]);
   });
 });
 
