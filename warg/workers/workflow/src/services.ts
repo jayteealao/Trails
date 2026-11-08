@@ -9,7 +9,7 @@ import type {
   GcsResponse,
   SinglefileParams
 } from './types.js';
-import { PROXY_ERROR_PAGE_REASON } from '@warg/shared';
+import { DEAD_HOST_ERROR_PATTERNS, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
 export interface ServiceErrorClassification {
@@ -176,7 +176,20 @@ function classifyRenderFailureFromBody(
     };
   }
 
+  if (isDeadHostFailure(record.details)) return UNREACHABLE_TARGET;
+
   return undefined;
+}
+
+/**
+ * True when a wrapped Browser Rendering failure says the target host cannot be
+ * reached. A failure that also reports a timeout stays retryable: a dial that
+ * timed out can succeed on the next attempt.
+ */
+function isDeadHostFailure(details: unknown): boolean {
+  const text = typeof details === 'string' ? details : JSON.stringify(details) ?? '';
+  if (/timed?[ _-]?out\b|deadline exceeded/i.test(text)) return false;
+  return DEAD_HOST_ERROR_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function classifyServiceFailure(path: string, status: number): ServiceErrorClassification {
