@@ -249,10 +249,10 @@ test('finalize of a kind with no archive entry and no metadata updates only upda
   ]);
 });
 
-test('finalize of a missing article attempts the update and answers 500', async () => {
+test('finalize of a missing article attempts the update and answers 404', async () => {
   fake = makeFakeFirestore();
   const status = await call(handleFinalize, finalizeBody({ uploaded: [] }));
-  assert.equal(status, 500);
+  assert.equal(status, 404);
   assert.deepEqual(fake.writes, [
     { method: 'update', path: PATH, merge: false, data: { updated_at: TS } }
   ]);

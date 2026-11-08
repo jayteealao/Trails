@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Request } from 'firebase-functions/v2/https';
 import * as firestore from 'firebase-admin/firestore';
 import { SHARED_ARTICLE_FIELDS } from '@warg/article-writer';
-import { makeFakeFirestore } from './fake-firestore.js';
+import { makeFakeFirestore, normalise } from './fake-firestore.js';
 import {
   fakeResponse,
   gatewayRequest,
@@ -337,5 +337,147 @@ test('create-upload answers 500 when signing fails, keeps the journal and logs t
       { error: message },
       'error'
     )
+  ]);
+});
+
+const BAD_FINALIZE_BODIES: Array<[string, Record<string, unknown>]> = [
+  ['no firestore_doc_id', finalizeBody({ firestore_doc_id: undefined })],
+  ['uploaded that is not a list', finalizeBody({ uploaded: 'page.pdf' })]
+];
+
+for (const [name, body] of BAD_FINALIZE_BODIES) {
+  test(`finalize with ${name} answers 400 and touches nothing`, async () => {
+    const out = await send(gatewayRequest({ path: '/finalize', key: KEY, body }));
+    assert.deepEqual(out, {
+      status: 400,
+      body: { error: 'Missing required fields: request_id, firestore_doc_id, uploaded' }
+    });
+    assertNothingTouched();
+  });
+}
+
+const METADATA = {
+  byline: 'A. Writer',
+  excerpt: 'An excerpt',
+  published_time: null,
+  site_name: 'Example',
+  title: 'A title',
+  word_count: 120,
+  lead_image: null
+};
+const IMAGES = [{ src: 'https://example.com/i.png', width: 10 }];
+
+const SINGLEFILE_PATH = `archives/${ID}/singlefile/output.html.gz`;
+const PDF_PATH = `archives/${ID}/pdf/output.pdf`;
+
+const FULL_FINALIZE = finalizeBody({
+  uploaded: [uploaded('singlefile.html', SINGLEFILE_PATH), uploaded('page.pdf', PDF_PATH)],
+  metadata: METADATA,
+  images: IMAGES
+});
+
+const seededArticle = () => ({
+  [PATH]: {
+    item_id: ID,
+    url: 'https://example.com/a',
+    archives: {
+      singlefile: journalEntry('singlefile', 'output.html.gz'),
+      pdf: journalEntry('pdf', 'output.pdf')
+    }
+  }
+});
+
+const stored = (gcsPath: string) => ({
+  status: 'success',
+  gcs_path: `gs://${BUCKET}/${gcsPath}`,
+  gcs_bucket: BUCKET,
+  compressed_size: 4,
+  compression_ratio: 0.4,
+  created_at: ISO
+});
+
+const FINALIZE_UPDATE = [
+  {
+    method: 'update',
+    path: PATH,
+    merge: false,
+    data: {
+      'archives.singlefile': stored(SINGLEFILE_PATH),
+      'archives.pdf': stored(PDF_PATH),
+      updated_at: TS,
+      metadata: METADATA,
+      images: IMAGES
+    }
+  }
+];
+
+const FINALIZE_ANSWER = { status: 200, body: { success: true, firestore_doc_id: ID, status: 'done' } };
+
+test('finalize of a journalled article marks each archive stored with its path and logs the end', async () => {
+  fake = makeFakeFirestore(seededArticle());
+  const out = await send(gatewayRequest({ path: '/finalize', key: KEY, body: FULL_FINALIZE }));
+  assert.deepEqual(out, FINALIZE_ANSWER);
+  assert.deepEqual(fake.writes, FINALIZE_UPDATE);
+  for (const write of fake.writes) assertCanonicalFields(write.data);
+  // The dotted update replaces each entry whole, so the journal's started_at is gone.
+  assert.deepEqual(normalise(fake.docs.get(PATH)), {
+    item_id: ID,
+    url: 'https://example.com/a',
+    archives: { singlefile: stored(SINGLEFILE_PATH), pdf: stored(PDF_PATH) },
+    updated_at: TS,
+    metadata: METADATA,
+    images: IMAGES
+  });
+  assert.deepEqual(logs.state.posts, [
+    logPost('persist.completed', 'Firestore finalized', { firestoreDocId: ID, artifactCount: 2 })
+  ]);
+});
+
+test('finalize still answers and updates when the event log cannot be reached', async () => {
+  fake = makeFakeFirestore(seededArticle());
+  logs.state.mode = 'reject';
+  const out = await send(gatewayRequest({ path: '/finalize', key: KEY, body: FULL_FINALIZE }));
+  assert.deepEqual(out, FINALIZE_ANSWER);
+  assert.deepEqual(fake.writes, FINALIZE_UPDATE);
+});
+
+test('finalize answers 500 when the article update fails for another reason', async () => {
+  fake = makeFakeFirestore(seededArticle());
+  const real = fake.db;
+  fake.db = {
+    collection: (name: string) => ({
+      doc: (id: string) => ({
+        ...real.collection(name).doc(id),
+        update: async () => {
+          throw new Error('boom');
+        }
+      })
+    })
+  };
+  const out = await send(gatewayRequest({ path: '/finalize', key: KEY, body: FULL_FINALIZE }));
+  assert.deepEqual(out, { status: 500, body: { error: 'Internal error', message: 'boom' } });
+  assert.deepEqual(logs.state.posts, [
+    logPost('persist.failed', 'Failed to finalize: boom', { error: 'boom' }, 'error')
+  ]);
+});
+
+test('finalize of an unknown article answers 404, creates nothing and logs the failure', async () => {
+  const out = await send(gatewayRequest({ path: '/finalize', key: KEY, body: finalizeBody() }));
+  assert.deepEqual(out, {
+    status: 404,
+    body: { error: 'Article not found', firestore_doc_id: ID }
+  });
+  assert.deepEqual(fake.writes, [
+    {
+      method: 'update',
+      path: PATH,
+      merge: false,
+      data: { 'archives.pdf': stored(PDF_PATH), updated_at: TS }
+    }
+  ]);
+  assert.equal(fake.docs.has(PATH), false);
+  const message = `5 NOT_FOUND: No document to update: ${PATH}`;
+  assert.deepEqual(logs.state.posts, [
+    logPost('persist.failed', `Failed to finalize: ${message}`, { error: message }, 'error')
   ]);
 });
