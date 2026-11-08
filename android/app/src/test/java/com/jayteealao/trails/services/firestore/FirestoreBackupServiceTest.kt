@@ -126,17 +126,6 @@ class FirestoreBackupServiceTest {
         assertEquals("https://example.com/a1", written[0]["url"])
     }
 
-    @Test
-    fun `toBackupFields keys equal the Article fields minus resolvedId`() {
-        val fieldNames = Article::class.java.declaredFields
-            .filter { !java.lang.reflect.Modifier.isStatic(it.modifiers) && !it.isSynthetic }
-            .map { it.name }
-            .toSet()
-
-        // backedUpAt: the version sent, kept for older builds; the device keeps its stamp in sync_state.
-        assertEquals(fieldNames - "resolvedId" + "backedUpAt", fullArticle("a1").toBackupFields().keys)
-    }
-
     // ---------------------------------------------------------------------------
     // Characterization tests — pin behaviour for the backup and restore surfaces.
     // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ package com.jayteealao.trails.services.firestore
 import com.jayteealao.trails.data.local.database.Article
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.lang.reflect.Modifier
 
 /**
  * Pins the field map the backup writes on `users/{uid}/articles/{id}`. The golden maps
@@ -32,7 +33,24 @@ class UserArticleWireWriteTest {
         assertSameWire(GOLDEN_NULLS, nullsArticle().toUserArticleWire().toFirestore())
     }
 
+    @Test
+    fun `every article property has a wire field`() {
+        // A new article property must reach the wire; backedUpAt is the one wire-only field.
+        assertEquals(instanceFieldCount(Article::class.java), instanceFieldCount(UserArticleWire::class.java) - 1)
+    }
+
+    @Test
+    fun `an article written and read back through the wire type is unchanged`() {
+        val stored = fullArticle().toUserArticleWire().toFirestore() +
+            (UserArticleWire.RESOLVED_ID to fullArticle().resolvedId)
+
+        assertEquals(fullArticle(), UserArticleWire.fromFirestore(stored).toArticle())
+    }
+
     companion object {
+        private fun instanceFieldCount(cls: Class<*>) = cls.declaredFields
+            .count { !Modifier.isStatic(it.modifiers) && !it.isSynthetic }
+
         /** An article with every one of its properties set to a distinct, non-default value. */
         fun fullArticle() = Article(
             itemId = "item-1",
