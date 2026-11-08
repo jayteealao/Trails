@@ -8,7 +8,11 @@ import {
   GATEWAY_ERROR_CODES,
   INTERNAL_ERROR_MESSAGE,
   errorIdFor,
-  errorResponse
+  errorResponse,
+  isPlainObject,
+  validateArchiveOptions,
+  MAX_OPTIONS_BYTES,
+  ARCHIVE_OPTION_BOOLEAN_KEYS
 } from './util.js';
 import { createEvent } from '@warg/shared';
 
@@ -330,5 +334,79 @@ describe('GATEWAY_ERROR_CODES', () => {
     for (const [key, value] of Object.entries(GATEWAY_ERROR_CODES)) {
       expect(value).toBe(key);
     }
+  });
+});
+
+describe('isPlainObject', () => {
+  it('is true for an object literal', () => {
+    expect(isPlainObject({})).toBe(true);
+  });
+
+  it.each([null, [], 'x', 1])('is false for %j', (value) => {
+    expect(isPlainObject(value)).toBe(false);
+  });
+});
+
+describe('validateArchiveOptions', () => {
+  const url = 'https://example.com/article';
+
+  it.each([
+    {},
+    { url },
+    { url, steps: [] },
+    { url, steps: ['render', 'monolith'] }
+  ])('accepts %j', (fields) => {
+    const result = validateArchiveOptions(fields);
+    expect(result).toEqual({ ok: true, options: fields, droppedKeys: [] });
+  });
+
+  it.each(ARCHIVE_OPTION_BOOLEAN_KEYS.flatMap((key) => [true, false].map((value) => ({ key, value }))))(
+    'accepts $key = $value',
+    ({ key, value }) => {
+      const result = validateArchiveOptions({ url, [key]: value });
+      expect(result).toEqual({ ok: true, options: { url, [key]: value }, droppedKeys: [] });
+    }
+  );
+
+  it.each([
+    { fields: { url: 123 }, field: 'url' },
+    { fields: { url, includePdf: 'yes' }, field: 'includePdf' },
+    { fields: { url, includeScreenshot: 1 }, field: 'includeScreenshot' },
+    { fields: { url, dryRun: 'true' }, field: 'dryRun' },
+    { fields: { url, steps: 'render' }, field: 'steps' },
+    { fields: { url, steps: ['bogus'] }, field: 'steps' },
+    { fields: { url, steps: [1] }, field: 'steps' },
+    { fields: { url, steps: {} }, field: 'steps' }
+  ])('rejects $fields with a message naming $field', ({ fields, field }) => {
+    const result = validateArchiveOptions(fields);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain(field);
+  });
+
+  it('accepts options exactly at MAX_OPTIONS_BYTES and rejects one byte over', () => {
+    // '{"url":""}' is 10 bytes, so the url fills the rest of the limit.
+    const atLimit = 'https://e.com/' + 'a'.repeat(MAX_OPTIONS_BYTES - 10 - 'https://e.com/'.length);
+    expect(new TextEncoder().encode(JSON.stringify({ url: atLimit })).byteLength).toBe(MAX_OPTIONS_BYTES);
+    expect(validateArchiveOptions({ url: atLimit }).ok).toBe(true);
+
+    const overLimit = validateArchiveOptions({ url: atLimit + 'a' });
+    expect(overLimit.ok).toBe(false);
+    if (!overLimit.ok) expect(overLimit.message).toContain(String(MAX_OPTIONS_BYTES));
+  });
+
+  it('drops unknown keys, names them, and leaves them out of the options', () => {
+    const result = validateArchiveOptions({ url, foo: 1, options: {} });
+    expect(result).toEqual({ ok: true, options: { url }, droppedKeys: ['foo', 'options'] });
+  });
+
+  it('gives the same result for the same input every time', () => {
+    const fields = { url, includePdf: true, steps: ['readability'], extra: 'x' };
+    expect(validateArchiveOptions(fields)).toEqual(validateArchiveOptions(fields));
+  });
+});
+
+describe('GATEWAY_ERROR_CODES.INVALID_OPTIONS', () => {
+  it('equals its key', () => {
+    expect(GATEWAY_ERROR_CODES.INVALID_OPTIONS).toBe('INVALID_OPTIONS');
   });
 });
