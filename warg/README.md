@@ -69,6 +69,7 @@ secrets each worker needs, and how each target is verified.
    pnpm run deploy -- --with-rules   # workers, then the Firestore and Storage rules
    pnpm run deploy -- --functions-only --with-rules   # the functions, then the rules
    pnpm deploy:quick                 # skip typecheck and tests (the secret check still runs)
+   pnpm run deploy -- --with-pages --dry-run   # list the targets and the Pages project; deploys nothing
    ```
 
    When `firebase deploy` asks for the `--force` option (a new retry policy, for
