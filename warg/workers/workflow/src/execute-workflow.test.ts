@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ArchiveManifest, ArchiveOptions } from '@warg/shared';
+import { getCheckpointKey } from '@warg/shared';
 import {
   accessBlockedResponse,
   deadHostRenderFailure,
@@ -216,5 +217,26 @@ describe('ArchiveWorkflow.run', () => {
     // The derivatives read the rendered.html that the fallback produced.
     expect(fake.calls.READABILITY).toHaveLength(1);
     expect(fake.calls.MONOLITH).toHaveLength(1);
+  });
+
+  it('logs request.failed once when no requested output is produced', async () => {
+    const { fake, run, outcome } = await runRequest(
+      { steps: ['singlefile'] },
+      { handlers: { SINGLEFILE: () => serviceError(500) } }
+    );
+
+    expect(errorOf(outcome).name).toBe('WorkflowTerminalError');
+    expect(run.attempts.get('singlefile')).toBe(4);
+
+    const requestFailed = eventsOfType(fake.logger, 'request.failed');
+    expect(requestFailed).toHaveLength(1);
+    expect(requestFailed[0]?.data.errorCode).toBe('NO_OUTPUTS_PRODUCED');
+    expect(eventsOfType(fake.logger, 'request.done')).toHaveLength(0);
+    expect(countOf(run.names, 'checkpoint-workflow-failure')).toBe(1);
+    expect(countOf(run.names, 'log-workflow-failed')).toBe(1);
+
+    const checkpoint = fake.bucket.objects.get(getCheckpointKey(REQUEST_ID));
+    expect(checkpoint).toBeDefined();
+    expect(JSON.parse(checkpoint ?? '{}')).toMatchObject({ lastFailure: { step: 'workflow' } });
   });
 });
