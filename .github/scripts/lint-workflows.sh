@@ -9,6 +9,8 @@
 #                       exact one warg/package.json declares (checked when it installs one)
 #   rules-deploy-in-ci  firebase-rules.yml runs a firebase deploy (rules deploy only through
 #                       warg/scripts/deploy.sh)
+#   article-write-guard warg-ci.yml has no step running node scripts/check-article-writes.mjs,
+#                       or its on.pull_request.paths list has no 'warg/**' entry
 # Usage: lint-workflows.sh [workflow-dir] [warg-package-json]
 set -euo pipefail
 
@@ -95,6 +97,42 @@ for f in "${files[@]}"; do
       [ -n "$hit" ] || continue
       report "$f:${hit%%:*}: pr-signing: ${hit#*:}"
     done < <(grep -inE 'keystore|SIGNING_STORE|SIGNING_KEY' "$f" || true)
+  fi
+
+  # article-write-guard
+  if [ "$base" = "warg-ci.yml" ]; then
+    if ! grep -qE '^[[:space:]]*(-[[:space:]]+)?(run:[[:space:]]*)?node[[:space:]]+scripts/check-article-writes\.mjs([[:space:]]|$)' "$f"; then
+      report "$f:1: article-write-guard: no step runs node scripts/check-article-writes.mjs"
+    fi
+    # prints nothing when on.pull_request.paths lists warg/**, else the line to blame
+    missing=$(awk -v q="'" '
+      {
+        sub(/\r$/, "")
+        gsub(/"/, "")
+        gsub(q, "")
+        if ($0 ~ /^[[:space:]]*(#.*)?$/) next
+        match($0, /^[[:space:]]*/)
+        ind = RLENGTH
+        if (ind == 0) { inon = ($0 ~ /^on:/); inpr = 0; inpaths = 0; next }
+        if (!inon) next
+        if (inpaths && (ind > pathsind || (ind == pathsind && $0 ~ /^[[:space:]]*-/))) {
+          if ($0 ~ /^[[:space:]]*-[[:space:]]*warg\/\*\*[[:space:]]*(#.*)?$/) found = 1
+          next
+        }
+        inpaths = 0
+        if (inpr && ind <= prind) inpr = 0
+        if (!inpr && $0 ~ /^[[:space:]]*pull_request:/) { inpr = 1; prind = ind; prline = NR; next }
+        if (inpr && $0 ~ /^[[:space:]]*paths:/) {
+          pathsline = NR
+          if ($0 ~ /\[/) { if ($0 ~ /[\[,][[:space:]]*warg\/\*\*[[:space:]]*[],]/) found = 1 }
+          else { inpaths = 1; pathsind = ind }
+        }
+      }
+      END { if (!found) print (pathsline ? pathsline : (prline ? prline : 1)) }
+    ' "$f")
+    if [ -n "$missing" ]; then
+      report "$f:$missing: article-write-guard: pull_request paths lack 'warg/**'"
+    fi
   fi
 
   if [ "$base" = "firebase-rules.yml" ]; then
