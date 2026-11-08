@@ -1,5 +1,5 @@
 import { env, SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 
 /**
  * GET /requests over the migrated D1 index.
@@ -71,5 +71,42 @@ describe('GET /requests', () => {
 
     expect(rows.map((r) => r.requestId)).toEqual([`${prefix}-c`, `${prefix}-b`, `${prefix}-a`]);
     expect(rows[1].lastEventTs).toBe('1999-01-01T01:00:01.000Z');
+  });
+});
+
+describe('GET /requests for the orphan sweep', () => {
+  const sweepQuery = 'status=queued&events=none&to=2000-01-01T00:30:00.000Z&order=asc';
+  const prefix = `list-burst-${Date.now()}`;
+  const stuckIds = [1, 2, 3, 4, 5].map((i) => `${prefix}-stuck-${i}`);
+
+  beforeAll(async () => {
+    const stuck = stuckIds.map((requestId, i) => ({
+      requestId,
+      createdAt: `2000-01-01T00:00:0${i + 1}.000Z`,
+    }));
+    // Older than the stuck rows, but they already have an event.
+    const evented = [1, 2, 3].map((i) => ({
+      requestId: `${prefix}-evented-${i}`,
+      createdAt: `2000-01-01T00:00:00.${i}00Z`,
+      lastEventTs: `2000-01-01T00:00:00.${i}50Z`,
+    }));
+    // A burst of young rows with no event yet, newer than the cutoff.
+    const young = Array.from({ length: 150 }, (_, i) => ({
+      requestId: `${prefix}-young-${i}`,
+      createdAt: new Date(Date.UTC(2000, 0, 1, 1, 0, i)).toISOString(),
+    }));
+    await seed([...stuck, ...evented, ...young]);
+  });
+
+  it('returns only the old rows with no event, oldest first', async () => {
+    const rows = await listRequests(`${sweepQuery}&limit=100`);
+
+    expect(rows.map((r) => r.requestId)).toEqual(stuckIds);
+  });
+
+  it('pages through the old rows with limit and offset', async () => {
+    const rows = await listRequests(`${sweepQuery}&limit=2&offset=2`);
+
+    expect(rows.map((r) => r.requestId)).toEqual(stuckIds.slice(2, 4));
   });
 });
