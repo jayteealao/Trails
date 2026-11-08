@@ -450,3 +450,78 @@ test('retry list: an article held back by a backoff on a scanned page is queued 
   await runBackfill(n.deps());
   assert.equal((n.tracker()['retry_queue'] as unknown[]).length, 0);
 });
+
+/** The millis of a stored Timestamp field. */
+const ms = (value: unknown): number => (value as Timestamp).toMillis();
+
+/**
+ * A change scan over an archived article, one whose start fails and one that
+ * sends, with the retry list already full of entries that are not yet due.
+ */
+async function runFullQueueBatch(): Promise<Harness> {
+  const h = harness();
+  seedCompletedPass(h, { time_updated: T0 - 30 * MIN, item_id: '' }, {
+    retry_queue: seedRetryQueue(RETRY_QUEUE_MAX, T0 + 60 * MIN),
+  });
+  userArticle(h, 'itemI0001', { timeUpdated: T0 - 7 * MIN, canonicalId: 'sharedI001' });
+  h.fake.put('articles/sharedI001', { archives: { rendered: { status: 'success' } } });
+  userArticle(h, 'itemF0001', { timeUpdated: T0 - 6 * MIN, canonicalId: 'sharedF001' });
+  userArticle(h, 'itemS0001', { timeUpdated: T0 - 5 * MIN, canonicalId: 'sharedS001' });
+
+  await runBackfill(
+    h.deps({
+      beginArchive: async (payload) => {
+        h.sent.push(payload);
+        if (payload.request_id === 'sharedF001') throw new Error('Gateway begin failed: 503 upstream');
+        return { requestId: `req-${h.sent.length}` };
+      },
+    })
+  );
+  return h;
+}
+
+test('a batch with an archived, a failing and a sent article and a full retry list keeps the list at its cap', async () => {
+  const h = await runFullQueueBatch();
+  const tracker = h.tracker();
+
+  assert.deepEqual(h.sent.map((p) => p.request_id), ['sharedF001', 'sharedS001']);
+  assert.deepEqual(h.sleeps, [4000]);
+  const batch = tracker['batch'] as Array<Record<string, unknown>>;
+  assert.deepEqual(batch.map((e) => [e['item_id'], e['retry_count'], ms(e['sent_at'])]), [['sharedS001', 0, T0]]);
+  assert.equal(tracker['batch_number'], 1);
+  assert.equal(tracker['total_sent'], 1);
+  assert.deepEqual(tracker['change_marker'], { time_updated: T0 - 5 * MIN, item_id: 'itemS0001' });
+  assert.equal(tracker['last_run_result'], 'sent_batch');
+  assert.deepEqual(tracker['last_run_summary'], {
+    considered: 3,
+    eligible: 2,
+    triggered: 1,
+    linked_only: 1,
+    skipped_backoff: 0,
+    failed: 1,
+  });
+
+  const queue = tracker['retry_queue'] as Array<Record<string, unknown>>;
+  assert.equal(queue.length, RETRY_QUEUE_MAX);
+  assert.equal(queue[0]!['item_id'], 'sharedQ001', 'the oldest entry was dropped');
+  const last = queue[RETRY_QUEUE_MAX - 1]!;
+  assert.deepEqual({ ...last, not_before: ms(last['not_before']) }, {
+    item_id: 'sharedF001',
+    url: 'https://itemf0001.example/page',
+    domain: 'itemf0001.example',
+    retry_count: 0,
+    not_before: T0 + RETRY_DELAY_MS,
+  });
+
+  assert.equal((h.fake.read('articles/sharedF001')!['failure'] as Record<string, unknown>)['class'], 'TRANSIENT_UPSTREAM');
+  const archived = h.fake.read(`users/${USER}/articles/itemI0001`)!;
+  assert.equal(archived['resolvedId'], 'sharedI001');
+  assert.equal(archived['archival_triggered'], true);
+  const failed = h.fake.read(`users/${USER}/articles/itemF0001`)!;
+  assert.equal(failed['resolvedId'], 'sharedF001');
+  assert.equal(failed['archival_triggered'], undefined);
+  const backoff = (tracker['domain_backoff'] as Record<string, Record<string, unknown>>)['itemf0001.example']!;
+  assert.equal(backoff['consecutive_failures'], 1);
+  assert.equal(backoff['backoff_until'], null);
+  assert.equal(tracker['run_lease'], null);
+});
