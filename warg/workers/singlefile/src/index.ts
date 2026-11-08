@@ -1,10 +1,11 @@
 import puppeteer from '@cloudflare/puppeteer';
-import { storeArtifact, timingSafeEqual } from '@warg/shared';
+import { isProxyErrorPage, PROXY_ERROR_PAGE_REASON, storeArtifact, timingSafeEqual } from '@warg/shared';
 import { SINGLEFILE_SCRIPT, SINGLEFILE_HOOK } from './singlefile-bundle.js';
 import type {
   SinglefileRequest,
   SinglefileSuccessResponse,
   SinglefileRateLimitedResponse,
+  SinglefileProxyErrorResponse,
   SinglefileOptions,
   SinglefileNativeOptions
 } from './types.js';
@@ -353,6 +354,19 @@ export default {
             { error: 'SingleFile capture failed: content too short', length: content?.length },
             { status: 502 }
           );
+        }
+
+        // A dead host can come back as the proxy's plain-text error page; never
+        // archive it as the article. Captures past the detector's length limit
+        // are real pages and are accepted without being scanned.
+        if (isProxyErrorPage(content)) {
+          console.warn('[singlefile] Rejected proxy/network error page', { url: targetUrl, length: content.length });
+          const proxyError: SinglefileProxyErrorResponse = {
+            error: 'SingleFile capture returned a proxy/network error page',
+            reason: PROXY_ERROR_PAGE_REASON,
+            url: targetUrl
+          };
+          return Response.json(proxyError, { status: 502 });
         }
 
         console.log('[singlefile] Capture complete, content length:', content.length);
