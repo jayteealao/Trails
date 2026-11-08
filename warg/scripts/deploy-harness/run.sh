@@ -878,18 +878,16 @@ scenario_fn_public_invoker() {
 
 # No package.json script deploys a worker, a function or the dashboard except
 # through deploy.sh, and no script carries --allow-missing-secrets. Reads the
-# real workspace manifests. pages/dashboard-v2 is not deployed by deploy.sh,
-# so its own deploy script is its only path and stays exempt.
+# real workspace manifests.
 STATIC_CHECK='
 const fs = require("fs");
 const path = require("path");
 const root = process.argv[1];
-const exempt = new Set([path.join("pages", "dashboard-v2", "package.json")]);
 const files = [path.join(root, "package.json")];
 for (const dir of ["workers", "cloud-functions", "pages"]) {
   for (const w of fs.readdirSync(path.join(root, dir))) {
     const f = path.join(root, dir, w, "package.json");
-    if (fs.existsSync(f) && !exempt.has(path.relative(root, f))) files.push(f);
+    if (fs.existsSync(f)) files.push(f);
   }
 }
 const bad = [/wrangler\s+deploy/, /\bcf\s+deploy/, /\bfirebase\s+deploy/, /\bpages\s+deploy/, /--allow-missing-secrets/, /\bpnpm\b[^&|;]*\sdeploy(\s|$)/];
