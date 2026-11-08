@@ -510,6 +510,28 @@ export async function callRendererWith403Fallback(
 }
 
 /**
+ * Body of the workflow's render step. A failure classified as not retryable is
+ * rethrown through `makeNonRetryable` so the step fails at once instead of
+ * spending its retries on a page that cannot render; every other error is
+ * rethrown unchanged and keeps the step's retry policy. The factory is injected
+ * so this module stays free of runtime-only imports and can be unit-tested.
+ */
+export async function callRendererForStep(
+  env: Env,
+  params: RendererParams,
+  makeNonRetryable: (message: string) => Error
+): Promise<RendererCallOutcome> {
+  try {
+    return await callRendererWith403Fallback(env, params);
+  } catch (error) {
+    if (error instanceof ServiceCallError && !error.classification.retryable) {
+      throw makeNonRetryable(error.message);
+    }
+    throw error;
+  }
+}
+
+/**
  * Call the singlefile service to extract a self-contained HTML.
  * SingleFile navigates to the live URL and captures resources inline.
  */
