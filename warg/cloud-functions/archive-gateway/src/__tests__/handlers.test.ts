@@ -2,6 +2,7 @@ import { afterEach, beforeEach, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Request } from 'firebase-functions/v2/https';
 import * as firestore from 'firebase-admin/firestore';
+import { SHARED_ARTICLE_FIELDS } from '@warg/article-writer';
 import { makeFakeFirestore } from './fake-firestore.js';
 import {
   fakeResponse,
@@ -159,3 +160,129 @@ for (const [name, body] of BAD_UPLOAD_BODIES) {
     assertNothingTouched();
   });
 }
+
+const TS = `<ts:${NOW}>`;
+const ISO = new Date(NOW).toISOString();
+const EXPIRES = new Date(NOW + 15 * 60_000);
+
+const LOG_HEADERS = {
+  'Content-Type': 'application/json',
+  'X-Internal-API-Key': LOG_KEY,
+  'CF-Access-Client-Id': 'cf-id',
+  'CF-Access-Client-Secret': 'cf-secret'
+};
+
+const logPost = (
+  type: string,
+  message: string,
+  data: Record<string, unknown>,
+  level = 'info'
+) => ({
+  url: 'https://gateway.test/internal/log',
+  headers: LOG_HEADERS,
+  body: { requestId: ID, event: { ts: ISO, source: 'gcs', type, level, message, data } }
+});
+
+// Every field path a write names: each key, and each field of a map below it.
+function writtenFieldPaths(data: unknown, prefix = ''): string[] {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return [];
+  return Object.entries(data).flatMap(([key, value]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    return [path, ...writtenFieldPaths(value, path)];
+  });
+}
+
+function assertCanonicalFields(data: unknown) {
+  const known = new Set<string>(SHARED_ARTICLE_FIELDS);
+  const unknown = writtenFieldPaths(data).filter((path) => !known.has(path));
+  assert.deepEqual(unknown, []);
+}
+
+const journalEntry = (folder: string, filename: string) => ({
+  status: 'uploading',
+  gcs_path: `gs://${BUCKET}/archives/${ID}/${folder}/${filename}`,
+  gcs_bucket: BUCKET,
+  started_at: ISO
+});
+
+const FULL_UPLOAD = uploadBody({
+  artifacts: [
+    artifact('singlefile.html', 'text/html', true),
+    artifact('page.pdf', 'application/pdf'),
+    artifact('rendered.md', 'text/markdown', true),
+    artifact('manifest.json', 'application/json')
+  ]
+});
+
+const UPLOAD_PATHS: Array<[string, string]> = [
+  ['singlefile.html', `archives/${ID}/singlefile/output.html.gz`],
+  ['page.pdf', `archives/${ID}/pdf/output.pdf`],
+  ['rendered.md', `archives/${ID}/rendered/output.md.gz`],
+  ['manifest.json', `archives/${ID}/manifest/manifest.json`]
+];
+
+const UPLOAD_ANSWER = {
+  status: 200,
+  body: {
+    firestore_doc_id: ID,
+    uploads: UPLOAD_PATHS.map(([kind, gcsPath]) => ({
+      kind,
+      signed_url: `https://signed.invalid/${gcsPath}`,
+      gcs_path: gcsPath,
+      expires_at: EXPIRES.toISOString()
+    }))
+  }
+};
+
+const UPLOAD_JOURNAL = [
+  {
+    method: 'set',
+    path: PATH,
+    merge: true,
+    data: {
+      item_id: ID,
+      url: 'https://example.com/a',
+      domain: 'example.com',
+      updated_at: TS,
+      created_at: TS,
+      archives: {
+        singlefile: journalEntry('singlefile', 'output.html.gz'),
+        pdf: journalEntry('pdf', 'output.pdf'),
+        markdown: journalEntry('rendered', 'output.md.gz')
+      }
+    }
+  }
+];
+
+const signed = (gcsPath: string, contentType: string, compressed: boolean) => ({
+  bucket: BUCKET,
+  path: gcsPath,
+  opts: {
+    version: 'v4',
+    action: 'write',
+    expires: EXPIRES,
+    contentType,
+    ...(compressed ? { extensionHeaders: { 'content-encoding': 'gzip' } } : {})
+  }
+});
+
+const UPLOAD_SIGNING = [
+  signed(`archives/${ID}/singlefile/output.html.gz`, 'text/html', true),
+  signed(`archives/${ID}/pdf/output.pdf`, 'application/pdf', false),
+  signed(`archives/${ID}/rendered/output.md.gz`, 'text/markdown', true),
+  signed(`archives/${ID}/manifest/manifest.json`, 'application/json', false)
+];
+
+const UPLOAD_LOGS = [
+  logPost('persist.started', 'Creating signed upload URLs', { artifactCount: 4 }),
+  logPost('persist.completed', 'Signed URLs created', { firestoreDocId: ID, uploadCount: 4 })
+];
+
+test('create-upload of a new article journals the canonical fields, signs each upload and logs start and end', async () => {
+  const out = await send(gatewayRequest({ path: '/create-upload', key: KEY, body: FULL_UPLOAD }));
+  assert.deepEqual(out, UPLOAD_ANSWER);
+  assert.deepEqual(fake.writes, UPLOAD_JOURNAL);
+  for (const write of fake.writes) assertCanonicalFields(write.data);
+  assert.deepEqual(storage.state.calls, UPLOAD_SIGNING);
+  assert.deepEqual(logs.state.posts, UPLOAD_LOGS);
+});
