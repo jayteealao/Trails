@@ -7,7 +7,9 @@ to, writes the marker for it, and records the link on the user's article in the
 server-owned `canonicalId` field (see [Server-owned link fields](#server-owned-link-fields)).
 The app never writes markers.
 
-Enforced by `shared-types/check-drift.ts`, which runs in CI.
+Enforced by `shared-types/check-drift.ts`, which runs in CI through
+`.github/workflows/shared-types-drift.yml` on changes under `android/`, `warg/`
+and `shared-types/`, so an app-only change runs it too.
 
 ## Path
 
