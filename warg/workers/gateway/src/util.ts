@@ -265,3 +265,68 @@ export function validateArchiveOptions(
   }
   return { ok: true, options: options as GatewayArchiveOptions, droppedKeys };
 }
+
+/**
+ * The longest a public-key caller can hold a status stream open. Below the logger's own 2-minute cap.
+ */
+export const PUBLIC_STATUS_STREAM_MAX_MS = 60_000;
+
+const LINE_FEED = 0x0a;
+
+/**
+ * Forward an SSE body chunk by chunk. At maxMs, write `event: timeout` with
+ * { reason: 'stream_time_limit', limitMs }, close, and cancel the upstream; when the
+ * upstream ends first, close. Cancelling the returned stream cancels the upstream.
+ */
+export function capEventStream(upstream: ReadableStream<Uint8Array>, maxMs: number): ReadableStream<Uint8Array> {
+  const reader = upstream.getReader();
+  // null, not undefined: the Workers clearTimeout takes number | null.
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let finished = false;
+  // True when the last forwarded chunk did not end on a frame boundary (a blank line).
+  let midFrame = false;
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      timer = setTimeout(() => {
+        if (finished) return;
+        finished = true;
+        const data = JSON.stringify({ reason: 'stream_time_limit', limitMs: maxMs });
+        controller.enqueue(new TextEncoder().encode(`${midFrame ? '\n\n' : ''}event: timeout\ndata: ${data}\n\n`));
+        controller.close();
+        reader.cancel('stream time limit').catch((err: unknown) => {
+          console.warn('[gateway] cancelling the capped upstream stream failed', err);
+        });
+      }, maxMs);
+    },
+    async pull(controller) {
+      let result: ReadableStreamReadResult<Uint8Array>;
+      try {
+        result = await reader.read();
+      } catch (err) {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        controller.error(err);
+        return;
+      }
+      if (finished) return;
+      if (result.done) {
+        finished = true;
+        clearTimeout(timer);
+        controller.close();
+        return;
+      }
+      const chunk = result.value;
+      if (chunk.length > 0) {
+        midFrame = !(chunk.length >= 2 && chunk[chunk.length - 1] === LINE_FEED && chunk[chunk.length - 2] === LINE_FEED);
+      }
+      controller.enqueue(chunk);
+    },
+    cancel(reason) {
+      finished = true;
+      clearTimeout(timer);
+      return reader.cancel(reason);
+    }
+  });
+}
