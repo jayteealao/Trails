@@ -5,6 +5,7 @@ import {
   callRendererWith403Fallback,
   callMonolith,
   callSinglefile,
+  callSinglefileForStep,
   getRendererFallbackReason,
   isBrowserRendering403ForRender,
   ServiceCallError,
@@ -627,18 +628,86 @@ describe('render failures from a host that cannot be reached', () => {
     );
     expect(rendererFetch).toHaveBeenCalledTimes(1);
   });
+});
 
-  it('leaves the singlefile classification of the same body retryable', async () => {
-    const singlefileFetch = vi.fn(async () => makeJsonResponse(502, proxyErrorPageBody));
-    const env = {
-      INTERNAL_API_KEY: 'test-internal-key',
-      SINGLEFILE: { fetch: singlefileFetch },
-    } as unknown as Env;
+const singlefileParams = { request_id: 'req-singlefile', url: 'https://www.explorminate.net/post' };
 
-    const error = await catchServiceCallError(
-      callSinglefile(env, { request_id: 'req-singlefile', url: 'https://www.explorminate.net/post' }),
-    );
+function makeSinglefileEnv(singlefileFetch: ReturnType<typeof vi.fn>): Env {
+  return {
+    INTERNAL_API_KEY: 'test-internal-key',
+    SINGLEFILE: { fetch: singlefileFetch },
+  } as unknown as Env;
+}
+
+function runSinglefileStep(env: Env): Promise<unknown> {
+  return runWithRetries(3, () =>
+    callSinglefileForStep(env, singlefileParams, (m) => new FakeNonRetryableError(m)),
+  );
+}
+
+describe('singlefile proxy error page rejections', () => {
+  const singlefileProxyErrorBody = {
+    error: 'SingleFile capture returned a proxy/network error page',
+    reason: PROXY_ERROR_PAGE_REASON,
+    url: 'https://www.explorminate.net/post',
+  };
+
+  it('classifies the rejection as not retryable', async () => {
+    const singlefileFetch = vi.fn(async () => makeJsonResponse(502, singlefileProxyErrorBody));
+
+    const error = await catchServiceCallError(callSinglefile(makeSinglefileEnv(singlefileFetch), singlefileParams));
+    expect(error.classification).toEqual({
+      errorCode: 'SINGLEFILE_SERVICE_ERROR',
+      retryable: false,
+      recommendedAction: 'inspect_url',
+    });
+  });
+
+  it('fails the singlefile step after one attempt, naming the reason', async () => {
+    const singlefileFetch = vi.fn(async () => makeJsonResponse(502, singlefileProxyErrorBody));
+
+    const failure = await runSinglefileStep(makeSinglefileEnv(singlefileFetch)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FakeNonRetryableError);
+    expect(failure instanceof Error ? failure.message : '').toContain(PROXY_ERROR_PAGE_REASON);
+    expect(singlefileFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('singlefile failures that keep retrying', () => {
+  it('runs every attempt on a singlefile worker that keeps answering 503', async () => {
+    const singlefileFetch = vi.fn(async () => new Response('Service Unavailable', { status: 503 }));
+
+    const error = await catchServiceCallError(runSinglefileStep(makeSinglefileEnv(singlefileFetch)));
     expect(error.classification.retryable).toBe(true);
+    expect(singlefileFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('runs every attempt on a recoverable edge-case failure', async () => {
+    const singlefileFetch = vi.fn(async () =>
+      makeJsonResponse(422, {
+        error: 'SingleFile edge-case failure',
+        details: 'trustedTypes is not defined',
+        recoverable: true,
+      }),
+    );
+
+    const error = await catchServiceCallError(runSinglefileStep(makeSinglefileEnv(singlefileFetch)));
+    expect(error.classification).toEqual({
+      errorCode: 'SINGLEFILE_EDGE_CASE',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    });
+    expect(singlefileFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('runs every attempt on a capture that came back too short', async () => {
+    const singlefileFetch = vi.fn(async () =>
+      makeJsonResponse(502, { error: 'SingleFile capture failed: content too short', length: 12 }),
+    );
+
+    const error = await catchServiceCallError(runSinglefileStep(makeSinglefileEnv(singlefileFetch)));
+    expect(error.classification.retryable).toBe(true);
+    expect(singlefileFetch).toHaveBeenCalledTimes(4);
   });
 });
 
