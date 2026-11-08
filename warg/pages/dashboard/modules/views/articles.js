@@ -576,6 +576,16 @@ function showContentViewer(archiveKey, url) {
 
   document.body.appendChild(overlay);
 
+  if (archiveKey === 'screenshot') {
+    const image = overlay.querySelector('.content-viewer-image');
+    image?.addEventListener('error', () => {
+      const failure = document.createElement('pre');
+      failure.className = 'content-viewer-text';
+      failure.textContent = 'Failed to load content';
+      image.replaceWith(failure);
+    }, { once: true });
+  }
+
   // Close handlers
   const close = () => overlay.remove();
   overlay.querySelector('.content-viewer-close').addEventListener('click', close);
