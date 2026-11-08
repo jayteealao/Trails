@@ -1,4 +1,4 @@
-import { getOptionsKey, timingSafeEqual, createEvent, isLeaseStale } from '@warg/shared';
+import { getOptionsKey, timingSafeEqual, createEvent } from '@warg/shared';
 import type {
   LogEvent,
   InitRequestPayload
@@ -416,101 +416,6 @@ async function sweepQueuedOrphans(
   return summary;
 }
 
-interface SandboxLeaseRow {
-  leaseId?: string;
-  requestId?: string;
-  acquiredAt?: number;
-}
-
-export interface ContainerSweepResult {
-  source: string;
-  leases: number;
-  stale: number;
-  stopped: number;
-  failures: Array<{ requestId: string; error: string }>;
-}
-
-/**
- * Stop monolith containers whose quota lease outlived the TTL — the third
- * lifecycle layer after the monolith worker's per-job stop() and the Sandbox
- * class's 5m sleepAfter backstop. Lists active sandbox leases from the
- * workflow worker and asks the monolith worker to stop each stale lease's
- * container. Best-effort: per-container failures are reported, not thrown.
- */
-export async function sweepOrphanContainers(
-  env: Env,
-  source: string
-): Promise<ContainerSweepResult> {
-  const summary: ContainerSweepResult = {
-    source,
-    leases: 0,
-    stale: 0,
-    stopped: 0,
-    failures: []
-  };
-
-  const response = await env.WORKFLOW.fetch('https://workflow/browser-quota/sandbox-leases', {
-    headers: { 'X-Internal-API-Key': env.INTERNAL_API_KEY },
-    signal: AbortSignal.timeout(10_000)
-  });
-  if (!response.ok) {
-    const body = (await response.text()).slice(0, 300);
-    throw new Error(`sandbox-leases fetch failed (${response.status}): ${body}`);
-  }
-
-  const raw: unknown = await response.json();
-  if (
-    raw === null ||
-    typeof raw !== 'object' ||
-    !Array.isArray((raw as Record<string, unknown>)['leases'])
-  ) {
-    console.warn('[gateway] container sweep: unexpected sandbox-leases payload shape, skipping', JSON.stringify(raw)?.slice(0, 300));
-    return summary;
-  }
-  const leases = (raw as { leases: unknown[] }).leases.filter(
-    (entry): entry is SandboxLeaseRow =>
-      entry !== null &&
-      typeof entry === 'object' &&
-      ('requestId' in entry || 'acquiredAt' in entry)
-  );
-  summary.leases = leases.length;
-
-  const now = Date.now();
-  for (const lease of leases) {
-    if (!lease.requestId || typeof lease.acquiredAt !== 'number') continue;
-    if (!isLeaseStale(lease.acquiredAt, now)) continue;
-    summary.stale += 1;
-
-    try {
-      const stopResponse = await env.MONOLITH.fetch('https://monolith/container/stop', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Internal-API-Key': env.INTERNAL_API_KEY
-        },
-        body: JSON.stringify({ request_id: lease.requestId }),
-        signal: AbortSignal.timeout(10_000)
-      });
-      if (stopResponse.ok) {
-        summary.stopped += 1;
-      } else {
-        const body = (await stopResponse.text()).slice(0, 300);
-        summary.failures.push({
-          requestId: lease.requestId,
-          error: `stop failed (${stopResponse.status}): ${body}`
-        });
-      }
-    } catch (err) {
-      summary.failures.push({
-        requestId: lease.requestId,
-        error: err instanceof Error ? err.message : String(err)
-      });
-    }
-  }
-
-  return summary;
-}
-
 export default {
   async fetch(
     request: Request,
@@ -891,20 +796,6 @@ export default {
           }
         } catch (err) {
           console.error('[gateway] orphan sweep failed:', err);
-        }
-      })()
-    );
-    ctx.waitUntil(
-      (async () => {
-        try {
-          const summary = await sweepOrphanContainers(env, `cron:${controller.cron ?? 'unknown'}`);
-          if (summary.failures.length > 0) {
-            console.error('[gateway] container sweep partial failures:', JSON.stringify(summary));
-          } else {
-            console.log('[gateway] container sweep done:', JSON.stringify({ leases: summary.leases, stale: summary.stale, stopped: summary.stopped }));
-          }
-        } catch (err) {
-          console.error('[gateway] container sweep failed:', err);
         }
       })()
     );
