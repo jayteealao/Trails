@@ -15,15 +15,12 @@ function recordingBinding(answer: (url: string) => Response) {
 async function runCronTick() {
   const logger = recordingBinding(() => Response.json({ requests: [] }));
   const workflow = recordingBinding(() => Response.json({ leases: [] }));
-  // Present only to catch a container stop the cron must no longer make.
-  const monolith = recordingBinding(() => Response.json({ ok: true }));
   // The cron reads only these bindings; the fakes stand in for the runtime env.
   const env = {
     INTERNAL_API_KEY: 'internal-key',
     PUBLIC_API_KEY: 'public-key',
     LOGGER: logger.binding,
     WORKFLOW: workflow.binding,
-    MONOLITH: monolith.binding,
     ARCHIVE_BUCKET: {}
   } as unknown as Env;
   const pending: Promise<unknown>[] = [];
@@ -32,7 +29,7 @@ async function runCronTick() {
   await worker.scheduled({ cron: '*/10 * * * *' } as ScheduledController, env, ctx);
   await Promise.all(pending);
 
-  return { logger: logger.urls, workflow: workflow.urls, monolith: monolith.urls };
+  return { logger: logger.urls, workflow: workflow.urls };
 }
 
 describe('gateway scheduled()', () => {
@@ -48,7 +45,7 @@ describe('gateway scheduled()', () => {
   it('never lists sandbox leases and never stops a container', async () => {
     const calls = await runCronTick();
 
-    const everyUrl = [...calls.logger, ...calls.workflow, ...calls.monolith];
+    const everyUrl = [...calls.logger, ...calls.workflow];
     expect(calls.workflow.filter((url) => url.includes('sandbox-leases'))).toEqual([]);
     expect(everyUrl.filter((url) => url.includes('/container/stop'))).toEqual([]);
   });
