@@ -1160,6 +1160,60 @@ describe('LoggerDO', () => {
       }
     });
   });
+
+  describe('stage after a replayed event', () => {
+    const bucket = 'bucket:2026061113';
+
+    async function initReplayRequest(suffix: string): Promise<{ requestId: string; stub: LoggerStub }> {
+      const requestId = `replay-${Date.now()}-${suffix}`;
+      const stub = getStub(bucket);
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+      return { requestId, stub };
+    }
+
+    it('moves from deriving to persisting on the first persist.started', async () => {
+      const { requestId, stub } = await initReplayRequest('derive-persist');
+
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Derivatives step started', { step: 'derivatives' }));
+      expect((await stub.getRequestView(requestId))?.derived.stage).toBe('deriving');
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('persisting');
+      expect(view?.derived.terminal).toBe(false);
+    });
+
+    it('lets a normal run alternate between persisting and deriving', async () => {
+      const { requestId, stub } = await initReplayRequest('alternate');
+
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting render artifacts'));
+      expect((await stub.getRequestView(requestId))?.derived.stage).toBe('persisting');
+
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Readability step started', { step: 'readability' }));
+      expect((await stub.getRequestView(requestId))?.derived.stage).toBe('deriving');
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting derivatives'));
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('persisting');
+      expect(view?.derived.terminal).toBe(false);
+    });
+
+    it('reopens a finished request when a new request.created arrives', async () => {
+      const { requestId, stub } = await initReplayRequest('reopen-done');
+
+      await stub.appendEvent(requestId, infoEvent('request.done', 'Request completed'));
+      expect((await stub.getRequestView(requestId))?.derived.terminal).toBe(true);
+
+      await stub.appendEvent(requestId, {
+        ...infoEvent('request.created', 'Archive request created'),
+        source: 'gateway'
+      });
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('queued');
+      expect(view?.derived.terminal).toBe(false);
+    });
+  });
 });
 
 /**
