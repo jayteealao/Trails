@@ -166,6 +166,23 @@ harness that drives the script end to end without credentials (CI runs it too).
 The `deploy` scripts of the function packages and of `pages/dashboard` only
 print a pointer to `scripts/deploy.sh` and exit 1.
 
+**Retiring the old React dashboard.** Its code is gone, but its own Cloudflare
+Pages project (the second dashboard project beside `warg-dashboard`) keeps
+serving its last deployment, with no sign-in and with its own copies of
+`DASHBOARD_API_KEY` and `BACKFILL_STATUS_KEY`, until it is deleted. From
+`warg/`, find its name in the project list, delete it, and list again to check
+that only `warg-dashboard` is left of the two:
+
+```bash
+pnpm exec wrangler pages project list
+pnpm exec wrangler pages project delete <name of the old dashboard project>
+pnpm exec wrangler pages project list
+```
+
+Then rotate `DASHBOARD_API_KEY` and `BACKFILL_STATUS_KEY` with the two steps of
+[Rotating the function keys](#rotating-the-function-keys-two-steps), so the
+copies the old project held stop working.
+
 Two configs per worker: `cloudflare.config.ts` is what `cf deploy` reads, and
 `wrangler.jsonc` still serves `wrangler dev` and `wrangler types`. Change a
 binding in both; `node scripts/check-worker-configs.mjs` (run in CI) fails when
