@@ -303,3 +303,39 @@ test('create-upload still answers when the event log refuses an event, and does 
   assert.deepEqual(fake.writes, UPLOAD_JOURNAL);
   assert.deepEqual(logs.state.posts, UPLOAD_LOGS);
 });
+
+test('create-upload answers 500 when signing fails, keeps the journal and logs the failure', async () => {
+  // The page.pdf upload is the one stored under /pdf/.
+  storage.state.failOn = '/pdf/';
+  const body = uploadBody();
+  const message = `signing failed: archives/${ID}/pdf/output.pdf`;
+  const out = await send(gatewayRequest({ path: '/create-upload', key: KEY, body }));
+  assert.deepEqual(out, { status: 500, body: { error: 'Internal error', message } });
+  assert.deepEqual(fake.writes, [
+    {
+      method: 'set',
+      path: PATH,
+      merge: true,
+      data: {
+        item_id: ID,
+        url: 'https://example.com/a',
+        domain: 'example.com',
+        updated_at: TS,
+        created_at: TS,
+        archives: {
+          singlefile: journalEntry('singlefile', 'output.html.gz'),
+          pdf: journalEntry('pdf', 'output.pdf')
+        }
+      }
+    }
+  ]);
+  assert.deepEqual(logs.state.posts, [
+    logPost('persist.started', 'Creating signed upload URLs', { artifactCount: 2 }),
+    logPost(
+      'persist.failed',
+      `Failed to create upload URLs: ${message}`,
+      { error: message },
+      'error'
+    )
+  ]);
+});
