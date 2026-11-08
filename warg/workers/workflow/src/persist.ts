@@ -13,11 +13,36 @@ import type {
   CheckpointStep,
   WorkflowCheckpoint,
 } from '@warg/shared';
-import { getStepManifestKey } from '@warg/shared';
+import { getStepManifestKey, sha256 } from '@warg/shared';
 import type { WorkflowResult } from './types.js';
 import { callGcs } from './services.js';
 import { logEvent } from './logging.js';
 import { markArtifactsPersisted, saveCheckpoint } from './checkpoint.js';
+
+/**
+ * Suffix for a persist's manifest key and step names, derived only from the
+ * request, the persisting step and the artifacts it persists.
+ *
+ * A workflow that wakes from a sleep replays its run from the top; the persist
+ * steps must come back with the same names so the cached results are reused
+ * instead of uploading to GCS again. Every input here comes from cached step
+ * results, so a replay reproduces the same suffix; never add an input that can
+ * change between replays, such as the clock.
+ */
+export async function persistManifestSuffix(
+  requestId: string,
+  stepName: string,
+  artifacts: readonly ArtifactMeta[]
+): Promise<string> {
+  const sorted = [...artifacts].sort((a, b) => a.kind.localeCompare(b.kind));
+  const canonical = JSON.stringify([
+    requestId,
+    stepName,
+    sorted.map((a) => [a.kind, a.r2Key, a.sha256, a.bytes, a.contentType]),
+  ]);
+  const digest = await sha256(new TextEncoder().encode(canonical));
+  return digest.slice(0, 16);
+}
 
 export async function persistArtifactsIncremental(
   env: Env,
@@ -33,7 +58,7 @@ export async function persistArtifactsIncremental(
     return undefined;
   }
 
-  const suffix = `${Date.now()}`;
+  const suffix = await persistManifestSuffix(requestId, stepName, artifacts);
   const manifestKey = await writeManifest(
     env,
     step,
@@ -97,7 +122,7 @@ export async function persistToGcs(
   manifestKey: string,
   context?: Record<string, unknown>
 ) {
-  const persistToken = (manifestKey.split('/').pop() ?? `${Date.now()}`)
+  const persistToken = (manifestKey.split('/').pop() ?? 'manifest')
     .replace(/[^a-zA-Z0-9_-]/g, '_');
 
   // Log start + capture timing
