@@ -121,11 +121,11 @@ describe('orphan queued sweep during a burst', () => {
 
     expect(summary.candidates).toBe(5);
     expect(listUrls).toHaveLength(1);
-    const params = listUrls[0].searchParams;
-    expect(params.get('status')).toBe('queued');
-    expect(params.get('events')).toBe('none');
-    expect(params.get('order')).toBe('asc');
-    expect(params.get('to')).toBe(new Date(NOW - DEFAULT_MIN_AGE_MS).toISOString());
+    const params = listUrls[0]?.searchParams;
+    expect(params?.get('status')).toBe('queued');
+    expect(params?.get('events')).toBe('none');
+    expect(params?.get('order')).toBe('asc');
+    expect(params?.get('to')).toBe(new Date(NOW - DEFAULT_MIN_AGE_MS).toISOString());
   });
 
   it('pages past old rows the gateway skips', async () => {
