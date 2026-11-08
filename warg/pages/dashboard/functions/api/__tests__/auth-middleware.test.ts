@@ -34,6 +34,9 @@ describe('Pages router covers every route with the root middleware', () => {
 
 const SECRET = 'e2e-user:e2e-pass';
 const CHALLENGE = 'Basic realm="Warg dashboard", charset="UTF-8"';
+const NOT_CONFIGURED = 'Dashboard auth is not configured.';
+// Stands for a project with no sign-in secret bound at all.
+const UNSET = Symbol('no secret bound');
 
 // A Basic header for a credential, encoded as UTF-8 the way the browser sends it.
 function basic(credential: string): string {
@@ -43,7 +46,7 @@ function basic(credential: string): string {
 
 type MiddlewareContext = Parameters<typeof onRequest>[0];
 
-async function run(path: string, method: string, authorization?: string, secret: string = SECRET) {
+async function run(path: string, method: string, authorization?: string, secret: string | typeof UNSET = SECRET) {
   const headers = new Headers();
   if (authorization !== undefined) headers.set('Authorization', authorization);
   const request = new Request('https://dashboard.example.com' + path, { method, headers });
@@ -52,7 +55,7 @@ async function run(path: string, method: string, authorization?: string, secret:
   // the full EventContext type also carries the runtime's own members.
   const context = {
     request,
-    env: { DASHBOARD_AUTH: secret },
+    env: secret === UNSET ? {} : { DASHBOARD_AUTH: secret },
     next,
     params: {},
     data: {},
@@ -104,6 +107,15 @@ describe('dashboard sign-in check', () => {
       expect(next).toHaveBeenCalledTimes(1);
       expect(response.status).toBe(299);
     });
+
+    it('fails closed when no credential is configured', async () => {
+      const { response, next } = await run(path, method, basic(SECRET), UNSET);
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe(NOT_CONFIGURED);
+      expect(response.headers.get('WWW-Authenticate')).toBeNull();
+      expect(response.headers.get('Content-Type')).toMatch(/^text\/plain/);
+      expect(next).not.toHaveBeenCalled();
+    });
   });
 
   describe('credential edge cases', () => {
@@ -134,10 +146,16 @@ describe('dashboard sign-in check', () => {
       expect(next).toHaveBeenCalledTimes(1);
     });
 
-    it('lets nobody in when no credential is configured', async () => {
-      const { response, next } = await run(path, 'GET', basic(':'), '');
-      expect(response.status).toBe(401);
-      expect(next).not.toHaveBeenCalled();
+    it.each([
+      ['unset', UNSET],
+      ['empty', ''],
+    ] as const)('fails closed when the credential is %s', async (_label, secret) => {
+      for (const authorization of [undefined, basic(':')]) {
+        const { response, next } = await run(path, 'GET', authorization, secret);
+        expect(response.status).toBe(500);
+        expect(await response.text()).toBe(NOT_CONFIGURED);
+        expect(next).not.toHaveBeenCalled();
+      }
     });
   });
 });
