@@ -105,7 +105,8 @@ const TRAILS_BACKUP_WRITER =
   'android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt';
 const TRAILS_ARTICLE_MODEL =
   'android/app/src/main/java/com/jayteealao/trails/data/local/database/Article.kt';
-// The one app file that spells the stored names of the user article.
+// The app file where the backup writes and the restore reads the stored names
+// of the user article.
 const TRAILS_USER_ARTICLE_WIRE =
   'android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt';
 

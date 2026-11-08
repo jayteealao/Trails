@@ -361,12 +361,12 @@ class FirestoreBackupService @Inject constructor(
                 while (hasMore) {
                     val query = if (lastDocument != null) {
                         getUserArticlesCollection(user.uid)
-                            .orderBy("timeAdded")
+                            .orderBy(UserArticleWire.TIME_ADDED)
                             .startAfter(lastDocument)
                             .limit(RESTORE_PAGE_LIMIT.toLong())
                     } else {
                         getUserArticlesCollection(user.uid)
-                            .orderBy("timeAdded")
+                            .orderBy(UserArticleWire.TIME_ADDED)
                             .limit(RESTORE_PAGE_LIMIT.toLong())
                     }
 

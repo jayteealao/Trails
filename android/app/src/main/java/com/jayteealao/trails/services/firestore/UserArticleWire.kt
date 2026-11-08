@@ -4,12 +4,14 @@ import com.google.firebase.Timestamp
 import com.jayteealao.trails.data.local.database.Article
 
 /**
- * The user article as it is stored on `users/{uid}/articles/{id}`: the one place the app
- * spells that document's Firestore field names. App versions in users' hands and the
- * server read these names, so they never change with the local database: a rename of an
- * [Article] property or column changes only the right-hand side of [toUserArticleWire]
- * and [toArticle], never a name below. The shared-types drift check reads this file for
- * the fields the server reads.
+ * The user article as it is stored on `users/{uid}/articles/{id}`: the one place the
+ * backup writes and the restore reads that document's Firestore field names. The restore
+ * order and the deletion heal use the names below too. App versions in users' hands and
+ * the server read these names, so they never change with the local database: a rename of
+ * an [Article] property or column changes only the right-hand side of
+ * [toUserArticleWire] and [toArticle], never a name below. The shared-types drift check
+ * reads this file for the fields the server reads. The server-owned link field is not
+ * here on purpose: ArchiveService reads it by name, and the drift check checks that.
  *
  * [backedUpAt] is the version a backup sends (the article's `timeUpdated`); older builds
  * read it back on restore. [resolvedId] is server-owned: it is read back, never written.
