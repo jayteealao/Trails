@@ -4,7 +4,11 @@ import {
   isValidArchiveUrl,
   isPrivateHost,
   isValidRequestId,
-  withRequestId
+  withRequestId,
+  GATEWAY_ERROR_CODES,
+  INTERNAL_ERROR_MESSAGE,
+  errorIdFor,
+  errorResponse
 } from './util.js';
 import { createEvent } from '@warg/shared';
 
@@ -270,5 +274,61 @@ describe('createEvent', () => {
   it('always sets source to gateway', () => {
     const event = createEvent('gateway', 'request.done', 'info', 'done');
     expect(event.source).toBe('gateway');
+  });
+});
+
+describe('errorResponse', () => {
+  it('returns { error, code, id } with the given status', async () => {
+    const response = errorResponse(400, GATEWAY_ERROR_CODES.INVALID_JSON, 'Invalid JSON', 'req-1');
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid JSON', code: 'INVALID_JSON', id: 'req-1' });
+  });
+
+  it('sets X-Request-Id to the body id', async () => {
+    const response = errorResponse(404, GATEWAY_ERROR_CODES.NOT_FOUND, 'Not found', 'abc12345');
+    const body = (await response.json()) as { id: string };
+    expect(response.headers.get('X-Request-Id')).toBe(body.id);
+  });
+
+  it('adds extra fields but never lets them override error, code or id', async () => {
+    const response = errorResponse(502, GATEWAY_ERROR_CODES.WORKFLOW_TRIGGER_FAILED, 'Workflow trigger failed', 'req-2', {
+      workflowStatus: 500,
+      error: 'override',
+      code: 'OVERRIDE',
+      id: 'other'
+    });
+    expect(await response.json()).toEqual({
+      workflowStatus: 500,
+      error: 'Workflow trigger failed',
+      code: 'WORKFLOW_TRIGGER_FAILED',
+      id: 'req-2'
+    });
+  });
+
+  it('is served as application/json', () => {
+    const response = errorResponse(500, GATEWAY_ERROR_CODES.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE, 'req-3');
+    expect(response.headers.get('Content-Type')).toContain('application/json');
+  });
+});
+
+describe('errorIdFor', () => {
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it('returns a valid request id as-is', () => {
+    expect(errorIdFor('abc12345')).toBe('abc12345');
+  });
+
+  it.each([undefined, '', 'bad id!'])('returns a fresh UUID v4 for %j', (candidate) => {
+    const id = errorIdFor(candidate);
+    expect(id).toMatch(UUID_V4);
+    expect(id).not.toBe(candidate);
+  });
+});
+
+describe('GATEWAY_ERROR_CODES', () => {
+  it('has every value equal to its key', () => {
+    for (const [key, value] of Object.entries(GATEWAY_ERROR_CODES)) {
+      expect(value).toBe(key);
+    }
   });
 });
