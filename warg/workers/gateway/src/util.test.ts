@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   generateRequestId,
   isValidArchiveUrl,
@@ -13,7 +13,9 @@ import {
   validateArchiveOptions,
   MAX_OPTIONS_BYTES,
   ARCHIVE_OPTION_BOOLEAN_KEYS,
-  PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS
+  PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS,
+  PUBLIC_STATUS_STREAM_MAX_MS,
+  capEventStream
 } from './util.js';
 import { createEvent } from '@warg/shared';
 
@@ -424,5 +426,121 @@ describe('PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS', () => {
     for (const key of PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS) {
       expect(validateArchiveOptions({ [key]: key === 'dryRun' ? true : [] }).ok).toBe(true);
     }
+  });
+});
+
+describe('capEventStream', () => {
+  const encoder = new TextEncoder();
+  const END_EVENT = 'event: timeout\ndata: {"reason":"stream_time_limit","limitMs":60000}\n\n';
+
+  /** An upstream SSE body the test drives, with a spy on its cancel. */
+  function upstream() {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+      cancel
+    });
+    return {
+      stream,
+      cancel,
+      send: (text: string) => controller.enqueue(encoder.encode(text)),
+      end: () => controller.close()
+    };
+  }
+
+  /** Read a stream in the background; `text` and `done` show what arrived so far. */
+  function drain(stream: ReadableStream<Uint8Array>) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    const state = { text: '', done: false };
+    void (async () => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) {
+          state.done = true;
+          return;
+        }
+        state.text += decoder.decode(value, { stream: true });
+      }
+    })();
+    return state;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('is below the two minutes the logger holds a stream', () => {
+    expect(PUBLIC_STATUS_STREAM_MAX_MS).toBe(60_000);
+    expect(PUBLIC_STATUS_STREAM_MAX_MS).toBeLessThan(2 * 60 * 1000);
+  });
+
+  it('forwards upstream chunks unchanged', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('event: init\ndata: {"a":1}\n\n');
+    up.send('event: log\ndata: {"b":2}\n\n');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(out.text).toBe('event: init\ndata: {"a":1}\n\nevent: log\ndata: {"b":2}\n\n');
+    expect(out.done).toBe(false);
+  });
+
+  it('ends an open stream with the timeout event at the cap, not one ms earlier', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('event: init\ndata: {}\n\n');
+
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS - 1);
+    expect(out.text).toBe('event: init\ndata: {}\n\n');
+    expect(out.done).toBe(false);
+    expect(up.cancel).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(out.text).toBe('event: init\ndata: {}\n\n' + END_EVENT);
+    expect(out.done).toBe(true);
+    expect(up.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes when the upstream ends first and writes nothing at the cap', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('event: done\ndata: {}\n\n');
+    up.end();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(out.done).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS * 2);
+    expect(out.text).toBe('event: done\ndata: {}\n\n');
+    expect(up.cancel).not.toHaveBeenCalled();
+  });
+
+  it('ends a frame cut in the middle before the timeout event', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('data: {"a"');
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS);
+
+    expect(out.text).toBe('data: {"a"\n\n' + END_EVENT);
+    expect(out.done).toBe(true);
+  });
+
+  it('cancelling the capped stream cancels the upstream and clears the timer', async () => {
+    const up = upstream();
+    const capped = capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(1);
+
+    await capped.cancel('client gone');
+    expect(up.cancel).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
