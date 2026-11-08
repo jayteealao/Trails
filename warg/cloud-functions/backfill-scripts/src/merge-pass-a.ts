@@ -312,7 +312,7 @@ async function writePlan(
     // link names a winner its user holds no marker for.
     for (const add of markerAdds) {
       writer
-        .set(
+        .set( // article-write-check: not-an-article (article marker)
           markersCollection(db, add.uid).doc(add.key),
           markerBody(add.key, add.itemId, MERGE_MARKER_SOURCE),
           { merge: true },

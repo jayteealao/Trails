@@ -416,7 +416,7 @@ async function writePlan(
         continue;
       }
       writer
-        .set(markersCollection(db, write.uid).doc(key), markerBody(key, write.itemId, REDERIVE_MARKER_SOURCE))
+        .set(markersCollection(db, write.uid).doc(key), markerBody(key, write.itemId, REDERIVE_MARKER_SOURCE)) // article-write-check: not-an-article (article marker)
         .catch(track(write.uidLabel, `articleMarkers/${key}`, 2));
     }
     await writer.flush();
@@ -426,7 +426,7 @@ async function writePlan(
     // first. A marker rewritten since the scan fails its precondition.
     for (const removal of plan.markerRemovals) {
       writer
-        .delete(markersCollection(db, removal.uid).doc(removal.key), {
+        .delete(markersCollection(db, removal.uid).doc(removal.key), { // article-write-check: not-an-article (article marker)
           lastUpdateTime: markerTime(removal.uid, removal.key),
         })
         .catch(track(removal.uidLabel, `articleMarkers/${removal.key}`, 3));

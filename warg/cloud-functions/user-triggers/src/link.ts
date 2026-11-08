@@ -236,6 +236,7 @@ export async function linkUserArticle(
       }
 
       // 6-7. The marker and the server-owned link, in the same transaction.
+      // article-write-check: not-an-article (article marker)
       tx.set(
         db.collection('users').doc(userId).collection(ARTICLE_MARKERS_COLLECTION).doc(sharedId),
         markerBody(sharedId, itemId, markerSource)

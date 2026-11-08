@@ -211,6 +211,7 @@ async function acquireRunLease(
       expires_at: Timestamp.fromMillis(nowMs + LEASE_TTL_MS),
     };
     tracker.last_run_at = Timestamp.fromMillis(now());
+    // article-write-check: not-an-article (backfill tracker)
     tx.set(trackerRef, tracker);
 
     return { acquired: true, tracker };
@@ -242,6 +243,7 @@ async function saveTrackerWithLease(
       expires_at: Timestamp.fromMillis(nowMs + LEASE_TTL_MS),
     };
     tracker.last_run_at = Timestamp.fromMillis(now());
+    // article-write-check: not-an-article (backfill tracker)
     tx.set(trackerRef, tracker);
   });
 }
@@ -261,6 +263,7 @@ async function releaseRunLease(
 
     tracker.run_lease = null;
     tracker.last_run_at = Timestamp.fromMillis(now());
+    // article-write-check: not-an-article (backfill tracker)
     tx.set(trackerRef, tracker);
   });
 }
