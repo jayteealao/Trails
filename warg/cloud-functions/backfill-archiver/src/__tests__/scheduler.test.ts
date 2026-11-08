@@ -644,3 +644,43 @@ test('start failures are classed; a workflow trigger and a missing request id ar
   assert.equal(tracker['paused'], false);
   assert.equal(tracker['global_pause_until'], null);
 });
+
+test('a run whose starts all fail on access pauses the backfill for 20 minutes, then scans again', async () => {
+  const h = harness();
+  seedCompletedPass(h, { time_updated: T0 - 30 * MIN, item_id: '' });
+  for (let i = 1; i <= 3; i += 1) {
+    userArticle(h, `itemP000${i}`, { timeUpdated: T0 - 10 * MIN + i, canonicalId: `sharedP00${i}` });
+  }
+  const deps = () =>
+    h.deps({
+      beginArchive: async (payload) => {
+        h.sent.push(payload);
+        throw new Error('Gateway begin failed: 401 Unauthorized');
+      },
+    });
+
+  await runBackfill(deps());
+  let tracker = h.tracker();
+  assert.equal(tracker['paused'], true);
+  assert.equal(tracker['pause_reason'], 'auth_or_access');
+  assert.equal(ms(tracker['global_pause_until']), T0 + 20 * MIN);
+  assert.equal(tracker['last_run_result'], 'backoff');
+  assert.deepEqual(tracker['retry_queue'], []);
+  assert.equal(h.sent.length, 3);
+
+  h.fake.log.length = 0;
+  h.clock.t = T0 + 20 * MIN - 1;
+  await runBackfill(deps());
+  assert.equal(queries(h).length, 0, 'a paused run reads no user articles');
+  assert.equal(h.sent.length, 3);
+  assert.equal(h.tracker()['paused'], true);
+
+  h.fake.log.length = 0;
+  h.clock.t = T0 + 20 * MIN;
+  await runBackfill(deps());
+  tracker = h.tracker();
+  assert.equal(tracker['paused'], false);
+  assert.equal(tracker['pause_reason'], null);
+  assert.equal(tracker['global_pause_until'], null);
+  assert.equal(queries(h).length, 1, 'the run after the pause scans again');
+});
