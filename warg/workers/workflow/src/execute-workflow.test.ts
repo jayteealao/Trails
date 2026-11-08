@@ -177,4 +177,19 @@ describe('ArchiveWorkflow.run', () => {
       expect(fake.quota.released).toEqual(fake.quota.acquired);
     });
   });
+
+  it('retries a retryable render failure up to its limit', async () => {
+    const { fake, run, outcome } = await runRequest(
+      { steps: ['render'] },
+      { handlers: { RENDERER: () => serviceError(500) } }
+    );
+
+    expect(errorOf(outcome).name).toBe('WorkflowTerminalError');
+    // The render step allows 3 retries: 4 attempts in all, against one attempt above.
+    expect(run.attempts.get('render')).toBe(4);
+    expect(fake.calls.RENDERER).toHaveLength(4);
+    expect(eventsOfType(fake.logger, 'request.failed')).toHaveLength(1);
+    expect(fake.quota.acquired).toHaveLength(1);
+    expect(fake.quota.released).toEqual(fake.quota.acquired);
+  });
 });
