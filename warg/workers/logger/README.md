@@ -55,6 +55,18 @@ request. It is idempotent.
 | `GET /requests`, `GET /stats`, `POST /requests/batch` | served from D1 index |
 | `POST /maintenance/backfill-diagnostics` | recompute legacy diagnostics (dual-read) |
 
+`GET /requests` takes these query parameters, all optional:
+
+| Parameter | Meaning |
+|---|---|
+| `domain` | rows of this domain |
+| `status` | rows whose stage is this value |
+| `q` | rows whose url contains this text |
+| `from`, `to` | rows created at or after `from`, at or before `to` (ISO times) |
+| `events=none` | only rows with no event yet; the gateway orphan sweep uses it |
+| `order=asc` | oldest first; the gateway orphan sweep uses it. The default stays newest first |
+| `limit`, `offset` | page size (1-1000, default 50) and offset (0-100000) |
+
 ## Tests
 
 ```bash
