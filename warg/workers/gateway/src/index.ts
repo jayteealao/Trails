@@ -6,6 +6,8 @@ import type {
 import {
   GATEWAY_ERROR_CODES,
   INTERNAL_ERROR_MESSAGE,
+  MAX_BEGIN_BODY_BYTES,
+  MAX_LOGGED_KEY_LENGTH,
   PUBLIC_STATUS_STREAM_MAX_MS,
   capEventStream,
   errorIdFor,
@@ -20,6 +22,7 @@ import {
   storedRequestIdOwner,
   validateArchiveOptions,
   type CallerKind,
+  type GatewayErrorCode,
   withRequestId
 } from './util.js';
 
@@ -564,16 +567,30 @@ export default {
     if (method === 'POST' && path === '/begin') {
       // The id of an error response: a fresh correlation id until the request id is known and valid.
       let errorId = errorIdFor(undefined);
+      // A refused /begin leaves a log line naming the code, so a caller's rejected starts can be traced.
+      const refuseBegin = (status: number, code: GatewayErrorCode, message: string): Response => {
+        console.warn('[gateway] /begin refused', { id: errorId, status, code, caller: callerKind });
+        return errorResponse(status, code, message, errorId);
+      };
       try {
+        const tooLargeMessage = `Request body exceeds ${MAX_BEGIN_BODY_BYTES} bytes`;
+        if (Number(request.headers.get('content-length') ?? 0) > MAX_BEGIN_BODY_BYTES) {
+          return refuseBegin(413, GATEWAY_ERROR_CODES.INVALID_OPTIONS, tooLargeMessage);
+        }
+        // Read the body as text and bound it before parsing: a body without a declared length is checked here.
+        const bodyText = await request.text();
+        if (new TextEncoder().encode(bodyText).byteLength > MAX_BEGIN_BODY_BYTES) {
+          return refuseBegin(413, GATEWAY_ERROR_CODES.INVALID_OPTIONS, tooLargeMessage);
+        }
         let parsed: unknown;
         try {
-          parsed = await request.json();
+          parsed = JSON.parse(bodyText);
         } catch {
-          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_JSON, 'Invalid JSON', errorId);
+          return refuseBegin(400, GATEWAY_ERROR_CODES.INVALID_JSON, 'Invalid JSON');
         }
 
         if (!isPlainObject(parsed)) {
-          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_OPTIONS, 'Request body must be a JSON object', errorId);
+          return refuseBegin(400, GATEWAY_ERROR_CODES.INVALID_OPTIONS, 'Request body must be a JSON object');
         }
 
         // Take out the request id and the script fields (stripped: they could enable script injection);
@@ -586,32 +603,33 @@ export default {
         // A present id (an empty string too) must be a valid one; only an absent or null id is generated.
         const clientChoseRequestId = rawRequestId !== undefined && rawRequestId !== null;
         if (clientChoseRequestId && (typeof rawRequestId !== 'string' || !isValidRequestId(rawRequestId))) {
-          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_REQUEST_ID, invalidRequestIdMessage, errorId);
+          return refuseBegin(400, GATEWAY_ERROR_CODES.INVALID_REQUEST_ID, invalidRequestIdMessage);
         }
         const requestId = typeof rawRequestId === 'string' ? rawRequestId : generateRequestId();
         errorId = requestId;
 
-        // Check the option types before anything is stored or logged
+        // Check the option types before anything is stored
         const validation = validateArchiveOptions(fields);
         if (!validation.ok) {
-          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_OPTIONS, validation.message, requestId);
+          return refuseBegin(400, GATEWAY_ERROR_CODES.INVALID_OPTIONS, validation.message);
         }
         // Only the internal key may choose a dry run or the step list
         if (callerKind === 'public') {
           const forbiddenKey = PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS.find((key) => fields[key] !== undefined);
           if (forbiddenKey) {
-            return errorResponse(
+            return refuseBegin(
               403,
               GATEWAY_ERROR_CODES.OPTION_NOT_ALLOWED,
-              `${forbiddenKey} is not allowed with the public key`,
-              requestId
+              `${forbiddenKey} is not allowed with the public key`
             );
           }
         }
         if (validation.droppedKeys.length > 0) {
+          // Key names are caller text: log a bounded number of them, each cut to a bounded length.
           console.warn('[gateway] /begin dropped unknown option keys', {
             id: requestId,
-            keys: validation.droppedKeys.slice(0, 20)
+            count: validation.droppedKeys.length,
+            keys: validation.droppedKeys.slice(0, 20).map((key) => key.slice(0, MAX_LOGGED_KEY_LENGTH))
           });
         }
 

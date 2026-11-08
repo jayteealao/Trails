@@ -203,6 +203,15 @@ export function errorResponse(
 export const MAX_OPTIONS_BYTES = 16 * 1024;
 
 /**
+ * Largest /begin body read and parsed. It leaves room above MAX_OPTIONS_BYTES for the
+ * request id and dropped keys, and stops an oversized body before JSON parsing.
+ */
+export const MAX_BEGIN_BODY_BYTES = 4 * MAX_OPTIONS_BYTES;
+
+/** Longest caller-supplied key name written to a log line. */
+export const MAX_LOGGED_KEY_LENGTH = 64;
+
+/**
  * The archive option keys a public-key caller may not send: only the internal key
  * chooses a dry run or the step list. Their presence, whatever the value, is refused.
  */

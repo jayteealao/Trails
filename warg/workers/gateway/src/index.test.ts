@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import gateway from './index.js';
-import { GATEWAY_ERROR_CODES, MAX_OPTIONS_BYTES, PUBLIC_STATUS_STREAM_MAX_MS } from './util.js';
+import { GATEWAY_ERROR_CODES, MAX_BEGIN_BODY_BYTES, MAX_OPTIONS_BYTES, PUBLIC_STATUS_STREAM_MAX_MS } from './util.js';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -536,6 +536,72 @@ describe('begin drops unknown option keys the same way every time', () => {
     const logged = warnSpy.mock.calls.map((args) => JSON.stringify(args));
     expect(logged.some((line) => line.includes('foo') && line.includes('nested'))).toBe(true);
     expect(logged.some((line) => line.includes('"a":1'))).toBe(false);
+  });
+
+  it('cuts each dropped key name in the log to a bounded length', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const longKey = 'k'.repeat(5000);
+    const { env } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+
+    await gateway.fetch(
+      publicPost('/begin', { url: 'https://example.com/a', request_id: 'req-ok-7', [longKey]: 1 }),
+      env,
+      {} as ExecutionContext
+    );
+
+    const logged = warnSpy.mock.calls.map((args) => JSON.stringify(args)).join('\n');
+    expect(logged).toContain('k'.repeat(64));
+    expect(logged).not.toContain('k'.repeat(65));
+  });
+
+  it.each([
+    { name: 'a declared length over the limit', declare: true },
+    { name: 'an undeclared length over the limit', declare: false }
+  ])('answers 413 before parsing a body with $name', async ({ declare }) => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { env, bucketPut, loggerFetch, workflowFetch } = createEnv();
+    const body = JSON.stringify({ url: 'https://example.com/a', pad: 'x'.repeat(MAX_BEGIN_BODY_BYTES) });
+    const request = new Request(`${GATEWAY}/begin`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': 'public-key',
+        ...(declare ? { 'Content-Length': String(body.length) } : {})
+      },
+      body: declare ? body : new Blob([body]).stream(),
+      ...(declare ? {} : { duplex: 'half' })
+    } as RequestInit);
+    const jsonSpy = vi.spyOn(JSON, 'parse');
+
+    const response = await gateway.fetch(request, env, {} as ExecutionContext);
+    const data = (await response.json()) as { code?: unknown };
+    const parsedBodies = jsonSpy.mock.calls.filter(([text]) => String(text).includes('xxxx'));
+
+    expect(response.status).toBe(413);
+    expect(data.code).toBe('INVALID_OPTIONS');
+    expect(parsedBodies).toHaveLength(0);
+    expect(bucketPut).not.toHaveBeenCalled();
+    expect(loggerFetch).not.toHaveBeenCalled();
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+
+  it('logs a refused start with its code and caller', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { env } = createEnv();
+
+    const response = await gateway.fetch(
+      publicPost('/begin', { url: 'https://example.com/a', request_id: 'req-ok-8', steps: ['render'] }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(403);
+    expect(warnSpy).toHaveBeenCalledWith('[gateway] /begin refused', {
+      id: 'req-ok-8',
+      status: 403,
+      code: 'OPTION_NOT_ALLOWED',
+      caller: 'public'
+    });
   });
 });
 
