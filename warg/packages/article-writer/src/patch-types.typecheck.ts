@@ -1,5 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type {
+  ArchiveFinalizePatch,
+  ArchiveUploadJournalPatch,
   BackfillUpsertPatch,
   BootstrapBackfillPatch,
   EnqueueUserArticlePatch,
@@ -154,4 +156,39 @@ const _failure: FailurePatch = {
   ...failure,
   // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the failure map
   not_a_field: 1,
+};
+
+const _uploadJournal: ArchiveUploadJournalPatch = {
+  item_id: 'i', url: 'u', domain: 'd', updated_at: now, archives: {},
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the shared article
+  not_a_field: 1,
+};
+
+const _uploadJournalKey: ArchiveUploadJournalPatch = {
+  item_id: 'i', url: 'u', domain: 'd', updated_at: now,
+  archives: {
+    // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not an archive key of the gateway
+    gateway_begin: { status: 'uploading' },
+  },
+};
+
+const _finalize: ArchiveFinalizePatch = {
+  updated_at: now,
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the shared article
+  not_a_field: 1,
+};
+
+const _finalizeKey: ArchiveFinalizePatch = {
+  updated_at: now,
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not an archive key of the gateway
+  'archives.gateway_begin': { status: 'success' },
+};
+
+const _finalizeEntry: ArchiveFinalizePatch = {
+  updated_at: now,
+  'archives.pdf': {
+    status: 'success',
+    // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of a gateway archive entry
+    not_an_entry_field: 1,
+  },
 };
