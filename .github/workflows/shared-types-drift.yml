@@ -27,6 +27,7 @@ jobs:
     # Runs unconditionally when this workflow is triggered. The workflow-level
     # paths filter gates it to changes that touch android/warg/shared-types.
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
