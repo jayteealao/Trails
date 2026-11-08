@@ -265,6 +265,213 @@ export function markSharedArticleProcessing(
   return ref.set(buildSharedArticleProcessingPatch(input, now), { merge: true });
 }
 
+// --- setSharedArticleDerivedStatus: the status trigger writes the derived status, ref.set merge ---
+
+export interface SharedArticleDerivedStatusPatch {
+  status: string;
+  status_updated_at: Timestamp;
+}
+
+export function buildSharedArticleDerivedStatusPatch(
+  status: string,
+  now: Timestamp = Timestamp.now()
+): SharedArticleDerivedStatusPatch {
+  return { status, status_updated_at: now };
+}
+
+/** Merges exactly `status` and its time, so the fields of every other writer stay as they are. */
+export function setSharedArticleDerivedStatus(
+  ref: DocumentReference,
+  status: string,
+  now: Timestamp = Timestamp.now()
+): Promise<WriteResult> {
+  return ref.set(buildSharedArticleDerivedStatusPatch(status, now), { merge: true });
+}
+
+// --- upsertSharedArticleForBackfill: the backfill creates or fills the article before a start, ref.set merge ---
+
+export interface BackfillUpsertPatch {
+  item_id: string;
+  url: string;
+  domain: string;
+  retry_count: number;
+  updated_at: Timestamp;
+  created_at?: Timestamp;
+  archives?: Record<never, never>;
+  pocket?: PocketInput;
+  stats?: NewArticleStats;
+}
+
+export interface BackfillArticle {
+  itemId: string;
+  url: string;
+  domain: string;
+  pocket: PocketInput;
+  retryCount: number;
+}
+
+/**
+ * The base fields and the retry count; for a new article (`existing` undefined)
+ * also `created_at`, empty `archives`, `pocket` and the stats seed, and for an
+ * existing one only those of `created_at`, `pocket` and `stats` it lacks (a
+ * falsy value counts as missing). `status` is left to the status trigger.
+ */
+export function buildBackfillUpsertPatch(
+  existing: DocumentData | undefined,
+  input: BackfillArticle,
+  now: Timestamp = Timestamp.now()
+): BackfillUpsertPatch {
+  const patch: BackfillUpsertPatch = {
+    item_id: input.itemId,
+    url: input.url,
+    domain: input.domain,
+    retry_count: input.retryCount,
+    updated_at: now,
+  };
+  if (existing === undefined) {
+    patch.created_at = now;
+    patch.archives = {};
+    patch.pocket = input.pocket;
+    patch.stats = newArticleStats();
+    return patch;
+  }
+  if (!existing['created_at']) patch.created_at = now;
+  if (!existing['pocket']) patch.pocket = input.pocket;
+  if (!existing['stats']) patch.stats = newArticleStats();
+  return patch;
+}
+
+export function upsertSharedArticleForBackfill(
+  ref: DocumentReference,
+  patch: BackfillUpsertPatch
+): Promise<WriteResult> {
+  return ref.set(patch, { merge: true });
+}
+
+// --- markSharedArticleBackfillBegun: the archive start of the backfill was accepted, ref.set merge ---
+
+export interface SharedArticleBackfillBegunPatch {
+  warg_request_id: string;
+  processing_started_at: Timestamp;
+  updated_at: Timestamp;
+  /** Always FieldValue.delete(): the earlier failure no longer holds. */
+  error: FieldValue;
+}
+
+/** The two times are separate inputs: the backfill reads its clock once for each. */
+export interface BackfillBegun {
+  requestId: string;
+  processingStartedAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export function buildSharedArticleBackfillBegunPatch(input: BackfillBegun): SharedArticleBackfillBegunPatch {
+  return {
+    warg_request_id: input.requestId,
+    processing_started_at: input.processingStartedAt,
+    updated_at: input.updatedAt,
+    error: FieldValue.delete(),
+  };
+}
+
+export function markSharedArticleBackfillBegun(ref: DocumentReference, input: BackfillBegun): Promise<WriteResult> {
+  return ref.set(buildSharedArticleBackfillBegunPatch(input), { merge: true });
+}
+
+// --- recordSharedArticleBackfillFailure: the archive start of the backfill failed, ref.set merge ---
+
+/** An archive entry the backfill writes itself; `created_at` is an ISO string. */
+export interface ArchiveEventEntry {
+  status: string;
+  error: string;
+  created_at: string;
+}
+
+export interface FailurePatch {
+  class: string;
+  last_seen_at: Timestamp;
+  /** Always FieldValue.increment(1). */
+  count: FieldValue;
+  last_error_message: string;
+  first_seen_at?: Timestamp;
+}
+
+export interface SharedArticleBackfillFailurePatch {
+  archives: { gateway_begin: ArchiveEventEntry };
+  failure: FailurePatch;
+  error: string;
+  failed_at: Timestamp;
+  retry_count: number;
+  updated_at: Timestamp;
+}
+
+export interface BackfillFailure {
+  failureClass: string;
+  message: string;
+  failedAt: Timestamp;
+  retryCount: number;
+  /** True for the first recorded failure: the patch then sets `failure.first_seen_at`. */
+  firstSeen: boolean;
+}
+
+export function buildSharedArticleBackfillFailurePatch(input: BackfillFailure): SharedArticleBackfillFailurePatch {
+  const failure: FailurePatch = {
+    class: input.failureClass,
+    last_seen_at: input.failedAt,
+    count: FieldValue.increment(1),
+    last_error_message: input.message,
+  };
+  if (input.firstSeen) failure.first_seen_at = input.failedAt;
+  return {
+    archives: {
+      gateway_begin: { status: 'failed', error: input.message, created_at: input.failedAt.toDate().toISOString() },
+    },
+    failure,
+    error: input.message,
+    failed_at: input.failedAt,
+    retry_count: input.retryCount,
+    updated_at: input.failedAt,
+  };
+}
+
+export function recordSharedArticleBackfillFailure(
+  ref: DocumentReference,
+  input: BackfillFailure
+): Promise<WriteResult> {
+  return ref.set(buildSharedArticleBackfillFailurePatch(input), { merge: true });
+}
+
+// --- settleStuckSharedArticle: a backfill batch item never finished, ref.set merge ---
+
+/** The error of an archive the backfill gave up waiting for. */
+export const STUCK_ARCHIVE_ERROR = 'Stuck: no completion after 30 minutes';
+
+export interface SharedArticleStuckPatch {
+  archives: { workflow_settlement: ArchiveEventEntry };
+  error: string;
+  failed_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export function buildSharedArticleStuckPatch(now: Timestamp = Timestamp.now()): SharedArticleStuckPatch {
+  return {
+    archives: {
+      workflow_settlement: { status: 'stuck', error: STUCK_ARCHIVE_ERROR, created_at: now.toDate().toISOString() },
+    },
+    error: STUCK_ARCHIVE_ERROR,
+    failed_at: now,
+    updated_at: now,
+  };
+}
+
+/** Records the settlement under `archives.workflow_settlement`, so the status trigger has its signal. */
+export function settleStuckSharedArticle(
+  ref: DocumentReference,
+  now: Timestamp = Timestamp.now()
+): Promise<WriteResult> {
+  return ref.set(buildSharedArticleStuckPatch(now), { merge: true });
+}
+
 // Every patch of the shared article writes only the names of SHARED_ARTICLE_FIELDS.
 type _SharedPatchesUseListedFields = [
   Expect<OnlyFields<CreateSharedArticlePatch, SharedArticleField>>,
@@ -274,4 +481,9 @@ type _SharedPatchesUseListedFields = [
   Expect<OnlyFields<BootstrapSharedArticlePatch, SharedArticleField>>,
   Expect<OnlyFields<BootstrapBackfillPatch, SharedArticleField>>,
   Expect<OnlyFields<SharedArticleProcessingPatch, SharedArticleField>>,
+  Expect<OnlyFields<SharedArticleDerivedStatusPatch, SharedArticleField>>,
+  Expect<OnlyFields<BackfillUpsertPatch, SharedArticleField>>,
+  Expect<OnlyFields<SharedArticleBackfillBegunPatch, SharedArticleField>>,
+  Expect<OnlyFields<SharedArticleBackfillFailurePatch, SharedArticleField>>,
+  Expect<OnlyFields<SharedArticleStuckPatch, SharedArticleField>>,
 ];
