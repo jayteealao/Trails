@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { ArchiveManifest, ArchiveOptions } from '@warg/shared';
-import { getCheckpointKey } from '@warg/shared';
+import { getCheckpointKey, getOptionsKey } from '@warg/shared';
+import { createCheckpoint, markArtifactsPersisted, recordArtifacts } from './checkpoint.js';
 import {
   accessBlockedResponse,
   deadHostRenderFailure,
   errorOf,
   eventsOfType,
+  fakeArtifact,
   makeEvent,
+  makeFakeBucket,
   makeFakeEnv,
   makeFakeStep,
   resultOf,
@@ -260,6 +263,35 @@ describe('ArchiveWorkflow.run', () => {
       expect(second.run.names).toEqual(first.run.names);
       expect(second.fake.calls.RENDERER).toHaveLength(0);
       expect(persistedSteps(second.fake).sort()).toEqual(['monolith', 'readability', 'singlefile']);
+    });
+
+    it('skips render in a new instance whose stored checkpoint has it persisted', async () => {
+      const bucket = makeFakeBucket();
+      const renderArtifacts = [
+        fakeArtifact(REQUEST_ID, 'rendered.html'),
+        fakeArtifact(REQUEST_ID, 'rendered.md'),
+      ];
+      const stored = createCheckpoint(REQUEST_ID, getOptionsKey(REQUEST_ID), true);
+      recordArtifacts(stored, 'render', renderArtifacts);
+      markArtifactsPersisted(
+        stored,
+        renderArtifacts.map((artifact) => ({ kind: artifact.kind, gcsPath: `gs://archive/${artifact.kind}` }))
+      );
+      await bucket.put(getCheckpointKey(REQUEST_ID), JSON.stringify(stored));
+
+      const { fake, run, outcome } = await runRequest({}, { bucket });
+
+      const result = resultOf(outcome);
+      expect(fake.calls.RENDERER).toHaveLength(0);
+      expect(run.names).not.toContain('render');
+      expect(run.names.filter((name) => name.startsWith('write-manifest-render-'))).toHaveLength(0);
+      expect(persistedSteps(fake).sort()).toEqual(['monolith', 'readability', 'singlefile']);
+      expect(fake.calls.SINGLEFILE).toHaveLength(1);
+      expect(fake.calls.READABILITY).toHaveLength(1);
+      expect(fake.calls.MONOLITH).toHaveLength(1);
+
+      const kinds = storedManifest(fake.bucket, result.manifestKey).artifacts.map((artifact) => artifact.kind);
+      expect(kinds).toEqual(expect.arrayContaining(['rendered.html', 'rendered.md']));
     });
   });
 });
