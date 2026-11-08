@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "22.20.1",
+    "@warg/article-writer": "workspace:*",
     "@warg/url-normalizer": "workspace:*",
     "@warg/user-triggers": "workspace:*",
     "typescript": "^5.7.0",
