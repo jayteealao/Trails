@@ -3,8 +3,8 @@ import {
   markSharedArticleArchiveStarted,
   markSharedArticleFailed,
   markUserArticleArchivalTriggered,
+  projectPocket,
   recordUserArticleError,
-  type PocketInput,
 } from '@warg/article-writer';
 import { InvalidSharedIdError, SharedIdConflictError, isValidSharedId, linkUserArticle } from './link.js';
 
@@ -40,17 +40,6 @@ async function recordFailure(itemId: string, write: () => Promise<unknown>): Pro
   } catch (error) {
     console.error(`[onUserArticleSave] Could not record the failure of ${itemId}:`, error);
   }
-}
-
-/** The pocket map a shared article created by this save starts with. */
-export function pocketFromSave(data: Record<string, unknown>): PocketInput {
-  return {
-    favorite: data['favorite'] ?? '',
-    resolved_id: data['resolvedId'] ?? '',
-    status: data['status'] ?? '',
-    time_added: data['timeAdded'] ?? 0,
-    time_read: data['timeRead'] ?? 0,
-  };
 }
 
 export type HandleResult = 'missing-url' | 'invalid-id' | 'conflict' | 'linked' | 'created' | 'already-linked' | 'error';
@@ -95,7 +84,7 @@ export async function handleUserArticleCreated(
   }
 
   try {
-    const outcome = await linkUserArticle(db, { userId, itemId, url: url as string, pocket: pocketFromSave(data) });
+    const outcome = await linkUserArticle(db, { userId, itemId, url: url as string, pocket: projectPocket(data, itemId) });
     console.log(
       `[onUserArticleSave] ${itemId} linked to shared article ${outcome.canonicalId}` +
         ` (created: ${outcome.created}, already linked: ${outcome.alreadyLinked})`

@@ -89,9 +89,7 @@ test('the reader shared-id shape accepts every id a creator makes, and the creat
 // @warg/article-writer. These files still hold an older copy; each one leaves
 // the list when its callers move to the module, and a file that adds a copy
 // fails the test.
-const KNOWN_COPIES = [
-  'user-triggers/src/handler.ts',
-];
+const KNOWN_COPIES = [];
 
 const COPY_DECLARATION =
   /\bconst SHARED_ID_SHAPE\b|\bfunction (?:resolveCanonical(?!Candidates)\w*|readCanonicalId|mergedTarget\w*|followMergedIntoOnce|readSharedArticle\w*|buildPocket|pocketFromSave|asPocketTime|projectPocket)\s*[(<]/;

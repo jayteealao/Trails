@@ -78,7 +78,8 @@ const createWrites = () => [
     created_at: '<timestamp>',
     status: 'pending',
     archives: {},
-    pocket: { favorite: '1', resolved_id: '', status: '', time_added: 5, time_read: 0 },
+    // resolved_id is the shared article's own id, never blank (it was '' before the one pocket projection).
+    pocket: { favorite: '1', resolved_id: ITEM, status: '', time_added: 5, time_read: 0 },
     stats: { last_accessed: '', total_saves: 1, total_views: 0 },
   }),
   marker(ITEM),
