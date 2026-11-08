@@ -6,9 +6,11 @@
  *     ("## Firestore field names (snake_case)") appear, as property keys
  *     (`name:` or `name?:`), in each metadata producer, checked and named on
  *     its own: the gcs worker metadata builder (warg/workers/gcs/src/metadata.ts),
- *     the gcs worker finalize request (warg/workers/gcs/src/types.ts) and the
- *     archive gateway finalize request and article document
- *     (warg/cloud-functions/archive-gateway/src/types.ts); and, as string
+ *     the gcs worker finalize request (warg/workers/gcs/src/types.ts), the
+ *     archive gateway finalize request
+ *     (warg/cloud-functions/archive-gateway/src/types.ts) and the article
+ *     writer's stored metadata (warg/packages/article-writer/src/shared-article.ts);
+ *     and, as string
  *     literal map keys, in the Trails consumer (ArchiveService.kt). A field a
  *     file does not carry on purpose is a row of "## Accepted differences" in
  *     the same doc, with a reason; a row with no reason, an unknown field or
@@ -70,13 +72,18 @@ const repoRoot = parseRoot(process.argv.slice(2));
 const CANONICAL_DOC = 'shared-types/WargMetadata.md';
 // The metadata producers, each checked and named on its own: the gcs worker
 // builds the map and types the finalize request; the archive gateway receives
-// that request and writes it to the article document.
+// that request; the article writer types the metadata it stores on the
+// article document.
 const METADATA_PRODUCERS: readonly { path: string; role: string }[] = [
   { path: 'warg/workers/gcs/src/metadata.ts', role: 'gcs worker metadata builder' },
   { path: 'warg/workers/gcs/src/types.ts', role: 'gcs worker finalize request' },
   {
     path: 'warg/cloud-functions/archive-gateway/src/types.ts',
-    role: 'archive gateway finalize request and article document',
+    role: 'archive gateway finalize request',
+  },
+  {
+    path: 'warg/packages/article-writer/src/shared-article.ts',
+    role: 'article writer stored metadata',
   },
 ];
 const TRAILS_SOURCE =

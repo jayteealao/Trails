@@ -481,9 +481,19 @@ export function settleStuckSharedArticle(
 
 // --- journalSharedArticleUploads: the archive gateway journals the uploads it signs, ref.set merge ---
 
-/** An archive entry the archive gateway writes; the times are ISO strings. */
+/**
+ * An archive entry the archive gateway writes; the times are ISO strings.
+ *
+ * Lifecycle:
+ *   uploading → success    (happy path, finalized after the GCS upload)
+ *   uploading → failed     (the upload itself errored)
+ *   uploading → <stuck>    (the worker died; the reconciler promotes the entry
+ *                           from GCS truth when the bytes are present)
+ *
+ * `pending` is kept for older documents written before the journal-then-act change.
+ */
 export interface GatewayArchiveEntry {
-  status: string;
+  status: 'pending' | 'uploading' | 'success' | 'failed';
   gcs_path?: string;
   gcs_bucket?: string;
   compressed_size?: number;

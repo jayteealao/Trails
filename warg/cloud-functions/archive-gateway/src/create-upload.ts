@@ -5,14 +5,14 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import {
   buildArchiveUploadJournalPatch,
   journalSharedArticleUploads,
-  type GatewayArchiveEntries
+  type GatewayArchiveEntries,
+  type GatewayArchiveEntry
 } from '@warg/article-writer';
 import type {
   CreateUploadRequest,
   CreateUploadResponse,
   UploadEntry,
-  ArtifactKind,
-  ArchiveEntry
+  ArtifactKind
 } from './types.js';
 import { GCS_PATH_CONFIG, KIND_TO_ARCHIVE_KEY } from './types.js';
 import { logEvent } from './logging.js';
@@ -85,7 +85,7 @@ export async function handleCreateUpload(
     // Check if document exists
     const existingDoc = await docRef.get();
     const existingArchives = existingDoc.exists
-      ? ((existingDoc.data()?.['archives'] as Record<string, ArchiveEntry> | undefined) ?? {})
+      ? ((existingDoc.data()?.['archives'] as Record<string, GatewayArchiveEntry> | undefined) ?? {})
       : {};
 
     // Journal-then-act (Plan 3a, plans/article-status-recovery.md):

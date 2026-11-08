@@ -190,12 +190,13 @@ The Warg gcs worker produces the metadata map:
 [`warg/workers/gcs/src/metadata.ts`](../warg/workers/gcs/src/metadata.ts)
 builds it from the readability result, and `FinalizeRequest.metadata` in
 [`warg/workers/gcs/src/types.ts`](../warg/workers/gcs/src/types.ts) types the
-finalize request that carries it. The archive gateway receives that request:
-`FinalizeRequest.metadata` and the Firestore document shape `ArticleDocument`
-in
-[`warg/cloud-functions/archive-gateway/src/types.ts`](../warg/cloud-functions/archive-gateway/src/types.ts)
-type what it writes to the article document. The drift check reads all three
-files and names the one that lacks a field.
+finalize request that carries it. The archive gateway receives that request,
+typed by `FinalizeRequest.metadata` in
+[`warg/cloud-functions/archive-gateway/src/types.ts`](../warg/cloud-functions/archive-gateway/src/types.ts),
+and stores it through the article writer: `ArticleMetadata` in
+[`warg/packages/article-writer/src/shared-article.ts`](../warg/packages/article-writer/src/shared-article.ts)
+is the one type of the metadata on the article document. The drift check reads
+all four files and names the one that lacks a field.
 
 ## Consumer
 
@@ -212,8 +213,9 @@ differences" above.
 1. Add a row to the table above.
 2. Add it to `buildFinalizeMetadata()` in `warg/workers/gcs/src/metadata.ts`,
    to `FinalizeRequest.metadata` in `warg/workers/gcs/src/types.ts`, and to
-   `FinalizeRequest.metadata` and `ArticleDocument.metadata` in
-   `warg/cloud-functions/archive-gateway/src/types.ts`.
+   `FinalizeRequest.metadata` in
+   `warg/cloud-functions/archive-gateway/src/types.ts`, and to `ArticleMetadata`
+   in `warg/packages/article-writer/src/shared-article.ts`.
 3. Add it to Trails' `WargMetadata` data class if Trails needs to surface it.
    If Trails does not read it, add a row for it under "Accepted differences"
    with the reason.

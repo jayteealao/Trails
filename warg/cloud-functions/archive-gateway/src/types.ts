@@ -1,6 +1,6 @@
 // GCS worker contract — keep in sync with workers/gcs/src/types.ts
 
-import type { GatewayArchiveKey, Pocket } from '@warg/article-writer';
+import type { GatewayArchiveKey } from '@warg/article-writer';
 
 /**
  * Log level for events.
@@ -147,56 +147,6 @@ export interface FinalizeResponse {
   status: string;
 }
 
-/**
- * Archive entry in Firestore document.
- *
- * Lifecycle:
- *   uploading → success    (happy path, finalized after GCS upload)
- *   uploading → failed     (the upload itself errored)
- *   uploading → <stuck>    (worker died; reconcile-archives-map.mjs promotes
- *                           from GCS truth if bytes are present)
- *
- * `pending` is retained for backward-compat with older docs written before
- * the journal-then-act change landed.
- */
-export interface ArchiveEntry {
-  status: 'pending' | 'uploading' | 'success' | 'failed';
-  gcs_path?: string;
-  gcs_bucket?: string;
-  compressed_size?: number;
-  compression_ratio?: number;
-  started_at?: string;
-  created_at?: string;
-}
-
-/**
- * Firestore document structure for articles collection.
- */
-export interface ArticleDocument {
-  item_id: string;
-  url: string;
-  domain: string;
-  created_at: FirebaseFirestore.Timestamp;
-  updated_at: FirebaseFirestore.Timestamp;
-  pocket: Pocket;
-  metadata: {
-    byline: string;
-    excerpt: string;
-    published_time: string | null;
-    site_name: string | null;
-    title: string;
-    word_count: number;
-    // Absent on docs finalized before the field existed.
-    lead_image?: string | null;
-  };
-  archives: Record<string, ArchiveEntry>;
-  stats: {
-    last_accessed: string;
-    total_saves: number;
-    total_views: number;
-  };
-  images: Array<{ src: string; height?: number; width?: number }>;
-}
 
 /**
  * Mapping from artifact kind to archive key in Firestore.
