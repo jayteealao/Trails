@@ -11,6 +11,7 @@ overrides:
   protobufjs: '>=7.6.4 <8'
   path-to-regexp: '>=0.1.13'
   express>path-to-regexp: ~0.1.13
+  wrangler>path-to-regexp: 6.3.0
   fast-xml-parser: '>=5.5.6'
   basic-ftp: '>=5.3.1'
   minimatch: '>=9.0.7'
@@ -3912,6 +3913,9 @@ packages:
 
   path-to-regexp@0.1.13:
     resolution: {integrity: sha512-A/AGNMFN3c8bOlvV9RreMdrv7jsmF9XIfDeCd87+I8RNg6s78BhJxMu69NEMHBSJFxKidViTEdruRwEk/WIKqA==}
+
+  path-to-regexp@6.3.0:
+    resolution: {integrity: sha512-Yhpw4T9C6hPpgPeA28us07OJeqZ5EzQTkbfwuhsUg0c237RomFoETJgmp2sa3F/41gfLE6G5cqcYwznmeEeOlQ==}
 
   path-to-regexp@8.4.2:
     resolution: {integrity: sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA==}
@@ -8516,6 +8520,8 @@ snapshots:
 
   path-to-regexp@0.1.13: {}
 
+  path-to-regexp@6.3.0: {}
+
   path-to-regexp@8.4.2: {}
 
   pathe@2.0.3: {}
@@ -9603,7 +9609,7 @@ snapshots:
       blake3-wasm: 2.1.5
       esbuild: 0.28.1
       miniflare: 4.20260708.1
-      path-to-regexp: 8.4.2
+      path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
       workerd: 1.20260708.1
     optionalDependencies:
@@ -9620,7 +9626,7 @@ snapshots:
       blake3-wasm: 2.1.5
       esbuild: 0.28.1
       miniflare: 5.20261006.0-alpha(@types/node@26.1.1)
-      path-to-regexp: 8.4.2
+      path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
       workerd: 1.20261006.1
     optionalDependencies:
