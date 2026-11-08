@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isProxyErrorPage } from './render-content.js';
+import { isProxyErrorPage, PROXY_ERROR_PAGE_MAX_LENGTH } from './render-content.js';
 
 // Byte-exact copy of the 275-byte stub archived by the 2026-09-04 canary:
 // Chrome's plain-text rendering of the proxy's DNS failure, served as HTTP 200.
@@ -168,5 +168,42 @@ describe('isProxyErrorPage — void tags and empty nodes beside the pre', () => 
     const text = `dial tcp: no such host ${'x'.repeat(600)}`;
     const page = `<html><body><pre>${text}</pre><br></body></html>`;
     expect(isProxyErrorPage(page)).toBe(false);
+  });
+});
+
+// The observed stub, padded with whitespace inside <body> to an exact length.
+function padStubTo(length: number): string {
+  const closing = '</body></html>';
+  const head = DEAD_HOST_STUB.slice(0, -closing.length);
+  return head + ' '.repeat(length - DEAD_HOST_STUB.length) + closing;
+}
+
+describe('isProxyErrorPage — bounded input', () => {
+  it('accepts a 5 MB document without treating it as a stub', () => {
+    const page = padStubTo(DEAD_HOST_STUB.length + 5 * 1024 * 1024);
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+
+  it('still reads a stub of exactly the limit and ignores one character more', () => {
+    const atLimit = padStubTo(PROXY_ERROR_PAGE_MAX_LENGTH);
+    const pastLimit = padStubTo(PROXY_ERROR_PAGE_MAX_LENGTH + 1);
+    expect(atLimit.length).toBe(PROXY_ERROR_PAGE_MAX_LENGTH);
+    expect(pastLimit.length).toBe(PROXY_ERROR_PAGE_MAX_LENGTH + 1);
+    expect(isProxyErrorPage(atLimit)).toBe(true);
+    expect(isProxyErrorPage(pastLimit)).toBe(false);
+  });
+
+  it('returns at once for a long run of unclosed tags instead of scanning it', () => {
+    const page = '<a'.repeat(Math.ceil((PROXY_ERROR_PAGE_MAX_LENGTH + 1) / 2));
+    const started = performance.now();
+    const verdict = isProxyErrorPage(page);
+    const elapsed = performance.now() - started;
+    expect(verdict).toBe(false);
+    expect(elapsed).toBeLessThan(50);
+  });
+
+  it('keeps the limit large enough for a stub with a heavy head', () => {
+    expect(Number.isInteger(PROXY_ERROR_PAGE_MAX_LENGTH)).toBe(true);
+    expect(PROXY_ERROR_PAGE_MAX_LENGTH).toBeGreaterThanOrEqual(16 * 1024);
   });
 });
