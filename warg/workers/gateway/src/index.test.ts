@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import gateway from './index.js';
-import { GATEWAY_ERROR_CODES, MAX_OPTIONS_BYTES } from './util.js';
+import { GATEWAY_ERROR_CODES, MAX_OPTIONS_BYTES, PUBLIC_STATUS_STREAM_MAX_MS } from './util.js';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -619,5 +619,114 @@ describe('begin keeps dryRun and steps for the internal key', () => {
     expect(response.status).toBe(201);
     expect(storedOptions(env)).toEqual([{ url, dryRun: true, steps: ['render'] }]);
     expect(workflowFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('public status stream is capped', () => {
+  /** A logger stream that sends `event: init` and stays open, with a spy on its cancel. */
+  function openLoggerStream() {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('event: init\ndata: {"requestId":"abc12345"}\n\n'));
+      },
+      cancel
+    });
+    return { cancel, response: new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }) };
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('streams the logger events and ends with a timeout event at the cap', async () => {
+    const upstream = openLoggerStream();
+    const { env } = createEnv({
+      logger: (url) => (url === 'https://logger/request/abc12345/stream' ? upstream.response : undefined)
+    });
+    const response = await gateway.fetch(publicGet('/status/abc12345/stream'), env, {} as ExecutionContext);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+    expect(response.headers.get('X-Request-Id')).toBe('abc12345');
+
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    const first = await reader.read();
+    expect(decoder.decode(first.value)).toContain('event: init');
+
+    const next = reader.read();
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS);
+    const end = await next;
+    const endText = decoder.decode(end.value);
+    expect(endText).toContain('event: timeout');
+    expect(endText).toContain('"reason":"stream_time_limit"');
+    expect((await reader.read()).done).toBe(true);
+    expect(upstream.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards the Last-Event-ID header to the logger stream', async () => {
+    const upstream = openLoggerStream();
+    let forwarded: string | null = null;
+    const { env } = createEnv({
+      logger: (url, init) => {
+        if (url !== 'https://logger/request/abc12345/stream') return undefined;
+        forwarded = new Headers(init?.headers).get('Last-Event-ID');
+        return upstream.response;
+      }
+    });
+    const request = new Request(`${GATEWAY}/status/abc12345/stream`, {
+      method: 'GET',
+      headers: { 'X-API-Key': 'public-key', 'Last-Event-ID': '42' }
+    });
+    const response = await gateway.fetch(request, env, {} as ExecutionContext);
+    await response.body!.cancel();
+
+    expect(forwarded).toBe('42');
+  });
+
+  it('answers 404 when the logger does not know the request', async () => {
+    const { env } = createEnv({
+      logger: (url) =>
+        url === 'https://logger/request/abc12345/stream' ? jsonResponse({ error: 'Request not found' }, 404) : undefined
+    });
+    const response = await gateway.fetch(publicGet('/status/abc12345/stream'), env, {} as ExecutionContext);
+    const data = (await response.json()) as { code?: unknown; id?: unknown };
+
+    expect(response.status).toBe(404);
+    expect(data.code).toBe('REQUEST_NOT_FOUND');
+    expect(data.id).toBe('abc12345');
+  });
+
+  it.each(['/status/bad%20id!/stream', '/status/abc12345/events', '/status/a/b/stream'])(
+    'answers 400 for %s without calling the logger',
+    async (path) => {
+      const { env, loggerFetch } = createEnv();
+      const response = await gateway.fetch(publicGet(path), env, {} as ExecutionContext);
+      const data = (await response.json()) as { code?: unknown };
+
+      expect(response.status).toBe(400);
+      expect(data.code).toBe('INVALID_REQUEST_ID');
+      expect(loggerFetch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('refuses a stream call with no key', async () => {
+    const { env, loggerFetch } = createEnv();
+    const response = await gateway.fetch(
+      new Request(`${GATEWAY}/status/abc12345/stream`, { method: 'GET' }),
+      env,
+      {} as ExecutionContext
+    );
+    const data = (await response.json()) as { code?: unknown };
+
+    expect(response.status).toBe(401);
+    expect(data.code).toBe('UNAUTHORIZED');
+    expect(loggerFetch).not.toHaveBeenCalled();
   });
 });
