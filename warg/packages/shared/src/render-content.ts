@@ -80,6 +80,18 @@ function dropEmptyElements(html: string): string {
   return current;
 }
 
+/**
+ * Drops contentless void tags (`<br>`, `<wbr>`, `<meta>`, `<link>`,
+ * `<base>`, `<img>`), plain or self-closing. A headless browser's plain-text
+ * render and markup injected around it can put such tags beside the `<pre>`;
+ * having no closing tag, they survive the empty-element strip and would
+ * otherwise defeat the "nothing but a `<pre>`" structural test. `[^<>]*`
+ * stops at the next `<`, so a run of unclosed tags is never rescanned.
+ */
+function dropVoidElements(html: string): string {
+  return html.replace(/<(?:br|wbr|meta|link|base|img)\b[^<>]*\/?>/gi, '');
+}
+
 /** Inner HTML of `<body>`, or the whole document with the shell elements dropped. */
 function extractBodyInner(html: string): string {
   const body = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html);
@@ -112,7 +124,7 @@ export function isProxyErrorPage(html: string): boolean {
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
 
-  const stripped = dropEmptyElements(withoutNoise).trim();
+  const stripped = dropEmptyElements(dropVoidElements(withoutNoise)).trim();
 
   const pre = /^<pre\b[^>]*>([\s\S]*?)<\/pre>$/i.exec(stripped);
   if (!pre) return false;
