@@ -13,10 +13,23 @@ interface CapturedLoggerEvent {
   event: { type: string };
 }
 
-function createEnv() {
+interface CreateEnvOptions {
+  /** Answers a logger call before the default routes; return undefined to fall through. */
+  logger?: (url: string, init?: RequestInit) => Response | undefined | Promise<Response | undefined>;
+  /** Replaces the default workflow reply (a 500). */
+  workflowReply?: () => Response | Promise<Response>;
+  /** Replaces the default ARCHIVE_BUCKET.put. */
+  bucketPut?: () => Promise<void>;
+}
+
+function createEnv(options: CreateEnvOptions = {}) {
   const loggerEvents: CapturedLoggerEvent[] = [];
   const loggerFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input);
+    const override = await options.logger?.(url, init);
+    if (override) {
+      return override;
+    }
     if (url === 'https://logger/request/init') {
       return jsonResponse({ created: true }, 201);
     }
@@ -49,7 +62,9 @@ function createEnv() {
   });
 
   const workflowFetch = vi.fn(async (): Promise<Response> =>
-    jsonResponse({ error: 'Internal error', message: '(instance.already_exists) Instance already exists' }, 500)
+    options.workflowReply
+      ? options.workflowReply()
+      : jsonResponse({ error: 'Internal error', message: '(instance.already_exists) Instance already exists' }, 500)
   );
 
   return {
@@ -59,7 +74,7 @@ function createEnv() {
       LOGGER: { fetch: loggerFetch } as unknown as Fetcher,
       WORKFLOW: { fetch: workflowFetch } as unknown as Fetcher,
       ARCHIVE_BUCKET: {
-        put: vi.fn(async () => {})
+        put: vi.fn(options.bucketPut ?? (async () => {}))
       } as unknown as R2Bucket
     } as Env,
     loggerFetch,
@@ -120,5 +135,76 @@ describe('gateway begin hardening', () => {
     expect(data.retriggered).toBe(0);
     expect(data.skipped).toBe(1);
     expect(workflowFetch).not.toHaveBeenCalled();
+  });
+});
+
+const GATEWAY = 'https://gateway.jayteealao.workers.dev';
+
+function publicPost(path: string, body: unknown, key = 'public-key'): Request {
+  return new Request(`${GATEWAY}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+    body: typeof body === 'string' ? body : JSON.stringify(body)
+  });
+}
+
+function publicGet(path: string, key = 'public-key'): Request {
+  return new Request(`${GATEWAY}${path}`, { method: 'GET', headers: { 'X-API-Key': key } });
+}
+
+function internalPost(path: string, body: unknown, key = 'internal-key'): Request {
+  return new Request(`${GATEWAY}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': key },
+    body: JSON.stringify(body)
+  });
+}
+
+describe('gateway success paths stay unchanged', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('begin returns 201 with exactly { requestId } and the id header', async () => {
+    const { env } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const response = await gateway.fetch(
+      publicPost('/begin', { url: 'https://example.com', request_id: 'req-ok-1' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ requestId: 'req-ok-1' });
+    expect(response.headers.get('X-Request-Id')).toBe('req-ok-1');
+  });
+
+  it('status passes the logger body through byte-for-byte with the id header', async () => {
+    const loggerBody = '{"requestId":"abc12345","stage":"done","events":[]}';
+    const { env } = createEnv({
+      logger: (url) =>
+        url === 'https://logger/request/abc12345'
+          ? new Response(loggerBody, { status: 200, headers: { 'Content-Type': 'application/json' } })
+          : undefined
+    });
+    const response = await gateway.fetch(publicGet('/status/abc12345'), env, {} as ExecutionContext);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(loggerBody);
+    expect(response.headers.get('X-Request-Id')).toBe('abc12345');
+  });
+
+  it('internal log passes the logger status and body through with the id header', async () => {
+    const { env } = createEnv({
+      logger: (url) => (url === 'https://logger/event' ? jsonResponse({ eventId: 7 }, 202) : undefined)
+    });
+    const response = await gateway.fetch(
+      internalPost('/internal/log', { requestId: 'req-log-1', event: { type: 'step.started' } }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ eventId: 7 });
+    expect(response.headers.get('X-Request-Id')).toBe('req-log-1');
   });
 });
