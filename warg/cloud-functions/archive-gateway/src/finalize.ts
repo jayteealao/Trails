@@ -103,6 +103,12 @@ export async function handleFinalize(
       );
     }
 
+    // Firestore rejects an update of a missing document with NOT_FOUND (gRPC code 5).
+    if (typeof err === 'object' && err !== null && 'code' in err && err.code === 5) {
+      res.status(404).json({ error: 'Article not found', firestore_doc_id: reqBody?.firestore_doc_id });
+      return;
+    }
+
     res.status(500).json({ error: 'Internal error', message });
   }
 }
