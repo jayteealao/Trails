@@ -161,7 +161,8 @@ export const GATEWAY_ERROR_CODES = {
   WORKFLOW_TRIGGER_FAILED: 'WORKFLOW_TRIGGER_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   INVALID_OPTIONS: 'INVALID_OPTIONS',
-  OPTION_NOT_ALLOWED: 'OPTION_NOT_ALLOWED'
+  OPTION_NOT_ALLOWED: 'OPTION_NOT_ALLOWED',
+  REQUEST_ID_CONFLICT: 'REQUEST_ID_CONFLICT'
 } as const;
 
 /**
@@ -217,6 +218,34 @@ export const ARCHIVE_OPTION_BOOLEAN_KEYS = [
  * chooses a dry run or the step list. Their presence, whatever the value, is refused.
  */
 export const PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS = ['dryRun', 'steps'] as const;
+
+/**
+ * The key a caller authenticated with on /begin: the internal key or the shared public key.
+ */
+export type CallerKind = 'internal' | 'public';
+
+/**
+ * The custom metadata key of the stored options object that records who first started a request id.
+ */
+export const REQUEST_OWNER_METADATA_KEY = 'owner';
+
+/**
+ * Who may run a request id again. No stored owner (a new id, or options stored before owners
+ * were recorded) gives the id to the caller; the owner itself repeats it; the internal key
+ * re-runs any id and keeps its owner. Any other caller is refused.
+ */
+export function resolveRequestIdOwner(
+  storedOwner: string | undefined,
+  caller: CallerKind
+): { ok: true; owner: string } | { ok: false; storedOwner: string } {
+  if (storedOwner === undefined || storedOwner === caller) {
+    return { ok: true, owner: caller };
+  }
+  if (caller === 'internal') {
+    return { ok: true, owner: storedOwner };
+  }
+  return { ok: false, storedOwner };
+}
 
 /**
  * Archive options as the gateway stores them: only known keys, each of the right type.
