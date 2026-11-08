@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
-import { handleCompletedToday, startOfUtcDay } from '../completed-today.js';
+import type { Firestore } from 'firebase-admin/firestore';
+import { COMPLETED_TODAY_TTL_MS, handleCompletedToday, startOfUtcDay } from '../completed-today.js';
 import { dashboardApi } from '../index.js';
 import { makeFakeDb } from './fake-firestore.js';
 
@@ -88,10 +89,60 @@ test('only articles completed since UTC midnight are counted', async () => {
   });
 
   const { res, captured } = captureResponse();
-  await handleCompletedToday({} as Request, res, { db, userId: 'u', now: () => NOW });
+  await handleCompletedToday({} as Request, res, { db, userId: 'u', now: () => NOW, cache: new Map() });
 
   assert.equal(captured.status, 200);
   assert.deepEqual(captured.body, { completedToday: 4, since: TODAY });
+});
+
+test('a count is reused for a short while, then read again', async () => {
+  const { db, log } = makeFakeDb({
+    userArticles: { a: userDoc('a') },
+    articles: { a: complete([TODAY, TODAY, TODAY, TODAY]) },
+  });
+  const cache = new Map();
+  let now = NOW.getTime();
+  const call = async () => {
+    const { res, captured } = captureResponse();
+    await handleCompletedToday({} as Request, res, { db, userId: 'u', now: () => new Date(now), cache });
+    return captured.body;
+  };
+
+  // Three loads at once and one a little later read the articles once.
+  const bodies = await Promise.all([call(), call(), call()]);
+  now += COMPLETED_TODAY_TTL_MS - 1;
+  bodies.push(await call());
+  assert.equal(log.getAllCalls, 1);
+  for (const body of bodies) assert.deepEqual(body, { completedToday: 1, since: TODAY });
+
+  // Once the time is up, the next load reads again.
+  now += 1;
+  await call();
+  assert.equal(log.getAllCalls, 2);
+
+  // A new UTC day reads again at once, with the new day start.
+  now = Date.parse('2026-11-09T00:00:01Z');
+  assert.deepEqual(await call(), { completedToday: 0, since: '2026-11-09T00:00:00.000Z' });
+  assert.equal(log.getAllCalls, 3);
+});
+
+test('a failed read is not reused', async () => {
+  let reads = 0;
+  const failing = {
+    collection() {
+      reads += 1;
+      throw new Error('firestore down');
+    },
+  } as unknown as Firestore; // Only the method the read calls first.
+  const cache = new Map();
+  for (let i = 0; i < 2; i += 1) {
+    const { res } = captureResponse();
+    await assert.rejects(
+      handleCompletedToday({} as Request, res, { db: failing, userId: 'u', now: () => NOW, cache }),
+      /firestore down/
+    );
+  }
+  assert.equal(reads, 2);
 });
 
 const KEY_NAMES = ['DASHBOARD_API_KEY', 'INTERNAL_API_KEY', 'KEY_ROTATION_DUAL_ACCEPT'];

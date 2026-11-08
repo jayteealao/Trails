@@ -38,23 +38,60 @@ export function countCompletedSince(items: ArticleListItem[], sinceMs: number): 
   }).length;
 }
 
+/** How long a count is reused before the articles are read again. */
+export const COMPLETED_TODAY_TTL_MS = 60_000;
+
+interface CachedCount {
+  since: string;
+  expiresAt: number;
+  body: Promise<CompletedTodayResponse>;
+}
+
+/** Counts by dashboard user, so a burst of inbox loads reads the articles once. */
+export type CompletedTodayCache = Map<string, CachedCount>;
+
+const sharedCache: CompletedTodayCache = new Map();
+
+async function countForDay(db: Firestore, userId: string, since: Date): Promise<CompletedTodayResponse> {
+  const items = await readMergedUserArticles(db, userId);
+  return {
+    completedToday: countCompletedSince(items, since.getTime()),
+    since: since.toISOString(),
+  };
+}
+
 /**
  * GET /stats/completed-today handler: the dashboard user's articles (the same
  * bounded read as the filtered list) that became complete since UTC midnight.
+ * The read covers up to 2000 articles, so the count is reused for
+ * COMPLETED_TODAY_TTL_MS (and for every call while a read is in flight); a new
+ * UTC day or a failed read starts a fresh one.
  */
 export async function handleCompletedToday(
   _req: Request,
   res: Response,
-  deps: { db?: Firestore; userId?: string; now?: () => Date } = {}
+  deps: { db?: Firestore; userId?: string; now?: () => Date; cache?: CompletedTodayCache } = {}
 ): Promise<void> {
-  const since = startOfUtcDay((deps.now ?? (() => new Date()))());
-  const items = await readMergedUserArticles(
-    deps.db ?? getFirestore(),
-    deps.userId ?? getDashboardUserId()
-  );
-  const body: CompletedTodayResponse = {
-    completedToday: countCompletedSince(items, since.getTime()),
-    since: since.toISOString(),
-  };
-  res.json(body);
+  const nowMs = (deps.now ?? (() => new Date()))().getTime();
+  const since = startOfUtcDay(new Date(nowMs));
+  const userId = deps.userId ?? getDashboardUserId();
+  const cache = deps.cache ?? sharedCache;
+
+  const cached = cache.get(userId);
+  let entry: CachedCount;
+  if (cached && cached.since === since.toISOString() && cached.expiresAt > nowMs) {
+    entry = cached;
+  } else {
+    entry = {
+      since: since.toISOString(),
+      expiresAt: nowMs + COMPLETED_TODAY_TTL_MS,
+      body: countForDay(deps.db ?? getFirestore(), userId, since),
+    };
+    cache.set(userId, entry);
+    // A failed read is not reused: the next call reads again.
+    entry.body.catch(() => {
+      if (cache.get(userId) === entry) cache.delete(userId);
+    });
+  }
+  res.json(await entry.body);
 }
