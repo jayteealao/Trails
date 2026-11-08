@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import gateway from './index.js';
+import { GATEWAY_ERROR_CODES } from './util.js';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -206,5 +207,133 @@ describe('gateway success paths stay unchanged', () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ eventId: 7 });
     expect(response.headers.get('X-Request-Id')).toBe('req-log-1');
+  });
+});
+
+interface RejectionCase {
+  name: string;
+  request: () => Request;
+  options?: CreateEnvOptions;
+  status: number;
+  code: string;
+  id?: string;
+  idNot?: string;
+}
+
+const loggerThrows = (match: (url: string) => boolean): CreateEnvOptions['logger'] => (url) => {
+  if (match(url)) {
+    throw new Error('logger unavailable');
+  }
+  return undefined;
+};
+
+const REJECTIONS: RejectionCase[] = [
+  { name: '401 begin without a key', request: () => publicPost('/begin', { url: 'https://example.com' }, ''), status: 401, code: 'UNAUTHORIZED' },
+  { name: '401 status with a wrong key', request: () => publicGet('/status/x', 'wrong-key'), status: 401, code: 'UNAUTHORIZED' },
+  { name: '401 internal log without a key', request: () => internalPost('/internal/log', {}, ''), status: 401, code: 'UNAUTHORIZED' },
+  { name: '401 sweep without a key', request: () => internalPost('/internal/sweep-orphan-queued', {}, ''), status: 401, code: 'UNAUTHORIZED' },
+  { name: '400 begin with invalid JSON', request: () => publicPost('/begin', '{not json'), status: 400, code: 'INVALID_JSON' },
+  {
+    name: '400 begin with a bad request_id',
+    request: () => publicPost('/begin', { url: 'https://example.com', request_id: 'bad id!' }),
+    status: 400,
+    code: 'INVALID_REQUEST_ID',
+    idNot: 'bad id!'
+  },
+  { name: '400 begin without a url', request: () => publicPost('/begin', { request_id: 'req-ok-1' }), status: 400, code: 'INVALID_INPUT_URL', id: 'req-ok-1' },
+  {
+    name: '400 begin with an ftp url',
+    request: () => publicPost('/begin', { url: 'ftp://example.com/file', request_id: 'req-ok-1' }),
+    status: 400,
+    code: 'INVALID_INPUT_URL',
+    id: 'req-ok-1'
+  },
+  { name: '400 status with an empty id', request: () => publicGet('/status/'), status: 400, code: 'REQUEST_ID_REQUIRED' },
+  { name: '404 unknown route', request: () => new Request(`${GATEWAY}/nope`), status: 404, code: 'NOT_FOUND' },
+  {
+    name: '404 status of an unknown request',
+    request: () => publicGet('/status/missing1'),
+    options: {
+      logger: (url) =>
+        url === 'https://logger/request/missing1' ? jsonResponse({ error: 'Request not found' }, 404) : undefined
+    },
+    status: 404,
+    code: 'REQUEST_NOT_FOUND',
+    id: 'missing1'
+  },
+  {
+    name: '500 begin when the options write fails',
+    request: () => publicPost('/begin', { url: 'https://example.com', request_id: 'req-ok-1' }),
+    options: { bucketPut: async () => Promise.reject(new Error('bucket down')) },
+    status: 500,
+    code: 'INTERNAL_ERROR',
+    id: 'req-ok-1'
+  },
+  {
+    name: '500 status when the logger throws',
+    request: () => publicGet('/status/x1'),
+    options: { logger: loggerThrows((url) => url === 'https://logger/request/x1') },
+    status: 500,
+    code: 'INTERNAL_ERROR',
+    id: 'x1'
+  },
+  {
+    name: '500 internal log when the logger throws',
+    request: () => internalPost('/internal/log', { requestId: 'req-log-1', event: { type: 'step.started' } }),
+    options: { logger: loggerThrows((url) => url === 'https://logger/event') },
+    status: 500,
+    code: 'INTERNAL_ERROR',
+    id: 'req-log-1'
+  },
+  {
+    name: '500 sweep when the logger list throws',
+    request: () => internalPost('/internal/sweep-orphan-queued', { dryRun: true }),
+    options: { logger: loggerThrows((url) => url.startsWith('https://logger/requests')) },
+    status: 500,
+    code: 'INTERNAL_ERROR'
+  }
+];
+
+describe('gateway rejects with one error contract', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it.each(REJECTIONS)('rejects: $name', async ({ request, options, status, code, id, idNot }) => {
+    const { env } = createEnv(options);
+    const response = await gateway.fetch(request(), env, {} as ExecutionContext);
+    const body = (await response.json()) as { error?: unknown; code?: unknown; id?: unknown };
+
+    expect(response.status).toBe(status);
+    expect(Object.values(GATEWAY_ERROR_CODES)).toContain(body.code);
+    expect(body.code).toBe(code);
+    expect(typeof body.error).toBe('string');
+    expect(body.error).not.toBe('');
+    expect(typeof body.id).toBe('string');
+    expect(body.id).not.toBe('');
+    expect(response.headers.get('X-Request-Id')).toBe(body.id);
+    if (id !== undefined) {
+      expect(body.id).toBe(id);
+    }
+    if (idNot !== undefined) {
+      expect(body.id).not.toBe(idNot);
+    }
+  });
+
+  it('rejects: 502 begin when the workflow trigger fails carries code and id', async () => {
+    const { env } = createEnv();
+    const response = await gateway.fetch(
+      publicPost('/begin', { url: 'https://example.com', request_id: 'req-ok-1' }),
+      env,
+      {} as ExecutionContext
+    );
+    const body = (await response.json()) as { code?: unknown; id?: unknown; requestId?: unknown };
+
+    expect(response.status).toBe(502);
+    expect(body.code).toBe('WORKFLOW_TRIGGER_FAILED');
+    expect(body.id).toBe('req-ok-1');
+    expect(body.requestId).toBe('req-ok-1');
+    expect(response.headers.get('X-Request-Id')).toBe('req-ok-1');
   });
 });
