@@ -302,6 +302,10 @@ test('retry list: an entry whose shared article is now archived leaves without a
 test('retry list: an access failure is not queued, an upstream failure is', async () => {
   for (const [message, queued] of [
     ['Gateway begin failed: 401 Unauthorized', 0],
+    [
+      'Gateway begin failed: 409 {"error":"request_id is already in use by another caller","code":"REQUEST_ID_CONFLICT","id":"sharedF001"}',
+      0,
+    ],
     ['Gateway begin failed: 503 upstream', 1],
   ] as const) {
     const h = harness();

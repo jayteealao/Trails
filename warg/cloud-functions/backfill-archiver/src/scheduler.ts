@@ -146,7 +146,10 @@ function classifyGatewayFailure(message: string): FailureClass {
     lower.includes('forbidden') ||
     lower.includes('cf-access') ||
     lower.includes('x-api-key') ||
-    lower.includes('server misconfigured')
+    lower.includes('server misconfigured') ||
+    // The gateway refuses a request id that the operator (internal key) started: the operator's run
+    // owns the article, so the backfill must not re-submit it.
+    lower.includes('request_id_conflict')
   ) {
     return 'ACCESS_OR_AUTH';
   }

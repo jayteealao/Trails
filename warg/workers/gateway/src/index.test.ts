@@ -20,7 +20,7 @@ interface CreateEnvOptions {
   /** Replaces the default workflow reply (a 500). */
   workflowReply?: () => Response | Promise<Response>;
   /** Replaces the default ARCHIVE_BUCKET.put. */
-  bucketPut?: () => Promise<void>;
+  bucketPut?: (key: string, value: unknown, options?: R2PutOptions) => Promise<R2Object | null | void>;
   /** Replaces the default ARCHIVE_BUCKET.head (no stored object). */
   bucketHead?: (key: string) => Promise<R2Object | null>;
 }
@@ -879,6 +879,76 @@ describe('begin refuses a request id owned by another caller', () => {
 
     expect(response.status).toBe(201);
     expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }]);
+  });
+
+  it('writes a new id only while it is still new, and an existing id only over the object it read', async () => {
+    const { env, bucketPut } = createEnv({ workflowReply: started });
+    await gateway.fetch(publicPost('/begin', { url, request_id: 'req-cond-1' }), env, {} as ExecutionContext);
+    const existing = createEnv({
+      workflowReply: started,
+      bucketHead: async () => ({ etag: 'etag-1', customMetadata: { owner: 'public' } }) as unknown as R2Object
+    });
+    await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-cond-2' }),
+      existing.env,
+      {} as ExecutionContext
+    );
+
+    expect((bucketPut.mock.calls[0]?.[2] as R2PutOptions | undefined)?.onlyIf).toEqual({ etagDoesNotMatch: '*' });
+    expect((existing.bucketPut.mock.calls[0]?.[2] as R2PutOptions | undefined)?.onlyIf).toEqual({
+      etagMatches: 'etag-1'
+    });
+  });
+
+  it('refuses a public caller that loses the first write of a new id to the internal key', async () => {
+    let head: R2Object | null = null;
+    const { env, bucketPut, loggerFetch, workflowFetch } = createEnv({
+      workflowReply: started,
+      bucketHead: async () => head,
+      bucketPut: async () => {
+        // The internal key wrote the object between the owner check and this write.
+        head = { etag: 'etag-2', customMetadata: { owner: 'internal' } } as unknown as R2Object;
+        return null;
+      }
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-race-1' }),
+      env,
+      {} as ExecutionContext
+    );
+    const data = (await response.json()) as { code?: unknown };
+
+    expect(response.status).toBe(409);
+    expect(data.code).toBe('REQUEST_ID_CONFLICT');
+    expect(bucketPut).toHaveBeenCalledTimes(1);
+    expect(loggerFetch).not.toHaveBeenCalled();
+    expect(workflowFetch).not.toHaveBeenCalled();
+  });
+
+  it('starts the archive when the object written in between belongs to the same caller', async () => {
+    let head: R2Object | null = null;
+    let lost = false;
+    const { env, bucketPut, workflowFetch } = createEnv({
+      workflowReply: started,
+      bucketHead: async () => head,
+      bucketPut: async () => {
+        if (lost) return {} as R2Object;
+        lost = true;
+        head = { etag: 'etag-3', customMetadata: { owner: 'public' } } as unknown as R2Object;
+        return null;
+      }
+    });
+    const response = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-race-2' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(bucketPut).toHaveBeenCalledTimes(2);
+    expect((bucketPut.mock.calls[1]?.[2] as R2PutOptions | undefined)?.onlyIf).toEqual({ etagMatches: 'etag-3' });
+    expect(workflowFetch).toHaveBeenCalledTimes(1);
   });
 
   it('keeps an id stored without an owner public when the internal key re-runs it first', async () => {

@@ -191,6 +191,52 @@ async function appendLogEvent(
 /**
  * Verify the public API key from the X-API-Key header.
  */
+/**
+ * The outcome of the owner check of a request id: the owner to record and the condition the options
+ * write must meet, or the owner that refuses the caller.
+ */
+type RequestIdClaim = { ok: true; owner: string; onlyIf?: R2Conditional } | { ok: false; storedOwner: string };
+
+/**
+ * Read the stored owner of a client-chosen request id and decide whether the caller may run it.
+ * The returned condition makes the options write apply only over the object this decision read,
+ * or only while there is still none.
+ */
+async function claimRequestId(bucket: R2Bucket, optionsR2Key: string, caller: CallerKind): Promise<RequestIdClaim> {
+  const existing = await bucket.head(optionsR2Key);
+  const ownership = resolveRequestIdOwner(storedRequestIdOwner(existing), caller);
+  if (!ownership.ok) {
+    return ownership;
+  }
+  return {
+    ok: true,
+    owner: ownership.owner,
+    onlyIf: existing ? { etagMatches: existing.etag } : { etagDoesNotMatch: '*' }
+  };
+}
+
+/**
+ * Write the options object with its owner. Returns false when the claim's condition no longer holds
+ * (another caller wrote the object after the owner check).
+ */
+async function storeOptions(
+  bucket: R2Bucket,
+  optionsR2Key: string,
+  body: string,
+  claim: { owner: string; onlyIf?: R2Conditional }
+): Promise<boolean> {
+  const options: R2PutOptions = {
+    httpMetadata: { contentType: 'application/json' },
+    customMetadata: { [REQUEST_OWNER_METADATA_KEY]: claim.owner }
+  };
+  if (!claim.onlyIf) {
+    await bucket.put(optionsR2Key, body, options);
+    return true;
+  }
+  const written = await bucket.put(optionsR2Key, body, { ...options, onlyIf: claim.onlyIf });
+  return written !== null;
+}
+
 function verifyPublicApiKey(request: Request, env: Env): boolean {
   const apiKey = request.headers.get('X-API-Key');
   if (!apiKey) return false;
@@ -572,24 +618,26 @@ export default {
         // A client-chosen id may be run again only by the caller that first started it, or the internal key.
         // Checked before anything is logged, stored or started.
         const optionsR2Key = getOptionsKey(requestId);
-        let owner: string = callerKind;
+        const refuseRequestId = (storedOwner: string): Response => {
+          console.warn('[gateway] /begin refused a request id owned by another caller', {
+            id: requestId,
+            owner: storedOwner,
+            caller: callerKind
+          });
+          return errorResponse(
+            409,
+            GATEWAY_ERROR_CODES.REQUEST_ID_CONFLICT,
+            'request_id is already in use by another caller',
+            requestId
+          );
+        };
+        // A generated id is new by construction: it is written without a lookup or a condition.
+        let claim: RequestIdClaim = { ok: true, owner: callerKind };
         if (clientChoseRequestId) {
-          const existing = await env.ARCHIVE_BUCKET.head(optionsR2Key);
-          const ownership = resolveRequestIdOwner(storedRequestIdOwner(existing), callerKind);
-          if (!ownership.ok) {
-            console.warn('[gateway] /begin refused a request id owned by another caller', {
-              id: requestId,
-              owner: ownership.storedOwner,
-              caller: callerKind
-            });
-            return errorResponse(
-              409,
-              GATEWAY_ERROR_CODES.REQUEST_ID_CONFLICT,
-              'request_id is already in use by another caller',
-              requestId
-            );
+          claim = await claimRequestId(env.ARCHIVE_BUCKET, optionsR2Key, callerKind);
+          if (!claim.ok) {
+            return refuseRequestId(claim.storedOwner);
           }
-          owner = ownership.owner;
         }
 
         // Validate URL presence and format
@@ -611,11 +659,20 @@ export default {
           return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_INPUT_URL, urlError, requestId);
         }
 
-        // Store options in R2, with the owner of the request id
-        await env.ARCHIVE_BUCKET.put(optionsR2Key, JSON.stringify(validation.options), {
-          httpMetadata: { contentType: 'application/json' },
-          customMetadata: { [REQUEST_OWNER_METADATA_KEY]: owner }
-        });
+        // Store options in R2, with the owner of the request id. The write is conditional on the object the
+        // owner decision read, so a caller that wrote it in between is seen: decide again on what it wrote.
+        const optionsBody = JSON.stringify(validation.options);
+        let storedOptions = await storeOptions(env.ARCHIVE_BUCKET, optionsR2Key, optionsBody, claim);
+        if (!storedOptions) {
+          claim = await claimRequestId(env.ARCHIVE_BUCKET, optionsR2Key, callerKind);
+          if (!claim.ok) {
+            return refuseRequestId(claim.storedOwner);
+          }
+          storedOptions = await storeOptions(env.ARCHIVE_BUCKET, optionsR2Key, optionsBody, claim);
+          if (!storedOptions) {
+            return refuseRequestId('a concurrent caller');
+          }
+        }
 
         // Initialize request in logger
         await initLoggerRequest(env, {
