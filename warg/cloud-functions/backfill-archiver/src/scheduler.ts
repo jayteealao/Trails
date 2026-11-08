@@ -7,6 +7,7 @@ import type {
   Firestore,
   QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
+import { buildBackfillUpsertPatch, upsertSharedArticleForBackfill } from '@warg/article-writer';
 import { buildPocket } from './canonical.js';
 import {
   resolveCanonicalCandidates,
@@ -566,42 +567,19 @@ async function upsertArticleBeforeBegin(
       ? (existingData['failure'] as Record<string, unknown>)
       : null;
   const hadFirstSeenFailure = Boolean(existingFailure?.['first_seen_at']);
-  const now = Timestamp.fromMillis(nowMs);
-
-  // status is derived by articleStatusDerive — don't write it here.
-  const patch: Record<string, unknown> = {
-    item_id: candidate.canonicalItemId,
-    url: candidate.url,
-    domain: candidate.domain,
-    retry_count: retryCount,
-    updated_at: now,
-  };
-
-  if (!existing.exists) {
-    patch['created_at'] = now;
-    patch['archives'] = {};
-    patch['pocket'] = buildPocket(candidate.primaryUserData, candidate.canonicalItemId);
-    patch['stats'] = {
-      last_accessed: '',
-      total_saves: 1,
-      total_views: 0,
-    };
-  } else {
-    const doc = existing.data();
-    if (!doc?.['created_at']) patch['created_at'] = now;
-    if (!doc?.['pocket']) {
-      patch['pocket'] = buildPocket(candidate.primaryUserData, candidate.canonicalItemId);
-    }
-    if (!doc?.['stats']) {
-      patch['stats'] = {
-        last_accessed: '',
-        total_saves: 1,
-        total_views: 0,
-      };
-    }
-  }
-
-  await articleRef.set(patch, { merge: true });
+  // status is derived by articleStatusDerive; the patch leaves it out.
+  const patch = buildBackfillUpsertPatch(
+    existingData,
+    {
+      itemId: candidate.canonicalItemId,
+      url: candidate.url,
+      domain: candidate.domain,
+      pocket: buildPocket(candidate.primaryUserData, candidate.canonicalItemId),
+      retryCount,
+    },
+    Timestamp.fromMillis(nowMs)
+  );
+  await upsertSharedArticleForBackfill(articleRef, patch);
   return { articleRef, hadFirstSeenFailure };
 }
 

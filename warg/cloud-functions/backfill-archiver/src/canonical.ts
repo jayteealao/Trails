@@ -1,4 +1,5 @@
 import type { DocumentData, Firestore } from 'firebase-admin/firestore';
+import type { PocketInput } from '@warg/article-writer';
 
 export function extractDomain(url: string): string {
   try {
@@ -75,7 +76,7 @@ export async function followMergedIntoOnce(
 export function buildPocket(
   userDoc: DocumentData,
   canonicalItemId: string
-): Record<string, unknown> {
+): PocketInput {
   return {
     favorite: userDoc['favorite'] ?? '',
     resolved_id:
