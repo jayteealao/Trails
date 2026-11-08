@@ -15,7 +15,10 @@ import {
   ARCHIVE_OPTION_BOOLEAN_KEYS,
   PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS,
   PUBLIC_STATUS_STREAM_MAX_MS,
-  capEventStream
+  capEventStream,
+  REQUEST_OWNER_METADATA_KEY,
+  resolveRequestIdOwner,
+  type CallerKind
 } from './util.js';
 import { createEvent } from '@warg/shared';
 
@@ -542,5 +545,33 @@ describe('capEventStream', () => {
     await capped.cancel('client gone');
     expect(up.cancel).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('resolveRequestIdOwner', () => {
+  it.each<[string | undefined, CallerKind, boolean, CallerKind | undefined]>([
+    [undefined, 'public', true, 'public'],
+    [undefined, 'internal', true, 'internal'],
+    ['public', 'public', true, 'public'],
+    ['internal', 'internal', true, 'internal'],
+    ['public', 'internal', true, 'public'],
+    ['internal', 'public', false, undefined],
+    ['someone-else', 'public', false, undefined]
+  ])('stored owner %j, caller %j -> ok %j, owner %j', (stored, caller, ok, owner) => {
+    const result = resolveRequestIdOwner(stored, caller);
+    expect(result.ok).toBe(ok);
+    if (result.ok) {
+      expect(result.owner).toBe(owner);
+    }
+  });
+});
+
+describe('request id ownership constants', () => {
+  it('has the REQUEST_ID_CONFLICT code', () => {
+    expect(GATEWAY_ERROR_CODES.REQUEST_ID_CONFLICT).toBe('REQUEST_ID_CONFLICT');
+  });
+
+  it('stores the owner under the owner metadata key', () => {
+    expect(REQUEST_OWNER_METADATA_KEY).toBe('owner');
   });
 });
