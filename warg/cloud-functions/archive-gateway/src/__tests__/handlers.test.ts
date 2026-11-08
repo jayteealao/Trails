@@ -286,3 +286,20 @@ test('create-upload of a new article journals the canonical fields, signs each u
   assert.deepEqual(storage.state.calls, UPLOAD_SIGNING);
   assert.deepEqual(logs.state.posts, UPLOAD_LOGS);
 });
+
+test('create-upload still answers and journals when the event log cannot be reached', async () => {
+  logs.state.mode = 'reject';
+  const out = await send(gatewayRequest({ path: '/create-upload', key: KEY, body: FULL_UPLOAD }));
+  assert.deepEqual(out, UPLOAD_ANSWER);
+  assert.deepEqual(fake.writes, UPLOAD_JOURNAL);
+  assert.deepEqual(storage.state.calls, UPLOAD_SIGNING);
+  assert.deepEqual(logs.state.posts, UPLOAD_LOGS);
+});
+
+test('create-upload still answers when the event log refuses an event, and does not resend it', async () => {
+  logs.state.mode = 400;
+  const out = await send(gatewayRequest({ path: '/create-upload', key: KEY, body: FULL_UPLOAD }));
+  assert.deepEqual(out, UPLOAD_ANSWER);
+  assert.deepEqual(fake.writes, UPLOAD_JOURNAL);
+  assert.deepEqual(logs.state.posts, UPLOAD_LOGS);
+});
