@@ -91,7 +91,6 @@ test('the reader shared-id shape accepts every id a creator makes, and the creat
 // fails the test.
 const KNOWN_COPIES = [
   'user-triggers/src/handler.ts',
-  'user-triggers/src/link.ts',
 ];
 
 const COPY_DECLARATION =

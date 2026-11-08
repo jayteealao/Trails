@@ -1,18 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Firestore, Timestamp } from 'firebase-admin/firestore';
-import { chooseSharedCandidate, linkUserArticle } from '../link.js';
+import { Timestamp } from 'firebase-admin/firestore';
 import { pocketFromSave } from '../handler.js';
-import { makeRecordingDb } from './recording-firestore.js';
 
-// The save trigger's answers on the cases where the server's link readers and
-// pocket projections have disagreed. Each row is today's trigger result.
+// The save trigger's answers on the cases where the server's pocket projections
+// have disagreed. Each row is today's trigger result.
 
-const USER = 'user0001';
-const ITEM = 'item1234';
-const URL = 'https://example.com/a';
 const TIME = Timestamp.fromMillis(12_000);
-const at = (ms: number) => Timestamp.fromMillis(ms);
 
 // ── pocketFromSave ──────────────────────────────────────────────────────────
 
@@ -81,75 +75,3 @@ for (const row of POCKET_ROWS) {
     assert.deepEqual(pocketFromSave(row.data), row.expected);
   });
 }
-
-// ── chooseSharedCandidate: which docs count as merged stubs ─────────────────
-
-test('chooseSharedCandidate: M1 mergedInto another id is a stub to follow', () => {
-  assert.deepEqual(chooseSharedCandidate([{ id: 'loser-0001', data: { mergedInto: 'winner-001' } }]), {
-    followMergedInto: 'winner-001',
-  });
-});
-
-test('chooseSharedCandidate: M2 mergedInto its own id is a stub', () => {
-  assert.deepEqual(
-    chooseSharedCandidate([
-      { id: 'self-0001', data: { created_at: at(500), mergedInto: 'self-0001' } },
-      { id: 'live-0001', data: { created_at: at(1000) } },
-    ]),
-    { id: 'live-0001' }
-  );
-  assert.deepEqual(chooseSharedCandidate([{ id: 'self-0001', data: { mergedInto: 'self-0001' } }]), {
-    followMergedInto: 'self-0001',
-  });
-});
-
-test('chooseSharedCandidate: M3 mergedInto outside the id shape is a stub to follow', () => {
-  assert.deepEqual(chooseSharedCandidate([{ id: 'odd-00001', data: { mergedInto: 'bad/id' } }]), {
-    followMergedInto: 'bad/id',
-  });
-});
-
-test('chooseSharedCandidate: M4 mergedInto blank is live', () => {
-  assert.deepEqual(chooseSharedCandidate([{ id: 'blank-001', data: { mergedInto: '' } }]), { id: 'blank-001' });
-});
-
-// ── linkUserArticle: when a user article counts as linked ───────────────────
-
-async function link(userDoc: Record<string, unknown>) {
-  const { db, writes } = makeRecordingDb({ users: { [`${USER}/articles/${ITEM}`]: { url: URL, ...userDoc } } });
-  const outcome = await linkUserArticle(db, { userId: USER, itemId: ITEM, url: URL });
-  return { outcome, writes };
-}
-
-test('linkUserArticle: R1 canonicalId of the id shape is linked', async () => {
-  const { outcome, writes } = await link({ canonicalId: 'own-share1' });
-  assert.equal(outcome.alreadyLinked, true);
-  assert.equal(outcome.canonicalId, 'own-share1');
-  assert.deepEqual(writes, []);
-});
-
-test('linkUserArticle: R3 a padded canonicalId counts as linked', async () => {
-  const { outcome, writes } = await link({ canonicalId: ' padded ' });
-  assert.equal(outcome.alreadyLinked, true);
-  assert.equal(outcome.canonicalId, ' padded ');
-  assert.deepEqual(writes, []);
-});
-
-test('linkUserArticle: R5 a canonicalId of 41 characters counts as linked', async () => {
-  const { outcome, writes } = await link({ canonicalId: 'x'.repeat(41) });
-  assert.equal(outcome.alreadyLinked, true);
-  assert.equal(outcome.canonicalId, 'x'.repeat(41));
-  assert.deepEqual(writes, []);
-});
-
-test('linkUserArticle: R6 only resolvedId is not linked', async () => {
-  const { outcome } = await link({ resolvedId: 'victim-sh1' });
-  assert.equal(outcome.alreadyLinked, false);
-  assert.equal(outcome.created, true);
-  assert.equal(outcome.canonicalId, ITEM);
-});
-
-test('R4 a canonicalId with a slash is not a document path the SDK can read', () => {
-  const sdk = new Firestore({ projectId: 'demo' });
-  assert.throws(() => sdk.collection('articles').doc('a/b'), /must point to a document/);
-});

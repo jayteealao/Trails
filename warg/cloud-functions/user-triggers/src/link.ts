@@ -4,6 +4,8 @@ import {
   countSharedArticleSaveInTransaction,
   createSharedArticleInTransaction,
   linkUserArticleInTransaction,
+  mergedTargetOf,
+  readCanonicalId,
   type PocketInput,
 } from '@warg/article-writer';
 
@@ -67,11 +69,6 @@ function createdMillis(data: Record<string, unknown>): number {
   return Number.POSITIVE_INFINITY;
 }
 
-function mergedTarget(data: Record<string, unknown>): string | undefined {
-  const value = data['mergedInto'];
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
-}
-
 /**
  * Picks the shared article among docs with one normalized URL: the oldest one
  * that is not a merged stub (a missing created_at sorts last, ties go to the
@@ -87,9 +84,9 @@ export function chooseSharedCandidate(
     if (diff !== 0 && !Number.isNaN(diff)) return diff;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
-  const live = sorted.find((d) => mergedTarget(d.data) === undefined);
+  const live = sorted.find((d) => mergedTargetOf(d.id, d.data) === undefined);
   if (live) return { id: live.id };
-  return { followMergedInto: mergedTarget(sorted[0]!.data)! };
+  return { followMergedInto: mergedTargetOf(sorted[0]!.id, sorted[0]!.data)! };
 }
 
 /** Runs fn, and once more when it fails with ALREADY_EXISTS (gRPC code 6), which the SDK does not retry. */
@@ -176,8 +173,8 @@ export async function linkUserArticle(
         throw new Error(`User article ${itemId} does not exist`);
       }
       const normalizedUrl = normalizeUrl(url);
-      const existingId = userSnap.get('canonicalId');
-      if (typeof existingId === 'string' && existingId.trim() !== '') {
+      const existingId = readCanonicalId(userSnap.data());
+      if (existingId !== undefined) {
         const sharedSnap = await tx.get(articles.doc(existingId));
         return {
           canonicalId: existingId,
@@ -196,7 +193,7 @@ export async function linkUserArticle(
         sharedId = choice.id;
       } else if (choice) {
         const target = await tx.get(articles.doc(choice.followMergedInto));
-        if (target.exists && mergedTarget(target.data() ?? {}) === undefined) {
+        if (target.exists && mergedTargetOf(target.id, target.data()) === undefined) {
           sharedId = target.id;
         }
       }
