@@ -60,7 +60,7 @@ test('the inbox shows the completed count from the dashboard API in its existing
 
   const cells = page.locator('#inboxContent .readout-strip .readout-cell');
   await expect(cells).toHaveCount(3);
-  await expect(cells.locator('.readout-label')).toHaveText(['Needs Attention', 'In Progress', 'Completed (24h)']);
+  await expect(cells.locator('.readout-label')).toHaveText(['Needs Attention', 'In Progress', 'Completed today']);
   await expect(cells.nth(2).locator('.readout-value')).toHaveText(String(COMPLETED_TODAY));
   expect(completedTodayKeys).toContain('e2e-key');
 

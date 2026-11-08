@@ -87,7 +87,7 @@ export function renderInbox() {
     <div class="readout-strip">
       <div class="readout-cell"><div class="readout-label">Needs Attention</div><div class="readout-value readout-red">${inbox.counts?.needsAttention ?? 0}</div></div>
       <div class="readout-cell"><div class="readout-label">In Progress</div><div class="readout-value readout-cyan">${inbox.counts?.inProgress ?? 0}</div></div>
-      <div class="readout-cell"><div class="readout-label">Completed (24h)</div><div class="readout-value readout-green">${inbox.counts?.completedToday ?? 0}</div></div>
+      <div class="readout-cell"><div class="readout-label">Completed today</div><div class="readout-value readout-green">${inbox.counts?.completedToday ?? 0}</div></div>
     </div>
 
     <div class="grid-2 inbox-grid">
