@@ -1,4 +1,4 @@
-import type { ArtifactMeta } from '@warg/shared';
+import type { ArtifactMeta, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 
 /**
  * Request body for POST /singlefile.
@@ -81,3 +81,13 @@ export interface SinglefileRateLimitedResponse {
   message: string;
 }
 
+/**
+ * Response from singlefile worker when the captured page is a proxy/network
+ * error page rather than the article. Nothing is stored; `reason` tells the
+ * workflow that retrying the capture will not help.
+ */
+export interface SinglefileProxyErrorResponse {
+  error: string;
+  reason: typeof PROXY_ERROR_PAGE_REASON;
+  url: string;
+}
