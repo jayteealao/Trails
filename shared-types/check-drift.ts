@@ -1,26 +1,37 @@
 /**
  * Cross-stack schema drift check.
  *
- * Verifies two contracts:
- *  1. The canonical Firestore field names in `shared-types/WargMetadata.md`
- *     appear in both the Warg producer (TypeScript) and the Trails consumer
- *     (Kotlin).
+ * Verifies three contracts:
+ *  1. The canonical metadata field names of `shared-types/WargMetadata.md`
+ *     ("## Firestore field names (snake_case)") appear, as property keys
+ *     (`name:` or `name?:`), in each metadata producer, checked and named on
+ *     its own: the gcs worker metadata builder (warg/workers/gcs/src/metadata.ts),
+ *     the gcs worker finalize request (warg/workers/gcs/src/types.ts) and the
+ *     archive gateway finalize request and article document
+ *     (warg/cloud-functions/archive-gateway/src/types.ts); and, as string
+ *     literal map keys, in the Trails consumer (ArchiveService.kt). A field a
+ *     file does not carry on purpose is a row of "## Accepted differences" in
+ *     the same doc, with a reason; a row with no reason, an unknown field or
+ *     file, or a field the file now has, fails the check.
  *  2. The marker contract in `shared-types/MarkerSchema.md`
  *     (users/{uid}/articleMarkers/{key}) — its collection name and the field
- *     names of its "Firestore field names" table appear in every server marker
- *     producer (the Warg backfill key module and the user-article trigger's
- *     link module).
+ *     names of its "Firestore field names" table appear as whole tokens in
+ *     every server marker producer (the Warg backfill key module and the
+ *     user-article trigger's link module).
  *  3. The server-owned link contract — the app is not a marker producer
- *     (no `articleMarkers` in its backup or archive code), never carries
- *     `canonicalId` in its backup or its Article model, and reads `canonicalId`
- *     in ArchiveService.kt; the doc's "Server-owned link fields" table lists it.
+ *     (no `articleMarkers` token in its backup or archive code), never carries
+ *     a `canonicalId` token in its backup or its Article model, and reads the
+ *     "canonicalId" string key in ArchiveService.kt; the doc's "Server-owned
+ *     link fields" table lists it.
  *
- * This is a defensive smoke check, not a parser — it catches accidental
- * renames or typos but won't catch deeper semantic drift (type changes,
- * nullability mismatches).
+ * Every match is of a whole name: a field never counts as present inside a
+ * longer word (`title` in `subtitle`). It is still a text check, not a parser:
+ * it won't catch deeper semantic drift (type changes, nullability mismatches).
  *
  * Run from monorepo root:
  *   node --experimental-strip-types shared-types/check-drift.ts
+ * or against another tree with the same layout (the fixture test does this):
+ *   node --experimental-strip-types shared-types/check-drift.ts --root <dir>
  *
  * Exit codes:
  *   0  — every contract holds
