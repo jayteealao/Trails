@@ -15,7 +15,10 @@ import {
   isValidArchiveUrl,
   isValidRequestId,
   PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS,
+  REQUEST_OWNER_METADATA_KEY,
+  resolveRequestIdOwner,
   validateArchiveOptions,
+  type CallerKind,
   withRequestId
 } from './util.js';
 
@@ -497,7 +500,7 @@ export default {
 
     // /begin takes the internal key (checked first, so a caller sending both is internal) or the public key;
     // /status/* takes the public key.
-    let callerKind: 'internal' | 'public' = 'public';
+    let callerKind: CallerKind = 'public';
     if (method === 'POST' && path === '/begin') {
       if (verifyInternalApiKey(request, env)) {
         callerKind = 'internal';
@@ -566,6 +569,29 @@ export default {
           });
         }
 
+        // A client-chosen id may be run again only by the caller that first started it, or the internal key.
+        // Checked before anything is logged, stored or started.
+        const optionsR2Key = getOptionsKey(requestId);
+        let owner: string = callerKind;
+        if (rawRequestId) {
+          const existing = await env.ARCHIVE_BUCKET.head(optionsR2Key);
+          const ownership = resolveRequestIdOwner(existing?.customMetadata?.[REQUEST_OWNER_METADATA_KEY], callerKind);
+          if (!ownership.ok) {
+            console.warn('[gateway] /begin refused a request id owned by another caller', {
+              id: requestId,
+              owner: ownership.storedOwner,
+              caller: callerKind
+            });
+            return errorResponse(
+              409,
+              GATEWAY_ERROR_CODES.REQUEST_ID_CONFLICT,
+              'request_id is already in use by another caller',
+              requestId
+            );
+          }
+          owner = ownership.owner;
+        }
+
         // Validate URL presence and format
         const url = validation.options.url;
         if (!url || !isValidArchiveUrl(url)) {
@@ -585,11 +611,10 @@ export default {
           return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_INPUT_URL, urlError, requestId);
         }
 
-        const optionsR2Key = getOptionsKey(requestId);
-
-        // Store options in R2
+        // Store options in R2, with the owner of the request id
         await env.ARCHIVE_BUCKET.put(optionsR2Key, JSON.stringify(validation.options), {
-          httpMetadata: { contentType: 'application/json' }
+          httpMetadata: { contentType: 'application/json' },
+          customMetadata: { [REQUEST_OWNER_METADATA_KEY]: owner }
         });
 
         // Initialize request in logger
