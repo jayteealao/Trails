@@ -50,7 +50,7 @@ pnpm --filter warg-dashboard test:e2e
 
 They use the local ports 18797 (stand-in logger), 18798 (stubs) and 18799
 (dashboard); set `E2E_LOGGER_PORT`, `E2E_STUB_PORT` or `E2E_PAGES_PORT` when
-one is taken.
+one is taken. CI runs them in a job of their own, apart from the unit tests.
 
 ### Run a worker locally
 
