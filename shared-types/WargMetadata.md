@@ -151,6 +151,19 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 | `queued_at` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
 | `queued_by` | `users/{uid}/articles/{id}` | enqueueUserArticle | `dashboard` |
 
+## Accepted differences
+
+A metadata field that a file the drift check reads does not carry, on
+purpose. Each row exempts that field in that file only, and states why. The
+check fails on a row with no reason, a field outside "Firestore field names
+(snake_case)", a file it does not read, or a field the file now has (remove
+the row then).
+
+| Field | Not found in | Reason |
+| ----- | ------------ | ------ |
+| `published_time` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | the app does not show it yet; Warg-only |
+| `site_name` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | the app does not show it yet; Warg-only |
+
 ## Producer
 
 Warg writes these fields via `FinalizeRequest.metadata` defined in

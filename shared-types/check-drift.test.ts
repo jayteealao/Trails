@@ -103,6 +103,60 @@ test('(g) a marker field found only inside a longer word in the save trigger is 
   assert.ok(run.stderr.includes('source'), run.stderr);
 });
 
+const FIXTURE_DOC = 'shared-types/WargMetadata.md';
+const PUBLISHED_TIME_ROW =
+  '| `published_time` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | fixture: the app does not read the published time |';
+const SITE_NAME_ROW =
+  '| `site_name` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | fixture: the app does not read the site name |';
+
+test('(i) an accepted difference with no reason fails and names its field', () => {
+  const run = runOnFixture([[FIXTURE_DOC, 'fixture: the app does not read the published time', ' ']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('`published_time`'), run.stderr);
+  assert.ok(run.stderr.includes('no reason'), run.stderr);
+});
+
+test('(j) an accepted difference for a field the file now has is stale', () => {
+  const run = runOnFixture([
+    [
+      ARCHIVE_SERVICE,
+      'leadImage = metadata["lead_image"] as? String,',
+      'leadImage = metadata["lead_image"] as? String, siteName = metadata["site_name"] as? String,',
+    ],
+  ]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('`site_name`'), run.stderr);
+  assert.ok(run.stderr.includes('stale'), run.stderr);
+  assert.ok(run.stderr.includes('remove the accepted-differences row'), run.stderr);
+});
+
+test('(k) without the accepted differences the app is missing published_time and site_name', () => {
+  const run = runOnFixture([
+    [FIXTURE_DOC, PUBLISHED_TIME_ROW, ''],
+    [FIXTURE_DOC, SITE_NAME_ROW, ''],
+  ]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(ARCHIVE_SERVICE), run.stderr);
+  assert.ok(run.stderr.includes('published_time'), run.stderr);
+  assert.ok(run.stderr.includes('site_name'), run.stderr);
+});
+
+test('(l) an accepted difference naming an unknown field fails', () => {
+  const run = runOnFixture([[FIXTURE_DOC, '| `site_name` | `android', '| `not_a_field` | `android']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('`not_a_field`'), run.stderr);
+  assert.ok(run.stderr.includes('not in "## Firestore field names (snake_case)"'), run.stderr);
+});
+
+test('(m) an accepted difference naming a file the check does not read fails', () => {
+  const run = runOnFixture([
+    [FIXTURE_DOC, '| `site_name` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt`', '| `site_name` | `android/app/src/main/java/Other.kt`'],
+  ]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('android/app/src/main/java/Other.kt'), run.stderr);
+  assert.ok(run.stderr.includes('not a metadata file the check reads'), run.stderr);
+});
+
 test('(h) the marker collection found only inside a longer word in the backfill keys is missing', () => {
   const run = runOnFixture([[BACKFILL_KEYS, 'articleMarkers', 'articleMarkersLegacy']]);
   assert.equal(run.status, 1, run.stderr);

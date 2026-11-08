@@ -82,9 +82,6 @@ const TRAILS_BACKUP_WRITER =
 const TRAILS_ARTICLE_MODEL =
   'android/app/src/main/java/com/jayteealao/trails/data/local/database/Article.kt';
 
-// Trails only reads a subset of fields; fields listed here are exempt from
-// the Trails-side check.
-const TRAILS_OPTIONAL: ReadonlySet<string> = new Set(['published_time', 'site_name']);
 
 function readFile(relativePath: string): string {
   try {
@@ -118,6 +115,7 @@ function hasStringLiteral(src: string, name: string): boolean {
 }
 
 const METADATA_FIELDS_HEADING = 'Firestore field names (snake_case)';
+const ACCEPTED_DIFFERENCES_HEADING = 'Accepted differences';
 
 function extractCanonicalFields(md: string): string[] {
   // Pull names from the first table column of the metadata section only: lines
@@ -159,6 +157,23 @@ function extractSectionFields(md: string, heading: string): string[] {
     process.exit(1);
   }
   return fields;
+}
+
+interface AcceptedDifference {
+  field: string;
+  path: string;
+  reason: string;
+}
+
+// Rows of "## Accepted differences": | `field` | `repo-relative path` | reason |.
+// An absent section means no accepted difference.
+function extractAcceptedDifferences(md: string): AcceptedDifference[] {
+  const rows: AcceptedDifference[] = [];
+  for (const line of sectionLines(md, ACCEPTED_DIFFERENCES_HEADING)) {
+    const match = line.match(/^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|(.*)\|\s*$/);
+    if (match) rows.push({ field: match[1], path: match[2], reason: match[3].trim() });
+  }
+  return rows;
 }
 
 function extractMarkerFields(md: string): string[] {
@@ -251,26 +266,61 @@ function checkTrailsLinkContract(): boolean {
   return drift;
 }
 
-function main(): void {
-  const canonical = extractCanonicalFields(readFile(CANONICAL_DOC));
-  console.log(`[drift] canonical fields: ${canonical.join(', ')}`);
-
+// Returns true if a metadata file lacks a canonical field that no accepted
+// difference covers, or if an accepted difference is malformed or stale.
+function checkMetadataContract(canonical: readonly string[], doc: string): boolean {
+  const files = [
+    ...METADATA_PRODUCERS.map((producer) => ({ ...producer, has: hasPropertyKey })),
+    { path: TRAILS_SOURCE, role: 'app metadata reader', has: hasStringLiteral },
+  ];
+  const sources = new Map(files.map((file) => [file.path, readFile(file.path)]));
   let drift = false;
-  for (const { path, role } of METADATA_PRODUCERS) {
-    const missing = findMissing(readFile(path), canonical, hasPropertyKey);
+
+  const accepted = extractAcceptedDifferences(doc);
+  for (const row of accepted) {
+    const file = files.find((f) => f.path === row.path);
+    const where = `${CANONICAL_DOC} "## ${ACCEPTED_DIFFERENCES_HEADING}" row \`${row.field}\``;
+    if (row.reason.length === 0) {
+      console.error(`[drift] ${where} has no reason; every accepted difference states why.`);
+      drift = true;
+    }
+    if (!canonical.includes(row.field)) {
+      console.error(`[drift] ${where} names a field that is not in "## ${METADATA_FIELDS_HEADING}".`);
+      drift = true;
+    }
+    if (file === undefined) {
+      console.error(`[drift] ${where} names ${row.path}, which is not a metadata file the check reads.`);
+      drift = true;
+    } else if (file.has(sources.get(file.path) ?? '', row.field)) {
+      console.error(
+        `[drift] ${where} is stale: ${row.path} has ${row.field} now; remove the accepted-differences row.`,
+      );
+      drift = true;
+    } else {
+      console.log(`[drift] accepted difference: ${row.field} not in ${row.path} — ${row.reason}`);
+    }
+  }
+
+  for (const { path, role, has } of files) {
+    const exempt = new Set(accepted.filter((row) => row.path === path).map((row) => row.field));
+    const required = canonical.filter((field) => !exempt.has(field));
+    const missing = findMissing(sources.get(path) ?? '', required, has);
     if (missing.length > 0) {
       console.error(`[drift] ${path} (${role}) is missing canonical field(s): ${missing.join(', ')}`);
       drift = true;
     }
   }
 
-  const trailsSrc = readFile(TRAILS_SOURCE);
-  const trailsRequired = canonical.filter((f) => !TRAILS_OPTIONAL.has(f));
-  const missingFromTrails = findMissing(trailsSrc, trailsRequired, hasStringLiteral);
-  if (missingFromTrails.length > 0) {
-    console.error(
-      `[drift] ${TRAILS_SOURCE} is missing canonical field(s): ${missingFromTrails.join(', ')}`,
-    );
+  return drift;
+}
+
+function main(): void {
+  const doc = readFile(CANONICAL_DOC);
+  const canonical = extractCanonicalFields(doc);
+  console.log(`[drift] canonical fields: ${canonical.join(', ')}`);
+
+  let drift = false;
+  if (checkMetadataContract(canonical, doc)) {
     drift = true;
   }
 
