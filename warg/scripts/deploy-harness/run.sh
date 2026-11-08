@@ -637,6 +637,37 @@ scenario_pages_unauth() {
   finish
 }
 
+# A dry run lists what the same flags would deploy: one Pages project, every
+# worker, and (with --all) every function, each "planned". It reads no
+# project, signs in nowhere and deploys nothing, so no stub tool is called.
+scenario_dry_run_pages() {
+  start dry-run-pages
+  run_deploy dry-run-pages -- --with-pages --dry-run
+  expect_rc 0
+  expect_out '^=== Dry run: nothing deployed ===$'
+  expect_row "pages:dashboard" planned 'project warg-dashboard \(pages/dashboard\)'
+  local n w
+  n="$(printf '%s\n' "$OUT" | grep -Ec '^pages:' || true)"
+  [ "$n" -eq 1 ] || fail "$n summary rows name a Pages project, expected 1"
+  for w in "${WORKERS[@]}"; do
+    expect_row "worker:$w" planned '-'
+  done
+  expect_no_out 'dashboard-v2'
+  expect_calls 0 '^cf '
+  expect_calls 0 '^wrangler '
+  expect_calls 0 '^pnpm '
+  expect_calls 0 '^firebase '
+  expect_out '^Exit code: 0$'
+  run_deploy dry-run-all -- --all --dry-run
+  expect_rc 0
+  expect_row "rules" skipped 'not deployed \(pass --with-rules\)'
+  expect_row "function:dashboard-api" planned '-'
+  n="$(printf '%s\n' "$OUT" | grep -Ec '^pages:' || true)"
+  [ "$n" -eq 1 ] || fail "--all: $n summary rows name a Pages project, expected 1"
+  NAME=dry-run-pages
+  finish
+}
+
 scenario_functions_unauth() {
   start functions-unauth
   run_deploy functions-unauth HARNESS_FIREBASE_UNAUTH=1 FIREBASE_TOKEN= GOOGLE_APPLICATION_CREDENTIALS= -- --with-functions --skip-checks
@@ -1128,7 +1159,7 @@ scenario_secret_in_env() {
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
   quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
-  pages-hash-mismatch pages-unauth pages-secret-missing pages-secret-list-fails functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
+  pages-hash-mismatch pages-unauth dry-run-pages pages-secret-missing pages-secret-list-fails functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync
   functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env
   rules-first-stamp rules-reused-stamp rules-released-zero rules-hash-mismatch rules-storage-drift
