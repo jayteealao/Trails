@@ -22,9 +22,11 @@ if [ "${#WORKERS[@]}" -eq 0 ] || [ "${#FUNCTIONS[@]}" -eq 0 ]; then
   echo "deploy harness: cannot read WORKERS or CLOUD_FUNCTIONS from $DEPLOY_SH" >&2
   exit 1
 fi
-eval "$(sed -n '/^required_secrets_for() {$/,/^}$/p; /^function_names_for() {$/,/^}$/p; /^private_functions_for() {$/,/^}$/p' "$DEPLOY_SH")"
+eval "$(sed -n '/^required_secrets_for() {$/,/^}$/p; /^required_pages_secrets() {$/,/^}$/p; /^function_names_for() {$/,/^}$/p; /^private_functions_for() {$/,/^}$/p' "$DEPLOY_SH")"
 H_ALL_SECRETS="$(for w in "${WORKERS[@]}"; do required_secrets_for "$w" | tr ' ' '\n'; done | sort -u | tr '\n' ' ')"
 export H_ALL_SECRETS
+H_PAGES_SECRETS="$(required_pages_secrets 2>/dev/null || true)"
+export H_PAGES_SECRETS
 
 if [ -n "${HARNESS_TMP:-}" ]; then
   mkdir -p "$HARNESS_TMP"
@@ -157,6 +159,7 @@ scenario_full_success() {
   expect_rc 0
   expect_out "^Deploying label: $SHA\$"
   expect_calls 9 '^cf workers secrets list --worker '
+  expect_calls 1 '^cf pages get warg-dashboard'
   expect_calls 1 '^pnpm -r typecheck$'
   expect_calls 1 '^pnpm -r test$'
   local w fn
@@ -578,6 +581,42 @@ scenario_pages_hash_mismatch() {
   finish
 }
 
+# The dashboard refuses every request without its sign-in secret, so a
+# dashboard deploy stops before any worker deploys when the Pages project lacks
+# it; a deploy without the dashboard does not read the project at all.
+scenario_pages_secret_missing() {
+  start pages-secret-missing
+  run_deploy pages-secret-missing H_PAGES_SECRETS_MISSING=DASHBOARD_AUTH -- --with-pages --skip-checks
+  expect_rc 3
+  expect_row "pages:dashboard" failed 'missing secret\(s\): DASHBOARD_AUTH'
+  expect_out 'wrangler pages secret put <NAME> --project-name warg-dashboard'
+  local w
+  for w in "${WORKERS[@]}"; do
+    expect_row "worker:$w" skipped '-'
+  done
+  expect_calls 1 '^cf pages get warg-dashboard'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^wrangler pages deploy'
+  expect_out '^Exit code: 3$'
+  run_deploy pages-secret-not-needed H_PAGES_SECRETS_MISSING=DASHBOARD_AUTH -- --skip-checks
+  expect_rc 0
+  expect_calls 0 '^cf pages get'
+  NAME=pages-secret-missing
+  finish
+}
+
+# A failed read of the Pages project hides an auth failure, so it stops too.
+scenario_pages_secret_list_fails() {
+  start pages-secret-list-fails
+  run_deploy pages-secret-list-fails H_PAGES_GET_FAIL=1 -- --with-pages --skip-checks
+  expect_rc 1
+  expect_row "pages:dashboard" failed 'Pages project read failed \(exit 1\)'
+  expect_out 'Authentication error'
+  expect_calls 0 '^cf deploy'
+  expect_calls 0 '^wrangler pages deploy'
+  finish
+}
+
 # A dashboard deploy with wrangler not signed in stops before the first worker
 # upload; the same for the functions with firebase not signed in. A token in
 # the environment counts as a firebase sign-in.
@@ -898,6 +937,11 @@ scenario_secrets_doc_sync() {
     got="$(printf '%s\n' "$doc" | sed -n "s/^#   $w: *//p" | tr ',' '\n' | tr -d ' ' | sed '/^$/d' | sort | tr '\n' ' ')"
     [ "$want" = "$got" ] || fail "header lists '$got' for $w, required_secrets_for() has '$want'"
   done
+  doc="$(sed -n '/^# Required secrets of the Pages dashboard/,/^#$/p' "$DEPLOY_SH")"
+  want="$(required_pages_secrets | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+  got="$(printf '%s\n' "$doc" | sed -n 's/^#   warg-dashboard: *//p' | tr ',' '\n' | tr -d ' ' | sed '/^$/d' | sort | tr '\n' ' ')"
+  [ -n "$want" ] || fail "required_pages_secrets() names no secret"
+  [ "$want" = "$got" ] || fail "header lists '$got' for the Pages dashboard, required_pages_secrets() has '$want'"
   finish
 }
 
@@ -1086,7 +1130,7 @@ scenario_secret_in_env() {
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
   quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
-  pages-hash-mismatch pages-unauth functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
+  pages-hash-mismatch pages-unauth pages-secret-missing pages-secret-list-fails functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync
   functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env
   rules-first-stamp rules-reused-stamp rules-released-zero rules-hash-mismatch rules-storage-drift
