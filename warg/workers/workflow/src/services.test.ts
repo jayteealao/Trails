@@ -751,3 +751,78 @@ describe('fallback for a host the primary renderer cannot reach', () => {
     expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('when the primary renderer and the hyperrenderer both fail', () => {
+  const primaries: Array<[string, () => Response, string]> = [
+    ['an access-blocked page', () => wrappedContentFailure('forbidden', 403), 'forbidden'],
+    [
+      'an unreachable host',
+      () => wrappedContentFailure('dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host'),
+      'no such host',
+    ],
+    [
+      'a rejected proxy error page',
+      () =>
+        makeJsonResponse(502, {
+          error: 'Browser Rendering /content returned a proxy/network error page',
+          reason: PROXY_ERROR_PAGE_REASON,
+          url: 'https://www.explorminate.net/post',
+        }),
+      'proxy/network error page',
+    ],
+  ];
+  const fallbacks: Array<[string, () => Promise<Response>, string]> = [
+    ['answers 503', async () => new Response('Service Unavailable', { status: 503 }), '503'],
+    ['answers 429', async () => new Response('Too Many Requests', { status: 429 }), '429'],
+    [
+      'loses the connection',
+      async () => {
+        throw new TypeError('network connection lost');
+      },
+      'network connection lost',
+    ],
+  ];
+  const cases = primaries.flatMap(([primaryLabel, primaryResponse, primaryText]) =>
+    fallbacks.map(
+      ([fallbackLabel, fallbackFetch, fallbackText]) =>
+        [primaryLabel, fallbackLabel, primaryResponse, fallbackFetch, primaryText, fallbackText] as const,
+    ),
+  );
+
+  it.each(cases)(
+    'fails the render step once on %s when the hyperrenderer %s',
+    async (_primaryLabel, _fallbackLabel, primaryResponse, fallbackFetch, primaryText, fallbackText) => {
+      const rendererFetch = vi.fn(async () => primaryResponse());
+      const hyperrendererFetch = vi.fn(fallbackFetch);
+
+      const error = await runRenderStep(makeEnv(rendererFetch, hyperrendererFetch)).then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+      expect(error).toBeInstanceOf(FakeNonRetryableError);
+      const message = error instanceof Error ? error.message : '';
+      expect(message).toMatch(/primary=.*; fallback=/);
+      const [primaryPart, fallbackPart] = message.split('; fallback=');
+      expect(primaryPart).toContain(primaryText);
+      expect(fallbackPart).toContain(fallbackText);
+      expect(rendererFetch).toHaveBeenCalledTimes(1);
+      expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('keeps the access-blocked classification on the error that names both failures', async () => {
+    const rendererFetch = vi.fn(async () => wrappedContentFailure('forbidden', 403));
+    const hyperrendererFetch = vi.fn(async () => new Response('Service Unavailable', { status: 503 }));
+
+    const error = await catchServiceCallError(
+      callRendererWith403Fallback(makeEnv(rendererFetch, hyperrendererFetch), renderParams),
+    );
+
+    expect(error.classification).toEqual({
+      errorCode: 'ACCESS_BLOCKED',
+      retryable: false,
+      recommendedAction: 'check_access',
+    });
+  });
+});
