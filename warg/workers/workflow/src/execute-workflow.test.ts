@@ -12,6 +12,7 @@ import {
   makeFakeBucket,
   makeFakeEnv,
   makeFakeStep,
+  monolithInputTooLarge,
   resultOf,
   runArchiveWorkflow,
   seedOptions,
@@ -293,5 +294,33 @@ describe('ArchiveWorkflow.run', () => {
       const kinds = storedManifest(fake.bucket, result.manifestKey).artifacts.map((artifact) => artifact.kind);
       expect(kinds).toEqual(expect.arrayContaining(['rendered.html', 'rendered.md']));
     });
+  });
+
+  it.each([
+    { name: 'success', options: {}, handlers: {}, leases: 3 },
+    {
+      name: 'render that cannot be retried',
+      options: { steps: ['render' as const] },
+      handlers: { RENDERER: () => accessBlockedResponse() },
+      leases: 1,
+    },
+    {
+      name: 'singlefile failure',
+      options: {},
+      handlers: { SINGLEFILE: () => serviceError(500) },
+      leases: 3,
+    },
+    {
+      name: 'monolith failure',
+      options: {},
+      handlers: { MONOLITH: () => monolithInputTooLarge() },
+      leases: 3,
+    },
+  ])('releases every quota lease exactly once: $name', async ({ options, handlers, leases }) => {
+    const { fake } = await runRequest(options, { handlers });
+
+    expect(fake.quota.acquired).toHaveLength(leases);
+    expect(new Set(fake.quota.released).size).toBe(fake.quota.released.length);
+    expect([...fake.quota.released].sort()).toEqual([...fake.quota.acquired].sort());
   });
 });
