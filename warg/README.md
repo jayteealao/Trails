@@ -458,6 +458,17 @@ bills per skipped document; a page past 10,000 skipped documents answers 400
 `{"error":"Page out of range; follow nextCursor instead"}`. The dashboard sends
 the cursor with the page number when they step to the next page.
 
+`GET /stats/completed-today` (dashboard-api, `X-Internal-API-Key` like every
+other route; a missing or wrong key answers 401) answers
+`{"completedToday": <n>, "since": "<UTC midnight, ISO>", "truncated": <bool>}`:
+the dashboard user's articles that became complete since the start of the
+current UTC day. An article becomes complete when the last of its four core
+archives (rendered, readability, markdown, singlefile) succeeds, so a core
+archive that is run again today counts its article again. The count reads the
+same 2,000 most recently added articles as a filtered list; `truncated` is true
+when the user has more, and an older article completed today is then missing
+from the count. One count is reused for a minute.
+
 **Second-account check.** After deploy two (step 6 of
 [Rotating the function keys](#rotating-the-function-keys-two-steps)), with the
 new app release on the phone:
