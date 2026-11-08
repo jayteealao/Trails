@@ -4,12 +4,16 @@ import { describe, expect, test } from 'vitest';
 import {
   backfillSharedArticleBaseFields,
   bootstrapSharedArticle,
+  buildArchiveFinalizePatch,
+  buildArchiveUploadJournalPatch,
   buildBackfillUpsertPatch,
   buildBootstrapBackfillPatch,
   clearUserArticleCanonicalId,
   clearUserArticleCanonicalIdInBulk,
   copySharedArticleArchiveInBulk,
   enqueueUserArticle,
+  finalizeSharedArticleArchives,
+  journalSharedArticleUploads,
   markSharedArticleBackfillBegun,
   markSharedArticleMergedInBulk,
   moveUserArticleCanonicalIdInBulk,
@@ -170,6 +174,20 @@ const cases: Array<[string, (s: ReturnType<typeof spies>) => unknown, Omit<Call,
       enqueueUserArticle(s.ref, { url: 'https://example.com/a', favorite: '', status: '', timeRead: 0, resolvedId: 'item1234' }, now),
     { method: 'create', target: 'ref', options: [] },
   ],
+  [
+    'journalSharedArticleUploads',
+    (s) =>
+      journalSharedArticleUploads(
+        s.ref,
+        buildArchiveUploadJournalPatch({ ...article, archives: { pdf: { status: 'uploading' } }, isNew: true }, now)
+      ),
+    { method: 'set', target: 'ref', options: [{ merge: true }] },
+  ],
+  [
+    'finalizeSharedArticleArchives',
+    (s) => finalizeSharedArticleArchives(s.ref, buildArchiveFinalizePatch({ archives: { pdf: { status: 'success' } } }, now)),
+    { method: 'update', target: 'ref', options: [] },
+  ],
 ];
 
 const bulkCases: Array<[string, (s: ReturnType<typeof spies>) => unknown, unknown[]]> = [
@@ -235,5 +253,21 @@ describe('each bulk writer queues one update with its arguments and options', ()
     if (!(field instanceof FieldPath)) throw new Error('the archive copy did not name a FieldPath');
     expect(field.isEqual(new FieldPath('archives', 'readability.v2'))).toBe(true);
     expect(field.isEqual(new FieldPath('archives', 'readability', 'v2'))).toBe(false);
+  });
+});
+
+describe('the archive finalize write', () => {
+  test('passes one patch whose archive entries are named by dotted keys', async () => {
+    const args: unknown[][] = [];
+    const ref = { update: async (...a: unknown[]) => void args.push(a) };
+    const patch = buildArchiveFinalizePatch(
+      { archives: { pdf: { status: 'success' }, rendered: { status: 'success' } } },
+      now
+    );
+    // Boundary cast: the spy implements only the call the writer makes.
+    await finalizeSharedArticleArchives(ref as unknown as DocumentReference, patch);
+    expect(args).toHaveLength(1);
+    expect(args[0]).toHaveLength(1);
+    expect(Object.keys(args[0]![0] as object).sort()).toEqual(['archives.pdf', 'archives.rendered', 'updated_at']);
   });
 });

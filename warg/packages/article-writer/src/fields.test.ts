@@ -2,8 +2,11 @@ import { readFileSync } from 'node:fs';
 import { Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, test } from 'vitest';
 import {
+  METADATA_FIELDS,
   SHARED_ARTICLE_FIELDS,
   USER_ARTICLE_FIELDS,
+  buildArchiveFinalizePatch,
+  buildArchiveUploadJournalPatch,
   buildBootstrapBackfillPatch,
   buildBootstrapSharedArticlePatch,
   buildCountSharedArticleSavePatch,
@@ -42,6 +45,20 @@ function documentedFields(): Map<string, Set<string>> {
   return byDoc;
 }
 
+/** Field names of the "## Firestore field names (snake_case)" table of WargMetadata.md. */
+function metadataContractFields(): string[] {
+  const md = readFileSync(new URL('../../../../shared-types/WargMetadata.md', import.meta.url), 'utf8');
+  const lines = md.split(/\r?\n/);
+  const start = lines.indexOf('## Firestore field names (snake_case)');
+  expect(start).toBeGreaterThanOrEqual(0);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => line.startsWith('## '));
+  return (end < 0 ? rest : rest.slice(0, end)).flatMap((line) => {
+    const match = line.match(/^\|\s*`([a-z_]+)`\s*\|/);
+    return match ? [match[1]!] : [];
+  });
+}
+
 /** The field names a patch writes; a plain map's fields are dotted, a Timestamp or sentinel is one field. */
 function flattenKeys(patch: object, prefix = ''): string[] {
   return Object.entries(patch).flatMap(([key, value]) => {
@@ -63,6 +80,47 @@ const sharedPatches: Record<string, object> = {
   bootstrap: buildBootstrapSharedArticlePatch(article, now),
   backfill: buildBootstrapBackfillPatch({}, article, now),
   processing: buildSharedArticleProcessingPatch({ ...article, requestId: 'req-00001' }, now),
+  uploadJournal: buildArchiveUploadJournalPatch(
+    {
+      ...article,
+      archives: {
+        singlefile: {
+          status: 'uploading',
+          gcs_path: 'gs://b/archives/item1234/singlefile/output.html.gz',
+          gcs_bucket: 'b',
+          started_at: '1970-01-01T00:00:01.000Z',
+        },
+        pdf: { status: 'success', gcs_path: 'gs://b/p', created_at: '1970-01-01T00:00:01.000Z' },
+      },
+      isNew: true,
+    },
+    now
+  ),
+  finalize: buildArchiveFinalizePatch(
+    {
+      archives: {
+        rendered: {
+          status: 'success',
+          gcs_path: 'gs://b/r',
+          gcs_bucket: 'b',
+          compressed_size: 4,
+          compression_ratio: 0.4,
+          created_at: '1970-01-01T00:00:01.000Z',
+        },
+      },
+      metadata: {
+        title: 't',
+        excerpt: 'e',
+        byline: 'b',
+        word_count: 1,
+        published_time: null,
+        site_name: null,
+        lead_image: null,
+      },
+      images: [{ src: 'https://example.com/i.png' }],
+    },
+    now
+  ),
 };
 
 const userPatches: Record<string, object> = {
@@ -81,6 +139,10 @@ describe('the field lists match WargMetadata.md', () => {
 
   test('the user article fields', () => {
     expect([...(documented.get(USER_DOC) ?? [])].sort()).toEqual([...USER_ARTICLE_FIELDS].sort());
+  });
+
+  test('the metadata fields are the metadata contract', () => {
+    expect(metadataContractFields().sort()).toEqual([...METADATA_FIELDS].sort());
   });
 
   test('no other document is listed', () => {
