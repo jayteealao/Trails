@@ -11,7 +11,8 @@ type Doc = Record<string, unknown>;
 
 export interface FakeLog {
   reads: string[];
-  writes: Array<{ path: string; data: Doc }>;
+  /** Every set() call in order; `merge` is true only for `{ merge: true }`. */
+  writes: Array<{ path: string; data: Doc; merge: boolean }>;
   getAllCalls: number;
   /** count() aggregations run; they read no document. */
   countCalls?: number;
@@ -36,7 +37,7 @@ export function makeFakeDb(seed: {
       return { id, exists: data !== undefined, data: () => data };
     },
     async set(data: Doc, opts?: { merge?: boolean }) {
-      log.writes.push({ path, data });
+      log.writes.push({ path, data, merge: opts?.merge === true });
       store[id] = opts?.merge ? { ...store[id], ...data } : data;
     },
   });
