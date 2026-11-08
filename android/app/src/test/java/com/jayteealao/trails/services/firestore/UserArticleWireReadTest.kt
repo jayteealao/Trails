@@ -85,8 +85,13 @@ class UserArticleWireReadTest {
     }
 
     @Test
-    fun `the frozen deployed shape equals the article entity`() {
-        assertEquals(fieldShape(Article::class.java), fieldShape(DeployedArticleBean::class.java))
+    fun `the frozen deployed shape reads the names the wire type reads`() {
+        // Against the wire names, not the entity, so it holds through a later entity rename.
+        val wireNames = UserArticleWire::class.java.declaredFields
+            .filter { Modifier.isStatic(it.modifiers) && it.type == String::class.java }
+            .map { it.get(null) as String }
+            .toSet() - UserArticleWire.BACKED_UP_AT
+        assertEquals(wireNames, fieldShape(DeployedArticleBean::class.java).keys)
     }
 
     companion object {
