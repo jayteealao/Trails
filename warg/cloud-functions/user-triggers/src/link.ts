@@ -1,5 +1,11 @@
-import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore, type Timestamp } from 'firebase-admin/firestore';
 import { normalizeUrl } from '@warg/url-normalizer';
+import {
+  countSharedArticleSaveInTransaction,
+  createSharedArticleInTransaction,
+  linkUserArticleInTransaction,
+  type PocketInput,
+} from '@warg/article-writer';
 
 /**
  * The server-side link from a user's article to the shared article.
@@ -126,7 +132,7 @@ export interface LinkInput {
   userId: string;
   itemId: string;
   url: string;
-  pocket?: Record<string, unknown>;
+  pocket?: PocketInput;
 }
 
 export interface LinkOptions {
@@ -212,20 +218,12 @@ export async function linkUserArticle(
         } else if (options.createIfMissing === false) {
           throw new NoSharedArticleError();
         } else {
-          tx.create(ownRef, {
-            item_id: itemId,
+          createSharedArticleInTransaction(tx, ownRef, {
+            itemId,
             url,
             normalizedUrl,
             domain: extractDomain(url),
-            created_at: Timestamp.now(),
-            status: 'pending',
-            archives: {},
             pocket: input.pocket ?? {},
-            stats: {
-              last_accessed: '',
-              total_saves: 1,
-              total_views: 0,
-            },
           });
           sharedId = itemId;
           created = true;
@@ -234,10 +232,7 @@ export async function linkUserArticle(
 
       // 5. A save of an existing shared article counts once.
       if (!created) {
-        tx.update(articles.doc(sharedId), {
-          'stats.total_saves': FieldValue.increment(1),
-          'stats.last_saved_at': Timestamp.now(),
-        });
+        countSharedArticleSaveInTransaction(tx, articles.doc(sharedId));
       }
 
       // 6-7. The marker and the server-owned link, in the same transaction.
@@ -245,7 +240,7 @@ export async function linkUserArticle(
         db.collection('users').doc(userId).collection(ARTICLE_MARKERS_COLLECTION).doc(sharedId),
         markerBody(sharedId, itemId, markerSource)
       );
-      tx.update(userRef, { canonicalId: sharedId, resolvedId: sharedId });
+      linkUserArticleInTransaction(tx, userRef, sharedId);
 
       return {
         canonicalId: sharedId,
