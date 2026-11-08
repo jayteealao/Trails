@@ -33,14 +33,14 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 
 | Field | Lives on | Write kinds | Notes |
 | ----- | -------- | ----------- | ----- |
-| `item_id` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill | the document id |
-| `url` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill | |
+| `item_id` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill, journalSharedArticleUploads | the document id |
+| `url` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill, journalSharedArticleUploads | |
 | `normalizedUrl` | `articles/{id}` | createSharedArticleInTransaction, setSharedArticleNormalizedUrlInBulk | the link lookup key |
-| `domain` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill | |
-| `created_at` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill | |
-| `updated_at` | `articles/{id}` | bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill, markSharedArticleBackfillBegun, recordSharedArticleBackfillFailure, settleStuckSharedArticle | |
+| `domain` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill, journalSharedArticleUploads | |
+| `created_at` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill, journalSharedArticleUploads | |
+| `updated_at` | `articles/{id}` | bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill, markSharedArticleBackfillBegun, recordSharedArticleBackfillFailure, settleStuckSharedArticle, journalSharedArticleUploads, finalizeSharedArticleArchives | |
 | `status` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, markSharedArticleArchiveStarted, markSharedArticleFailed, markSharedArticleProcessing, setSharedArticleDerivedStatus | `pending`, `processing`, `failed`; the status trigger writes the derived value |
-| `archives` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, upsertSharedArticleForBackfill, recordSharedArticleBackfillFailure, settleStuckSharedArticle | written empty on create; the gateway writes its own archive keys, and copySharedArticleArchiveInBulk copies one whole `archives.<archive key>` entry from a merged duplicate |
+| `archives` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, upsertSharedArticleForBackfill, recordSharedArticleBackfillFailure, settleStuckSharedArticle, journalSharedArticleUploads | written empty on create; the archive gateway writes one entry per stored artifact kind with journalSharedArticleUploads (merged, `uploading`) and finalizeSharedArticleArchives (each entry replaced by its dotted name, `success`), and copySharedArticleArchiveInBulk copies one whole `archives.<archive key>` entry from a merged duplicate |
 | `archives.gateway_begin` | `articles/{id}` | recordSharedArticleBackfillFailure | the failed archive start of the backfill |
 | `archives.gateway_begin.status` | `articles/{id}` | as `archives.gateway_begin` | `failed` |
 | `archives.gateway_begin.error` | `articles/{id}` | as `archives.gateway_begin` | |
@@ -49,6 +49,62 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 | `archives.workflow_settlement.status` | `articles/{id}` | as `archives.workflow_settlement` | `stuck` |
 | `archives.workflow_settlement.error` | `articles/{id}` | as `archives.workflow_settlement` | |
 | `archives.workflow_settlement.created_at` | `articles/{id}` | as `archives.workflow_settlement` | an ISO string |
+| `archives.singlefile` | `articles/{id}` | journalSharedArticleUploads, finalizeSharedArticleArchives | the archive gateway entry of that artifact kind |
+| `archives.singlefile.status` | `articles/{id}` | as `archives.singlefile` | `uploading` or `success`; an entry kept whole when it is already a `success` with a `gcs_path` |
+| `archives.singlefile.gcs_path` | `articles/{id}` | as `archives.singlefile` | `gs://<bucket>/archives/<id>/<folder>/<file>` |
+| `archives.singlefile.gcs_bucket` | `articles/{id}` | as `archives.singlefile` |  |
+| `archives.singlefile.compressed_size` | `articles/{id}` | as `archives.singlefile` | written on finalize |
+| `archives.singlefile.compression_ratio` | `articles/{id}` | as `archives.singlefile` | written on finalize |
+| `archives.singlefile.started_at` | `articles/{id}` | as `archives.singlefile` | an ISO string, written on upload start |
+| `archives.singlefile.created_at` | `articles/{id}` | as `archives.singlefile` | an ISO string, written on finalize |
+| `archives.monolith` | `articles/{id}` | journalSharedArticleUploads, finalizeSharedArticleArchives | the archive gateway entry of that artifact kind |
+| `archives.monolith.status` | `articles/{id}` | as `archives.monolith` | `uploading` or `success`; an entry kept whole when it is already a `success` with a `gcs_path` |
+| `archives.monolith.gcs_path` | `articles/{id}` | as `archives.monolith` | `gs://<bucket>/archives/<id>/<folder>/<file>` |
+| `archives.monolith.gcs_bucket` | `articles/{id}` | as `archives.monolith` |  |
+| `archives.monolith.compressed_size` | `articles/{id}` | as `archives.monolith` | written on finalize |
+| `archives.monolith.compression_ratio` | `articles/{id}` | as `archives.monolith` | written on finalize |
+| `archives.monolith.started_at` | `articles/{id}` | as `archives.monolith` | an ISO string, written on upload start |
+| `archives.monolith.created_at` | `articles/{id}` | as `archives.monolith` | an ISO string, written on finalize |
+| `archives.readability` | `articles/{id}` | journalSharedArticleUploads, finalizeSharedArticleArchives | the archive gateway entry of that artifact kind |
+| `archives.readability.status` | `articles/{id}` | as `archives.readability` | `uploading` or `success`; an entry kept whole when it is already a `success` with a `gcs_path` |
+| `archives.readability.gcs_path` | `articles/{id}` | as `archives.readability` | `gs://<bucket>/archives/<id>/<folder>/<file>` |
+| `archives.readability.gcs_bucket` | `articles/{id}` | as `archives.readability` |  |
+| `archives.readability.compressed_size` | `articles/{id}` | as `archives.readability` | written on finalize |
+| `archives.readability.compression_ratio` | `articles/{id}` | as `archives.readability` | written on finalize |
+| `archives.readability.started_at` | `articles/{id}` | as `archives.readability` | an ISO string, written on upload start |
+| `archives.readability.created_at` | `articles/{id}` | as `archives.readability` | an ISO string, written on finalize |
+| `archives.markdown` | `articles/{id}` | journalSharedArticleUploads, finalizeSharedArticleArchives | the archive gateway entry of that artifact kind |
+| `archives.markdown.status` | `articles/{id}` | as `archives.markdown` | `uploading` or `success`; an entry kept whole when it is already a `success` with a `gcs_path` |
+| `archives.markdown.gcs_path` | `articles/{id}` | as `archives.markdown` | `gs://<bucket>/archives/<id>/<folder>/<file>` |
+| `archives.markdown.gcs_bucket` | `articles/{id}` | as `archives.markdown` |  |
+| `archives.markdown.compressed_size` | `articles/{id}` | as `archives.markdown` | written on finalize |
+| `archives.markdown.compression_ratio` | `articles/{id}` | as `archives.markdown` | written on finalize |
+| `archives.markdown.started_at` | `articles/{id}` | as `archives.markdown` | an ISO string, written on upload start |
+| `archives.markdown.created_at` | `articles/{id}` | as `archives.markdown` | an ISO string, written on finalize |
+| `archives.pdf` | `articles/{id}` | journalSharedArticleUploads, finalizeSharedArticleArchives | the archive gateway entry of that artifact kind |
+| `archives.pdf.status` | `articles/{id}` | as `archives.pdf` | `uploading` or `success`; an entry kept whole when it is already a `success` with a `gcs_path` |
+| `archives.pdf.gcs_path` | `articles/{id}` | as `archives.pdf` | `gs://<bucket>/archives/<id>/<folder>/<file>` |
+| `archives.pdf.gcs_bucket` | `articles/{id}` | as `archives.pdf` |  |
+| `archives.pdf.compressed_size` | `articles/{id}` | as `archives.pdf` | written on finalize |
+| `archives.pdf.compression_ratio` | `articles/{id}` | as `archives.pdf` | written on finalize |
+| `archives.pdf.started_at` | `articles/{id}` | as `archives.pdf` | an ISO string, written on upload start |
+| `archives.pdf.created_at` | `articles/{id}` | as `archives.pdf` | an ISO string, written on finalize |
+| `archives.screenshot` | `articles/{id}` | journalSharedArticleUploads, finalizeSharedArticleArchives | the archive gateway entry of that artifact kind |
+| `archives.screenshot.status` | `articles/{id}` | as `archives.screenshot` | `uploading` or `success`; an entry kept whole when it is already a `success` with a `gcs_path` |
+| `archives.screenshot.gcs_path` | `articles/{id}` | as `archives.screenshot` | `gs://<bucket>/archives/<id>/<folder>/<file>` |
+| `archives.screenshot.gcs_bucket` | `articles/{id}` | as `archives.screenshot` |  |
+| `archives.screenshot.compressed_size` | `articles/{id}` | as `archives.screenshot` | written on finalize |
+| `archives.screenshot.compression_ratio` | `articles/{id}` | as `archives.screenshot` | written on finalize |
+| `archives.screenshot.started_at` | `articles/{id}` | as `archives.screenshot` | an ISO string, written on upload start |
+| `archives.screenshot.created_at` | `articles/{id}` | as `archives.screenshot` | an ISO string, written on finalize |
+| `archives.rendered` | `articles/{id}` | journalSharedArticleUploads, finalizeSharedArticleArchives | the archive gateway entry of that artifact kind |
+| `archives.rendered.status` | `articles/{id}` | as `archives.rendered` | `uploading` or `success`; an entry kept whole when it is already a `success` with a `gcs_path` |
+| `archives.rendered.gcs_path` | `articles/{id}` | as `archives.rendered` | `gs://<bucket>/archives/<id>/<folder>/<file>` |
+| `archives.rendered.gcs_bucket` | `articles/{id}` | as `archives.rendered` |  |
+| `archives.rendered.compressed_size` | `articles/{id}` | as `archives.rendered` | written on finalize |
+| `archives.rendered.compression_ratio` | `articles/{id}` | as `archives.rendered` | written on finalize |
+| `archives.rendered.started_at` | `articles/{id}` | as `archives.rendered` | an ISO string, written on upload start |
+| `archives.rendered.created_at` | `articles/{id}` | as `archives.rendered` | an ISO string, written on finalize |
 | `pocket` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill | |
 | `pocket.favorite` | `articles/{id}` | as `pocket` | |
 | `pocket.resolved_id` | `articles/{id}` | as `pocket` | |
@@ -73,6 +129,15 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 | `failure.last_error_message` | `articles/{id}` | as `failure` | |
 | `failure.first_seen_at` | `articles/{id}` | as `failure` | written on the first failure only |
 | `mergedInto` | `articles/{id}` | markSharedArticleMergedInBulk | the winner of a merged duplicate |
+| `metadata` | `articles/{id}` | finalizeSharedArticleArchives | the reader metadata; the "Firestore field names (snake_case)" table above is the contract of its fields |
+| `metadata.title` | `articles/{id}` | as `metadata` | see the table above |
+| `metadata.excerpt` | `articles/{id}` | as `metadata` | see the table above |
+| `metadata.byline` | `articles/{id}` | as `metadata` | see the table above |
+| `metadata.word_count` | `articles/{id}` | as `metadata` | see the table above |
+| `metadata.published_time` | `articles/{id}` | as `metadata` | see the table above |
+| `metadata.site_name` | `articles/{id}` | as `metadata` | see the table above |
+| `metadata.lead_image` | `articles/{id}` | as `metadata` | see the table above |
+| `images` | `articles/{id}` | finalizeSharedArticleArchives | an array of `{ src, height?, width? }` |
 | `canonicalId` | `users/{uid}/articles/{id}` | linkUserArticleInTransaction, clearUserArticleCanonicalId, moveUserArticleCanonicalIdInBulk, setUserArticleLinkInBulk, clearUserArticleCanonicalIdInBulk | server-owned link, see `MarkerSchema.md` |
 | `resolvedId` | `users/{uid}/articles/{id}` | linkUserArticleInTransaction, setUserArticleResolvedLink, setUserArticleLinkInBulk, enqueueUserArticle | |
 | `archival_triggered` | `users/{uid}/articles/{id}` | markUserArticleArchivalTriggered, setUserArticleResolvedLink, enqueueUserArticle | |
