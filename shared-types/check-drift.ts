@@ -51,7 +51,17 @@ const repoRoot = parseRoot(process.argv.slice(2));
 
 // Every path below is relative to the checked tree; messages print it as is.
 const CANONICAL_DOC = 'shared-types/WargMetadata.md';
-const WARG_TYPES = 'warg/cloud-functions/archive-gateway/src/types.ts';
+// The metadata producers, each checked and named on its own: the gcs worker
+// builds the map and types the finalize request; the archive gateway receives
+// that request and writes it to the article document.
+const METADATA_PRODUCERS: readonly { path: string; role: string }[] = [
+  { path: 'warg/workers/gcs/src/metadata.ts', role: 'gcs worker metadata builder' },
+  { path: 'warg/workers/gcs/src/types.ts', role: 'gcs worker finalize request' },
+  {
+    path: 'warg/cloud-functions/archive-gateway/src/types.ts',
+    role: 'archive gateway finalize request and article document',
+  },
+];
 const TRAILS_SOURCE =
   'android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt';
 
@@ -245,20 +255,18 @@ function main(): void {
   const canonical = extractCanonicalFields(readFile(CANONICAL_DOC));
   console.log(`[drift] canonical fields: ${canonical.join(', ')}`);
 
-  const wargSrc = readFile(WARG_TYPES);
-  const trailsSrc = readFile(TRAILS_SOURCE);
+  let drift = false;
+  for (const { path, role } of METADATA_PRODUCERS) {
+    const missing = findMissing(readFile(path), canonical, hasPropertyKey);
+    if (missing.length > 0) {
+      console.error(`[drift] ${path} (${role}) is missing canonical field(s): ${missing.join(', ')}`);
+      drift = true;
+    }
+  }
 
-  const missingFromWarg = findMissing(wargSrc, canonical, hasPropertyKey);
+  const trailsSrc = readFile(TRAILS_SOURCE);
   const trailsRequired = canonical.filter((f) => !TRAILS_OPTIONAL.has(f));
   const missingFromTrails = findMissing(trailsSrc, trailsRequired, hasStringLiteral);
-
-  let drift = false;
-  if (missingFromWarg.length > 0) {
-    console.error(
-      `[drift] ${WARG_TYPES} is missing canonical field(s): ${missingFromWarg.join(', ')}`,
-    );
-    drift = true;
-  }
   if (missingFromTrails.length > 0) {
     console.error(
       `[drift] ${TRAILS_SOURCE} is missing canonical field(s): ${missingFromTrails.join(', ')}`,
