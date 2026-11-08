@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Timestamp } from 'firebase-admin/firestore';
+import { articleStatusDerive } from '../article-status-trigger.js';
 import { TRACKER_DOC_PATH, runBackfill, type BackfillDeps, type BeginPayload } from '../scheduler.js';
 import { createDefaultTracker } from '../tracker.js';
 import { makeFakeFirestore, type FakeFirestore, type WriteLogEntry } from './fake-firestore.js';
@@ -324,4 +325,63 @@ test('a batch item stuck past the timeout gets a workflow_settlement entry', asy
       merge: true,
     },
   ]);
+});
+
+// The status trigger stamps status_updated_at with the wall clock.
+const withWallClock = (writes: WriteLogEntry[]): WriteLogEntry[] =>
+  writes.map((w) => {
+    const data = w.data as Record<string, unknown>;
+    const stamp = data['status_updated_at'];
+    return typeof stamp === 'string' && /^<ts:\d+>$/.test(stamp)
+      ? { ...w, data: { ...data, status_updated_at: '<timestamp>' } }
+      : w;
+  });
+
+async function runStatusTrigger(fake: FakeFirestore, path: string): Promise<void> {
+  const after = await fake.db.doc(path).get();
+  // Boundary cast: the trigger reads only event.data.after (exists, data(), ref).
+  const event = { data: { before: after, after } } as unknown as Parameters<typeof articleStatusDerive.run>[0];
+  await articleStatusDerive.run(event);
+}
+
+test('the status trigger merge-sets the derived status and its time when it differs', async () => {
+  const fake = makeFakeFirestore();
+  fake.put('articles/sharedT001', {
+    url: 'https://itemt001.example/page',
+    status: 'pending',
+    archives: { rendered: { status: 'success' } },
+  });
+
+  await runStatusTrigger(fake, 'articles/sharedT001');
+
+  assert.deepEqual(withWallClock(fake.writes), [
+    {
+      method: 'set',
+      inTransaction: false,
+      path: 'articles/sharedT001',
+      data: { status: 'complete', status_updated_at: '<timestamp>' },
+      merge: true,
+    },
+  ]);
+});
+
+test('the status trigger writes nothing when the status is already the derived one', async () => {
+  const fake = makeFakeFirestore();
+  fake.put('articles/sharedT002', {
+    url: 'https://itemt002.example/page',
+    status: 'complete',
+    archives: { rendered: { status: 'success' } },
+  });
+
+  await runStatusTrigger(fake, 'articles/sharedT002');
+
+  assert.deepEqual(fake.writes, []);
+});
+
+test('the status trigger writes nothing for a deleted article', async () => {
+  const fake = makeFakeFirestore();
+
+  await runStatusTrigger(fake, 'articles/sharedT003');
+
+  assert.deepEqual(fake.writes, []);
 });
