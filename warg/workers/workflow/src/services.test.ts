@@ -4,6 +4,7 @@ import {
   callRendererForStep,
   callRendererWith403Fallback,
   callMonolith,
+  callSinglefile,
   getRendererFallbackReason,
   isBrowserRendering403ForRender,
   ServiceCallError,
@@ -586,5 +587,82 @@ describe('access-blocked render failures', () => {
     );
     expect(rendererFetch).toHaveBeenCalledTimes(1);
     expect(hyperrendererFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('render failures from a host that cannot be reached', () => {
+  const proxyErrorPageBody = {
+    error: 'Browser Rendering /content returned a proxy/network error page',
+    reason: PROXY_ERROR_PAGE_REASON,
+    url: 'https://www.explorminate.net/post',
+  };
+
+  it('classifies the proxy error page rejection as not retryable', async () => {
+    const classification = await classifyRendererResponse(makeJsonResponse(502, proxyErrorPageBody));
+    expect(classification.retryable).toBe(false);
+  });
+
+  it.each([
+    'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
+    'net::ERR_NAME_NOT_RESOLVED at https://www.explorminate.net/post',
+    'net::ERR_CONNECTION_REFUSED at https://www.explorminate.net/post',
+    'dial tcp 1.2.3.4:443: connect: connection refused',
+  ])('classifies "%s" as not retryable', async (details) => {
+    const classification = await classifyRendererResponse(wrappedContentFailure(details));
+    expect(classification).toEqual({
+      errorCode: 'RENDER_SERVICE_ERROR',
+      retryable: false,
+      recommendedAction: 'inspect_url',
+    });
+  });
+
+  it('fails the render step after one attempt', async () => {
+    const rendererFetch = vi.fn(async () =>
+      wrappedContentFailure('dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host'),
+    );
+    const hyperrendererFetch = vi.fn();
+
+    await expect(runRenderStep(makeEnv(rendererFetch, hyperrendererFetch))).rejects.toBeInstanceOf(
+      FakeNonRetryableError,
+    );
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the singlefile classification of the same body retryable', async () => {
+    const singlefileFetch = vi.fn(async () => makeJsonResponse(502, proxyErrorPageBody));
+    const env = {
+      INTERNAL_API_KEY: 'test-internal-key',
+      SINGLEFILE: { fetch: singlefileFetch },
+    } as unknown as Env;
+
+    const error = await catchServiceCallError(
+      callSinglefile(env, { request_id: 'req-singlefile', url: 'https://www.explorminate.net/post' }),
+    );
+    expect(error.classification.retryable).toBe(true);
+  });
+});
+
+describe('transient render failures keep the step retry policy', () => {
+  it('runs every attempt on a renderer that keeps answering 503', async () => {
+    const rendererFetch = vi.fn(async () => new Response('Service Unavailable', { status: 503 }));
+    const hyperrendererFetch = vi.fn();
+
+    const error = await catchServiceCallError(runRenderStep(makeEnv(rendererFetch, hyperrendererFetch)));
+    expect(error.classification.retryable).toBe(true);
+    expect(rendererFetch).toHaveBeenCalledTimes(4);
+    expect(hyperrendererFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['network-closed 5006', '{"errors":[{"code":5006,"message":"network closed"}]}'],
+    ['context-destroyed 6000', '{"errors":[{"code":6000}]}'],
+  ])('runs every attempt on a %s failure whose fallback answers 503', async (_label, details) => {
+    const rendererFetch = vi.fn(async () => wrappedContentFailure(details));
+    const hyperrendererFetch = vi.fn(async () => new Response('Service Unavailable', { status: 503 }));
+
+    const error = await catchServiceCallError(runRenderStep(makeEnv(rendererFetch, hyperrendererFetch)));
+    expect(error.classification.retryable).toBe(true);
+    expect(rendererFetch).toHaveBeenCalledTimes(4);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(4);
   });
 });
