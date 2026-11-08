@@ -3,15 +3,24 @@
  * the Workflows engine, fake bindings for every service the run calls, an event
  * factory and failure fixtures. Test-only; never imported by the worker.
  */
-import type { WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
-import type { ArchiveManifest, ArtifactKind, ArtifactMeta, EventType } from '@warg/shared';
-import { getR2Key } from '@warg/shared';
+import type {
+  ArchiveManifest,
+  ArchiveOptions,
+  ArtifactKind,
+  ArtifactMeta,
+  EventType,
+} from '@warg/shared';
+import { getOptionsKey, getR2Key } from '@warg/shared';
+import { ArchiveWorkflow } from '../index.js';
 import type {
   DerivativeResponse,
   GcsResponse,
   ReadabilityResponse,
   RendererResponse,
+  WorkflowParams,
+  WorkflowResult,
 } from '../types.js';
 
 type StepCallback = () => Promise<unknown>;
@@ -345,4 +354,90 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
   // The fakes implement only the binding methods the workflow calls; the Env
   // types (R2Bucket, Fetcher, DurableObjectNamespace) are far wider.
   return { env: fake as unknown as Env, bucket, calls, logger, quota };
+}
+
+/** A fixed start time, so nothing in an event depends on the clock. */
+const EVENT_TIMESTAMP = new Date('2026-01-01T00:00:00.000Z');
+
+export function makeEvent(requestId: string, url: string): WorkflowEvent<WorkflowParams> {
+  return {
+    payload: { request_id: requestId, url, options_r2_key: getOptionsKey(requestId) },
+    timestamp: EVENT_TIMESTAMP,
+    instanceId: requestId,
+    workflowName: 'archive-workflow',
+  };
+}
+
+/** Stores the request options where the run reads them. */
+export async function seedOptions(
+  bucket: FakeBucket,
+  requestId: string,
+  options: ArchiveOptions
+): Promise<void> {
+  await bucket.put(getOptionsKey(requestId), JSON.stringify(options));
+}
+
+export type RunOutcome =
+  | { status: 'resolved'; result: WorkflowResult }
+  | { status: 'rejected'; error: unknown };
+
+/** Runs a fresh workflow object and settles the run, so a test can inspect a failure. */
+export async function runArchiveWorkflow(
+  env: Env,
+  event: WorkflowEvent<WorkflowParams>,
+  step: WorkflowStep
+): Promise<RunOutcome> {
+  // The run reads only `this.env`; the execution context is never touched.
+  const workflow = new ArchiveWorkflow({} as ExecutionContext, env);
+  try {
+    return { status: 'resolved', result: await workflow.run(event, step) };
+  } catch (error) {
+    return { status: 'rejected', error };
+  }
+}
+
+/** The result of a run that must have resolved. */
+export function resultOf(outcome: RunOutcome): WorkflowResult {
+  if (outcome.status !== 'resolved') {
+    throw new Error(`expected the run to resolve, it rejected: ${String(outcome.error)}`);
+  }
+  return outcome.result;
+}
+
+/** The error of a run that must have rejected. */
+export function errorOf(outcome: RunOutcome): Error {
+  if (outcome.status !== 'rejected') throw new Error('expected the run to reject, it resolved');
+  if (!(outcome.error instanceof Error)) throw new Error(`run rejected with a non-error: ${String(outcome.error)}`);
+  return outcome.error;
+}
+
+export function eventsOfType(logger: FakeLogger, type: EventType): LoggedEvent[] {
+  return logger.events.filter((event) => event.type === type);
+}
+
+/** A Browser Rendering failure for a host that does not resolve, wrapped by the renderer. */
+export function deadHostRenderFailure(): Response {
+  return jsonResponse(
+    {
+      error: 'Browser Rendering /content failed',
+      status: 500,
+      details: 'dial tcp: lookup dead.example.com on 1.1.1.1:53: no such host',
+    },
+    502
+  );
+}
+
+/** A plain 403 from a service: access blocked, never retried. */
+export function accessBlockedResponse(): Response {
+  return new Response('Forbidden', { status: 403 });
+}
+
+/** A plain-text service failure; a 5xx is retryable. */
+export function serviceError(status: number): Response {
+  return new Response(`upstream failure ${status}`, { status });
+}
+
+/** The monolith worker refusing an oversized input: never retried. */
+export function monolithInputTooLarge(): Response {
+  return jsonResponse({ error: 'Monolith failed', message: 'Monolith input too large: 40000000 bytes' }, 500);
 }
