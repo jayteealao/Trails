@@ -22,6 +22,7 @@ const GATEWAY_TYPES = 'warg/cloud-functions/archive-gateway/src/types.ts';
 const BACKFILL_KEYS = 'warg/cloud-functions/backfill-scripts/src/keys.ts';
 const TRIGGER_LINK = 'warg/cloud-functions/user-triggers/src/link.ts';
 const ARCHIVE_SERVICE = 'android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt';
+const USER_ARTICLE_WIRE = 'android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt';
 
 type Replacement = readonly [relativePath: string, from: string, to: string];
 
@@ -162,4 +163,50 @@ test('(h) the marker collection found only inside a longer word in the backfill 
   assert.equal(run.status, 1, run.stderr);
   assert.ok(run.stderr.includes(BACKFILL_KEYS), run.stderr);
   assert.ok(run.stderr.includes('articleMarkers'), run.stderr);
+});
+
+const USER_ARTICLE_SECTION = `## User article fields read by the server
+
+The app writes these names on the user article through \`UserArticleWire.kt\`.
+
+| Field | Read by |
+| ----- | ------- |
+| \`url\` | fixture |
+| \`title\` | fixture |
+| \`favorite\` | fixture |
+| \`status\` | fixture |
+| \`timeAdded\` | fixture |
+| \`timeRead\` | fixture |
+| \`timeUpdated\` | fixture |
+| \`deletedAt\` | fixture |
+
+`;
+
+test('(n) a user-article field renamed in the app wire type fails and names the file', () => {
+  const run = runOnFixture([[USER_ARTICLE_WIRE, '"timeUpdated"', '"timeUpdatedAt"']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(USER_ARTICLE_WIRE), run.stderr);
+  assert.ok(run.stderr.includes('timeUpdated'), run.stderr);
+});
+
+test('(o) the app wire type carrying the server-owned link fails and names the file', () => {
+  const run = runOnFixture([
+    [USER_ARTICLE_WIRE, 'const val URL = "url"', 'const val URL = "url"\n        const val LINK = "canonicalId"'],
+  ]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(USER_ARTICLE_WIRE), run.stderr);
+  assert.ok(run.stderr.includes('canonicalId'), run.stderr);
+});
+
+test('(p) without the user-article fields section the check fails and names the section', () => {
+  const run = runOnFixture([[FIXTURE_DOC, USER_ARTICLE_SECTION, '']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('User article fields read by the server'), run.stderr);
+});
+
+test('(q) a user-article field found only inside a longer literal is missing', () => {
+  const run = runOnFixture([[USER_ARTICLE_WIRE, '"url"', '"urls"']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(USER_ARTICLE_WIRE), run.stderr);
+  assert.ok(run.stderr.includes('url'), run.stderr);
 });
