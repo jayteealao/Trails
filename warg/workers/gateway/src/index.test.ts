@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import gateway from './index.js';
-import { GATEWAY_ERROR_CODES, MAX_BEGIN_BODY_BYTES, MAX_OPTIONS_BYTES, PUBLIC_STATUS_STREAM_MAX_MS } from './util.js';
+import { GATEWAY_ERROR_CODES } from './errors.js';
+import { MAX_BEGIN_BODY_BYTES, MAX_OPTIONS_BYTES } from './archive-options.js';
+import { PUBLIC_STATUS_STREAM_MAX_MS } from './event-stream.js';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
