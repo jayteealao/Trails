@@ -7,7 +7,12 @@ import type {
   Firestore,
   QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
-import { buildBackfillUpsertPatch, upsertSharedArticleForBackfill } from '@warg/article-writer';
+import {
+  buildBackfillUpsertPatch,
+  markSharedArticleBackfillBegun,
+  recordSharedArticleBackfillFailure,
+  upsertSharedArticleForBackfill,
+} from '@warg/article-writer';
 import { buildPocket } from './canonical.js';
 import {
   resolveCanonicalCandidates,
@@ -936,15 +941,11 @@ export async function runBackfill(deps: BackfillDeps): Promise<void> {
 
         // status is derived by articleStatusDerive; processing_started_at
         // is the signal the trigger uses to compute `processing`.
-        await articleRef.set(
-          {
-            warg_request_id: requestId,
-            processing_started_at: Timestamp.fromMillis(now()),
-            updated_at: Timestamp.fromMillis(now()),
-            error: FieldValue.delete(),
-          },
-          { merge: true }
-        );
+        await markSharedArticleBackfillBegun(articleRef, {
+          requestId,
+          processingStartedAt: Timestamp.fromMillis(now()),
+          updatedAt: Timestamp.fromMillis(now()),
+        });
 
         await linkSourceUserDocs(item.candidate, true);
         console.log(
@@ -975,33 +976,13 @@ export async function runBackfill(deps: BackfillDeps): Promise<void> {
         // class + a gateway_begin archive entry so the trigger can
         // distinguish ACCESS_OR_AUTH (no retry) / DATA_ISSUE (abandoned)
         // / WORKFLOW_TRIGGER / TRANSIENT_UPSTREAM.
-        const failedAt = Timestamp.fromMillis(now());
-        const failurePatch: Record<string, unknown> = {
-          class: failureClass,
-          last_seen_at: failedAt,
-          count: FieldValue.increment(1),
-          last_error_message: message,
-        };
-        if (!hadFirstSeenFailure) {
-          failurePatch['first_seen_at'] = failedAt;
-        }
-        await articleRef.set(
-          {
-            archives: {
-              gateway_begin: {
-                status: 'failed',
-                error: message,
-                created_at: failedAt.toDate().toISOString(),
-              },
-            },
-            failure: failurePatch,
-            error: message,
-            failed_at: failedAt,
-            retry_count: retryCount,
-            updated_at: failedAt,
-          },
-          { merge: true }
-        );
+        await recordSharedArticleBackfillFailure(articleRef, {
+          failureClass,
+          message,
+          failedAt: Timestamp.fromMillis(now()),
+          retryCount,
+          firstSeen: !hadFirstSeenFailure,
+        });
 
         await linkSourceUserDocs(item.candidate, false);
 
