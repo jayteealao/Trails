@@ -34,7 +34,23 @@ pnpm format:check
 
 ```bash
 pnpm --filter @warg/shared test
+pnpm -r --if-present run test        # every package's unit tests (what CI runs)
 ```
+
+The dashboard also has browser checks (Playwright, Chromium) of the sign-in,
+the archive content policy, the archive preview, the infra view and the inbox.
+They start `wrangler pages dev` with test credentials, a stand-in logger worker
+and per-spec stubs, so they need no live service. Install the browser once,
+then run them:
+
+```bash
+pnpm --filter warg-dashboard exec playwright install chromium
+pnpm --filter warg-dashboard test:e2e
+```
+
+They use the local ports 18797 (stand-in logger), 18798 (stubs) and 18799
+(dashboard); set `E2E_LOGGER_PORT`, `E2E_STUB_PORT` or `E2E_PAGES_PORT` when
+one is taken.
 
 ### Run a worker locally
 
