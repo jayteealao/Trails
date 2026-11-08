@@ -491,6 +491,7 @@ describe('persist after a deploy that renamed the persist steps', () => {
   });
 
   it('does not upload artifacts again that an earlier run already persisted under the old step names', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const cache = new Map<string, unknown>();
     seedOldHistory(cache, 'render', renderArtifacts);
     const bucket = makeBucket(persistedCheckpoint(['rendered.html', 'screenshot.png']));
@@ -512,6 +513,10 @@ describe('persist after a deploy that renamed the persist steps', () => {
     expect(result).toBeUndefined();
     expect(gcsFetch).not.toHaveBeenCalled();
     expect(run.names).toEqual(['checkpoint-persisted-snapshot']);
+    expect(logSpy).toHaveBeenCalledWith(
+      '[workflow] artifacts already persisted by an earlier run; not uploaded again',
+      expect.objectContaining({ checkpointStep: 'render', kinds: ['rendered.html', 'screenshot.png'], remaining: 0 })
+    );
     expect(manifestKeys(bucket.objects)).toEqual([]);
     expect(checkpoint.artifacts['rendered.html']).toMatchObject({
       persisted: true,
@@ -544,7 +549,7 @@ describe('persist after a deploy that renamed the persist steps', () => {
     const cache = new Map<string, unknown>();
     seedOldHistory(cache, 'render', [renderedHtml]);
     const bucket = makeBucket(persistedCheckpoint(['rendered.html']));
-    const { env, gcsFetch, gcsBodies } = makeEnv(bucket);
+    const { env, gcsFetch, gcsBodies, loggerBodies } = makeEnv(bucket);
     const run = makeReplayStep(cache);
 
     const persistedBefore = await snapshotPersistedArtifacts(env, run.step, REQUEST_ID, OPTIONS_KEY);
@@ -553,6 +558,9 @@ describe('persist after a deploy that renamed the persist steps', () => {
 
     expect(gcsFetch).toHaveBeenCalledTimes(1);
     expect(manifestArtifactKinds(bucket, gcsBodies[0]?.manifest_key ?? '')).toEqual(['screenshot.png']);
+    expect(loggerBodies.find((body) => body.includes('"persist.started"'))).toContain(
+      '"alreadyPersisted":["rendered.html"]'
+    );
     expect(checkpoint.artifacts['rendered.html']?.persisted).toBe(true);
     expect(checkpoint.artifacts['screenshot.png']?.persisted).toBe(true);
   });

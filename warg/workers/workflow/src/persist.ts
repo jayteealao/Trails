@@ -113,6 +113,17 @@ export async function persistArtifactsIncremental(
       }))
     );
   }
+  if (already.length > 0) {
+    // No persist event for these (an earlier run logged theirs); a log line says why no upload ran.
+    // Outside any step, so a replay repeats the line, never an event.
+    console.log('[workflow] artifacts already persisted by an earlier run; not uploaded again', {
+      requestId,
+      checkpointStep: stepName,
+      reason,
+      kinds: already.map((artifact) => artifact.kind),
+      remaining: remaining.length,
+    });
+  }
   if (remaining.length === 0) {
     await saveCheckpoint(env.ARCHIVE_BUCKET, checkpoint);
     return undefined;
@@ -133,6 +144,7 @@ export async function persistArtifactsIncremental(
     reason,
     resumed: true,
     artifactCount: remaining.length,
+    ...(already.length > 0 ? { alreadyPersisted: already.map((artifact) => artifact.kind) } : {}),
   });
 
   markArtifactsPersisted(
