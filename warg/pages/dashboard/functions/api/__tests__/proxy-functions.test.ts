@@ -232,7 +232,8 @@ describe('begin proxy', () => {
     const [gatewayUrl, gatewayInit] = mockCall(mockGateway.fetch);
     expect(gatewayUrl).toBe('https://gateway/begin');
     expect(gatewayInit.method).toBe('POST');
-    expect((gatewayInit.headers as Record<string, string>)['X-API-Key']).toBe('pub-key');
+    expect((gatewayInit.headers as Record<string, string>)['X-Internal-API-Key']).toBe('internal-key');
+    expect((gatewayInit.headers as Record<string, string>)['X-API-Key']).toBeUndefined();
     expect(JSON.parse(String(gatewayInit.body))).toEqual({
       url: 'https://example.com',
       request_id: 'abc12345',
@@ -674,6 +675,7 @@ describe('article retry endpoints', () => {
     const [, init] = mockCall(mockGateway.fetch);
     const payload = JSON.parse(init.body);
     expect(payload.steps).toEqual(expect.arrayContaining(['render', 'readability']));
+    expect(init.headers['X-Internal-API-Key']).toBe('internal-key');
   });
 
   it('retry-step forwards chosen step', async () => {
@@ -710,16 +712,17 @@ describe('article retry endpoints', () => {
 
     expect(response.status).toBe(200);
     expect(body.steps).toEqual(['monolith']);
+    const [, init] = mockCall(mockGateway.fetch);
+    expect(init.headers['X-Internal-API-Key']).toBe('internal-key');
   });
 
-  it('retry-full returns clear config error when PUBLIC_API_KEY is missing', async () => {
+  it('retry-full returns clear config error when INTERNAL_API_KEY is missing', async () => {
     const mockGateway = createMockFetcher(async () => jsonResponse({ requestId: 'abc123' }));
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
-      INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: '',
+      INTERNAL_API_KEY: '',
     } as any;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -743,7 +746,7 @@ describe('article retry endpoints', () => {
     const body = (await response.json()) as { error?: string };
 
     expect(response.status).toBe(500);
-    expect(String(body.error || '')).toContain('PUBLIC_API_KEY');
+    expect(String(body.error || '')).toContain('INTERNAL_API_KEY');
     expect(mockGateway.fetch).not.toHaveBeenCalled();
   });
 });
