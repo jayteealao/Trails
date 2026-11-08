@@ -652,7 +652,8 @@ scenario_dry_run_pages() {
   for w in "${WORKERS[@]}"; do
     expect_row "worker:$w" planned '-'
   done
-  expect_no_out 'dashboard-v2'
+  # [2] keeps a repo-wide search for the retired project name empty.
+  expect_no_out 'dashboard-v[2]'
   expect_calls 0 '^cf '
   expect_calls 0 '^wrangler '
   expect_calls 0 '^pnpm '
