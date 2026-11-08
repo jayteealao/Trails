@@ -11,6 +11,9 @@
 #                       warg/scripts/deploy.sh)
 #   article-write-guard warg-ci.yml has no step running node scripts/check-article-writes.mjs,
 #                       or its on.pull_request.paths list has no 'warg/**' entry
+#   drift-android-trigger a workflow running shared-types/check-drift.ts lacks 'android/**'
+#                       in on.pull_request.paths or on.push.paths, or has a job-level if:
+#                       that can skip the drift job
 # Usage: lint-workflows.sh [workflow-dir] [warg-package-json]
 set -euo pipefail
 
@@ -149,6 +152,20 @@ for f in "${files[@]}"; do
     if [ -n "$missing" ]; then
       report "$f:$missing: article-write-guard: pull_request paths lack 'warg/**'"
     fi
+  fi
+
+  # drift-android-trigger
+  if grep -qE '(^|[[:space:]])shared-types/check-drift\.ts([[:space:]]|$)' "$f"; then
+    for event in pull_request push; do
+      missing=$(paths_missing "$f" "$event" 'android/**')
+      if [ -n "$missing" ]; then
+        report "$f:$missing: drift-android-trigger: $event paths lack 'android/**'"
+      fi
+    done
+    while IFS= read -r hit; do
+      [ -n "$hit" ] || continue
+      report "$f:${hit%%:*}: drift-android-trigger: job-level if: can skip the drift job"
+    done < <(grep -nE '^    if:' "$f" || true)
   fi
 
   if [ "$base" = "firebase-rules.yml" ]; then
