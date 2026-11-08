@@ -1,5 +1,5 @@
 import type { EventType, LogEvent, LogLevel } from '@warg/shared';
-import { createEvent } from '@warg/shared';
+import { createEvent, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
 interface ClassifiedError {
@@ -78,6 +78,20 @@ export function classifyError(stepName: string, errorMsg: string): ClassifiedErr
   const msg = errorMsg.toLowerCase();
   const monolithError = classifyMonolithError(msg);
   if (monolithError) return monolithError;
+
+  // A renderer or singlefile worker rejected the page as a proxy/network error
+  // page: the host cannot be reached, so the step was not retried.
+  if (msg.includes(PROXY_ERROR_PAGE_REASON)) {
+    const unreachableByStep: Record<string, RequestErrorCode> = {
+      render: 'RENDER_SERVICE_ERROR',
+      singlefile: 'SINGLEFILE_SERVICE_ERROR',
+    };
+    return {
+      errorCode: unreachableByStep[stepName] ?? 'UNKNOWN_ERROR',
+      retryable: false,
+      recommendedAction: 'inspect_url',
+    };
+  }
 
   if (msg.includes('no requested outputs were produced')) {
     return {

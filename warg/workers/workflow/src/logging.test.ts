@@ -46,3 +46,38 @@ describe('classifyError', () => {
     expect(classified.recommendedAction).toBe('retry_full');
   });
 });
+
+describe('classifyError for a proxy error page', () => {
+  it('labels the singlefile rejection as not retryable', () => {
+    const classified = classifyError(
+      'singlefile',
+      'Service error 502: {"error":"SingleFile capture returned a proxy/network error page","reason":"proxy_error_page","url":"https://x"}'
+    );
+
+    expect(classified).toEqual({
+      errorCode: 'SINGLEFILE_SERVICE_ERROR',
+      retryable: false,
+      recommendedAction: 'inspect_url',
+    });
+  });
+
+  it('labels the renderer rejection as not retryable', () => {
+    const classified = classifyError(
+      'render',
+      'Service error 502: {"error":"Browser Rendering /content returned a proxy/network error page","reason":"proxy_error_page","url":"https://x"}'
+    );
+
+    expect(classified).toEqual({
+      errorCode: 'RENDER_SERVICE_ERROR',
+      retryable: false,
+      recommendedAction: 'inspect_url',
+    });
+  });
+
+  it('keeps a plain singlefile service error retryable', () => {
+    const classified = classifyError('singlefile', 'Service error 503: Service Unavailable');
+
+    expect(classified.errorCode).toBe('SINGLEFILE_SERVICE_ERROR');
+    expect(classified.retryable).toBe(true);
+  });
+});
