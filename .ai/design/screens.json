@@ -112,7 +112,14 @@
       "slices": [],
       "created-at": "2026-11-08T00:01:53Z",
       "updated-at": "2026-11-08T00:01:53Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
     },
     "reader-first-text": {
       "title": "First text: the whole-page Markdown",
@@ -125,7 +132,14 @@
       "slices": [],
       "created-at": "2026-11-08T00:01:54Z",
       "updated-at": "2026-11-08T00:01:54Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
     },
     "reader-better-arrived": {
       "title": "Better text arrives while reading",
@@ -138,7 +152,14 @@
       "slices": [],
       "created-at": "2026-11-08T00:01:54Z",
       "updated-at": "2026-11-08T00:01:54Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
     },
     "reader-next-open": {
       "title": "Next open: Readability text",
@@ -151,7 +172,14 @@
       "slices": [],
       "created-at": "2026-11-08T00:01:54Z",
       "updated-at": "2026-11-08T00:01:54Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
     },
     "reader-ai-markdown": {
       "title": "AI Markdown tab, opened by hand",
@@ -164,7 +192,14 @@
       "slices": [],
       "created-at": "2026-11-08T00:01:54Z",
       "updated-at": "2026-11-08T00:01:54Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
     }
   },
   "explore": {},
