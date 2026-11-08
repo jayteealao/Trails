@@ -342,7 +342,7 @@ describe('isPlainObject', () => {
     expect(isPlainObject({})).toBe(true);
   });
 
-  it.each([null, [], 'x', 1])('is false for %j', (value) => {
+  it.each([[null], [[]], ['x'], [1]])('is false for %j', (value) => {
     expect(isPlainObject(value)).toBe(false);
   });
 });
