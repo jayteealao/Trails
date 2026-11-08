@@ -140,3 +140,122 @@ describe('BrowserQuotaDO at the shared lease ages', () => {
     );
   });
 });
+
+describe('BrowserQuotaDO container sweep', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  function stoppedRequestIds(monolithFetch: ReturnType<typeof makeDo>['monolithFetch']): string[] {
+    return monolithFetch.mock.calls.map(
+      ([, init]) => (JSON.parse(String(init?.body)) as { request_id: string }).request_id
+    );
+  }
+
+  it('stops only the container of the stale lease and keeps the live one', async () => {
+    const { quota, monolithFetch } = makeDo();
+    await quota.acquire('sandbox_exec', 'req-old');
+    vi.setSystemTime(T0 + 200_000);
+    await quota.acquire('sandbox_exec', 'req-live');
+
+    vi.setSystemTime(T0 + 301_000);
+    await quota.alarm();
+
+    expect(monolithFetch).toHaveBeenCalledTimes(1);
+    const [url, init] = monolithFetch.mock.calls[0]!;
+    expect(url).toBe('https://monolith/container/stop');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ request_id: 'req-old' });
+    expect(new Headers(init?.headers).get('X-Internal-API-Key')).toBe('internal-key');
+    expect(await sandboxRequestIds(quota)).toEqual(['req-live']);
+  });
+
+  it('drops a stale browser lease without asking monolith to stop anything', async () => {
+    const { quota, monolithFetch } = makeDo();
+    await quota.acquire('bindings_launch', 'req-browser');
+
+    vi.setSystemTime(T0 + 301_000);
+    await quota.alarm();
+
+    expect(monolithFetch).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed stop and still stops the other containers', async () => {
+    let call = 0;
+    const { quota, monolithFetch } = makeDo({
+      monolithFetch: async () =>
+        call++ === 0 ? new Response('boom', { status: 500 }) : Response.json({ ok: true })
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await quota.acquire('sandbox_exec', 'req-fail');
+    await quota.acquire('sandbox_exec', 'req-ok');
+
+    vi.setSystemTime(T0 + 301_000);
+    await expect(quota.alarm()).resolves.toBeUndefined();
+
+    expect(stoppedRequestIds(monolithFetch)).toEqual(['req-fail', 'req-ok']);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const logged = errorSpy.mock.calls[0]!.map(String).join(' ');
+    expect(logged).toContain('req-fail');
+    expect(logged).toContain('"stopped":1');
+    expect(await sandboxRequestIds(quota)).toEqual([]);
+  });
+
+  it('queues the stop of a lease that acquire drops and runs it on an immediate alarm', async () => {
+    const { quota, setAlarm, monolithFetch } = makeDo();
+    await quota.acquire('sandbox_exec', 'req-a');
+
+    vi.setSystemTime(T0 + 301_000);
+    await quota.acquire('sandbox_exec', 'req-b');
+
+    expect(monolithFetch).not.toHaveBeenCalled();
+    expect(setAlarm).toHaveBeenLastCalledWith(T0 + 301_000);
+
+    await quota.alarm();
+
+    expect(stoppedRequestIds(monolithFetch)).toEqual(['req-a']);
+  });
+
+  it('stops a queued container left by an interrupted alarm once, and only once', async () => {
+    const { quota, monolithFetch } = makeDo({
+      stored: {
+        leases: [],
+        launchTokens: 3,
+        lastRefillMs: undefined,
+        pendingStops: [{ leaseId: 'l1', requestId: 'req-x', acquiredAt: T0 - 400_000 }]
+      }
+    });
+
+    await quota.alarm();
+    expect(stoppedRequestIds(monolithFetch)).toEqual(['req-x']);
+
+    await quota.alarm();
+    expect(monolithFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops exactly the containers at the shared stale ages', async () => {
+    const ages = [
+      { requestId: 'req-299', ageMs: 299_000 },
+      { requestId: 'req-300', ageMs: 300_000 },
+      { requestId: 'req-301', ageMs: 301_000 }
+    ];
+    const now = T0 + 301_000;
+    const { quota, monolithFetch } = makeDo();
+    for (const row of ages) {
+      vi.setSystemTime(now - row.ageMs);
+      await quota.acquire('sandbox_exec', row.requestId);
+    }
+
+    vi.setSystemTime(now);
+    await quota.alarm();
+
+    expect(stoppedRequestIds(monolithFetch).sort()).toEqual(['req-300', 'req-301']);
+  });
+});
