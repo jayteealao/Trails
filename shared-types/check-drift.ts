@@ -33,39 +33,45 @@ import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(here, '..');
 
-const CANONICAL_DOC = resolve(here, 'WargMetadata.md');
-const WARG_TYPES = resolve(repoRoot, 'warg/cloud-functions/archive-gateway/src/types.ts');
-const TRAILS_SOURCE = resolve(
-  repoRoot,
+// The tree to check: the repo by default, or `--root <dir>` (resolved against
+// the working directory), so a fixture tree with the same layout can be checked.
+function parseRoot(argv: readonly string[]): string {
+  const at = argv.indexOf('--root');
+  if (at < 0) return resolve(here, '..');
+  const value = argv[at + 1];
+  if (value === undefined || value.startsWith('--')) {
+    console.error('[drift] usage: check-drift.ts [--root <dir>]');
+    process.exit(1);
+  }
+  return resolve(process.cwd(), value);
+}
+
+const repoRoot = parseRoot(process.argv.slice(2));
+const inRoot = (relativePath: string): string => resolve(repoRoot, relativePath);
+
+const CANONICAL_DOC = inRoot('shared-types/WargMetadata.md');
+const WARG_TYPES = inRoot('warg/cloud-functions/archive-gateway/src/types.ts');
+const TRAILS_SOURCE = inRoot(
   'android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt',
 );
 
 // Marker contract: users/{uid}/articleMarkers/{key} — see MarkerSchema.md.
-const MARKER_DOC = resolve(here, 'MarkerSchema.md');
+const MARKER_DOC = inRoot('shared-types/MarkerSchema.md');
 const MARKER_COLLECTION = 'articleMarkers';
 const CANONICAL_ID_FIELD = 'canonicalId';
 // Server marker producer: the Warg Admin-SDK backfill. Its pure key module is
 // the source of truth for the collection name + field body it writes.
-const WARG_MARKER_BACKFILL = resolve(
-  repoRoot,
-  'warg/cloud-functions/backfill-scripts/src/keys.ts',
-);
+const WARG_MARKER_BACKFILL = inRoot('warg/cloud-functions/backfill-scripts/src/keys.ts');
 // Server marker producer: the Warg user-article trigger, which writes the
 // marker in the same transaction as canonicalId.
-const WARG_MARKER_TRIGGER = resolve(
-  repoRoot,
-  'warg/cloud-functions/user-triggers/src/link.ts',
-);
+const WARG_MARKER_TRIGGER = inRoot('warg/cloud-functions/user-triggers/src/link.ts');
 // The app's backup writer and its Article model: neither may write markers or
 // carry the server-owned canonicalId.
-const TRAILS_BACKUP_WRITER = resolve(
-  repoRoot,
+const TRAILS_BACKUP_WRITER = inRoot(
   'android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt',
 );
-const TRAILS_ARTICLE_MODEL = resolve(
-  repoRoot,
+const TRAILS_ARTICLE_MODEL = inRoot(
   'android/app/src/main/java/com/jayteealao/trails/data/local/database/Article.kt',
 );
 
