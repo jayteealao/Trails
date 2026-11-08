@@ -10,13 +10,10 @@ import type {
   SinglefileParams
 } from './types.js';
 import { isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
-import type { RequestErrorCode, UserActionHint } from '@warg/shared';
+import type { RequestErrorCode } from '@warg/shared';
+import { withClassificationTag, type ErrorClassification } from './classification-tag.js';
 
-export interface ServiceErrorClassification {
-  errorCode: RequestErrorCode;
-  retryable: boolean;
-  recommendedAction: UserActionHint;
-}
+export type ServiceErrorClassification = ErrorClassification;
 
 function classifyTimeout(path: string): ServiceErrorClassification {
   const byPath: Record<string, RequestErrorCode> = {
@@ -576,7 +573,7 @@ export async function callRendererWith403Fallback(
  */
 function rethrowForStep(error: unknown, makeNonRetryable: (message: string) => Error): never {
   if (error instanceof ServiceCallError && !error.classification.retryable) {
-    throw makeNonRetryable(error.message);
+    throw makeNonRetryable(withClassificationTag(error.message, error.classification));
   }
   throw error;
 }

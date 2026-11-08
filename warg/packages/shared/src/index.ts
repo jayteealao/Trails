@@ -45,6 +45,8 @@ export type {
   ArticleHealth
 } from './dashboard.js';
 
+export { REQUEST_ERROR_CODES, USER_ACTION_HINTS } from './dashboard.js';
+
 export { createEvent } from './logging.js';
 
 export {

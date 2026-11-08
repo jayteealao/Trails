@@ -12,6 +12,7 @@ import {
   type ServiceErrorClassification,
 } from './services.js';
 import { PROXY_ERROR_PAGE_REASON } from '@warg/shared';
+import { readClassificationTag } from './classification-tag.js';
 import type { RendererResponse } from './types.js';
 
 function makeJsonResponse(status: number, body: unknown): Response {
@@ -699,6 +700,17 @@ describe('singlefile proxy error page rejections', () => {
     expect(failure).toBeInstanceOf(FakeNonRetryableError);
     expect(failure instanceof Error ? failure.message : '').toContain(PROXY_ERROR_PAGE_REASON);
     expect(singlefileFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries its classification in the message of the step failure', async () => {
+    const singlefileFetch = vi.fn(async () => makeJsonResponse(502, singlefileProxyErrorBody));
+
+    const failure = await runSinglefileStep(makeSinglefileEnv(singlefileFetch)).catch((error: unknown) => error);
+    expect(readClassificationTag(failure instanceof Error ? failure.message : '')).toEqual({
+      errorCode: 'SINGLEFILE_SERVICE_ERROR',
+      retryable: false,
+      recommendedAction: 'inspect_url',
+    });
   });
 });
 

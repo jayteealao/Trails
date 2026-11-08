@@ -1,12 +1,9 @@
 import type { EventType, LogEvent, LogLevel } from '@warg/shared';
 import { createEvent, isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
-import type { RequestErrorCode, UserActionHint } from '@warg/shared';
+import type { RequestErrorCode } from '@warg/shared';
+import { readClassificationTag, type ErrorClassification } from './classification-tag.js';
 
-interface ClassifiedError {
-  errorCode: RequestErrorCode;
-  retryable: boolean;
-  recommendedAction: UserActionHint;
-}
+type ClassifiedError = ErrorClassification;
 
 function fromErrorObject(error: string | Error): ClassifiedError | undefined {
   if (!(error instanceof Error)) return undefined;
@@ -75,6 +72,10 @@ function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefin
 }
 
 export function classifyError(stepName: string, errorMsg: string): ClassifiedError {
+  // The step that saw the failure already classified it: use that, not the text rules below.
+  const tagged = readClassificationTag(errorMsg);
+  if (tagged) return tagged;
+
   const msg = errorMsg.toLowerCase();
   const monolithError = classifyMonolithError(msg);
   if (monolithError) return monolithError;
