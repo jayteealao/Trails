@@ -80,3 +80,32 @@ test('an event without a document resolves without a gateway call or a write', a
   assert.deepEqual(posts, []);
   assert.deepEqual(store.writes, []);
 });
+
+const saveData = { url: URL, favorite: '1', timeAdded: 5 };
+const beginBody = { url: URL, request_id: ITEM, includeScreenshot: true, includePdf: true };
+
+test('a created user article calls the gateway once with its link, records the start, and a re-delivery calls nothing', async () => {
+  const store = seed({ users: { [`${USER}/articles/${ITEM}`]: saveData } });
+  answer([{ status: 200, body: '{"requestId":"req-00001"}' }]);
+  const e = event({ data: saveData });
+
+  assert.equal(await deliver(e), null);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0]?.url, 'https://gateway.test/begin');
+  assert.deepEqual(posts[0]?.headers, {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'pk-test',
+    'CF-Access-Client-Id': 'cf-id',
+    'CF-Access-Client-Secret': 'cf-secret',
+  });
+  assert.deepEqual(posts[0]?.body, beginBody);
+  assert.equal(store.docs.get(`articles/${ITEM}`)?.['status'], 'processing');
+  assert.equal(store.docs.get(`articles/${ITEM}`)?.['warg_request_id'], 'req-00001');
+  assert.equal(store.docs.get(USER_PATH)?.['canonicalId'], ITEM);
+  assert.equal(store.docs.get(USER_PATH)?.['archival_triggered'], true);
+
+  const writesAfterFirst = store.writes.length;
+  assert.equal(await deliver(e), null);
+  assert.equal(posts.length, 1);
+  assert.equal(store.writes.length, writesAfterFirst);
+});
