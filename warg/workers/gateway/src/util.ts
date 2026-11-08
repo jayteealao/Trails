@@ -160,7 +160,8 @@ export const GATEWAY_ERROR_CODES = {
   NOT_FOUND: 'NOT_FOUND',
   WORKFLOW_TRIGGER_FAILED: 'WORKFLOW_TRIGGER_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
-  INVALID_OPTIONS: 'INVALID_OPTIONS'
+  INVALID_OPTIONS: 'INVALID_OPTIONS',
+  OPTION_NOT_ALLOWED: 'OPTION_NOT_ALLOWED'
 } as const;
 
 /**
@@ -210,6 +211,12 @@ export const ARCHIVE_OPTION_BOOLEAN_KEYS = [
   'resumeFromCheckpoint',
   'dryRun'
 ] as const;
+
+/**
+ * The archive option keys a public-key caller may not send: only the internal key
+ * chooses a dry run or the step list. Their presence, whatever the value, is refused.
+ */
+export const PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS = ['dryRun', 'steps'] as const;
 
 /**
  * Archive options as the gateway stores them: only known keys, each of the right type.

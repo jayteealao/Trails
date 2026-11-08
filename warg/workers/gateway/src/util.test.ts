@@ -12,7 +12,8 @@ import {
   isPlainObject,
   validateArchiveOptions,
   MAX_OPTIONS_BYTES,
-  ARCHIVE_OPTION_BOOLEAN_KEYS
+  ARCHIVE_OPTION_BOOLEAN_KEYS,
+  PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS
 } from './util.js';
 import { createEvent } from '@warg/shared';
 
@@ -408,5 +409,20 @@ describe('validateArchiveOptions', () => {
 describe('GATEWAY_ERROR_CODES.INVALID_OPTIONS', () => {
   it('equals its key', () => {
     expect(GATEWAY_ERROR_CODES.INVALID_OPTIONS).toBe('INVALID_OPTIONS');
+  });
+});
+
+describe('GATEWAY_ERROR_CODES.OPTION_NOT_ALLOWED', () => {
+  it('equals its key', () => {
+    expect(GATEWAY_ERROR_CODES.OPTION_NOT_ALLOWED).toBe('OPTION_NOT_ALLOWED');
+  });
+});
+
+describe('PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS', () => {
+  it('names dryRun and steps, both known option keys', () => {
+    expect([...PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS]).toEqual(['dryRun', 'steps']);
+    for (const key of PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS) {
+      expect(validateArchiveOptions({ [key]: key === 'dryRun' ? true : [] }).ok).toBe(true);
+    }
   });
 });
