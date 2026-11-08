@@ -389,7 +389,8 @@ export type RendererFallbackReason =
   | 'browser_rendering_403'
   | 'browser_rendering_5006'
   | 'browser_rendering_6000'
-  | 'browser_rendering_proxy_error_page';
+  | 'browser_rendering_proxy_error_page'
+  | 'browser_rendering_dead_host';
 
 function ensureRendererResponseShape(
   result: RendererResponse,
@@ -417,8 +418,9 @@ function ensureRendererResponseShape(
 }
 
 /**
- * Returns fallback reason when primary renderer wrapped a Browser Rendering failure
- * that should be retried with hyperrenderer.
+ * Returns the fallback reason when the primary renderer reports an
+ * access-blocked, unreachable-host or transient Browser Rendering failure that
+ * the hyperrenderer may still render. Any other failure gets no fallback.
  */
 export function getRendererFallbackReason(error: unknown): RendererFallbackReason | undefined {
   if (!(error instanceof ServiceCallError)) return undefined;
@@ -447,6 +449,7 @@ export function getRendererFallbackReason(error: unknown): RendererFallbackReaso
     if (containsRendererContextDestroyed6000(record.details)) {
       return 'browser_rendering_6000';
     }
+    if (isDeadHostFailure(record.details)) return 'browser_rendering_dead_host';
     return undefined;
   } catch {
     return undefined;
@@ -467,8 +470,11 @@ export interface RendererCallOutcome {
 }
 
 /**
- * Call primary renderer and transparently fall back to hyperrenderer
- * when Browser Rendering returns wrapped access/network failures.
+ * Call the primary renderer and, when it reports a failure that the
+ * hyperrenderer may still render, call the hyperrenderer once. When both fail,
+ * the error names both failures. If the primary failure cannot be retried
+ * (blocked or unreachable page), the failed pair is not retryable either: a
+ * retry would hit the same primary failure again.
  */
 export async function callRendererWith403Fallback(
   env: Env,
@@ -479,11 +485,10 @@ export async function callRendererWith403Fallback(
     return { result, fallbackUsed: false };
   } catch (error) {
     const fallbackReason = getRendererFallbackReason(error);
-    if (!fallbackReason) {
+    if (!fallbackReason || !(error instanceof ServiceCallError)) {
       throw error;
     }
 
-    const primaryMessage = error instanceof Error ? error.message : String(error);
     try {
       const result = ensureRendererResponseShape(
         await callHyperrenderer(env, params),
@@ -495,13 +500,28 @@ export async function callRendererWith403Fallback(
         fallbackReason,
       };
     } catch (fallbackError) {
-      if (fallbackError instanceof ServiceCallError) {
+      const fallbackMessage =
+        fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      const message = `Renderer failed with Browser Rendering fallback-eligible error and fallback failed. primary=${error.message}; fallback=${fallbackMessage}`;
+      const fallbackServiceError =
+        fallbackError instanceof ServiceCallError ? fallbackError : undefined;
+
+      if (!error.classification.retryable) {
         throw new ServiceCallError(
-          `Renderer failed with Browser Rendering fallback-eligible error and fallback failed. primary=${primaryMessage}; fallback=${fallbackError.message}`,
-          fallbackError.classification,
-          fallbackError.path,
-          fallbackError.status,
-          fallbackError.responseBody
+          message,
+          { ...error.classification, retryable: false },
+          '/render',
+          fallbackServiceError?.status ?? error.status,
+          fallbackServiceError?.responseBody ?? error.responseBody
+        );
+      }
+      if (fallbackServiceError) {
+        throw new ServiceCallError(
+          message,
+          fallbackServiceError.classification,
+          fallbackServiceError.path,
+          fallbackServiceError.status,
+          fallbackServiceError.responseBody
         );
       }
       throw fallbackError;
