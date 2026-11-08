@@ -911,6 +911,24 @@ describe('when the primary renderer and the hyperrenderer both fail', () => {
     },
   );
 
+  it('keeps the pair retryable when only the hyperrenderer judged the page not worth a retry', async () => {
+    const rendererFetch = vi.fn(async () =>
+      makeJsonResponse(502, {
+        error: 'Browser Rendering /content failed',
+        status: 422,
+        details: JSON.stringify({ success: false, errors: [{ code: 5006, message: 'browser disconnected' }] }),
+      }),
+    );
+    const hyperrendererFetch = vi.fn(async () => wrappedContentFailure('forbidden', 403));
+
+    const error = await catchServiceCallError(
+      callRendererWith403Fallback(makeEnv(rendererFetch, hyperrendererFetch), renderParams),
+    );
+
+    expect(error.message).toMatch(/primary=.*; fallback=/);
+    expect(error.classification.retryable).toBe(true);
+  });
+
   it('keeps the access-blocked classification on the error that names both failures', async () => {
     const rendererFetch = vi.fn(async () => wrappedContentFailure('forbidden', 403));
     const hyperrendererFetch = vi.fn(async () => new Response('Service Unavailable', { status: 503 }));

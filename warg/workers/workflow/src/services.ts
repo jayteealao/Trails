@@ -553,10 +553,12 @@ export async function callRendererWith403Fallback(
           fallbackServiceError?.responseBody ?? error.responseBody
         );
       }
+      // The primary failure was transient, so the pair is worth another attempt
+      // whatever the hyperrenderer judged: the next attempt starts on the primary.
       if (fallbackServiceError) {
         throw new ServiceCallError(
           message,
-          fallbackServiceError.classification,
+          { ...fallbackServiceError.classification, retryable: true },
           fallbackServiceError.path,
           fallbackServiceError.status,
           fallbackServiceError.responseBody
