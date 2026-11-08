@@ -675,30 +675,33 @@ export default {
     // POST /internal/log - Forward event to logger (for external services)
     if (method === 'POST' && path === '/internal/log') {
       if (!verifyInternalApiKey(request, env)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        return errorResponse(401, GATEWAY_ERROR_CODES.UNAUTHORIZED, 'Unauthorized', errorIdFor(undefined));
       }
 
+      let body: { requestId?: string; event?: LogEvent } | undefined;
       try {
-        const body = (await request.json()) as { requestId: string; event: LogEvent };
-        const response = await loggerRequest(env, '/event', 'POST', body);
+        const parsed = (await request.json()) as { requestId: string; event: LogEvent };
+        body = parsed;
+        const response = await loggerRequest(env, '/event', 'POST', parsed);
         return withRequestId(
           new Response(response.body, {
             status: response.status,
             headers: { 'Content-Type': 'application/json' }
           }),
-          body.requestId
+          parsed.requestId
         );
       } catch (err) {
-        console.error('[gateway] Error in /internal/log:', err);
+        const errorId = errorIdFor(typeof body?.requestId === 'string' ? body.requestId : undefined);
         const errMsg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
+        console.error('[gateway] Error in /internal/log', { id: errorId, message: errMsg }, err);
+        return errorResponse(500, GATEWAY_ERROR_CODES.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE, errorId);
       }
     }
 
     // POST /internal/sweep-orphan-queued - retrigger queued requests that never emitted workflow events
     if (method === 'POST' && path === '/internal/sweep-orphan-queued') {
       if (!verifyInternalApiKey(request, env)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        return errorResponse(401, GATEWAY_ERROR_CODES.UNAUTHORIZED, 'Unauthorized', errorIdFor(undefined));
       }
 
       try {
@@ -713,13 +716,14 @@ export default {
         });
         return Response.json(summary);
       } catch (err) {
-        console.error('[gateway] Error in /internal/sweep-orphan-queued:', err);
+        const errorId = errorIdFor(undefined);
         const errMsg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
+        console.error('[gateway] Error in /internal/sweep-orphan-queued', { id: errorId, message: errMsg }, err);
+        return errorResponse(500, GATEWAY_ERROR_CODES.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE, errorId);
       }
     }
 
-    return Response.json({ error: 'Not found' }, { status: 404 });
+    return errorResponse(404, GATEWAY_ERROR_CODES.NOT_FOUND, 'Not found', errorIdFor(undefined));
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
