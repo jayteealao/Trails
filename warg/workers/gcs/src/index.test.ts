@@ -283,3 +283,81 @@ describe('parsing', () => {
     expect(calls).toEqual([]);
   });
 });
+
+const THREE_KINDS: ArtifactKind[] = ['page.pdf', 'screenshot.png', 'singlefile.html', 'manifest.json'];
+
+async function gunzip(bytes: ArrayBuffer): Promise<string> {
+  return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+}
+
+/** `<METHOD> <url>` plus the kinds a finalize call carries, for order checks. */
+function summarize(calls: NetworkCall[]): string[] {
+  return calls.map((c) => {
+    if (c.url === `${FN_BASE}/finalize`) {
+      const kinds = (c.json as { uploaded: Array<{ kind: string }> }).uploaded.map((u) => u.kind);
+      return `finalize [${kinds.join(',')}]`;
+    }
+    if (c.url === `${FN_BASE}/create-upload`) return 'create-upload';
+    return `${c.method} ${c.url}`;
+  });
+}
+
+describe('success', () => {
+  it('uploads three artifacts and answers a gcs_path for each in the documented shape', async () => {
+    const m = manifest(THREE_KINDS);
+    const bucket = bucketFor(m);
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    expect(summarize(calls)).toEqual([
+      'create-upload',
+      'PUT https://upload.test/page.pdf',
+      'finalize [page.pdf]',
+      'PUT https://upload.test/screenshot.png',
+      'finalize [screenshot.png]',
+      'PUT https://upload.test/singlefile.html',
+      'finalize [singlefile.html]',
+      'finalize []'
+    ]);
+
+    const createUpload = calls[0]!;
+    expect(createUpload.headers['X-Internal-API-Key']).toBe('gw-k');
+    const listed = (createUpload.json as CreateUploadBody).artifacts;
+    expect(listed.map((a) => a.kind)).toEqual(['page.pdf', 'screenshot.png', 'singlefile.html']);
+    expect(listed.filter((a) => a.compressed === true).map((a) => a.kind)).toEqual(['singlefile.html']);
+
+    const puts = calls.filter((c) => c.method === 'PUT');
+    const putOf = (kind: string) => puts.find((c) => c.url === `https://upload.test/${kind}`)!;
+    expect(putOf('singlefile.html').headers['content-encoding']).toBe('gzip');
+    expect(await gunzip(putOf('singlefile.html').bytes!)).toBe(ARTIFACT_BODIES['singlefile.html']);
+    expect(putOf('page.pdf').headers['content-encoding']).toBeUndefined();
+    expect(putOf('screenshot.png').headers['content-encoding']).toBeUndefined();
+    expect(new TextDecoder().decode(putOf('page.pdf').bytes!)).toBe(ARTIFACT_BODIES['page.pdf']);
+
+    const singlefileBytes = m.artifacts.find((a) => a.kind === 'singlefile.html')!.bytes;
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      success: true,
+      firestore_doc_id: DOC_ID,
+      uploaded: 3,
+      artifacts: [
+        { kind: 'page.pdf', gcs_path: 'archives/req-1/pdf/output.pdf' },
+        { kind: 'screenshot.png', gcs_path: 'archives/req-1/screenshot/output.png' },
+        { kind: 'singlefile.html', gcs_path: 'archives/req-1/singlefile/output.html.gz' }
+      ],
+      meta: {
+        compressionStats: [
+          {
+            kind: 'singlefile.html',
+            originalBytes: singlefileBytes,
+            compressedBytes: expect.any(Number),
+            ratio: expect.any(Number)
+          }
+        ],
+        uploadDurationMs: expect.any(Number),
+        skippedArtifacts: []
+      }
+    } satisfies PersistResponse);
+  });
+});
