@@ -35,9 +35,16 @@ export interface ArchiveManifest {
 }
 
 /**
+ * The archive steps a caller may request, in run order. The single runtime
+ * source for the step names: the `WorkflowStep` type is derived from it.
+ */
+export const WORKFLOW_STEPS = ['render', 'singlefile', 'readability', 'monolith'] as const;
+
+export type WorkflowStep = (typeof WORKFLOW_STEPS)[number];
+
+/**
  * Options for starting an archive request.
  */
-export type WorkflowStep = 'render' | 'singlefile' | 'readability' | 'monolith';
 
 export interface ArchiveOptions {
   url: string;
