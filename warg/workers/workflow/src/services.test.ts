@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   callRenderer,
+  callRendererForStep,
   callRendererWith403Fallback,
   callMonolith,
   getRendererFallbackReason,
@@ -526,5 +527,64 @@ describe('render failures that stay retryable', () => {
       retryable: true,
       recommendedAction: 'retry_step',
     });
+  });
+});
+
+/** Stands in for the runtime's NonRetryableError, which only exists inside Workers. */
+class FakeNonRetryableError extends Error {}
+
+/**
+ * Records how a workflow step with `retries.limit = limit` runs `fn`: one first
+ * attempt plus up to `limit` retries, stopping at once on a non-retryable error.
+ */
+async function runWithRetries<T>(limit: number, fn: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= limit; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof FakeNonRetryableError) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+function runRenderStep(env: Env): Promise<unknown> {
+  return runWithRetries(3, () =>
+    callRendererForStep(env, renderParams, (m) => new FakeNonRetryableError(m)),
+  );
+}
+
+describe('access-blocked render failures', () => {
+  it('classifies a wrapped Browser Rendering 403 as not retryable', async () => {
+    const classification = await classifyRendererResponse(wrappedContentFailure('forbidden', 403));
+    expect(classification).toEqual({
+      errorCode: 'ACCESS_BLOCKED',
+      retryable: false,
+      recommendedAction: 'check_access',
+    });
+  });
+
+  it('fails the render step after one attempt when the fallback is blocked too', async () => {
+    const rendererFetch = vi.fn(async () => wrappedContentFailure('forbidden', 403));
+    const hyperrendererFetch = vi.fn(async () => new Response('Forbidden', { status: 403 }));
+
+    await expect(runRenderStep(makeEnv(rendererFetch, hyperrendererFetch))).rejects.toBeInstanceOf(
+      FakeNonRetryableError,
+    );
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails the render step after one attempt on a direct 403, without the fallback', async () => {
+    const rendererFetch = vi.fn(async () => new Response('Forbidden', { status: 403 }));
+    const hyperrendererFetch = vi.fn();
+
+    await expect(runRenderStep(makeEnv(rendererFetch, hyperrendererFetch))).rejects.toBeInstanceOf(
+      FakeNonRetryableError,
+    );
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).not.toHaveBeenCalled();
   });
 });
