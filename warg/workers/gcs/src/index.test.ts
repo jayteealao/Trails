@@ -507,3 +507,71 @@ describe('signed-url', () => {
     expect(summarize(calls)).toEqual(['create-upload']);
   });
 });
+
+describe('partial', () => {
+  it('reports a failed upload per artifact, still uploads the others, and answers 502', async () => {
+    const bucket = bucketFor(manifest(THREE_KINDS));
+    const calls = stubNetwork({
+      put: (kind) => (kind === 'screenshot.png' ? new Response('gcs down', { status: 500 }) : new Response(null))
+    });
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    // Every artifact is tried; only the uploaded ones are finalized, and the
+    // metadata finalize is skipped so the retry writes it.
+    expect(summarize(calls)).toEqual([
+      'create-upload',
+      'PUT https://upload.test/page.pdf',
+      'finalize [page.pdf]',
+      'PUT https://upload.test/screenshot.png',
+      'PUT https://upload.test/singlefile.html',
+      'finalize [singlefile.html]'
+    ]);
+    expect(result).toEqual({
+      status: 502,
+      body: {
+        error: 'Upload failed for some artifacts',
+        firestore_doc_id: DOC_ID,
+        uploaded: 2,
+        artifacts: [
+          { kind: 'page.pdf', gcs_path: 'archives/req-1/pdf/output.pdf' },
+          { kind: 'singlefile.html', gcs_path: 'archives/req-1/singlefile/output.html.gz' }
+        ],
+        failed: [
+          {
+            kind: 'screenshot.png',
+            error: expect.stringContaining('GCS upload failed for screenshot.png: 500')
+          }
+        ]
+      }
+    });
+  });
+
+  it('reports an artifact missing from R2 and still uploads the others', async () => {
+    const bucket = bucketFor(manifest(THREE_KINDS), ['page.pdf']);
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    expect(summarize(calls)).toEqual([
+      'create-upload',
+      'PUT https://upload.test/screenshot.png',
+      'finalize [screenshot.png]',
+      'PUT https://upload.test/singlefile.html',
+      'finalize [singlefile.html]'
+    ]);
+    expect(result).toEqual({
+      status: 502,
+      body: {
+        error: 'Upload failed for some artifacts',
+        firestore_doc_id: DOC_ID,
+        uploaded: 2,
+        artifacts: [
+          { kind: 'screenshot.png', gcs_path: 'archives/req-1/screenshot/output.png' },
+          { kind: 'singlefile.html', gcs_path: 'archives/req-1/singlefile/output.html.gz' }
+        ],
+        failed: [{ kind: 'page.pdf', error: expect.stringContaining('Artifact not found in R2') }]
+      }
+    });
+  });
+});
