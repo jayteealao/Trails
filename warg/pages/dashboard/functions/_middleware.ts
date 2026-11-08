@@ -1,6 +1,8 @@
 // Every dashboard page and API call needs the dashboard credential. The
 // browser's own sign-in prompt asks for it (HTTP Basic) and then sends it
-// with every later request.
+// with every later request. A dashboard with no credential configured lets
+// nobody in, and says so with a 500 instead of a sign-in prompt that can
+// never succeed.
 
 interface Env {
   // The dashboard credential, as `user:password`.
@@ -17,6 +19,15 @@ function signInRequired(): Response {
       'Content-Type': 'text/plain; charset=utf-8',
       'WWW-Authenticate': CHALLENGE_HEADER,
     },
+  });
+}
+
+// No challenge header: a browser shows the line instead of prompting for a
+// credential that cannot match.
+function authNotConfigured(): Response {
+  return new Response('Dashboard auth is not configured.', {
+    status: 500,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
   });
 }
 
@@ -45,7 +56,7 @@ async function matchesSecret(candidate: Uint8Array, secret: string): Promise<boo
 
 export const onRequest: PagesFunction<Env> = async (context) => {
   const secret = context.env.DASHBOARD_AUTH;
-  if (!secret) return signInRequired();
+  if (!secret) return authNotConfigured();
   const candidate = credentialBytes(context.request.headers.get('Authorization'));
   if (!candidate || !(await matchesSecret(candidate, secret))) return signInRequired();
   return context.next();
