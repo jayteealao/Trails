@@ -21,6 +21,8 @@ interface CreateEnvOptions {
   workflowReply?: () => Response | Promise<Response>;
   /** Replaces the default ARCHIVE_BUCKET.put. */
   bucketPut?: () => Promise<void>;
+  /** Replaces the default ARCHIVE_BUCKET.head (no stored object). */
+  bucketHead?: (key: string) => Promise<R2Object | null>;
 }
 
 function createEnv(options: CreateEnvOptions = {}) {
@@ -68,6 +70,9 @@ function createEnv(options: CreateEnvOptions = {}) {
       : jsonResponse({ error: 'Internal error', message: '(instance.already_exists) Instance already exists' }, 500)
   );
 
+  const bucketPut = vi.fn(options.bucketPut ?? (async () => {}));
+  const bucketHead = vi.fn(options.bucketHead ?? (async (): Promise<R2Object | null> => null));
+
   return {
     env: {
       PUBLIC_API_KEY: 'public-key',
@@ -75,9 +80,12 @@ function createEnv(options: CreateEnvOptions = {}) {
       LOGGER: { fetch: loggerFetch } as unknown as Fetcher,
       WORKFLOW: { fetch: workflowFetch } as unknown as Fetcher,
       ARCHIVE_BUCKET: {
-        put: vi.fn(options.bucketPut ?? (async () => {}))
+        put: bucketPut,
+        head: bucketHead
       } as unknown as R2Bucket
     } as Env,
+    bucketHead,
+    bucketPut,
     loggerFetch,
     workflowFetch,
     loggerEvents
