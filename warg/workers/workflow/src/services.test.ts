@@ -666,3 +666,23 @@ describe('transient render failures keep the step retry policy', () => {
     expect(hyperrendererFetch).toHaveBeenCalledTimes(4);
   });
 });
+
+describe('render fallback stays narrow', () => {
+  async function fallbackReasonOf(response: Response): Promise<unknown> {
+    const env = makeEnv(vi.fn(async () => response), vi.fn());
+    return getRendererFallbackReason(await catchServiceCallError(callRenderer(env, renderParams)));
+  }
+
+  it('does not fall back on a dial that timed out', async () => {
+    expect(await fallbackReasonOf(wrappedContentFailure('dial tcp 1.2.3.4:443: i/o timeout'))).toBeUndefined();
+  });
+
+  it('does not fall back on a failure that does not name an unreachable host', async () => {
+    expect(await fallbackReasonOf(wrappedContentFailure('upstream exploded', 500))).toBeUndefined();
+  });
+
+  it('keeps the network-closed reason when the details also name an unknown host', async () => {
+    const details = '{"errors":[{"code":5006,"message":"network closed"}]} no such host';
+    expect(await fallbackReasonOf(wrappedContentFailure(details))).toBe('browser_rendering_5006');
+  });
+});
