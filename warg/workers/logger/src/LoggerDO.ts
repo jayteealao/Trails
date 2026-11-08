@@ -54,6 +54,9 @@ interface ArtifactRow extends Record<string, SqlStorageValue> {
  * step.completed/step.failed don't regress the stage.
  * workflow.completed/workflow.failed are terminal fallbacks in case
  * request.done/request.failed events are missing.
+ * Once a request has finished, failed or ended incomplete, a progress event
+ * (step.started, persist.*) that arrives again is still recorded but does not
+ * change the stage; request.created or workflow.started reopens the request.
  */
 function deriveStage(
   eventType: string,
@@ -243,6 +246,10 @@ function extractDomain(url: string): string {
   }
 }
 
+function isTerminalStage(stage: RequestStage | TerminalState): stage is TerminalState {
+  return stage === 'done' || stage === 'failed' || stage === 'incomplete';
+}
+
 /**
  * Apply a single event to a mutable DerivedSummary in-place.
  * Encapsulates the stage machine, terminal flags, errorCount, lastEventTs,
@@ -251,12 +258,11 @@ function extractDomain(url: string): string {
  */
 function applyEventToDerived(derived: DerivedSummary, event: LogEvent): void {
   const newStage = deriveStage(event.type, event.data);
-  if (newStage) {
+  const isProgressStage =
+    newStage === 'rendering' || newStage === 'deriving' || newStage === 'persisting';
+  if (newStage && !(isProgressStage && isTerminalStage(derived.stage))) {
     derived.stage = newStage;
-    derived.terminal =
-      newStage === 'done' ||
-      newStage === 'failed' ||
-      newStage === 'incomplete';
+    derived.terminal = isTerminalStage(newStage);
   }
 
   if (event.level === 'error') {
