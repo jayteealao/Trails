@@ -192,4 +192,29 @@ describe('ArchiveWorkflow.run', () => {
     expect(fake.quota.acquired).toHaveLength(1);
     expect(fake.quota.released).toEqual(fake.quota.acquired);
   });
+
+  it('falls back to the hyperrenderer once for a dead host and keeps going', async () => {
+    const { fake, run, outcome } = await runRequest(
+      {},
+      { handlers: { RENDERER: () => deadHostRenderFailure() } }
+    );
+
+    expect(resultOf(outcome).status).toBe('done');
+    expect(fake.calls.RENDERER).toHaveLength(1);
+    expect(fake.calls.HYPERRENDERER).toHaveLength(1);
+    expect(run.attempts.get('render')).toBe(1);
+
+    const renderCompleted = eventsOfType(fake.logger, 'step.completed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderCompleted).toHaveLength(1);
+    expect(renderCompleted[0]?.data).toMatchObject({
+      fallbackUsed: true,
+      fallbackReason: 'browser_rendering_dead_host',
+    });
+
+    // The derivatives read the rendered.html that the fallback produced.
+    expect(fake.calls.READABILITY).toHaveLength(1);
+    expect(fake.calls.MONOLITH).toHaveLength(1);
+  });
 });
