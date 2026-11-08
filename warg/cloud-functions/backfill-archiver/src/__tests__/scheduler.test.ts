@@ -684,3 +684,46 @@ test('a run whose starts all fail on access pauses the backfill for 20 minutes, 
   assert.equal(tracker['global_pause_until'], null);
   assert.equal(queries(h).length, 1, 'the run after the pause scans again');
 });
+
+test('run lease: a live lease of another run skips the run, an expired one is taken, a lease lost mid-run stops it', async () => {
+  const otherLease = (expiresAtMs: number) => ({ owner: 'other-run', expires_at: Timestamp.fromMillis(expiresAtMs) });
+  const leaseOf = (h: Harness) => {
+    const lease = h.tracker()['run_lease'] as { owner: string; expires_at: Timestamp } | null;
+    return lease && { owner: lease.owner, expires_at: lease.expires_at.toMillis() };
+  };
+
+  // Another run's lease still holds: nothing is sent or written.
+  const held = harness();
+  seedCompletedPass(held, { time_updated: T0 - 30 * MIN, item_id: '' }, { run_lease: otherLease(T0 + MIN) });
+  userArticle(held, 'itemL0001', { timeUpdated: T0 - 5 * MIN, canonicalId: 'sharedL001' });
+  await runBackfill(held.deps());
+  assert.equal(held.sent.length, 0);
+  assert.deepEqual(held.fake.writes, []);
+  assert.deepEqual(leaseOf(held), { owner: 'other-run', expires_at: T0 + MIN });
+
+  // The lease has expired: this run takes it, runs and releases it.
+  const expired = harness();
+  seedCompletedPass(expired, { time_updated: T0 - 30 * MIN, item_id: '' }, { run_lease: otherLease(T0 - 1) });
+  userArticle(expired, 'itemL0001', { timeUpdated: T0 - 5 * MIN, canonicalId: 'sharedL001' });
+  await runBackfill(expired.deps());
+  assert.deepEqual(expired.sent.map((p) => p.request_id), ['sharedL001']);
+  assert.equal(expired.tracker()['run_lease'], null);
+
+  // Another run takes the lease while this one sends: the save is refused and its lease stays.
+  const lost = harness();
+  seedCompletedPass(lost, { time_updated: T0 - 30 * MIN, item_id: '' });
+  userArticle(lost, 'itemL0001', { timeUpdated: T0 - 5 * MIN, canonicalId: 'sharedL001' });
+  await assert.rejects(
+    runBackfill(
+      lost.deps({
+        beginArchive: async (payload) => {
+          lost.sent.push(payload);
+          lost.fake.put(TRACKER_DOC_PATH, { ...lost.tracker(), run_lease: otherLease(T0 + 10 * MIN) });
+          return { requestId: 'req-1' };
+        },
+      })
+    ),
+    { message: 'Backfill lease ownership changed to other-run' }
+  );
+  assert.deepEqual(leaseOf(lost), { owner: 'other-run', expires_at: T0 + 10 * MIN });
+});
