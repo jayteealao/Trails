@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ArchiveManifest, ArchiveOptions } from '@warg/shared';
 import {
+  accessBlockedResponse,
+  deadHostRenderFailure,
+  errorOf,
   eventsOfType,
   makeEvent,
   makeFakeEnv,
@@ -8,6 +11,7 @@ import {
   resultOf,
   runArchiveWorkflow,
   seedOptions,
+  serviceError,
   type FakeBucket,
   type FakeEnv,
   type FakeEnvOptions,
@@ -131,6 +135,46 @@ describe('ArchiveWorkflow.run', () => {
       expect(fake.calls.RENDERER).toHaveLength(1);
       expect(fake.calls.RENDERER[0]).toMatchObject({ include_pdf: true });
       expect(fake.calls.SINGLEFILE).toHaveLength(1);
+    });
+  });
+
+  describe('a render failure that cannot be retried', () => {
+    it.each([
+      {
+        name: 'access blocked',
+        handlers: { RENDERER: () => accessBlockedResponse() },
+        hyperrendererCalls: 0,
+      },
+      {
+        name: 'dead host whose fallback also fails',
+        handlers: {
+          RENDERER: () => deadHostRenderFailure(),
+          HYPERRENDERER: () => serviceError(500),
+        },
+        hyperrendererCalls: 1,
+      },
+    ])('$name: one attempt, request.failed once, lease released', async ({ handlers, hyperrendererCalls }) => {
+      const { fake, run, outcome } = await runRequest({ steps: ['render'] }, { handlers });
+
+      expect(errorOf(outcome).name).toBe('WorkflowTerminalError');
+      expect(run.attempts.get('render')).toBe(1);
+      expect(fake.calls.RENDERER).toHaveLength(1);
+      expect(fake.calls.HYPERRENDERER).toHaveLength(hyperrendererCalls);
+
+      const renderFailures = eventsOfType(fake.logger, 'step.failed').filter(
+        (event) => event.data.step === 'render'
+      );
+      expect(renderFailures).toHaveLength(1);
+      expect(renderFailures[0]?.data.retryable).toBe(false);
+
+      const requestFailed = eventsOfType(fake.logger, 'request.failed');
+      expect(requestFailed).toHaveLength(1);
+      expect(requestFailed[0]?.data.errorCode).toBe('NO_OUTPUTS_PRODUCED');
+      expect(eventsOfType(fake.logger, 'workflow.failed')).toHaveLength(1);
+
+      expect(countOf(run.names, 'release-render-quota')).toBe(1);
+      expect(fake.quota.acquired).toHaveLength(1);
+      expect(fake.quota.released).toEqual(fake.quota.acquired);
     });
   });
 });
