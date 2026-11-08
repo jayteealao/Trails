@@ -101,4 +101,36 @@ describe('ArchiveWorkflow.run', () => {
     expect(eventsOfType(fake.logger, 'request.done')).toHaveLength(1);
     expect(eventsOfType(fake.logger, 'request.failed')).toHaveLength(0);
   });
+
+  describe('option-driven skips', () => {
+    it('runs only singlefile when it is the only requested step', async () => {
+      const { fake, run, outcome } = await runRequest({ steps: ['singlefile'] });
+
+      expect(resultOf(outcome).status).toBe('done');
+      expect(fake.calls.SINGLEFILE).toHaveLength(1);
+      expect(fake.calls.RENDERER).toHaveLength(0);
+      expect(fake.calls.READABILITY).toHaveLength(0);
+      expect(fake.calls.MONOLITH).toHaveLength(0);
+      expect(countOf(run.names, 'check-existing-render')).toBe(1);
+    });
+
+    it('persists nothing to GCS on a dry run', async () => {
+      const { fake, run, outcome } = await runRequest({ dryRun: true });
+
+      expect(resultOf(outcome)).toMatchObject({ status: 'done', dryRun: true });
+      expect(fake.calls.GCS).toHaveLength(0);
+      expect(run.names.filter((name) => name.startsWith('persist-gcs-'))).toHaveLength(0);
+      expect(countOf(run.names, 'log-done-dryrun')).toBe(1);
+      expect(countOf(run.names, 'log-completed')).toBe(0);
+    });
+
+    it('adds render when a pdf is requested without it', async () => {
+      const { fake, outcome } = await runRequest({ steps: ['singlefile'], includePdf: true });
+
+      expect(resultOf(outcome).status).toBe('done');
+      expect(fake.calls.RENDERER).toHaveLength(1);
+      expect(fake.calls.RENDERER[0]).toMatchObject({ include_pdf: true });
+      expect(fake.calls.SINGLEFILE).toHaveLength(1);
+    });
+  });
 });
