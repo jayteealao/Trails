@@ -537,13 +537,12 @@ export default {
         // Use client-provided request_id or generate one
         const invalidRequestIdMessage =
           'Invalid request_id format (UUID v4 or 1-40 char alphanumeric/hyphen/underscore required)';
-        if (rawRequestId !== undefined && rawRequestId !== null && typeof rawRequestId !== 'string') {
+        // A present id (an empty string too) must be a valid one; only an absent or null id is generated.
+        const clientChoseRequestId = rawRequestId !== undefined && rawRequestId !== null;
+        if (clientChoseRequestId && (typeof rawRequestId !== 'string' || !isValidRequestId(rawRequestId))) {
           return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_REQUEST_ID, invalidRequestIdMessage, errorId);
         }
-        const requestId = rawRequestId ?? generateRequestId();
-        if (rawRequestId && !isValidRequestId(requestId)) {
-          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_REQUEST_ID, invalidRequestIdMessage, errorId);
-        }
+        const requestId = typeof rawRequestId === 'string' ? rawRequestId : generateRequestId();
         errorId = requestId;
 
         // Check the option types before anything is stored or logged
@@ -574,7 +573,7 @@ export default {
         // Checked before anything is logged, stored or started.
         const optionsR2Key = getOptionsKey(requestId);
         let owner: string = callerKind;
-        if (rawRequestId) {
+        if (clientChoseRequestId) {
           const existing = await env.ARCHIVE_BUCKET.head(optionsR2Key);
           const ownership = resolveRequestIdOwner(storedRequestIdOwner(existing), callerKind);
           if (!ownership.ok) {

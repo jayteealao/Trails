@@ -466,6 +466,7 @@ describe('begin rejects malformed options before any write', () => {
     { name: 'an unknown step name', body: { url, request_id: 'req-ok-5', steps: ['bogus'] }, id: 'req-ok-5' },
     { name: 'a number for the url', body: { url: 123, request_id: 'req-ok-5' }, id: 'req-ok-5' },
     { name: 'a number for the request id', body: { url, request_id: 123 }, code: 'INVALID_REQUEST_ID', idNot: '123' },
+    { name: 'an empty request id', body: { url, request_id: '' }, code: 'INVALID_REQUEST_ID', idNot: '' },
     {
       name: 'options over the size limit',
       body: { url: 'https://e.com/' + 'a'.repeat(MAX_OPTIONS_BYTES), request_id: 'req-ok-5' },
