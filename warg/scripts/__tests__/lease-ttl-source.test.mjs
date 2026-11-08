@@ -1,9 +1,10 @@
 // The sandbox lease TTL and the rule that calls a lease stale live once, in
-// packages/shared/src/lease.ts. The workflow's quota object and the gateway's
-// container sweep both read them, so the two cannot drift apart. These tests
-// fail when either worker stops importing the shared names, holds a 5-minute
-// literal of its own, or when any worker or package declares its own lease-age
-// constant.
+// packages/shared/src/lease.ts. The workflow's quota object is their only
+// reader: it drops a stale lease and stops the container of a stale sandbox
+// lease. These tests fail when the quota object stops importing the shared
+// names or holds a 5-minute literal of its own, when any worker or package
+// declares its own lease-age constant, or when the gateway lists leases or
+// stops containers again.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -17,8 +18,11 @@ const SHARED_LEASE_FILE = 'packages/shared/src/lease.ts';
 
 const CONSUMERS = [
   { rel: 'workers/workflow/src/BrowserQuotaDO.ts', names: ['LEASE_TTL_MS', 'isLeaseStale'] },
-  { rel: 'workers/gateway/src/index.ts', names: ['isLeaseStale'] },
 ];
+const GATEWAY_INDEX = 'workers/gateway/src/index.ts';
+const WORKFLOW_INDEX = 'workers/workflow/src/index.ts';
+const WORKFLOW_SWEEP = 'workers/workflow/src/container-sweep.ts';
+const GATEWAY_FORBIDDEN = ['sandbox-leases', '/container/stop', 'isLeaseStale'];
 
 const FIVE_MINUTE_LITERAL = /\b5\s*\*\s*60\s*\*\s*1000\b|\b5\s*\*\s*60_000\b|\b300_?000\b/;
 const LEASE_AGE_NAME = /LEASE_(?:TTL|AGE|MAX_AGE)|SWEEP_MIN_LEASE/i;
@@ -81,7 +85,7 @@ function workspaceSources() {
   return files;
 }
 
-test('the quota object and the container sweep import the shared lease names', () => {
+test('the quota object imports the shared lease names', () => {
   for (const { rel, names } of CONSUMERS) {
     const imported = sharedImports(source(rel));
     for (const name of names) {
@@ -90,7 +94,7 @@ test('the quota object and the container sweep import the shared lease names', (
   }
 });
 
-test('neither consumer holds a 5-minute literal of its own', () => {
+test('the quota object holds no 5-minute literal of its own', () => {
   for (const { rel } of CONSUMERS) {
     const match = source(rel).match(FIVE_MINUTE_LITERAL);
     assert.equal(match, null, `${rel} holds the literal ${match?.[0]}; read LEASE_TTL_MS from '@warg/shared'`);
@@ -118,4 +122,23 @@ test('the matchers flag a planted copy', () => {
   assert.match(gatewayCopy, FIVE_MINUTE_LITERAL);
   assert.match(quotaCopy, FIVE_MINUTE_LITERAL);
   assert.deepEqual(sharedImports("import { a, isLeaseStale as stale } from '@warg/shared';"), ['a', 'isLeaseStale']);
+});
+
+/** The strings of `forbidden` that the comment-stripped `text` contains. */
+function forbiddenIn(text, forbidden) {
+  return forbidden.filter((needle) => text.includes(needle));
+}
+
+test('only the quota object lists leases or stops containers', () => {
+  assert.deepEqual(
+    forbiddenIn(source(GATEWAY_INDEX), GATEWAY_FORBIDDEN),
+    [],
+    `${GATEWAY_INDEX} must not list sandbox leases or stop containers; the quota object does it`
+  );
+  assert.deepEqual(
+    forbiddenIn(source(WORKFLOW_INDEX), ['sandbox-leases']),
+    [],
+    `${WORKFLOW_INDEX} must not serve the sandbox leases route`
+  );
+  assert.ok(source(WORKFLOW_SWEEP).includes('/container/stop'), `${WORKFLOW_SWEEP} no longer stops containers`);
 });
