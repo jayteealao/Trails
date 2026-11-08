@@ -118,6 +118,18 @@ jobs:
           node scripts/check-keys-and-uid.mjs
           node --test scripts/__tests__/keys-and-uid.test.mjs
 
+      - name: No direct article write outside the writer module
+        # Fails when a cloud function calls set, update, create or delete on a
+        # Firestore document, transaction, batch or bulk writer (or add on a
+        # collection) itself: the articles document is written only through
+        # @warg/article-writer. A write to another document (a tracker, a
+        # marker) passes when its line or the line above carries
+        # `// article-write-check: not-an-article (<what it is>)`.
+        timeout-minutes: 5
+        run: |
+          node scripts/check-article-writes.mjs
+          node --test scripts/__tests__/article-writes.test.mjs
+
       - name: Copied function helpers agree
         # Each function bundles alone, so the shared-id shapes, the link
         # resolution, the key compare and the rotation switch are copied; this
