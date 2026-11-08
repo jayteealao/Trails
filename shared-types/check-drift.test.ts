@@ -210,3 +210,21 @@ test('(q) a user-article field found only inside a longer literal is missing', (
   assert.ok(run.stderr.includes(USER_ARTICLE_WIRE), run.stderr);
   assert.ok(run.stderr.includes('url'), run.stderr);
 });
+
+test('(r) a user-article reader file that does not exist fails and names the row', () => {
+  const run = runOnFixture([[FIXTURE_DOC, '| `url` | fixture |', '| `url` | `user-triggers/src/gone.ts` |']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('user-triggers/src/gone.ts'), run.stderr);
+  assert.ok(run.stderr.includes('`url`'), run.stderr);
+});
+
+test('(s) a user-article reader file that does not name its field fails', () => {
+  const run = runOnFixture([[FIXTURE_DOC, '| `timeRead` | fixture |', '| `timeRead` | `user-triggers/src/link.ts` |']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('does not name timeRead'), run.stderr);
+});
+
+test('(t) a user-article reader file that names its field passes', () => {
+  const run = runOnFixture([[FIXTURE_DOC, '| `title` | fixture |', '| `title` | `archive-gateway/src/types.ts` (`FinalizeRequest`) |']]);
+  assert.equal(run.status, 0, run.stderr);
+});

@@ -29,8 +29,9 @@
  *     field of "## User article fields read by the server" in
  *     `shared-types/WargMetadata.md` is a whole string literal in the app's
  *     user-article wire type (UserArticleWire.kt), which also carries no
- *     `canonicalId` and no `articleMarkers` token. An absent or empty section
- *     fails the check.
+ *     `canonicalId` and no `articleMarkers` token, and each file of its
+ *     "Read by" column exists and names its field as a whole token. An absent
+ *     or empty section fails the check.
  *
  * Every match is of a whole name: a field never counts as present inside a
  * longer word (`title` in `subtitle`). It is still a text check, not a parser:
@@ -46,7 +47,7 @@
  *   1  — drift detected (missing fields or canonical doc unparseable)
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -220,6 +221,25 @@ function extractUserArticleFields(md: string): string[] {
   return fields;
 }
 
+// The reader files of each row of "## User article fields read by the server":
+// the backticked paths of its "Read by" column, relative to warg/cloud-functions
+// or to warg/ (`packages/...`). A backticked name with no slash, such as a
+// function name, is not a path.
+function extractUserArticleReaders(md: string): { field: string; paths: string[] }[] {
+  const rows: { field: string; paths: string[] }[] = [];
+  for (const line of sectionLines(md, USER_ARTICLE_FIELDS_HEADING)) {
+    const match = line.match(/^\|\s*`([a-zA-Z_][a-zA-Z0-9_]*)`\s*\|(.*)\|\s*$/);
+    if (!match) continue;
+    const paths = [...match[2].matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter((p) => p.includes('/'));
+    rows.push({ field: match[1], paths });
+  }
+  return rows;
+}
+
+function readerPath(listed: string): string {
+  return listed.startsWith('packages/') ? `warg/${listed}` : `warg/cloud-functions/${listed}`;
+}
+
 function extractMarkerFields(md: string): string[] {
   return extractSectionFields(md, 'Firestore field names');
 }
@@ -318,14 +338,31 @@ function checkUserArticleWire(doc: string): boolean {
   const fields = extractUserArticleFields(doc);
   console.log(`[drift] user-article fields: ${fields.join(', ')}`);
 
+  let drift = false;
   const missing = findMissing(readFile(TRAILS_USER_ARTICLE_WIRE), fields, hasStringLiteral);
   if (missing.length > 0) {
     console.error(
       `[drift] ${TRAILS_USER_ARTICLE_WIRE} (app user-article wire) is missing user-article field(s): ${missing.join(', ')}`,
     );
-    return true;
+    drift = true;
   }
-  return false;
+
+  // Each listed reader must exist and spell the field as a whole name, so a
+  // reader that moves, goes away or stops naming the field fails the check.
+  for (const row of extractUserArticleReaders(doc)) {
+    for (const listed of row.paths) {
+      const path = readerPath(listed);
+      const where = `${CANONICAL_DOC} "## ${USER_ARTICLE_FIELDS_HEADING}" row \`${row.field}\``;
+      if (!existsSync(resolve(repoRoot, path))) {
+        console.error(`[drift] ${where} names ${listed}, but ${path} does not exist.`);
+        drift = true;
+      } else if (!hasToken(readFile(path), row.field)) {
+        console.error(`[drift] ${where} names ${listed}, but ${path} does not name ${row.field}.`);
+        drift = true;
+      }
+    }
+  }
+  return drift;
 }
 
 // Returns true if a metadata file lacks a canonical field that no accepted

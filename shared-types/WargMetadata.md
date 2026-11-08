@@ -170,14 +170,16 @@ The app writes the user article `users/{uid}/articles/{id}` by these names
 through
 [`android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt`](../android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt),
 and the cloud functions read them. The drift check fails when one of them is
-not a string literal in that file.
+not a string literal in that file, and when a file of the "Read by" column
+does not exist or does not name its field (paths relative to
+`warg/cloud-functions/`, or to `warg/` for `packages/`).
 
 | Field | Read by |
 | ----- | ------- |
-| `url` | `user-triggers/src/handler.ts`, `dashboard-api/src/bootstrap-article.ts`, `dashboard-api/src/list-articles.ts`, `dashboard-api/src/mark-processing.ts`, `backfill-archiver/src/canonical-candidates.ts`, `backfill-archiver/src/index.ts` |
+| `url` | `user-triggers/src/handler.ts`, `dashboard-api/src/bootstrap-article.ts`, `dashboard-api/src/list-articles.ts`, `dashboard-api/src/mark-processing.ts`, `backfill-archiver/src/canonical-candidates.ts` |
 | `title` | `dashboard-api/src/list-articles.ts` |
 | `favorite` | `packages/article-writer/src/pocket.ts` (`projectPocket`) |
-| `status` | `packages/article-writer/src/pocket.ts` (`projectPocket`), `backfill-archiver/src/index.ts` |
+| `status` | `packages/article-writer/src/pocket.ts` (`projectPocket`) |
 | `timeAdded` | `packages/article-writer/src/pocket.ts` (`projectPocket`), `dashboard-api/src/list-articles.ts` (order) |
 | `timeRead` | `packages/article-writer/src/pocket.ts` (`projectPocket`) |
 | `timeUpdated` | `backfill-archiver/src/scheduler.ts` |
