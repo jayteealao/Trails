@@ -142,3 +142,20 @@ test('an authorised POST to an unknown path answers 404 and touches nothing', as
   assert.deepEqual(out, { status: 404, body: { error: 'Not found', path: '/other' } });
   assertNothingTouched();
 });
+
+const BAD_UPLOAD_BODIES: Array<[string, Record<string, unknown>]> = [
+  ['no request_id', uploadBody({ request_id: undefined })],
+  ['no url', uploadBody({ url: undefined })],
+  ['artifacts that is not a list', uploadBody({ artifacts: 'singlefile.html' })]
+];
+
+for (const [name, body] of BAD_UPLOAD_BODIES) {
+  test(`create-upload with ${name} answers 400 and touches nothing`, async () => {
+    const out = await send(gatewayRequest({ path: '/create-upload', key: KEY, body }));
+    assert.deepEqual(out, {
+      status: 400,
+      body: { error: 'Missing required fields: request_id, url, artifacts' }
+    });
+    assertNothingTouched();
+  });
+}
