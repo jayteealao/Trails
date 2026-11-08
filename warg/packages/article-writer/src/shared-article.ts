@@ -6,7 +6,14 @@ import {
   type Transaction,
   type WriteResult,
 } from 'firebase-admin/firestore';
-import type { Expect, OnlyFields, PocketField, SharedArticleField } from './fields.js';
+import {
+  GATEWAY_ARCHIVE_KEYS,
+  type Expect,
+  type GatewayArchiveKey,
+  type OnlyFields,
+  type PocketField,
+  type SharedArticleField,
+} from './fields.js';
 
 // The write kinds of the shared article `articles/{id}`. Each kind has a pure
 // builder that returns its typed patch and a write function that makes the one
@@ -472,6 +479,120 @@ export function settleStuckSharedArticle(
   return ref.set(buildSharedArticleStuckPatch(now), { merge: true });
 }
 
+// --- journalSharedArticleUploads: the archive gateway journals the uploads it signs, ref.set merge ---
+
+/** An archive entry the archive gateway writes; the times are ISO strings. */
+export interface GatewayArchiveEntry {
+  status: string;
+  gcs_path?: string;
+  gcs_bucket?: string;
+  compressed_size?: number;
+  compression_ratio?: number;
+  started_at?: string;
+  created_at?: string;
+}
+
+/** The gateway archive entries by archive key; a key that is left out is not written. */
+export type GatewayArchiveEntries = Partial<Record<GatewayArchiveKey, GatewayArchiveEntry>>;
+
+export interface ArchiveUploadJournalPatch {
+  item_id: string;
+  url: string;
+  domain: string;
+  updated_at: Timestamp;
+  archives: GatewayArchiveEntries;
+  created_at?: Timestamp;
+}
+
+export interface ArchiveUploadJournal {
+  itemId: string;
+  url: string;
+  domain: string;
+  /** The entries as the gateway decided them: `uploading`, or an earlier `success` kept whole. */
+  archives: GatewayArchiveEntries;
+  /** True when the article was read as absent: the patch then sets `created_at`. */
+  isNew: boolean;
+}
+
+export function buildArchiveUploadJournalPatch(
+  input: ArchiveUploadJournal,
+  now: Timestamp = Timestamp.now()
+): ArchiveUploadJournalPatch {
+  const patch: ArchiveUploadJournalPatch = {
+    item_id: input.itemId,
+    url: input.url,
+    domain: input.domain,
+    updated_at: now,
+    archives: input.archives,
+  };
+  if (input.isNew) patch.created_at = now;
+  return patch;
+}
+
+/** Merges the journal, so the archive entries of other kinds and every other field stay as they are. */
+export function journalSharedArticleUploads(
+  ref: DocumentReference,
+  patch: ArchiveUploadJournalPatch
+): Promise<WriteResult> {
+  return ref.set(patch, { merge: true });
+}
+
+// --- finalizeSharedArticleArchives: the archive gateway records the finished uploads, ref.update ---
+
+/** The reader metadata of the article; its fields are the metadata contract of WargMetadata.md. */
+export interface ArticleMetadata {
+  title: string;
+  excerpt: string;
+  byline: string;
+  word_count: number;
+  published_time: string | null;
+  site_name: string | null;
+  lead_image: string | null;
+}
+
+export interface ArticleImage {
+  src: string;
+  height?: number;
+  width?: number;
+}
+
+/** Each finished entry under its dotted name, so it replaces only that entry of `archives`. */
+export type ArchiveFinalizePatch = {
+  [K in `archives.${GatewayArchiveKey}`]?: GatewayArchiveEntry;
+} & {
+  updated_at: Timestamp;
+  metadata?: ArticleMetadata;
+  images?: ArticleImage[];
+};
+
+export interface ArchiveFinalize {
+  archives: GatewayArchiveEntries;
+  metadata?: ArticleMetadata;
+  images?: ArticleImage[];
+}
+
+export function buildArchiveFinalizePatch(
+  input: ArchiveFinalize,
+  now: Timestamp = Timestamp.now()
+): ArchiveFinalizePatch {
+  const patch: ArchiveFinalizePatch = { updated_at: now };
+  for (const key of GATEWAY_ARCHIVE_KEYS) {
+    const entry = input.archives[key];
+    if (entry) patch[`archives.${key}`] = entry;
+  }
+  if (input.metadata) patch.metadata = input.metadata;
+  if (input.images) patch.images = input.images;
+  return patch;
+}
+
+/** An update, so it fails on a missing article instead of creating a partial one. */
+export function finalizeSharedArticleArchives(
+  ref: DocumentReference,
+  patch: ArchiveFinalizePatch
+): Promise<WriteResult> {
+  return ref.update(patch);
+}
+
 // Every patch of the shared article writes only the names of SHARED_ARTICLE_FIELDS.
 type _SharedPatchesUseListedFields = [
   Expect<OnlyFields<CreateSharedArticlePatch, SharedArticleField>>,
@@ -486,4 +607,6 @@ type _SharedPatchesUseListedFields = [
   Expect<OnlyFields<SharedArticleBackfillBegunPatch, SharedArticleField>>,
   Expect<OnlyFields<SharedArticleBackfillFailurePatch, SharedArticleField>>,
   Expect<OnlyFields<SharedArticleStuckPatch, SharedArticleField>>,
+  Expect<OnlyFields<ArchiveUploadJournalPatch, SharedArticleField>>,
+  Expect<OnlyFields<ArchiveFinalizePatch, SharedArticleField>>,
 ];
