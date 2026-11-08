@@ -1,3 +1,5 @@
+import { WORKFLOW_STEPS, type ArchiveOptions } from '@warg/shared';
+
 /**
  * Generate a unique request ID (UUIDv4-like).
  */
@@ -157,7 +159,8 @@ export const GATEWAY_ERROR_CODES = {
   STATUS_LOOKUP_FAILED: 'STATUS_LOOKUP_FAILED',
   NOT_FOUND: 'NOT_FOUND',
   WORKFLOW_TRIGGER_FAILED: 'WORKFLOW_TRIGGER_FAILED',
-  INTERNAL_ERROR: 'INTERNAL_ERROR'
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  INVALID_OPTIONS: 'INVALID_OPTIONS'
 } as const;
 
 /**
@@ -192,3 +195,66 @@ export function errorResponse(
   return withRequestId(Response.json({ ...extra, error: message, code, id }, { status }), id);
 }
 
+/**
+ * The largest archive options object the gateway stores, in UTF-8 bytes of its JSON.
+ */
+export const MAX_OPTIONS_BYTES = 16 * 1024;
+
+/**
+ * The archive option keys whose value must be a boolean when present.
+ */
+export const ARCHIVE_OPTION_BOOLEAN_KEYS = [
+  'includeScreenshot',
+  'includePdf',
+  'includeMarkdown',
+  'resumeFromCheckpoint',
+  'dryRun'
+] as const;
+
+/**
+ * Archive options as the gateway stores them: only known keys, each of the right type.
+ * The url is optional here; the begin handler checks its presence and format.
+ */
+export type GatewayArchiveOptions = Omit<ArchiveOptions, 'url'> & { url?: string; dryRun?: boolean };
+
+/**
+ * True for a JSON object value: not null, not an array, not a primitive.
+ */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const BOOLEAN_KEYS: ReadonlySet<string> = new Set(ARCHIVE_OPTION_BOOLEAN_KEYS);
+const STEP_NAMES: ReadonlySet<string> = new Set(WORKFLOW_STEPS);
+
+/**
+ * Check the types of the archive option fields and keep only the known keys.
+ * Unknown keys are dropped and named in droppedKeys; the first wrong-typed field,
+ * or a kept object over MAX_OPTIONS_BYTES, fails with a message naming it.
+ */
+export function validateArchiveOptions(
+  fields: Record<string, unknown>
+): { ok: true; options: GatewayArchiveOptions; droppedKeys: string[] } | { ok: false; message: string } {
+  const options: Record<string, unknown> = {};
+  const droppedKeys: string[] = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    if (key === 'url') {
+      if (typeof value !== 'string') return { ok: false, message: 'url must be a string' };
+    } else if (BOOLEAN_KEYS.has(key)) {
+      if (typeof value !== 'boolean') return { ok: false, message: `${key} must be a boolean` };
+    } else if (key === 'steps') {
+      if (!Array.isArray(value) || !value.every((step) => typeof step === 'string' && STEP_NAMES.has(step))) {
+        return { ok: false, message: `steps must be an array of ${WORKFLOW_STEPS.join(', ')}` };
+      }
+    } else {
+      droppedKeys.push(key);
+      continue;
+    }
+    options[key] = value;
+  }
+  if (new TextEncoder().encode(JSON.stringify(options)).byteLength > MAX_OPTIONS_BYTES) {
+    return { ok: false, message: `options exceed ${MAX_OPTIONS_BYTES} bytes` };
+  }
+  return { ok: true, options: options as GatewayArchiveOptions, droppedKeys };
+}
