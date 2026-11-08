@@ -199,3 +199,19 @@ const validBody = { request_id: REQUEST_ID, manifest_key: MANIFEST_KEY };
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+describe('401', () => {
+  it.each([
+    ['no key header', null],
+    ['a wrong key', 'nope']
+  ])('answers 401 for %s and touches neither R2 nor GCS', async (_label, key) => {
+    const bucket = bucketFor(manifest(['page.pdf']));
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest(validBody, { key }), bucket);
+
+    expect(result).toEqual({ status: 401, body: { error: 'Unauthorized' } });
+    expect(bucket.reads).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+});
