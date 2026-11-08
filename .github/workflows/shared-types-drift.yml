@@ -1,0 +1,50 @@
+name: Shared types drift
+
+# The drift check compares the shared schema docs with the code of both
+# stacks (the Warg producers and the Android readers), so a change under
+# android/ runs it too, without running the whole Warg CI.
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'android/**'
+      - 'warg/**'
+      - 'shared-types/**'
+      - '.github/workflows/shared-types-drift.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'android/**'
+      - 'warg/**'
+      - 'shared-types/**'
+      - '.github/workflows/shared-types-drift.yml'
+
+jobs:
+  shared-types-drift:
+    # Runs unconditionally when this workflow is triggered. The workflow-level
+    # paths filter gates it to changes that touch android/warg/shared-types.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.28.0
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Test drift check
+        run: node --experimental-strip-types --test shared-types/check-drift.test.ts
+
+      - name: Run drift check
+        run: node --experimental-strip-types shared-types/check-drift.ts
