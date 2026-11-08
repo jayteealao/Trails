@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldPath, Timestamp } from 'firebase-admin/firestore';
 import type {
   DocumentData,
   DocumentReference,
@@ -11,6 +11,8 @@ import {
   buildBackfillUpsertPatch,
   markSharedArticleBackfillBegun,
   recordSharedArticleBackfillFailure,
+  setUserArticleResolvedLink,
+  settleStuckSharedArticle,
   upsertSharedArticleForBackfill,
 } from '@warg/article-writer';
 import { buildPocket } from './canonical.js';
@@ -339,23 +341,9 @@ async function markStuckAsFailed(
   nowMs: number
 ): Promise<void> {
   const now = Timestamp.fromMillis(nowMs);
-  const settlement = {
-    status: 'stuck',
-    error: 'Stuck: no completion after 30 minutes',
-    created_at: now.toDate().toISOString(),
-  };
   for (const id of ids) {
-    // Status is derived by articleStatusDerive; persist the settlement
-    // event under archives.workflow_settlement so the derivation has signal.
-    await db.collection('articles').doc(id).set(
-      {
-        archives: { workflow_settlement: settlement },
-        error: settlement.error,
-        failed_at: now,
-        updated_at: now,
-      },
-      { merge: true }
-    );
+    // Status is derived by articleStatusDerive; the settlement entry gives it the signal.
+    await settleStuckSharedArticle(db.collection('articles').doc(id), now);
   }
 }
 
@@ -593,13 +581,10 @@ async function linkSourceUserDocs(
   markTriggered: boolean
 ): Promise<void> {
   for (const ref of candidate.sourceUserRefs) {
-    const patch: Record<string, unknown> = {
+    await setUserArticleResolvedLink(ref, {
       resolvedId: candidate.canonicalItemId,
-    };
-    if (markTriggered) {
-      patch['archival_triggered'] = true;
-    }
-    await ref.set(patch, { merge: true });
+      archivalTriggered: markTriggered,
+    });
   }
 }
 
