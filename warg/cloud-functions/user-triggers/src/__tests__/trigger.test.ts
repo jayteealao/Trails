@@ -137,3 +137,32 @@ test('a save without a link is skipped and the error is noted on the user articl
   assert.deepEqual(posts, []);
   assert.equal(store.docs.get(USER_PATH)?.['error'], 'Missing URL');
 });
+
+test('a gateway failure after the retry window resolves and records the failure on both articles', async () => {
+  const store = seed({ users: { [`${USER}/articles/${ITEM}`]: saveData } });
+  answer([{ status: 400, body: 'bad' }]);
+  const e = event({ data: saveData, time: new Date(Date.now() - 2 * HOUR).toISOString() });
+  assert.equal(await deliver(e), null);
+  assert.equal(posts.length, 1);
+  assert.equal(store.docs.get(`articles/${ITEM}`)?.['status'], 'failed');
+  assert.equal(store.docs.get(`articles/${ITEM}`)?.['error'], 'Gateway begin failed: 400 bad');
+  assert.equal(store.docs.get(USER_PATH)?.['error'], 'Gateway begin failed: 400 bad');
+});
+
+test('a gateway failure inside the retry window throws for a re-delivery, which then starts the archive once', async () => {
+  const store = seed({ users: { [`${USER}/articles/${ITEM}`]: saveData } });
+  const e = event({ data: saveData });
+
+  answer([{ status: 400, body: 'bad' }]);
+  await assert.rejects(deliver(e), /Gateway begin failed: 400/);
+  assert.equal(posts.length, 1);
+  assert.equal(store.docs.get(`articles/${ITEM}`)?.['status'], 'pending');
+  assert.equal(store.docs.get(USER_PATH)?.['error'], undefined);
+
+  answer([{ status: 200, body: '{"requestId":"req-00002"}' }]);
+  assert.equal(await deliver(e), null);
+  assert.equal(posts.length, 2);
+  assert.deepEqual(posts[1]?.body, beginBody);
+  assert.equal(store.docs.get(`articles/${ITEM}`)?.['status'], 'processing');
+  assert.equal(store.docs.get(`articles/${ITEM}`)?.['warg_request_id'], 'req-00002');
+});
