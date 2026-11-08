@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { LEASE_TTL_MS, isLeaseStale } from '@warg/shared';
 import {
   evaluateAcquire,
   type LeaseKind,
@@ -42,14 +43,12 @@ interface StoredState {
  * - Launch rate: a token bucket modelling the platform's 1 new-browser/sec
  *   fixed fill, with a small burst. Only `bindings_launch` consumes a token.
  *
- * Leases auto-expire after 5 minutes via alarm. State is persisted to DO
- * storage to survive hibernation.
+ * Leases auto-expire after the shared LEASE_TTL_MS via alarm. State is
+ * persisted to DO storage to survive hibernation.
  */
 export class BrowserQuotaDO extends DurableObject<Env> {
   private activeLeases: Map<string, Lease> | undefined;
   private bucket: TokenBucket | undefined;
-
-  private readonly LEASE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
   private readonly limits: QuotaLimits = {
     maxConcurrent: 100, // platform now 120/account; headroom for other consumers
@@ -197,13 +196,13 @@ export class BrowserQuotaDO extends DurableObject<Env> {
   }
 
   /**
-   * Remove expired leases (older than LEASE_TTL_MS). Covers stuck browser and
-   * sandbox leases alike.
+   * Remove stale leases (age at least LEASE_TTL_MS, per the shared
+   * isLeaseStale rule). Covers stuck browser and sandbox leases alike.
    */
   private cleanupExpiredLeases(): void {
     const now = Date.now();
     for (const [id, lease] of this.activeLeases!) {
-      if (now - lease.acquiredAt > this.LEASE_TTL_MS) {
+      if (isLeaseStale(lease.acquiredAt, now)) {
         this.activeLeases!.delete(id);
       }
     }
@@ -213,6 +212,6 @@ export class BrowserQuotaDO extends DurableObject<Env> {
    * Schedule the cleanup alarm.
    */
   private scheduleCleanup(): void {
-    this.ctx.storage.setAlarm(Date.now() + this.LEASE_TTL_MS);
+    this.ctx.storage.setAlarm(Date.now() + LEASE_TTL_MS);
   }
 }
