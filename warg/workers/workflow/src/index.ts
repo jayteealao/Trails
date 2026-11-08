@@ -7,12 +7,11 @@ import { NonRetryableError } from 'cloudflare:workflows';
 import type {
   ArtifactKind,
   ArtifactMeta,
-  ArchiveManifest,
   CheckpointStep,
   WorkflowCheckpoint,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
+import { getR2Key, timingSafeEqual } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
@@ -26,7 +25,6 @@ import {
   callSinglefileForStep,
   callReadability,
   callMonolith,
-  callGcs,
   ServiceCallError
 } from './services.js';
 import {
@@ -43,6 +41,7 @@ import {
   updateManifestKey
 } from './logging.js';
 import { runMockPipeline } from './mock.js';
+import { persistArtifactsIncremental, writeManifest } from './persist.js';
 import {
   createCheckpoint,
   discoverArtifactsFromR2,
@@ -51,7 +50,6 @@ import {
   getStepArtifacts,
   getUnpersistedArtifacts,
   loadCheckpoint,
-  markArtifactsPersisted,
   markStepFailed as markCheckpointStepFailed,
   markStepStarted as markCheckpointStepStarted,
   markWorkflowFailure,
@@ -879,35 +877,16 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     artifacts: ArtifactMeta[],
     reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile'
   ): Promise<WorkflowResult['gcsResult'] | undefined> {
-    if (artifacts.length === 0) {
-      return undefined;
-    }
-
-    const suffix = `${Date.now()}`;
-    const manifestKey = await this.writeManifest(
+    return persistArtifactsIncremental(
+      this.env,
       step,
+      checkpoint,
       requestId,
       url,
+      stepName,
       artifacts,
-      getStepManifestKey(requestId, stepName, suffix)
+      reason
     );
-
-    const result = await this.persistToGcs(step, requestId, manifestKey, {
-      checkpointStep: stepName,
-      reason,
-      resumed: true,
-      artifactCount: artifacts.length,
-    });
-
-    markArtifactsPersisted(
-      checkpoint,
-      result.artifacts.map((artifact) => ({
-        kind: artifact.kind,
-        gcsPath: artifact.gcs_path,
-      }))
-    );
-    await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-    return result;
   }
 
   private async writeManifest(
@@ -917,22 +896,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     artifacts: ArtifactMeta[],
     manifestKey: string
   ): Promise<string> {
-    return await step.do(`write-manifest-${manifestKey.split('/').pop() ?? 'manifest'}`, async () => {
-      const now = new Date().toISOString();
-      const manifest: ArchiveManifest = {
-        requestId,
-        url,
-        createdAt: now,
-        completedAt: now,
-        artifacts
-      };
-      await this.env.ARCHIVE_BUCKET.put(
-        manifestKey,
-        JSON.stringify(manifest, null, 2),
-        { httpMetadata: { contentType: 'application/json' } }
-      );
-      return manifestKey;
-    });
+    return writeManifest(this.env, step, requestId, url, artifacts, manifestKey);
   }
 
   /**
@@ -1310,63 +1274,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     });
 
     return { monolith: monolithResult.artifact };
-  }
-
-  /**
-   * Persist artifacts to GCS.
-   */
-  private async persistToGcs(
-    step: WorkflowStep,
-    requestId: string,
-    manifestKey: string,
-    context?: Record<string, unknown>
-  ) {
-    const persistToken = (manifestKey.split('/').pop() ?? `${Date.now()}`)
-      .replace(/[^a-zA-Z0-9_-]/g, '_');
-
-    // Log start + capture timing
-    const persistStartedAt = Date.now();
-    await step.do(`log-persist-start-${persistToken}`, async () => {
-      await logEvent(this.env, requestId, 'persist.started', 'Starting GCS persistence', {
-        manifestKey,
-        ...(context ?? {}),
-      });
-    });
-
-    // Call GCS service
-    const result = await step.do(
-      `persist-gcs-${persistToken}`,
-      {
-        retries: { limit: 5, delay: '10 seconds', backoff: 'exponential' },
-        timeout: '10 minutes'
-      },
-      async () => {
-        return await callGcs(this.env, {
-          request_id: requestId,
-          manifest_key: manifestKey
-        });
-      }
-    );
-
-    // Log completion + duration + enriched meta
-    await step.do(`log-persist-complete-${persistToken}`, async () => {
-      const durationMs = Date.now() - persistStartedAt;
-      await logEvent(
-        this.env,
-        requestId,
-        'persist.completed',
-        'GCS persistence completed',
-        {
-          firestore_doc_id: result.firestore_doc_id,
-          duration_ms: durationMs,
-          manifestKey,
-          ...(context ?? {}),
-          ...(result.meta ? { meta: result.meta } : {})
-        }
-      );
-    });
-
-    return result;
   }
 
   private toMonolithBaseUrl(rawUrl: string): string {
