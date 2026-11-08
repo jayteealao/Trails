@@ -1,9 +1,12 @@
-# Canonical schema: `articles/{itemId}.metadata`
+# Canonical schema: the article documents
 
-This is the wire-format source of truth for the metadata block that Warg
-writes to Firestore and Trails reads. It is enforced by
-`shared-types/check-drift.ts`, which runs in CI for both Android and Warg
-workflows.
+This is the field-name contract of the article documents in Firestore: the
+`metadata` block of the shared article `articles/{itemId}` that Warg writes and
+Trails reads, the other fields the server writes on the shared article and the
+user article `users/{uid}/articles/{id}`, and the user article fields the app
+writes and the server reads. It is enforced by `shared-types/check-drift.ts`,
+which runs in CI through `.github/workflows/shared-types-drift.yml` on changes
+under `android/`, `warg/` and `shared-types/`.
 
 ## Firestore field names (snake_case)
 
