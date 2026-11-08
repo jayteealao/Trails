@@ -1,4 +1,5 @@
-import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { enqueueUserArticle } from '@warg/article-writer';
 import type { Request, Response } from 'express';
 import { getDashboardUserId } from './config.js';
 
@@ -71,17 +72,12 @@ export async function handleEnqueueArticle(
     return;
   }
 
-  const now = Timestamp.now();
-  await userRef.create({
+  await enqueueUserArticle(userRef, {
     url,
     favorite: coerceString(body.favorite),
     status: coerceString(body.status),
-    timeAdded: now,
     timeRead: coerceNumber(body.timeRead, 0),
     resolvedId: itemId,
-    archival_triggered: false,
-    queued_at: now,
-    queued_by: 'dashboard',
   });
 
   res.status(201).json({ itemId, queued: true, existed: false });
