@@ -22,42 +22,57 @@ class UserArticleWireReadTest {
     @Test
     fun `F1 a doc as the backup writes it, with server fields, reads to the full article`() {
         assertEquals(fullArticle(), deployedRead(F1))
+        assertEquals(fullArticle(), dtoRead(F1))
     }
 
     @Test
     fun `F2 a doc an older build wrote with the object mapper reads its fields`() {
         assertEquals(F2_ARTICLE, deployedRead(F2))
+        assertEquals(F2_ARTICLE, dtoRead(F2))
     }
 
     @Test
     fun `F3 a sparse doc reads the defaults for every missing field`() {
         assertEquals(F3_ARTICLE, deployedRead(F3))
+        assertEquals(F3_ARTICLE, dtoRead(F3))
     }
 
     @Test
     fun `F4 explicit nulls read as null, an absent field as its default`() {
         assertEquals(F4_ARTICLE, deployedRead(F4))
         assertEquals(0, deployedRead(F3).timeToRead)
+        assertEquals(F4_ARTICLE, dtoRead(F4))
+        assertEquals(0, dtoRead(F3).timeToRead)
     }
 
     @Test
     fun `F5 a double in an int and a long field is truncated`() {
         assertEquals(F5_ARTICLE, deployedRead(F5))
+        assertEquals(F5_ARTICLE, dtoRead(F5))
     }
 
     @Test
     fun `F6 a dashboard-queued doc with a timestamp timeAdded throws`() {
         assertThrows(RuntimeException::class.java) { deployedRead(F6) }
+        assertThrows(IllegalArgumentException::class.java) { dtoRead(F6) }
     }
 
     @Test
     fun `F7 a number in title throws`() {
         assertThrows(RuntimeException::class.java) { deployedRead(F7) }
+        assertThrows(IllegalArgumentException::class.java) { dtoRead(F7) }
     }
 
     @Test
     fun `F8 a long out of int range in wordCount throws`() {
         assertThrows(RuntimeException::class.java) { deployedRead(F8) }
+        assertThrows(IllegalArgumentException::class.java) { dtoRead(F8) }
+    }
+
+    @Test
+    fun `F10 a null in a non-null boolean throws`() {
+        assertThrows(RuntimeException::class.java) { deployedRead(F10) }
+        assertThrows(IllegalArgumentException::class.java) { dtoRead(F10) }
     }
 
     @Test
@@ -65,6 +80,8 @@ class UserArticleWireReadTest {
         // Observed: the object mapper stores null in the non-null property.
         val title: String? = deployedBean(F9).title
         assertNull(title)
+        // The wire type reads the field's default instead: Kotlin cannot hold that null.
+        assertEquals("", dtoRead(F9).title)
     }
 
     @Test
@@ -81,6 +98,8 @@ class UserArticleWireReadTest {
             CustomClassMapper.convertToCustomClass(map, DeployedArticleBean::class.java, null)
 
         fun deployedRead(map: Map<String, Any?>): Article = deployedBean(map).toArticle()
+
+        fun dtoRead(map: Map<String, Any?>): Article = UserArticleWire.fromFirestore(map).toArticle()
 
         private fun fieldShape(cls: Class<*>): Map<String, Class<*>> = cls.declaredFields
             .filter { !Modifier.isStatic(it.modifiers) && !it.isSynthetic }
@@ -192,6 +211,8 @@ class UserArticleWireReadTest {
         val F8: Map<String, Any?> = mapOf("itemId" to "item-8", "wordCount" to 3_000_000_000L)
 
         val F9: Map<String, Any?> = mapOf("itemId" to "item-9", "title" to null)
+
+        val F10: Map<String, Any?> = mapOf("itemId" to "item-10", "hasImage" to null)
     }
 }
 
