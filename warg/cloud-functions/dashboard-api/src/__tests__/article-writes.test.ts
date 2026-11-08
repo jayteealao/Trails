@@ -109,8 +109,7 @@ const missingFieldCases: Array<[string, unknown]> = [
 
 for (const [field, expected] of missingFieldCases) {
   test(`bootstrap merges only the missing ${field} and updated_at into the shared article`, async () => {
-    const shared: Record<string, unknown> = completeShared();
-    delete shared[field];
+    const shared = Object.fromEntries(Object.entries(completeShared()).filter(([key]) => key !== field));
     const out = await bootstrap({
       userArticles: { [ITEM]: { url: URL, timeAdded: 1, resolvedId: ITEM } },
       articles: { [ITEM]: shared },
