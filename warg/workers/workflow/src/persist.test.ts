@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkflowStep } from 'cloudflare:workers';
 import type { ArtifactMeta, ArchiveManifest, WorkflowCheckpoint } from '@warg/shared';
-import { getOptionsKey, getR2Key } from '@warg/shared';
-import { createCheckpoint, recordArtifacts } from './checkpoint.js';
+import { getCheckpointKey, getOptionsKey, getR2Key } from '@warg/shared';
+import { createCheckpoint, markArtifactsPersisted, recordArtifacts } from './checkpoint.js';
 import { persistArtifactsIncremental, persistManifestSuffix, writeManifest } from './persist.js';
 
 const REQUEST_ID = 'req-persist-1';
@@ -64,14 +64,22 @@ function makeNoCacheStep(): RecordingStep {
   return { step: fake as unknown as WorkflowStep, names, configs };
 }
 
-function makeBucket() {
+/**
+ * An R2 bucket fake. With `stored`, `get` serves that checkpoint at the
+ * request's checkpoint key, as the bucket of an instance that ran before.
+ */
+function makeBucket(stored?: WorkflowCheckpoint) {
   const objects = new Map<string, string>();
   const bucket = {
     put: vi.fn(async (key: string, body: string) => {
       objects.set(key, body);
       return null;
     }),
-    get: vi.fn(async () => null),
+    get: vi.fn(async (key: string) =>
+      stored && key === getCheckpointKey(REQUEST_ID)
+        ? { json: async () => structuredClone(stored) }
+        : null
+    ),
   };
   return { bucket, objects };
 }
@@ -126,6 +134,50 @@ function makeCheckpoint(): WorkflowCheckpoint {
   recordArtifacts(checkpoint, 'render', renderArtifacts);
   recordArtifacts(checkpoint, 'singlefile', [singlefileHtml]);
   return checkpoint;
+}
+
+function gcsPathOf(kind: ArtifactMeta['kind']): string {
+  return `gs://archive/${REQUEST_ID}/${kind}`;
+}
+
+/** A checkpoint whose given artifacts the GCS service already persisted. */
+function persistedCheckpoint(kinds: ArtifactMeta['kind'][]): WorkflowCheckpoint {
+  const checkpoint = makeCheckpoint();
+  markArtifactsPersisted(
+    checkpoint,
+    kinds.map((kind) => ({ kind, gcsPath: gcsPathOf(kind) }))
+  );
+  return checkpoint;
+}
+
+/**
+ * Seeds a replay cache with the four persist steps of a run that used the
+ * earlier, clock-based step names, with the values that run returned.
+ */
+function seedOldHistory(
+  cache: Map<string, unknown>,
+  stepName: string,
+  artifacts: ArtifactMeta[],
+  ms = 1762596000000
+): string[] {
+  const manifestKey = `${MANIFEST_PREFIX}${stepName}-${ms}.json`;
+  const token = `${stepName}-${ms}_json`;
+  const entries: Array<[string, unknown]> = [
+    [`write-manifest-${stepName}-${ms}.json`, manifestKey],
+    [`log-persist-start-${token}`, undefined],
+    [
+      `persist-gcs-${token}`,
+      {
+        success: true,
+        firestore_doc_id: 'doc-old',
+        uploaded: artifacts.length,
+        artifacts: artifacts.map((a) => ({ kind: a.kind, gcs_path: gcsPathOf(a.kind) })),
+      },
+    ],
+    [`log-persist-complete-${token}`, undefined],
+  ];
+  for (const [name, value] of entries) cache.set(`${name}#1`, value);
+  return entries.map(([name]) => name);
 }
 
 function persistRender(
