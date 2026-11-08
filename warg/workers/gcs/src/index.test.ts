@@ -239,3 +239,47 @@ describe('404', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('parsing', () => {
+  it('answers 400 for a body that is not JSON', async () => {
+    const bucket = bucketFor(manifest(['page.pdf']));
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest('{not json'), bucket);
+
+    expect(result).toEqual({ status: 400, body: { error: 'Invalid JSON' } });
+    expect(bucket.reads).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it.each([
+    ['request_id', { manifest_key: MANIFEST_KEY }],
+    ['manifest_key', { request_id: REQUEST_ID }]
+  ])('answers 400 when %s is missing', async (_field, body) => {
+    const bucket = bucketFor(manifest(['page.pdf']));
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest(body), bucket);
+
+    expect(result).toEqual({
+      status: 400,
+      body: { error: 'Missing required fields: request_id, manifest_key' }
+    });
+    expect(bucket.reads).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('answers 404 with the key when R2 does not hold the manifest', async () => {
+    const bucket = makeBucket({});
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    expect(result).toEqual({
+      status: 404,
+      body: { error: 'Manifest not found in R2', key: MANIFEST_KEY }
+    });
+    expect(bucket.reads).toEqual([MANIFEST_KEY]);
+    expect(calls).toEqual([]);
+  });
+});
