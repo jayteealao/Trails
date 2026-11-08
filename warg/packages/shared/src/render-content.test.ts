@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isProxyErrorPage, PROXY_ERROR_PAGE_MAX_LENGTH } from './render-content.js';
+import { isDeadHostErrorText, isProxyErrorPage, PROXY_ERROR_PAGE_MAX_LENGTH, proxyErrorPageText } from './render-content.js';
 
 // Byte-exact copy of the 275-byte stub archived by the 2026-09-04 canary:
 // Chrome's plain-text rendering of the proxy's DNS failure, served as HTTP 200.
@@ -205,5 +205,33 @@ describe('isProxyErrorPage — bounded input', () => {
   it('keeps the limit large enough for a stub with a heavy head', () => {
     expect(Number.isInteger(PROXY_ERROR_PAGE_MAX_LENGTH)).toBe(true);
     expect(PROXY_ERROR_PAGE_MAX_LENGTH).toBeGreaterThanOrEqual(16 * 1024);
+  });
+});
+
+describe('proxyErrorPageText', () => {
+  it('returns the error text of a stub and nothing for a real page', () => {
+    expect(proxyErrorPageText(DEAD_HOST_STUB)).toBe('dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host');
+    expect(proxyErrorPageText('<html><body><p>An article</p></body></html>')).toBeUndefined();
+    expect(proxyErrorPageText('')).toBe('');
+  });
+});
+
+describe('isDeadHostErrorText', () => {
+  it.each([
+    'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
+    'dial tcp 1.2.3.4:443: connect: connection refused',
+    'dial tcp 1.2.3.4:443: connect: no route to host',
+    'net::ERR_NAME_NOT_RESOLVED',
+  ])('reads "%s" as a dead host', (text) => {
+    expect(isDeadHostErrorText(text)).toBe(true);
+  });
+
+  it.each([
+    'dial tcp 1.2.3.4:443: i/o timeout',
+    'dial tcp 1.2.3.4:443: some new failure',
+    'read tcp 1.2.3.4:443: connection reset by peer',
+    'context deadline exceeded (no such host lookup pending)',
+  ])('keeps "%s" retryable', (text) => {
+    expect(isDeadHostErrorText(text)).toBe(false);
   });
 });

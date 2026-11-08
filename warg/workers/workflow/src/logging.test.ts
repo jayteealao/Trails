@@ -51,7 +51,7 @@ describe('classifyError for a proxy error page', () => {
   it('labels the singlefile rejection as not retryable', () => {
     const classified = classifyError(
       'singlefile',
-      'Service error 502: {"error":"SingleFile capture returned a proxy/network error page","reason":"proxy_error_page","url":"https://x"}'
+      'Service error 502: {"error":"SingleFile capture returned a proxy/network error page","reason":"proxy_error_page","detail":"dial tcp: lookup x on 1.1.1.1:53: no such host","url":"https://x"}'
     );
 
     expect(classified).toEqual({
@@ -64,7 +64,7 @@ describe('classifyError for a proxy error page', () => {
   it('labels the renderer rejection as not retryable', () => {
     const classified = classifyError(
       'render',
-      'Service error 502: {"error":"Browser Rendering /content returned a proxy/network error page","reason":"proxy_error_page","url":"https://x"}'
+      'Service error 502: {"error":"Browser Rendering /content returned a proxy/network error page","reason":"proxy_error_page","detail":"dial tcp: lookup x on 1.1.1.1:53: no such host","url":"https://x"}'
     );
 
     expect(classified).toEqual({
@@ -72,6 +72,15 @@ describe('classifyError for a proxy error page', () => {
       retryable: false,
       recommendedAction: 'inspect_url',
     });
+  });
+
+  it('keeps a timed-out proxy error page retryable', () => {
+    const classified = classifyError(
+      'render',
+      'Service error 502: {"error":"Browser Rendering /content returned a proxy/network error page","reason":"proxy_error_page","detail":"dial tcp 1.2.3.4:443: i/o timeout","url":"https://x"}'
+    );
+
+    expect(classified.retryable).toBe(true);
   });
 
   it('keeps a plain singlefile service error retryable', () => {

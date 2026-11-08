@@ -83,11 +83,12 @@ export interface SinglefileRateLimitedResponse {
 
 /**
  * Response from singlefile worker when the captured page is a proxy/network
- * error page rather than the article. Nothing is stored; `reason` tells the
- * workflow that retrying the capture will not help.
+ * error page rather than the article. Nothing is stored; `detail` is the page's
+ * error text, from which the workflow judges whether a retry can help.
  */
 export interface SinglefileProxyErrorResponse {
   error: string;
   reason: typeof PROXY_ERROR_PAGE_REASON;
+  detail: string;
   url: string;
 }

@@ -23,16 +23,32 @@
  * same browser against such a host fails the same way, so a render failure
  * carrying one of these is not worth another attempt. Timeouts, resets and
  * closed connections are deliberately absent: those can clear on a retry.
+ * A bare `dial tcp` prefix is absent too: it opens every Go dial error,
+ * transient ones included, and the dead-host cause follows it.
  */
 export const DEAD_HOST_ERROR_PATTERNS: readonly RegExp[] = [
-  /dial tcp\b/i,
   /no such host\b/i,
   /connection refused\b/i,
+  /no route to host\b/i,
+  /network is unreachable\b/i,
   /\bERR_(?:NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|CONNECTION_REFUSED|ADDRESS_UNREACHABLE)\b/,
 ];
 
+/** Words that keep a network error retryable whatever else it says: a dial that timed out can succeed next time. */
+const TRANSIENT_ERROR_PATTERN = /timed?[ _-]?out\b|deadline exceeded/i;
+
+/**
+ * True when an error text says the target host cannot be reached at all, so another
+ * attempt fails the same way. A text that also reports a timeout stays retryable.
+ */
+export function isDeadHostErrorText(text: string): boolean {
+  if (TRANSIENT_ERROR_PATTERN.test(text)) return false;
+  return DEAD_HOST_ERROR_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 const NETWORK_ERROR_PATTERNS: readonly RegExp[] = [
   ...DEAD_HOST_ERROR_PATTERNS,
+  /dial tcp\b/i,
   /\bERR_[A-Z][A-Z_]{2,}/,
   /connection reset\b/i,
   /connection closed\b/i,
@@ -125,17 +141,14 @@ function extractBodyInner(html: string): string {
 export const PROXY_ERROR_PAGE_REASON = 'proxy_error_page';
 
 /**
- * True when `html` is not a rendered document but a proxy/network error page —
- * or is empty. Callers must fail the render step rather than archive the body.
- *
- * Empty or whitespace-only input reports true because it is likewise not a
- * document worth archiving; callers that distinguish the two cases should
- * check emptiness before calling. Input longer than
- * `PROXY_ERROR_PAGE_MAX_LENGTH` reports false without being read.
+ * The error text of a proxy/network error page, or undefined when `html` is a
+ * rendered document. Empty or whitespace-only input is not a document either and
+ * gives ''. Input longer than `PROXY_ERROR_PAGE_MAX_LENGTH` gives undefined
+ * without being read.
  */
-export function isProxyErrorPage(html: string): boolean {
-  if (html.length > PROXY_ERROR_PAGE_MAX_LENGTH) return false;
-  if (!html || html.trim().length === 0) return true;
+export function proxyErrorPageText(html: string): string | undefined {
+  if (html.length > PROXY_ERROR_PAGE_MAX_LENGTH) return undefined;
+  if (!html || html.trim().length === 0) return '';
 
   const withoutNoise = extractBodyInner(html)
     .replace(/<!--[\s\S]*?-->/g, '')
@@ -144,9 +157,17 @@ export function isProxyErrorPage(html: string): boolean {
   const stripped = dropEmptyElements(dropVoidElements(withoutNoise)).trim();
 
   const pre = /^<pre\b[^>]*>([\s\S]*?)<\/pre>$/i.exec(stripped);
-  if (!pre) return false;
+  if (!pre) return undefined;
 
   const text = decodeEntities(pre[1] ?? '').trim();
-  if (text.length > MAX_ERROR_TEXT_LENGTH) return false;
-  return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text));
+  if (text.length > MAX_ERROR_TEXT_LENGTH) return undefined;
+  return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text)) ? text : undefined;
+}
+
+/**
+ * True when `html` is not a rendered document but a proxy/network error page —
+ * or is empty. Callers must fail the render step rather than archive the body.
+ */
+export function isProxyErrorPage(html: string): boolean {
+  return proxyErrorPageText(html) !== undefined;
 }

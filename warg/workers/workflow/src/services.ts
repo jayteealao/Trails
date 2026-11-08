@@ -9,7 +9,7 @@ import type {
   GcsResponse,
   SinglefileParams
 } from './types.js';
-import { DEAD_HOST_ERROR_PATTERNS, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
+import { isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
 export interface ServiceErrorClassification {
@@ -145,10 +145,12 @@ function classifyRenderFailureFromBody(
   const parsed = parseJsonSafe(responseBody);
   if (!parsed || typeof parsed !== 'object') return undefined;
   const record = parsed as Record<string, unknown>;
-  // The renderer already judged the page a proxy/network error: Browser
-  // Rendering could not reach the target, and another attempt reaches it no
-  // better.
-  if (record.reason === PROXY_ERROR_PAGE_REASON) return UNREACHABLE_TARGET;
+  // The renderer rejected a proxy/network error page. Its text says whether the
+  // host cannot be reached (another attempt reaches it no better) or the failure
+  // was transient (a timeout or reset, which a retry can clear).
+  if (record.reason === PROXY_ERROR_PAGE_REASON) {
+    return isProxyErrorPageDeadHost(record) ? UNREACHABLE_TARGET : undefined;
+  }
   if (!looksLikeRendererContentFailurePayload(record)) return undefined;
 
   if (containsRendererNetworkClosed5006(record.details)) {
@@ -188,8 +190,12 @@ function classifyRenderFailureFromBody(
  */
 function isDeadHostFailure(details: unknown): boolean {
   const text = typeof details === 'string' ? details : JSON.stringify(details) ?? '';
-  if (/timed?[ _-]?out\b|deadline exceeded/i.test(text)) return false;
-  return DEAD_HOST_ERROR_PATTERNS.some((pattern) => pattern.test(text));
+  return isDeadHostErrorText(text);
+}
+
+/** True when a renderer's proxy error page rejection carries a dead-host error text. */
+function isProxyErrorPageDeadHost(record: Record<string, unknown>): boolean {
+  return typeof record.detail === 'string' && isDeadHostErrorText(record.detail);
 }
 
 function classifySinglefileFailureFromBody(
@@ -198,9 +204,10 @@ function classifySinglefileFailureFromBody(
   const parsed = parseJsonSafe(responseBody);
   if (!parsed || typeof parsed !== 'object') return undefined;
   const record = parsed as Record<string, unknown>;
-  // The worker captured the proxy's error page for a host it cannot reach;
-  // another capture reaches it no better.
+  // The worker captured the proxy's error page. For a host it cannot reach,
+  // another capture reaches it no better; a transient error text stays retryable.
   if (record.reason === PROXY_ERROR_PAGE_REASON) {
+    if (!isProxyErrorPageDeadHost(record)) return undefined;
     return {
       errorCode: 'SINGLEFILE_SERVICE_ERROR',
       retryable: false,

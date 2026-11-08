@@ -354,6 +354,7 @@ describe('proxy error page fallback', () => {
   const proxyErrorBody = {
     error: 'Browser Rendering /content returned a proxy/network error page',
     reason: PROXY_ERROR_PAGE_REASON,
+    detail: 'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
     url: 'https://dead.example.com/post',
   };
 
@@ -595,12 +596,30 @@ describe('render failures from a host that cannot be reached', () => {
   const proxyErrorPageBody = {
     error: 'Browser Rendering /content returned a proxy/network error page',
     reason: PROXY_ERROR_PAGE_REASON,
+    detail: 'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
     url: 'https://www.explorminate.net/post',
   };
 
   it('classifies the proxy error page rejection as not retryable', async () => {
     const classification = await classifyRendererResponse(makeJsonResponse(502, proxyErrorPageBody));
     expect(classification.retryable).toBe(false);
+  });
+
+  it.each([
+    'dial tcp 1.2.3.4:443: i/o timeout',
+    'read tcp 10.0.0.1:5000->1.2.3.4:443: connection reset by peer',
+  ])('keeps a proxy error page that reads "%s" retryable', async (detail) => {
+    const classification = await classifyRendererResponse(
+      makeJsonResponse(502, { ...proxyErrorPageBody, detail }),
+    );
+    expect(classification.retryable).toBe(true);
+  });
+
+  it('keeps a dial error with no dead-host cause retryable', async () => {
+    const classification = await classifyRendererResponse(
+      wrappedContentFailure('dial tcp 1.2.3.4:443: some new failure'),
+    );
+    expect(classification.retryable).toBe(true);
   });
 
   it.each([
@@ -649,6 +668,7 @@ describe('singlefile proxy error page rejections', () => {
   const singlefileProxyErrorBody = {
     error: 'SingleFile capture returned a proxy/network error page',
     reason: PROXY_ERROR_PAGE_REASON,
+    detail: 'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
     url: 'https://www.explorminate.net/post',
   };
 
@@ -661,6 +681,15 @@ describe('singlefile proxy error page rejections', () => {
       retryable: false,
       recommendedAction: 'inspect_url',
     });
+  });
+
+  it('keeps a capture of a timed-out proxy error page retryable', async () => {
+    const singlefileFetch = vi.fn(async () =>
+      makeJsonResponse(502, { ...singlefileProxyErrorBody, detail: 'dial tcp 1.2.3.4:443: i/o timeout' }),
+    );
+
+    const error = await catchServiceCallError(callSinglefile(makeSinglefileEnv(singlefileFetch), singlefileParams));
+    expect(error.classification.retryable).toBe(true);
   });
 
   it('fails the singlefile step after one attempt, naming the reason', async () => {
@@ -806,6 +835,7 @@ describe('fallback for a host the primary renderer cannot reach', () => {
       makeJsonResponse(502, {
         error: 'Browser Rendering /content returned a proxy/network error page',
         reason: PROXY_ERROR_PAGE_REASON,
+        detail: 'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
         url: 'https://www.explorminate.net/post',
       }),
     );
@@ -835,6 +865,7 @@ describe('when the primary renderer and the hyperrenderer both fail', () => {
         makeJsonResponse(502, {
           error: 'Browser Rendering /content returned a proxy/network error page',
           reason: PROXY_ERROR_PAGE_REASON,
+          detail: 'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
           url: 'https://www.explorminate.net/post',
         }),
       'proxy/network error page',

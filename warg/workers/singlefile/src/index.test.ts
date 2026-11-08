@@ -92,6 +92,7 @@ function padStubTo(length: number): string {
 const STUB_REJECTION = {
   error: 'SingleFile capture returned a proxy/network error page',
   reason: PROXY_ERROR_PAGE_REASON,
+  detail: 'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
   url: TARGET_URL,
 };
 

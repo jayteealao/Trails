@@ -1,5 +1,5 @@
 import puppeteer from '@cloudflare/puppeteer';
-import { isProxyErrorPage, PROXY_ERROR_PAGE_REASON, storeArtifact, timingSafeEqual } from '@warg/shared';
+import { PROXY_ERROR_PAGE_REASON, proxyErrorPageText, storeArtifact, timingSafeEqual } from '@warg/shared';
 import { SINGLEFILE_SCRIPT, SINGLEFILE_HOOK } from './singlefile-bundle.js';
 import type {
   SinglefileRequest,
@@ -359,11 +359,13 @@ export default {
         // A dead host can come back as the proxy's plain-text error page; never
         // archive it as the article. Captures past the detector's length limit
         // are real pages and are accepted without being scanned.
-        if (isProxyErrorPage(content)) {
+        const proxyErrorText = proxyErrorPageText(content);
+        if (proxyErrorText !== undefined) {
           console.warn('[singlefile] Rejected proxy/network error page', { url: targetUrl, length: content.length });
           const proxyError: SinglefileProxyErrorResponse = {
             error: 'SingleFile capture returned a proxy/network error page',
             reason: PROXY_ERROR_PAGE_REASON,
+            detail: proxyErrorText,
             url: targetUrl
           };
           return Response.json(proxyError, { status: 502 });

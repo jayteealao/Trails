@@ -56,8 +56,9 @@ export {
 export { sha256, timingSafeEqual } from './crypto.js';
 
 export {
-  DEAD_HOST_ERROR_PATTERNS,
+  isDeadHostErrorText,
   isProxyErrorPage,
+  proxyErrorPageText,
   PROXY_ERROR_PAGE_MAX_LENGTH,
   PROXY_ERROR_PAGE_REASON,
 } from './render-content.js';

@@ -1,5 +1,5 @@
 import type { EventType, LogEvent, LogLevel } from '@warg/shared';
-import { createEvent, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
+import { createEvent, isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import type { RequestErrorCode, UserActionHint } from '@warg/shared';
 
 interface ClassifiedError {
@@ -80,8 +80,9 @@ export function classifyError(stepName: string, errorMsg: string): ClassifiedErr
   if (monolithError) return monolithError;
 
   // A renderer or singlefile worker rejected the page as a proxy/network error
-  // page: the host cannot be reached, so the step was not retried.
-  if (msg.includes(PROXY_ERROR_PAGE_REASON)) {
+  // page whose text says the host cannot be reached, so the step was not retried.
+  // A transient error page falls through to the retryable rules below.
+  if (msg.includes(PROXY_ERROR_PAGE_REASON) && isDeadHostErrorText(errorMsg)) {
     const unreachableByStep: Record<string, RequestErrorCode> = {
       render: 'RENDER_SERVICE_ERROR',
       singlefile: 'SINGLEFILE_SERVICE_ERROR',
