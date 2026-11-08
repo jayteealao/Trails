@@ -880,6 +880,42 @@ describe('begin refuses a request id owned by another caller', () => {
     expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }]);
   });
 
+  it('keeps an id stored without an owner public when the internal key re-runs it first', async () => {
+    const { env, bucketPut } = createEnv({ workflowReply: started, bucketHead: storedWith({}) });
+    const response = await gateway.fetch(
+      internalPost('/begin', { url, request_id: 'req-legacy-2' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }]);
+  });
+
+  it('accepts the public key on a legacy id after an internal re-run recorded its owner', async () => {
+    let stored: Record<string, string> = {};
+    const { env, bucketPut } = createEnv({
+      workflowReply: started,
+      bucketHead: async () => ({ customMetadata: stored }) as unknown as R2Object
+    });
+    const internal = await gateway.fetch(
+      internalPost('/begin', { url, request_id: 'req-legacy-3' }),
+      env,
+      {} as ExecutionContext
+    );
+    expect(internal.status).toBe(201);
+    const [firstMetadata] = putMetadata(bucketPut);
+    stored = firstMetadata as Record<string, string>;
+
+    const again = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-legacy-3' }),
+      env,
+      {} as ExecutionContext
+    );
+    expect(again.status).toBe(201);
+    expect(putMetadata(bucketPut)).toEqual([{ owner: 'public' }, { owner: 'public' }]);
+  });
+
   it('answers 500 and writes nothing when the owner lookup fails', async () => {
     const { env, bucketPut, loggerFetch, workflowFetch } = createEnv({
       workflowReply: started,

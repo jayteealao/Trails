@@ -17,6 +17,7 @@ import {
   PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS,
   REQUEST_OWNER_METADATA_KEY,
   resolveRequestIdOwner,
+  storedRequestIdOwner,
   validateArchiveOptions,
   type CallerKind,
   withRequestId
@@ -575,7 +576,7 @@ export default {
         let owner: string = callerKind;
         if (rawRequestId) {
           const existing = await env.ARCHIVE_BUCKET.head(optionsR2Key);
-          const ownership = resolveRequestIdOwner(existing?.customMetadata?.[REQUEST_OWNER_METADATA_KEY], callerKind);
+          const ownership = resolveRequestIdOwner(storedRequestIdOwner(existing), callerKind);
           if (!ownership.ok) {
             console.warn('[gateway] /begin refused a request id owned by another caller', {
               id: requestId,

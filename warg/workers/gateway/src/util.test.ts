@@ -18,6 +18,8 @@ import {
   capEventStream,
   REQUEST_OWNER_METADATA_KEY,
   resolveRequestIdOwner,
+  storedRequestIdOwner,
+  LEGACY_REQUEST_OWNER,
   type CallerKind
 } from './util.js';
 import { createEvent } from '@warg/shared';
@@ -563,6 +565,21 @@ describe('resolveRequestIdOwner', () => {
     if (result.ok) {
       expect(result.owner).toBe(owner);
     }
+  });
+});
+
+describe('storedRequestIdOwner', () => {
+  it('is undefined when no options object exists', () => {
+    expect(storedRequestIdOwner(null)).toBeUndefined();
+  });
+
+  it('reads the recorded owner', () => {
+    expect(storedRequestIdOwner({ customMetadata: { owner: 'internal' } })).toBe('internal');
+  });
+
+  it('gives an object stored without an owner to the public key', () => {
+    expect(storedRequestIdOwner({ customMetadata: {} })).toBe(LEGACY_REQUEST_OWNER);
+    expect(storedRequestIdOwner({})).toBe('public');
   });
 });
 

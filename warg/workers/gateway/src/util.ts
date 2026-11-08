@@ -230,9 +230,26 @@ export type CallerKind = 'internal' | 'public';
 export const REQUEST_OWNER_METADATA_KEY = 'owner';
 
 /**
- * Who may run a request id again. No stored owner (a new id, or options stored before owners
- * were recorded) gives the id to the caller; the owner itself repeats it; the internal key
- * re-runs any id and keeps its owner. Any other caller is refused.
+ * The owner of an options object stored before owners were recorded. Every caller of /begin used
+ * the public key then, so such an id belongs to the public key, whoever re-runs it first.
+ */
+export const LEGACY_REQUEST_OWNER: CallerKind = 'public';
+
+/**
+ * The recorded owner of a request id: the owner metadata of its stored options object,
+ * LEGACY_REQUEST_OWNER for an object stored without one, and undefined when no object exists (a new id).
+ */
+export function storedRequestIdOwner(
+  existing: { customMetadata?: Record<string, string> } | null | undefined
+): string | undefined {
+  if (!existing) return undefined;
+  return existing.customMetadata?.[REQUEST_OWNER_METADATA_KEY] ?? LEGACY_REQUEST_OWNER;
+}
+
+/**
+ * Who may run a request id again. No stored owner (a new id) gives the id to the caller;
+ * the owner itself repeats it; the internal key re-runs any id and keeps its owner.
+ * Any other caller is refused.
  */
 export function resolveRequestIdOwner(
   storedOwner: string | undefined,
