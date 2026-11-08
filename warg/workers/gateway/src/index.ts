@@ -1,4 +1,4 @@
-import { getOptionsKey, timingSafeEqual, createEvent } from '@warg/shared';
+import { getOptionsKey, timingSafeEqual, createEvent, isLeaseStale } from '@warg/shared';
 import type {
   LogEvent,
   InitRequestPayload
@@ -13,16 +13,6 @@ const LOGGER_RETRY_ATTEMPTS = 3;
 const ORPHAN_SWEEP_DEFAULT_LIMIT = 100;
 const ORPHAN_SWEEP_DEFAULT_MIN_AGE_MS = 10 * 60 * 1000;
 const ORPHAN_SWEEP_WORKFLOW_ATTEMPTS = 2;
-// Leases older than this had their job finish long ago (P99 monolith wall time
-// is ~3 min) — the workflow likely crashed before release(), so the container
-// behind the lease may still be running.
-// MUST be kept in sync with `LEASE_TTL_MS` in
-// `warg/workers/workflow/src/BrowserQuotaDO.ts`.
-// If this value is LOWER than LEASE_TTL_MS: sweep will stop containers under
-// still-valid leases (premature kill).
-// If this value is HIGHER than LEASE_TTL_MS: orphaned containers are missed
-// until the excess gap elapses (delayed cleanup).
-export const CONTAINER_SWEEP_MIN_LEASE_AGE_MS = 5 * 60 * 1000;
 
 interface LoggerRequestRow {
   requestId?: string;
@@ -488,7 +478,7 @@ export async function sweepOrphanContainers(
   const now = Date.now();
   for (const lease of leases) {
     if (!lease.requestId || typeof lease.acquiredAt !== 'number') continue;
-    if (now - lease.acquiredAt < CONTAINER_SWEEP_MIN_LEASE_AGE_MS) continue;
+    if (!isLeaseStale(lease.acquiredAt, now)) continue;
     summary.stale += 1;
 
     try {
