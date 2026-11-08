@@ -144,8 +144,7 @@ Checking the deploy script: `pnpm deploy:check` runs shellcheck and a stub
 harness that drives the script end to end without credentials (CI runs it too).
 
 The `deploy` scripts of the function packages and of `pages/dashboard` only
-print a pointer to `scripts/deploy.sh` and exit 1. `pages/dashboard-v2` is not
-deployed by the script and keeps its own `deploy` script.
+print a pointer to `scripts/deploy.sh` and exit 1.
 
 Two configs per worker: `cloudflare.config.ts` is what `cf deploy` reads, and
 `wrangler.jsonc` still serves `wrangler dev` and `wrangler types`. Change a
@@ -168,8 +167,8 @@ one function only. Callers send it in the `X-Internal-API-Key` header.
 | Secret | Stored in | Sent by | Checked by |
 |---|---|---|---|
 | `ARCHIVE_GATEWAY_KEY` | Secret Manager and the `gcs` worker | storage worker (`workers/gcs`) | archive-gateway |
-| `DASHBOARD_API_KEY` | Secret Manager and both dashboards' Pages secrets | dashboard | dashboard-api |
-| `BACKFILL_STATUS_KEY` | Secret Manager and both dashboards' Pages secrets | dashboard | backfillStatus |
+| `DASHBOARD_API_KEY` | Secret Manager and the dashboard's Pages secrets | dashboard | dashboard-api |
+| `BACKFILL_STATUS_KEY` | Secret Manager and the dashboard's Pages secrets | dashboard | backfillStatus |
 | `GATEWAY_LOG_KEY` | Secret Manager | archive-gateway (event logs) | gateway worker `/internal/log` |
 
 `INTERNAL_API_KEY` in Secret Manager is the old shared function key. The
@@ -199,8 +198,6 @@ commit or a log: pipe generated values straight into the command.
    pnpm exec wrangler secret put ARCHIVE_GATEWAY_KEY --config workers/gcs/wrangler.jsonc
    pnpm exec wrangler pages secret put DASHBOARD_API_KEY --project-name warg-dashboard
    pnpm exec wrangler pages secret put BACKFILL_STATUS_KEY --project-name warg-dashboard
-   pnpm exec wrangler pages secret put DASHBOARD_API_KEY --project-name warg-dashboard-v2
-   pnpm exec wrangler pages secret put BACKFILL_STATUS_KEY --project-name warg-dashboard-v2
    ```
 
 3. **Deploy one.** Set `KEY_ROTATION_DUAL_ACCEPT=true` in the three `.env`
@@ -215,7 +212,6 @@ commit or a log: pipe generated values straight into the command.
 
    ```bash
    pnpm run deploy -- --with-pages
-   pnpm --dir pages/dashboard-v2 run deploy
    ```
 
 4. **Check every caller on its new key:** a test article upload through the
@@ -414,7 +410,7 @@ previous page's `nextCursor` (`null` on the last page and on a filtered or
 searched list). A malformed cursor answers 400 `{"error":"Invalid cursor"}`. A
 `page` without a cursor skips the earlier pages with an offset, which Firestore
 bills per skipped document; a page past 10,000 skipped documents answers 400
-`{"error":"Page out of range; follow nextCursor instead"}`. Both dashboards send
+`{"error":"Page out of range; follow nextCursor instead"}`. The dashboard sends
 the cursor with the page number when they step to the next page.
 
 **Second-account check.** After deploy two (step 6 of
