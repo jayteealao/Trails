@@ -233,3 +233,14 @@ test('a save delivered again after a failed start inside the retry window starts
   assert.equal(calls, 2);
   assert.deepEqual(store.writes.slice(createWrites().length), archiveStartedWrites());
 });
+
+test('a failure that cannot be recorded because the user article is gone does not throw', async () => {
+  const store = makeRecordingDb({ users: {} });
+  const result = await handleUserArticleCreated(
+    { db: store.db, userId: USER, itemId: ITEM, data: { title: 'x' } },
+    { beginArchive: okArchive, nowMs: () => 10_000_000 }
+  );
+  assert.equal(result, 'missing-url');
+  assert.deepEqual(store.writes, [direct(USER_PATH, { error: 'Missing URL', error_at: '<timestamp>' })]);
+  assert.equal(store.docs.has(USER_PATH), false);
+});
