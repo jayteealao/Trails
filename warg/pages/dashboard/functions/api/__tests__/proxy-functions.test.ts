@@ -143,7 +143,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init?: any) => {
@@ -186,7 +185,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, _init?: any) => {
@@ -247,7 +245,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
@@ -306,7 +303,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
@@ -364,7 +360,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
@@ -643,7 +638,6 @@ describe('article retry endpoints', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'public-key',
     } as any;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -685,7 +679,6 @@ describe('article retry endpoints', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'public-key',
     } as any;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
