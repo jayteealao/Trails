@@ -41,7 +41,8 @@ import {
   updateManifestKey
 } from './logging.js';
 import { runMockPipeline } from './mock.js';
-import { persistArtifactsIncremental, writeManifest } from './persist.js';
+import type { PersistedArtifacts } from './persist.js';
+import { persistArtifactsIncremental, snapshotPersistedArtifacts, writeManifest } from './persist.js';
 import {
   createCheckpoint,
   discoverArtifactsFromR2,
@@ -242,6 +243,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await saveCheckpoint(this.env.ARCHIVE_BUCKET, state);
       return state;
     });
+    // Before any later save overwrites the stored checkpoint.
+    const persistedBefore = await snapshotPersistedArtifacts(this.env, step, request_id, options_r2_key);
 
     // Selective step execution: if options.steps is set, only run those steps
     const requestedSteps = normalizedOptions.steps;
@@ -295,7 +298,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           url,
           stepName,
           artifacts,
-          reason
+          reason,
+          persistedBefore
         );
         if (persistResult) lastPersistResult = persistResult;
       } catch (persistErr) {
@@ -875,7 +879,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     url: string,
     stepName: CheckpointStep | 'final',
     artifacts: ArtifactMeta[],
-    reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile'
+    reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile',
+    persistedBefore: PersistedArtifacts
   ): Promise<WorkflowResult['gcsResult'] | undefined> {
     return persistArtifactsIncremental(
       this.env,
@@ -885,7 +890,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       url,
       stepName,
       artifacts,
-      reason
+      reason,
+      persistedBefore
     );
   }
 
