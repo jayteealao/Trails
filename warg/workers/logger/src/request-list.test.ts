@@ -1,5 +1,6 @@
 import { env, SELF } from 'cloudflare:test';
 import { describe, it, expect, beforeAll } from 'vitest';
+import { buildRequestListQuery } from './request-list-query.js';
 
 /**
  * GET /requests over the migrated D1 index.
@@ -110,5 +111,29 @@ describe('GET /requests for the orphan sweep', () => {
     const rows = await listRequests(`${sweepQuery}&limit=2&offset=2`);
 
     expect(rows.map((r) => r.requestId)).toEqual(stuckIds.slice(2, 4));
+  });
+});
+
+describe('GET /requests query plan', () => {
+  it('searches the stage and created-time index for the orphan sweep query', async () => {
+    const { sql, bindings } = buildRequestListQuery(
+      new URLSearchParams({
+        status: 'queued',
+        events: 'none',
+        to: '2000-01-01T00:30:00.000Z',
+        order: 'asc',
+        limit: '100',
+        offset: '0',
+      })
+    );
+
+    const plan = await env.INDEX_DB.prepare('EXPLAIN QUERY PLAN ' + sql)
+      .bind(...bindings)
+      .all<{ detail: string }>();
+    const details = plan.results.map((row) => row.detail);
+
+    expect(details.some((d) => d.includes('USING INDEX idx_requests_stage_created'))).toBe(true);
+    expect(details.some((d) => /^SCAN requests_index\b/.test(d))).toBe(false);
+    expect(details.some((d) => d.includes('TEMP B-TREE'))).toBe(false);
   });
 });
