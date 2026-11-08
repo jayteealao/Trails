@@ -78,7 +78,82 @@ internal data class UserArticleWire(
         BACKED_UP_AT to backedUpAt,
     )
 
+    /** The article this stored document restores to; [backedUpAt] is not part of it. */
+    fun toArticle() = Article(
+        itemId = itemId,
+        resolvedId = resolvedId,
+        title = title,
+        givenTitle = givenTitle,
+        url = url,
+        givenUrl = givenUrl,
+        normalizedUrl = normalizedUrl,
+        excerpt = excerpt,
+        wordCount = wordCount,
+        favorite = favorite,
+        status = status,
+        wordCountMessage = wordCountMessage,
+        image = image,
+        hasImage = hasImage,
+        hasVideo = hasVideo,
+        hasAudio = hasAudio,
+        sortId = sortId,
+        timeAdded = timeAdded,
+        timeUpdated = timeUpdated,
+        timeRead = timeRead,
+        timeFavorited = timeFavorited,
+        timeToRead = timeToRead,
+        listenDurationEstimate = listenDurationEstimate,
+        text = text,
+        articleId = articleId,
+        resolved = resolved,
+        deletedAt = deletedAt,
+        archivedAt = archivedAt,
+        textSource = textSource,
+    )
+
     companion object {
+        /**
+         * Reads a stored document as `DocumentSnapshot.getData()` returns it, by the rules
+         * Firestore's object mapper applied when the app read the article entity directly:
+         * a missing field takes its default, an unknown field is ignored, a number is
+         * narrowed or truncated as the mapper does, and a value the mapper refused (a
+         * wrong type, an out-of-range number, a null in a non-null number or boolean)
+         * throws [IllegalArgumentException] naming the field. A null in a non-null text
+         * field reads as that field's default.
+         */
+        fun fromFirestore(data: Map<String, Any?>) = UserArticleWire(
+            itemId = data.wireString(ITEM_ID, "") ?: "",
+            resolvedId = data.wireString(RESOLVED_ID, null),
+            title = data.wireString(TITLE, "") ?: "",
+            givenTitle = data.wireString(GIVEN_TITLE, "") ?: "",
+            url = data.wireString(URL, null),
+            givenUrl = data.wireString(GIVEN_URL, null),
+            normalizedUrl = data.wireString(NORMALIZED_URL, null),
+            excerpt = data.wireString(EXCERPT, null),
+            wordCount = data.wireInt(WORD_COUNT, 0) ?: nullIn(WORD_COUNT),
+            favorite = data.wireString(FAVORITE, null),
+            status = data.wireString(STATUS, "") ?: "",
+            wordCountMessage = data.wireString(WORD_COUNT_MESSAGE, null),
+            image = data.wireString(IMAGE, null),
+            hasImage = data.wireBoolean(HAS_IMAGE, false) ?: nullIn(HAS_IMAGE),
+            hasVideo = data.wireBoolean(HAS_VIDEO, false) ?: nullIn(HAS_VIDEO),
+            hasAudio = data.wireBoolean(HAS_AUDIO, false) ?: nullIn(HAS_AUDIO),
+            sortId = data.wireInt(SORT_ID, 0) ?: nullIn(SORT_ID),
+            timeAdded = data.wireLong(TIME_ADDED, 0) ?: nullIn(TIME_ADDED),
+            timeUpdated = data.wireLong(TIME_UPDATED, 0) ?: nullIn(TIME_UPDATED),
+            timeRead = data.wireLong(TIME_READ, null),
+            timeFavorited = data.wireLong(TIME_FAVORITED, 0) ?: nullIn(TIME_FAVORITED),
+            timeToRead = data.wireInt(TIME_TO_READ, 0),
+            listenDurationEstimate = data.wireInt(LISTEN_DURATION_ESTIMATE, 0)
+                ?: nullIn(LISTEN_DURATION_ESTIMATE),
+            text = data.wireString(TEXT, null),
+            articleId = data.wireString(ARTICLE_ID, "0") ?: "0",
+            resolved = data.wireInt(RESOLVED, 0) ?: nullIn(RESOLVED),
+            deletedAt = data.wireLong(DELETED_AT, null),
+            archivedAt = data.wireLong(ARCHIVED_AT, null),
+            textSource = data.wireString(TEXT_SOURCE, "") ?: "",
+        )
+
         const val ITEM_ID = "itemId"
         const val RESOLVED_ID = "resolvedId"
         const val TITLE = "title"
@@ -145,3 +220,63 @@ internal fun Article.toUserArticleWire() = UserArticleWire(
     textSource = textSource,
     backedUpAt = timeUpdated,
 )
+
+/** Missing → [default]; null → null; otherwise only a `String`. */
+private fun Map<String, Any?>.wireString(name: String, default: String?): String? {
+    if (!containsKey(name)) return default
+    return when (val value = get(name)) {
+        null -> null
+        is String -> value
+        else -> throw wrongType(name, value, "a string")
+    }
+}
+
+/** Missing → [default]; null → null; otherwise a number within the 32-bit range, truncated. */
+private fun Map<String, Any?>.wireInt(name: String, default: Int?): Int? {
+    if (!containsKey(name)) return default
+    return when (val value = get(name)) {
+        null -> null
+        is Int -> value
+        is Long, is Double -> {
+            val number = (value as Number).toDouble()
+            require(number >= Int.MIN_VALUE && number <= Int.MAX_VALUE) {
+                "Field $name: $value is out of the 32-bit integer range"
+            }
+            value.toInt()
+        }
+        else -> throw wrongType(name, value, "an int")
+    }
+}
+
+/** Missing → [default]; null → null; otherwise a number within the 64-bit range, truncated. */
+private fun Map<String, Any?>.wireLong(name: String, default: Long?): Long? {
+    if (!containsKey(name)) return default
+    return when (val value = get(name)) {
+        null -> null
+        is Int -> value.toLong()
+        is Long -> value
+        is Double -> {
+            require(value >= Long.MIN_VALUE && value <= Long.MAX_VALUE) {
+                "Field $name: $value is out of the 64-bit long range"
+            }
+            value.toLong()
+        }
+        else -> throw wrongType(name, value, "a long")
+    }
+}
+
+/** Missing → [default]; null → null; otherwise only a `Boolean`. */
+private fun Map<String, Any?>.wireBoolean(name: String, default: Boolean?): Boolean? {
+    if (!containsKey(name)) return default
+    return when (val value = get(name)) {
+        null -> null
+        is Boolean -> value
+        else -> throw wrongType(name, value, "a boolean")
+    }
+}
+
+private fun wrongType(name: String, value: Any, expected: String) =
+    IllegalArgumentException("Field $name: a ${value.javaClass.name} cannot be read as $expected")
+
+private fun nullIn(name: String): Nothing =
+    throw IllegalArgumentException("Field $name: null cannot be read into a non-null field")
