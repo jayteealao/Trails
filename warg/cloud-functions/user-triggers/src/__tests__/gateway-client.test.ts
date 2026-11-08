@@ -62,3 +62,33 @@ test('a 200 with a request id returns it after one POST to /begin with the keys 
     },
   ]);
 });
+
+test('a 400 is not retried and rejects with its status and body', async () => {
+  install([{ status: 400, body: 'bad url' }]);
+  await assert.rejects(callGatewayBegin(config, payload), { message: 'Gateway begin failed: 400 bad url' });
+  assert.equal(calls.length, 1);
+});
+
+test('a 200 without a request id is not retried and rejects', async () => {
+  install([{ status: 200, body: '{}' }]);
+  await assert.rejects(callGatewayBegin(config, payload), /^Error: Gateway begin failed: 200 /);
+  assert.equal(calls.length, 1);
+});
+
+test('a 503 is retried once and the next 200 is returned', async () => {
+  install([
+    { status: 503, body: 'unavailable' },
+    { status: 200, body: '{"request_id":"req-2"}' },
+  ]);
+  assert.deepEqual(await callGatewayBegin(config, payload), { request_id: 'req-2' });
+  assert.equal(calls.length, 2);
+});
+
+test('a 202 workflow trigger warning is retried and the next 200 is returned', async () => {
+  install([
+    { status: 202, body: '{"requestId":"r","warning":"workflow trigger failed"}' },
+    { status: 200, body: '{"requestId":"req-3"}' },
+  ]);
+  assert.deepEqual(await callGatewayBegin(config, payload), { requestId: 'req-3' });
+  assert.equal(calls.length, 2);
+});
