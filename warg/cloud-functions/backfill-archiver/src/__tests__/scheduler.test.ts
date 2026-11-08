@@ -525,3 +525,24 @@ test('a batch with an archived, a failing and a sent article and a full retry li
   assert.equal(backoff['backoff_until'], null);
   assert.equal(tracker['run_lease'], null);
 });
+
+test('a queued failed start is not re-sent before RETRY_DELAY_MS and is re-sent once it is due', async () => {
+  const h = await runFullQueueBatch();
+  settleBatch(h);
+  // The status trigger derives a failed status from the recorded start failure.
+  h.fake.put('articles/sharedF001', { ...h.fake.read('articles/sharedF001'), status: 'failed' });
+  const queued = () => (h.tracker()['retry_queue'] as Array<Record<string, unknown>>).map((e) => e['item_id']);
+
+  h.clock.t = T0 + RETRY_DELAY_MS - 1;
+  await runBackfill(h.deps());
+  assert.equal(h.sent.length, 2);
+  assert.ok(queued().includes('sharedF001'));
+
+  h.fake.log.length = 0;
+  h.clock.t = T0 + RETRY_DELAY_MS;
+  await runBackfill(h.deps());
+  assert.deepEqual(h.sent.slice(2).map((p) => p.request_id), ['sharedF001']);
+  assert.equal(queries(h).length, 0, 'a retry run reads no user articles');
+  assert.equal(h.fake.read('articles/sharedF001')!['retry_count'], 1);
+  assert.equal(queued().includes('sharedF001'), false);
+});
