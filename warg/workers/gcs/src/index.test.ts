@@ -215,3 +215,27 @@ describe('401', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('404', () => {
+  it('answers 404 for GET /persist even with a valid key', async () => {
+    const bucket = bucketFor(manifest(['page.pdf']));
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest(validBody, { method: 'GET' }), bucket);
+
+    expect(result).toEqual({ status: 404, body: { error: 'Not found' } });
+    expect(bucket.reads).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it('answers 404 for an unknown path before it checks the key', async () => {
+    const bucket = bucketFor(manifest(['page.pdf']));
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest(validBody, { key: null, path: '/other' }), bucket);
+
+    expect(result).toEqual({ status: 404, body: { error: 'Not found' } });
+    expect(bucket.reads).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+});
