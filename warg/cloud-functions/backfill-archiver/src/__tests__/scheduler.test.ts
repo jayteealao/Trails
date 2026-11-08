@@ -24,6 +24,8 @@ interface Harness {
   fake: FakeFirestore;
   clock: { t: number };
   sent: BeginPayload[];
+  /** The ms of each sleep the run asked for, in order. */
+  sleeps: number[];
   deps: (extra?: Partial<BackfillDeps>) => BackfillDeps;
   tracker: () => Record<string, any>;
 }
@@ -32,10 +34,12 @@ function harness(): Harness {
   const fake = makeFakeFirestore();
   const clock = { t: T0 };
   const sent: BeginPayload[] = [];
+  const sleeps: number[] = [];
   return {
     fake,
     clock,
     sent,
+    sleeps,
     deps: (extra = {}) => ({
       db: fake.db,
       userId: USER,
@@ -47,7 +51,9 @@ function harness(): Harness {
         return { requestId: `req-${sent.length}` };
       },
       now: () => clock.t,
-      sleep: async () => {},
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
       runOwner: 'test-run',
       ...extra,
     }),
@@ -94,6 +100,20 @@ function settleBatch(h: Harness): void {
       archives: { rendered: { status: 'success' } },
     });
   }
+}
+
+/** `n` retry entries sharedQ000… on hosts qNNN.example, none retried yet, all due at `notBeforeMs`. */
+function seedRetryQueue(n: number, notBeforeMs: number): Array<Record<string, unknown>> {
+  return Array.from({ length: n }, (_, i) => {
+    const nnn = String(i).padStart(3, '0');
+    return {
+      item_id: `sharedQ${nnn}`,
+      url: `https://q${nnn}.example/page`,
+      domain: `q${nnn}.example`,
+      retry_count: 0,
+      not_before: Timestamp.fromMillis(notBeforeMs),
+    };
+  });
 }
 
 const queries = (h: Harness) =>
