@@ -1,4 +1,4 @@
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import { getDashboardUserId } from './config.js';
 
@@ -35,7 +35,8 @@ function isValidArchiveUrl(url: string): boolean {
  */
 export async function handleEnqueueArticle(
   req: Request,
-  res: Response
+  res: Response,
+  deps: { db?: Firestore; userId?: string } = {}
 ): Promise<void> {
   const body = (req.body ?? {}) as EnqueueBody;
   const url = typeof body.url === 'string' ? body.url.trim() : '';
@@ -58,8 +59,8 @@ export async function handleEnqueueArticle(
     return;
   }
 
-  const db = getFirestore();
-  const userId = getDashboardUserId();
+  const db = deps.db ?? getFirestore();
+  const userId = deps.userId ?? getDashboardUserId();
   const userArticlesRef = db.collection('users').doc(userId).collection('articles');
   const itemId = providedItemId ?? userArticlesRef.doc().id;
   const userRef = userArticlesRef.doc(itemId);
