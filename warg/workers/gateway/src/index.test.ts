@@ -20,7 +20,7 @@ interface CreateEnvOptions {
   /** Replaces the default workflow reply (a 500). */
   workflowReply?: () => Response | Promise<Response>;
   /** Replaces the default ARCHIVE_BUCKET.put. */
-  bucketPut?: (key: string, value: unknown, options?: R2PutOptions) => Promise<R2Object | null | void>;
+  bucketPut?: (key: string, value: unknown, options?: R2PutOptions) => Promise<R2Object | null | undefined>;
   /** Replaces the default ARCHIVE_BUCKET.head (no stored object). */
   bucketHead?: (key: string) => Promise<R2Object | null>;
 }
@@ -70,7 +70,7 @@ function createEnv(options: CreateEnvOptions = {}) {
       : jsonResponse({ error: 'Internal error', message: '(instance.already_exists) Instance already exists' }, 500)
   );
 
-  const bucketPut = vi.fn(options.bucketPut ?? (async () => {}));
+  const bucketPut = vi.fn(options.bucketPut ?? (async (): Promise<R2Object | null | undefined> => undefined));
   const bucketHead = vi.fn(options.bucketHead ?? (async (): Promise<R2Object | null> => null));
 
   return {
@@ -115,6 +115,26 @@ describe('gateway begin hardening', () => {
     expect(data.errorCode).toBe('WORKFLOW_TRIGGER_FAILED');
     expect(loggerEvents.map((entry) => entry.event.type)).toContain('workflow.trigger_failed');
     expect(loggerEvents.map((entry) => entry.event.type)).toContain('request.failed');
+  });
+
+  it('keeps the raw workflow reply out of a public caller 502 and gives it to the internal key', async () => {
+    const begin = (headers: Record<string, string>) =>
+      new Request('https://gateway.jayteealao.workers.dev/begin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ url: 'https://example.com' })
+      });
+    const { env } = createEnv();
+
+    const publicReply = (await (await gateway.fetch(begin({ 'X-API-Key': env.PUBLIC_API_KEY }), env, {} as ExecutionContext)).json()) as Record<string, unknown>;
+    const internalReply = (await (
+      await gateway.fetch(begin({ 'X-Internal-API-Key': env.INTERNAL_API_KEY }), env, {} as ExecutionContext)
+    ).json()) as Record<string, unknown>;
+
+    expect(publicReply.workflowStatus).toBe(500);
+    expect(publicReply).not.toHaveProperty('workflowError');
+    expect(JSON.stringify(publicReply)).not.toContain('already_exists');
+    expect(String(internalReply.workflowError)).toContain('already_exists');
   });
 
   it('supports dry-run orphan queued sweep via internal endpoint', async () => {

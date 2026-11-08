@@ -729,6 +729,7 @@ export default {
             })
           );
           // Return non-2xx so clients don't treat request creation as a successful start.
+          // The workflow worker's reply can carry raw exception text: only the internal key sees it.
           return errorResponse(
             502,
             GATEWAY_ERROR_CODES.WORKFLOW_TRIGGER_FAILED,
@@ -738,7 +739,7 @@ export default {
               requestId,
               errorCode: 'WORKFLOW_TRIGGER_FAILED',
               workflowStatus,
-              workflowError: workflowErrorBody
+              ...(callerKind === 'internal' ? { workflowError: workflowErrorBody } : {})
             }
           );
         }
