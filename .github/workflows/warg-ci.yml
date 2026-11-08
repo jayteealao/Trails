@@ -138,6 +138,13 @@ jobs:
         timeout-minutes: 5
         run: node --test scripts/__tests__/function-copies.test.mjs
 
+      - name: One lease TTL for the quota object and the container sweep
+        # The lease TTL and its stale rule live once in the shared package;
+        # this fails when either worker defines its own lease TTL or stops
+        # importing the shared one.
+        timeout-minutes: 5
+        run: node --test scripts/__tests__/lease-ttl-source.test.mjs
+
       - name: Cloud function bundles
         # Builds each function's deploy folder (one esbuild bundle plus a
         # generated package.json), then checks it as Cloud Build will use it:
