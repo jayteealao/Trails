@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  callRenderer,
   callRendererWith403Fallback,
   callMonolith,
   getRendererFallbackReason,
@@ -467,6 +468,63 @@ describe('monolith service classification', () => {
       }),
     ).rejects.toMatchObject({
       classification: { errorCode: 'MONOLITH_RPC_32MIB_LIMIT', retryable: false },
+    });
+  });
+});
+
+const renderParams = {
+  request_id: 'req-classify',
+  url: 'https://example.com/article',
+  browser_quota_kind: 'rest_request',
+} as const;
+
+function wrappedContentFailure(details: string, status = 500): Response {
+  return makeJsonResponse(502, { error: 'Browser Rendering /content failed', status, details });
+}
+
+async function catchServiceCallError(promise: Promise<unknown>): Promise<ServiceCallError> {
+  const error = await promise.then(
+    () => undefined,
+    (err: unknown) => err,
+  );
+  if (!(error instanceof ServiceCallError)) {
+    throw new Error(`expected a ServiceCallError, got ${String(error)}`);
+  }
+  return error;
+}
+
+async function classifyRendererResponse(response: Response): Promise<ServiceErrorClassification> {
+  const rendererFetch = vi.fn(async () => response);
+  const env = makeEnv(rendererFetch, vi.fn());
+  const error = await catchServiceCallError(callRenderer(env, renderParams));
+  return error.classification;
+}
+
+describe('render failures that stay retryable', () => {
+  it.each([
+    ['plain HTTP 503', () => new Response('Service Unavailable', { status: 503 })],
+    ['HTTP 502 with a body that is not a Browser Rendering failure', () => makeJsonResponse(502, { error: 'upstream failed' })],
+    ['HTTP 429', () => new Response('Too Many Requests', { status: 429 })],
+    ['a network-closed 5006 failure', () => wrappedContentFailure('{"errors":[{"code":5006,"message":"network closed"}]}')],
+    ['a context-destroyed 6000 failure', () => wrappedContentFailure('{"errors":[{"code":6000}]}')],
+    ['a dial that timed out', () => wrappedContentFailure('dial tcp 1.2.3.4:443: i/o timeout')],
+    ['a browser timeout error code', () => wrappedContentFailure('net::ERR_TIMED_OUT at https://example.com/article')],
+  ])('keeps %s retryable', async (_label, makeResponse) => {
+    const classification = await classifyRendererResponse(makeResponse());
+    expect(classification.retryable).toBe(true);
+  });
+
+  it('keeps a renderer timeout retryable', async () => {
+    const rendererFetch = vi.fn(async () => {
+      const abort = new Error('The operation was aborted');
+      abort.name = 'AbortError';
+      throw abort;
+    });
+    const error = await catchServiceCallError(callRenderer(makeEnv(rendererFetch, vi.fn()), renderParams));
+    expect(error.classification).toEqual({
+      errorCode: 'RENDER_TIMEOUT',
+      retryable: true,
+      recommendedAction: 'retry_step',
     });
   });
 });
