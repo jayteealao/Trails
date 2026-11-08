@@ -708,3 +708,46 @@ describe('fallback for access-blocked and unreachable pages', () => {
     expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('fallback for a host the primary renderer cannot reach', () => {
+  it.each([
+    'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
+    'net::ERR_NAME_NOT_RESOLVED at https://www.explorminate.net/post',
+    'dial tcp 1.2.3.4:443: connect: connection refused',
+  ])('renders "%s" through the hyperrenderer once, without retrying the primary', async (details) => {
+    const rendererFetch = vi.fn(async () => wrappedContentFailure(details));
+    const hyperrendererFetch = vi.fn(async () =>
+      makeJsonResponse(200, makeRendererSuccess('rendered-fallback.html')),
+    );
+    const env = makeEnv(rendererFetch, hyperrendererFetch);
+
+    const primaryError = await catchServiceCallError(callRenderer(env, renderParams));
+    expect(getRendererFallbackReason(primaryError)).toBe('browser_rendering_dead_host');
+    rendererFetch.mockClear();
+
+    const outcome = await runRenderStep(env);
+
+    expect(outcome).toMatchObject({ fallbackUsed: true, fallbackReason: 'browser_rendering_dead_host' });
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a rejected proxy error page through the hyperrenderer once', async () => {
+    const rendererFetch = vi.fn(async () =>
+      makeJsonResponse(502, {
+        error: 'Browser Rendering /content returned a proxy/network error page',
+        reason: PROXY_ERROR_PAGE_REASON,
+        url: 'https://www.explorminate.net/post',
+      }),
+    );
+    const hyperrendererFetch = vi.fn(async () =>
+      makeJsonResponse(200, makeRendererSuccess('rendered-fallback.html')),
+    );
+
+    const outcome = await runRenderStep(makeEnv(rendererFetch, hyperrendererFetch));
+
+    expect(outcome).toMatchObject({ fallbackUsed: true, fallbackReason: 'browser_rendering_proxy_error_page' });
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
+  });
+});
