@@ -1,3 +1,5 @@
+import type { Pocket } from '@warg/article-writer';
+
 /**
  * Archive classification for dashboard display.
  */
@@ -73,13 +75,7 @@ export interface ArticleDetail extends ArticleListItem {
     title?: string;
     word_count?: number;
   };
-  pocket?: {
-    favorite?: string;
-    resolved_id?: string;
-    status?: string;
-    time_added?: number;
-    time_read?: number;
-  };
+  pocket?: Partial<Pocket>;
   images?: Array<{ src: string; height?: number; width?: number }>;
   firestore_status?: string;
   error?: string;
