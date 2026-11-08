@@ -1,8 +1,16 @@
 import { resolve } from 'node:path';
 import process from 'node:process';
 
-import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore';
-import type { BulkWriter, DocumentData, Firestore } from 'firebase-admin/firestore';
+import { FieldPath } from 'firebase-admin/firestore';
+import type { BulkWriter, DocumentData, Firestore, Timestamp } from 'firebase-admin/firestore';
+import {
+  clearUserArticleCanonicalId,
+  clearUserArticleCanonicalIdInBulk,
+  markSharedArticleArchiveStarted,
+  markSharedArticleFailed,
+  markUserArticleArchivalTriggered,
+  setUserArticleLinkInBulk,
+} from '@warg/article-writer';
 import { callGatewayBegin } from '@warg/user-triggers/dist/shared/gateway-client.js';
 import { linkUserArticle, SharedIdConflictError } from '@warg/user-triggers/dist/shared/link.js';
 
@@ -332,10 +340,7 @@ async function writePlan(
     try {
       if (create.clearFirst) {
         // The link function stops on any existing canonicalId.
-        await userRef.update(
-          { canonicalId: FieldValue.delete() },
-          { lastUpdateTime: articleTime(create.uid, create.itemId) },
-        );
+        await clearUserArticleCanonicalId(userRef, articleTime(create.uid, create.itemId));
       }
       const outcome = await linkUserArticle(
         db,
@@ -396,12 +401,13 @@ async function writePlan(
         conflicts.push({ uidLabel: change.uidLabel, path, phase: 2 });
         continue;
       }
-      const data = to === null ? { canonicalId: FieldValue.delete() } : { canonicalId: to, resolvedId: to };
-      writer
-        .update(userArticlesCollection(db, change.uid).doc(change.itemId), data, {
-          lastUpdateTime: articleTime(change.uid, change.itemId),
-        })
-        .catch(track(change.uidLabel, path, 2));
+      const ref = userArticlesCollection(db, change.uid).doc(change.itemId);
+      const lastUpdateTime = articleTime(change.uid, change.itemId);
+      const linked =
+        to === null
+          ? clearUserArticleCanonicalIdInBulk(writer, ref, lastUpdateTime)
+          : setUserArticleLinkInBulk(writer, ref, to, lastUpdateTime);
+      linked.catch(track(change.uidLabel, path, 2));
     }
     for (const write of [...plan.markerAdds, ...plan.markerChanges]) {
       const key = finalId(write.key);
@@ -447,12 +453,8 @@ async function startArchive(
   const sharedRef = db.collection('articles').doc(sharedId);
   try {
     const begun = await beginArchive({ url: create.url, request_id: sharedId, includeScreenshot: true, includePdf: true });
-    await sharedRef.update({
-      warg_request_id: begun.requestId ?? begun.request_id,
-      status: 'processing',
-      processing_started_at: Timestamp.now(),
-    });
-    await userArticlesCollection(db, create.uid).doc(create.itemId).update({ archival_triggered: true });
+    await markSharedArticleArchiveStarted(sharedRef, begun.requestId ?? begun.request_id);
+    await markUserArticleArchivalTriggered(userArticlesCollection(db, create.uid).doc(create.itemId));
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -460,7 +462,7 @@ async function startArchive(
     try {
       const snap = await sharedRef.get();
       if (snap.exists && snap.get('status') === 'pending') {
-        await sharedRef.update({ status: 'failed', error: message, failed_at: Timestamp.now() });
+        await markSharedArticleFailed(sharedRef, message);
       }
     } catch (markError) {
       console.error(`[rederive] could not mark articles/${sharedId} failed: ${(markError as Error).message}`);
