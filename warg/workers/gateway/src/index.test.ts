@@ -262,6 +262,19 @@ const REJECTIONS: RejectionCase[] = [
     id: 'missing1'
   },
   {
+    name: '503 status when the logger answers with a server error',
+    request: () => publicGet('/status/x2'),
+    options: {
+      logger: (url) =>
+        url === 'https://logger/request/x2'
+          ? jsonResponse({ error: 'Internal error', message: 'raw logger failure' }, 503)
+          : undefined
+    },
+    status: 503,
+    code: 'STATUS_LOOKUP_FAILED',
+    id: 'x2'
+  },
+  {
     name: '500 begin when the options write fails',
     request: () => publicPost('/begin', { url: 'https://example.com', request_id: 'req-ok-1' }),
     options: { bucketPut: async () => Promise.reject(new Error('bucket down')) },

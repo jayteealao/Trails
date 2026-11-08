@@ -640,10 +640,29 @@ export default {
     if (method === 'GET' && path.startsWith('/status/')) {
       const requestId = path.slice('/status/'.length);
       if (!requestId) {
-        return Response.json({ error: 'requestId is required' }, { status: 400 });
+        return errorResponse(400, GATEWAY_ERROR_CODES.REQUEST_ID_REQUIRED, 'requestId is required', errorIdFor(undefined));
       }
 
-      const response = await loggerRequest(env, `/request/${requestId}`, 'GET');
+      const errorId = errorIdFor(requestId);
+      let response: Response;
+      try {
+        response = await loggerRequest(env, `/request/${requestId}`, 'GET');
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('[gateway] Error in /status', { id: errorId, message: errMsg }, err);
+        return errorResponse(500, GATEWAY_ERROR_CODES.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE, errorId);
+      }
+
+      if (response.status === 404) {
+        return errorResponse(404, GATEWAY_ERROR_CODES.REQUEST_NOT_FOUND, 'Request not found', errorId);
+      }
+      if (!response.ok) {
+        // The logger's error body can carry raw exception text: keep it in the server log only.
+        const loggerBody = (await response.text()).slice(0, 600);
+        console.error('[gateway] Status lookup failed', { id: errorId, status: response.status, body: loggerBody });
+        return errorResponse(response.status, GATEWAY_ERROR_CODES.STATUS_LOOKUP_FAILED, 'Status lookup failed', errorId);
+      }
+
       return withRequestId(
         new Response(response.body, {
           status: response.status,
