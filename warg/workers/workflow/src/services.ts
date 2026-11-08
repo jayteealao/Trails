@@ -132,12 +132,23 @@ function containsRendererContextDestroyed6000(details: unknown): boolean {
   });
 }
 
+/** A render failure whose target host cannot be reached: not worth a retry. */
+const UNREACHABLE_TARGET: ServiceErrorClassification = {
+  errorCode: 'RENDER_SERVICE_ERROR',
+  retryable: false,
+  recommendedAction: 'inspect_url',
+};
+
 function classifyRenderFailureFromBody(
   responseBody: string
 ): ServiceErrorClassification | undefined {
   const parsed = parseJsonSafe(responseBody);
   if (!parsed || typeof parsed !== 'object') return undefined;
   const record = parsed as Record<string, unknown>;
+  // The renderer already judged the page a proxy/network error: Browser
+  // Rendering could not reach the target, and another attempt reaches it no
+  // better.
+  if (record.reason === PROXY_ERROR_PAGE_REASON) return UNREACHABLE_TARGET;
   if (!looksLikeRendererContentFailurePayload(record)) return undefined;
 
   if (containsRendererNetworkClosed5006(record.details)) {
