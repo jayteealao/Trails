@@ -259,6 +259,31 @@ Step 6 must run before step 7. Deploy two unbinds `INTERNAL_API_KEY` from the
 functions; a function deploy fails while a bound secret has no enabled
 version.
 
+### The dashboard sign-in
+
+| Secret | Stored in | Sent by | Checked by |
+|---|---|---|---|
+| `DASHBOARD_AUTH` (`user:password`) | the dashboard's Pages secrets | the operator's browser (HTTP Basic) | the dashboard's Pages middleware (`pages/dashboard/functions/_middleware.ts`) |
+
+Every dashboard page and API call needs it. A request without the right
+credential gets 401 `Sign-in required.` with a Basic challenge, so the browser
+shows its sign-in prompt; a dashboard with no secret set answers 500
+`Dashboard auth is not configured.`; a signed-in write that another site
+starts gets 403 `Cross-site request refused.`.
+
+To rotate it, set a new generated value and deploy the dashboard; the browser
+asks for the new credential at the next request:
+
+```bash
+pnpm exec wrangler pages secret put DASHBOARD_AUTH --project-name warg-dashboard
+pnpm run deploy -- --with-pages
+```
+
+The middleware does not limit failed sign-ins. Keep the password long and
+random (`openssl rand -base64 24`), and, if the dashboard is reachable from the
+open internet, add a Cloudflare rate-limiting rule on its hostname for
+responses with status 401.
+
 ## Merging duplicate shared articles
 
 Older shares of one link with different tracking parameters (`utm_*`, `fbclid`,
