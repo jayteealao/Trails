@@ -444,11 +444,10 @@ class FirestoreBackupServiceTest {
         (1..count).map { i ->
             mockk<DocumentSnapshot>().also {
                 stubNoDeletionKeys(it)
-                every { it.toObject(Article::class.java) } returns Article(itemId = "${prefix}_$i")
                 // No subcollection text needed: text is null → rehydrateLargeText will query,
                 // but the article doc reference itself is mocked via articleDoc (relaxed).
                 // To keep these tests free of subcollection noise we mock text as non-null.
-                every { it.toObject(Article::class.java) } returns Article(itemId = "${prefix}_$i", text = "inline")
+                every { it.data } returns storedDoc(Article(itemId = "${prefix}_$i", text = "inline"))
             }
         }
 
@@ -590,7 +589,7 @@ class FirestoreBackupServiceTest {
         // One-article page with text == null (stored in subcollection).
         val docWithNullText = mockk<DocumentSnapshot>().also {
             stubNoDeletionKeys(it)
-            every { it.toObject(Article::class.java) } returns Article(itemId = "large1", text = null)
+            every { it.data } returns storedDoc(Article(itemId = "large1", text = null))
         }
         val page1 = mockk<QuerySnapshot>()
         val page1Query = mockk<Query>()
@@ -630,7 +629,7 @@ class FirestoreBackupServiceTest {
 
         val docWithText = mockk<DocumentSnapshot>().also {
             stubNoDeletionKeys(it)
-            every { it.toObject(Article::class.java) } returns Article(itemId = "inline1", text = "short")
+            every { it.data } returns storedDoc(Article(itemId = "inline1", text = "short"))
         }
         val page1 = mockk<QuerySnapshot>()
         val page1Query = mockk<Query>()
@@ -662,7 +661,7 @@ class FirestoreBackupServiceTest {
 
         val docWithNullText = mockk<DocumentSnapshot>().also {
             stubNoDeletionKeys(it)
-            every { it.toObject(Article::class.java) } returns Article(itemId = "missing1", text = null)
+            every { it.data } returns storedDoc(Article(itemId = "missing1", text = null))
         }
         val page1 = mockk<QuerySnapshot>()
         val page1Query = mockk<Query>()

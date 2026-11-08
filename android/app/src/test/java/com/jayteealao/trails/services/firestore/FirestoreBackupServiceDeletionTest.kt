@@ -96,7 +96,7 @@ class FirestoreBackupServiceDeletionTest {
     ): Pair<DocumentSnapshot, DocumentReference> {
         val ref = mockk<DocumentReference>(name = "ref-$id")
         val snapshot = mockk<DocumentSnapshot>()
-        every { snapshot.toObject(Article::class.java) } returns article
+        every { snapshot.data } returns storedDoc(article)
         every { snapshot.getLong("deletedAt") } returns deletedAt
         every { snapshot.getLong("deleted_at") } returns legacy
         every { snapshot.contains("deleted_at") } returns legacyPresent

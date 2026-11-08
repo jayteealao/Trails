@@ -256,10 +256,12 @@ class FirestoreBackupService @Inject constructor(
     /**
      * Map a restored article doc through [RemoteDeletion]: the article with its deletion
      * read from `deletedAt` or the legacy `deleted_at`, and the heal write fields (null
-     * when the doc needs none).
+     * when the doc needs none). The fields are read through [UserArticleWire], by their
+     * stored names, not by [Article]'s property names.
      */
     private fun DocumentSnapshot.toRestored(): Pair<Article, Map<String, Any>?>? {
-        val article = toObject(Article::class.java) ?: return null
+        val fields = data ?: return null
+        val article = UserArticleWire.fromFirestore(fields).toArticle()
         val resolution = RemoteDeletion.resolve(
             deletedAt = getLong(RemoteDeletion.FIELD),
             legacyDeletedAt = getLong(RemoteDeletion.LEGACY_FIELD),
