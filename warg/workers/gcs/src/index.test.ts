@@ -361,3 +361,105 @@ describe('success', () => {
     } satisfies PersistResponse);
   });
 });
+
+describe('edges', () => {
+  it('answers 200 with nothing uploaded when the manifest lists only itself', async () => {
+    const bucket = bucketFor(manifest(['manifest.json']));
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { success: true, firestore_doc_id: REQUEST_ID, uploaded: 0, artifacts: [] }
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('answers the paths without reading artifacts or calling out on a dry run', async () => {
+    const bucket = bucketFor(manifest(THREE_KINDS));
+    const calls = stubNetwork();
+
+    const result = await run(persistRequest({ ...validBody, dryRun: true }), bucket);
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        success: true,
+        firestore_doc_id: REQUEST_ID,
+        uploaded: 3,
+        artifacts: [
+          { kind: 'page.pdf', gcs_path: 'archives/req-1/pdf/output.pdf' },
+          { kind: 'screenshot.png', gcs_path: 'archives/req-1/screenshot/output.png' },
+          { kind: 'singlefile.html', gcs_path: 'archives/req-1/singlefile/output.html.gz' }
+        ],
+        dryRun: true
+      }
+    });
+    expect(bucket.reads).toEqual([MANIFEST_KEY]);
+    expect(calls).toEqual([]);
+  });
+
+  it('skips a non-compressible artifact that got no signed upload and uploads the rest', async () => {
+    const bucket = bucketFor(manifest(THREE_KINDS));
+    const calls = stubNetwork({
+      createUpload: (body) =>
+        Response.json({
+          firestore_doc_id: DOC_ID,
+          uploads: body.artifacts
+            .filter((a) => a.kind !== 'screenshot.png')
+            .map((a) => ({
+              kind: a.kind,
+              signed_url: `https://upload.test/${a.kind}`,
+              gcs_path: GCS_PATHS[a.kind],
+              expires_at: '2026-11-08T01:00:00Z'
+            }))
+        })
+    });
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    expect(summarize(calls)).toEqual([
+      'create-upload',
+      'PUT https://upload.test/page.pdf',
+      'finalize [page.pdf]',
+      'PUT https://upload.test/singlefile.html',
+      'finalize [singlefile.html]',
+      'finalize []'
+    ]);
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      success: true,
+      uploaded: 2,
+      artifacts: [
+        { kind: 'page.pdf', gcs_path: 'archives/req-1/pdf/output.pdf' },
+        { kind: 'singlefile.html', gcs_path: 'archives/req-1/singlefile/output.html.gz' }
+      ],
+      meta: { skippedArtifacts: ['screenshot.png'] }
+    });
+  });
+
+  it('keeps an artifact whose own finalize fails and still answers 200', async () => {
+    const bucket = bucketFor(manifest(THREE_KINDS));
+    const calls = stubNetwork({
+      finalize: (body) =>
+        body.uploaded.some((u) => u.kind === 'screenshot.png')
+          ? new Response('firestore down', { status: 500 })
+          : Response.json({ success: true, firestore_doc_id: DOC_ID, status: 'complete' })
+    });
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    expect(summarize(calls)).toContain('finalize []');
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      success: true,
+      uploaded: 3,
+      artifacts: [
+        { kind: 'page.pdf', gcs_path: 'archives/req-1/pdf/output.pdf' },
+        { kind: 'screenshot.png', gcs_path: 'archives/req-1/screenshot/output.png' },
+        { kind: 'singlefile.html', gcs_path: 'archives/req-1/singlefile/output.html.gz' }
+      ]
+    });
+  });
+});
