@@ -125,6 +125,27 @@ export interface PersistResponse {
 }
 
 /**
+ * One artifact whose upload failed during POST /persist.
+ */
+export interface PersistFailedArtifact {
+  kind: ArtifactKind;
+  error: string;
+}
+
+/**
+ * Response from POST /persist when at least one artifact upload failed.
+ * Sent with status 502 so the caller retries the persist; the other
+ * artifacts were still uploaded and finalized.
+ */
+export interface PersistPartialFailureResponse {
+  error: string;
+  firestore_doc_id: string;
+  uploaded: number;
+  artifacts: UploadedArtifactResult[];
+  failed: PersistFailedArtifact[];
+}
+
+/**
  * Mapping from artifact kind to GCS path components.
  */
 export const ARTIFACT_PATH_MAP: Record<string, { folder: string; filename: string }> = {

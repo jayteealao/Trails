@@ -3,6 +3,8 @@ import type { ArchiveManifest, ArtifactMeta, ReadabilityResult } from '@warg/sha
 import type {
   PersistRequest,
   PersistResponse,
+  PersistFailedArtifact,
+  PersistPartialFailureResponse,
   CompressionStat,
   CreateUploadRequest,
   CreateUploadResponse,
@@ -296,6 +298,7 @@ export default {
       const uploadResults: UploadedArtifactResult[] = [];
       const compressionStats: CompressionStat[] = [];
       const skippedArtifacts: string[] = [];
+      const failedArtifacts: PersistFailedArtifact[] = [];
       const uploadStart = Date.now();
 
       for (const artifact of artifacts) {
@@ -306,12 +309,22 @@ export default {
           continue;
         }
 
-        const result = await uploadArtifact(
-          env.ARCHIVE_BUCKET,
-          artifact,
-          uploadEntry.signed_url,
-          uploadEntry.gcs_path
-        );
+        let result: UploadResult;
+        try {
+          result = await uploadArtifact(
+            env.ARCHIVE_BUCKET,
+            artifact,
+            uploadEntry.signed_url,
+            uploadEntry.gcs_path
+          );
+        } catch (err) {
+          // Keep uploading the rest; the persist answers 502 below so the
+          // caller retries, and the retry re-uploads to the same paths.
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[gcs] Upload failed for ${request_id} ${artifact.kind}: ${message}`);
+          failedArtifacts.push({ kind: artifact.kind, error: message });
+          continue;
+        }
 
         // Per-artifact finalize — flips this one archive entry to success
         // immediately, surviving a later batch failure.
@@ -345,6 +358,19 @@ export default {
 
       const uploadDurationMs = Date.now() - uploadStart;
       console.log(`[gcs] Uploaded ${uploadedArtifacts.length} artifacts to GCS in ${uploadDurationMs}ms`);
+
+      if (failedArtifacts.length > 0) {
+        return Response.json(
+          {
+            error: 'Upload failed for some artifacts',
+            firestore_doc_id: createUploadRes.firestore_doc_id,
+            uploaded: uploadResults.length,
+            artifacts: uploadResults,
+            failed: failedArtifacts
+          } satisfies PersistPartialFailureResponse,
+          { status: 502 }
+        );
+      }
 
       // Step 4: Final finalize call — writes metadata + images (archives
       // already journaled per-artifact above). Empty `uploaded` is OK: only
