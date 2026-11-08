@@ -1,0 +1,26 @@
+# Lint fixture: copied as warg-ci.yml; the push paths list warg/** but the
+# pull_request paths do not, so the workflow lint must report
+# article-write-guard once.
+name: fixture-warg-ci-no-warg-paths
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'firebase/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'warg/**'
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: warg
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: No direct article write outside the writer module
+        run: |
+          node scripts/check-article-writes.mjs

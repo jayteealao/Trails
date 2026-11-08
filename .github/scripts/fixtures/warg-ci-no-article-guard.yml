@@ -1,0 +1,25 @@
+# Lint fixture: copied as warg-ci.yml; no step runs the article write check,
+# so the workflow lint must report article-write-guard once.
+name: fixture-warg-ci-no-article-guard
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'warg/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'warg/**'
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: warg
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Keys are secrets and no user id is tracked
+        run: |
+          node scripts/check-keys-and-uid.mjs

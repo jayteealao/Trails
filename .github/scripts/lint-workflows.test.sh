@@ -38,17 +38,21 @@ printf '{"devDependencies":{"firebase-tools":"15.34.0"}}' > "$good_pkg"
 nokey_pkg="$tmp/nokey-package.json"
 printf '{"devDependencies":{}}' > "$nokey_pkg"
 
-mkdir "$tmp/tag-pinned" "$tmp/input-in-run" "$tmp/fb-mismatch" "$tmp/fb-deploy"
+mkdir "$tmp/tag-pinned" "$tmp/input-in-run" "$tmp/fb-mismatch" "$tmp/fb-deploy" "$tmp/no-article-guard" "$tmp/no-warg-paths"
 cp "$here/fixtures/tag-pinned.yml" "$tmp/tag-pinned/"
 cp "$here/fixtures/input-in-run.yml" "$tmp/input-in-run/"
 cp "$here/fixtures/firebase-rules-mismatch.yml" "$tmp/fb-mismatch/firebase-rules.yml"
 cp "$here/fixtures/firebase-rules-deploy.yml" "$tmp/fb-deploy/firebase-rules.yml"
+cp "$here/fixtures/warg-ci-no-article-guard.yml" "$tmp/no-article-guard/warg-ci.yml"
+cp "$here/fixtures/warg-ci-no-warg-paths.yml" "$tmp/no-warg-paths/warg-ci.yml"
 
 expect_lint_failure "tag-pinned fixture" "$tmp/tag-pinned" "$good_pkg" uses-pin
 expect_lint_failure "input-in-run fixture" "$tmp/input-in-run" "$good_pkg" input-in-run 1
 expect_lint_failure "firebase-tools mismatch fixture" "$tmp/fb-mismatch" "$good_pkg" firebase-tools-pin
 expect_lint_failure "firebase-tools missing key" "$tmp/fb-mismatch" "$nokey_pkg" firebase-tools-pin
 expect_lint_failure "rules deploy in CI fixture" "$tmp/fb-deploy" "$good_pkg" rules-deploy-in-ci 1
+expect_lint_failure "warg-ci without the article write check" "$tmp/no-article-guard" "$good_pkg" article-write-guard 1
+expect_lint_failure "warg-ci pull_request paths without warg/**" "$tmp/no-warg-paths" "$good_pkg" article-write-guard 1
 
 rc=0
 out=$(bash "$lint" "$repo/.github/workflows" "$repo/warg/package.json" 2>&1) || rc=$?
