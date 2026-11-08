@@ -6,6 +6,8 @@ import type {
 import {
   GATEWAY_ERROR_CODES,
   INTERNAL_ERROR_MESSAGE,
+  PUBLIC_STATUS_STREAM_MAX_MS,
+  capEventStream,
   errorIdFor,
   errorResponse,
   generateRequestId,
@@ -667,11 +669,57 @@ export default {
       }
     }
 
+    // GET /status/:id/stream - Follow the request's events, held open at most PUBLIC_STATUS_STREAM_MAX_MS
+    const streamMatch = method === 'GET' ? path.match(/^\/status\/([^/]+)\/stream$/) : null;
+    if (streamMatch) {
+      const requestId = streamMatch[1]!;
+      if (!isValidRequestId(requestId)) {
+        return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_REQUEST_ID, 'Invalid request id', errorIdFor(undefined));
+      }
+
+      const headers: Record<string, string> = { 'X-Internal-API-Key': env.INTERNAL_API_KEY };
+      const lastEventId = request.headers.get('Last-Event-ID');
+      if (lastEventId) {
+        headers['Last-Event-ID'] = lastEventId;
+      }
+      let response: Response;
+      try {
+        response = await env.LOGGER.fetch(`https://logger/request/${requestId}/stream`, { method: 'GET', headers });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('[gateway] Error in /status stream', { id: requestId, message: errMsg }, err);
+        return errorResponse(500, GATEWAY_ERROR_CODES.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE, requestId);
+      }
+
+      if (response.status === 404) {
+        return errorResponse(404, GATEWAY_ERROR_CODES.REQUEST_NOT_FOUND, 'Request not found', requestId);
+      }
+      if (!response.ok || !response.body) {
+        // The logger's error body can carry raw exception text: keep it in the server log only.
+        const loggerBody = (await response.text()).slice(0, 600);
+        console.error('[gateway] Status stream failed', { id: requestId, status: response.status, body: loggerBody });
+        const status = response.ok ? 502 : response.status;
+        return errorResponse(status, GATEWAY_ERROR_CODES.STATUS_LOOKUP_FAILED, 'Status lookup failed', requestId);
+      }
+
+      return withRequestId(
+        new Response(capEventStream(response.body, PUBLIC_STATUS_STREAM_MAX_MS), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' }
+        }),
+        requestId
+      );
+    }
+
     // GET /status/:id - Get request status
     if (method === 'GET' && path.startsWith('/status/')) {
       const requestId = path.slice('/status/'.length);
       if (!requestId) {
         return errorResponse(400, GATEWAY_ERROR_CODES.REQUEST_ID_REQUIRED, 'requestId is required', errorIdFor(undefined));
+      }
+      // Only a request id: no other path under /status/ reaches a logger route
+      if (!isValidRequestId(requestId)) {
+        return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_REQUEST_ID, 'Invalid request id', errorIdFor(undefined));
       }
 
       const errorId = errorIdFor(requestId);
