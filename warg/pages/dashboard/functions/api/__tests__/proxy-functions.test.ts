@@ -595,7 +595,7 @@ describe('inbox proxy', () => {
       ([input]) => new URL(String(input)).pathname === '/stats/completed-today'
     );
     expect(calls).toHaveLength(1);
-    const [input, init] = calls[0];
+    const [input, init] = calls[0] ?? [];
     expect(new URL(String(input)).origin).toBe('https://dashboard-api.example.com');
     expect(new Headers(init?.headers).get('X-Internal-API-Key')).toBe('dash-key');
   });
