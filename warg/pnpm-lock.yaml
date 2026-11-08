@@ -94,6 +94,9 @@ importers:
       '@types/node':
         specifier: 22.20.1
         version: 22.20.1
+      '@warg/article-writer':
+        specifier: workspace:*
+        version: link:../../packages/article-writer
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
