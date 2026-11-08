@@ -162,15 +162,8 @@ export class BrowserQuotaDO extends DurableObject<Env> {
   }
 
   /**
-   * List currently-held sandbox_exec leases. Read-only — no cleanup, no
-   * persistence. Backs the gateway's orphan-container sweep, which stops the
-   * container behind any lease that outlived the TTL (its workflow likely
-   * crashed before release()).
-   *
-   * The returned list is a point-in-time snapshot as of this RPC. Because the
-   * DO executes single-threaded the snapshot is internally consistent, but the
-   * gateway sweep must treat it as a best-effort hint: leases may be acquired
-   * or released between this call and any action the sweep takes.
+   * List currently-held sandbox_exec leases: a read-only view (no cleanup, no
+   * persistence) of held sandbox leases; no worker calls it over a route.
    */
   async listSandboxLeases(): Promise<
     Array<{ leaseId: string; requestId: string; acquiredAt: number }>

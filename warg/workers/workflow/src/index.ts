@@ -11,7 +11,7 @@ import type {
   CheckpointStep,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { getR2Key, timingSafeEqual } from '@warg/shared';
+import { getR2Key } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
@@ -1227,27 +1227,6 @@ export default {
         }
       } catch (err) {
         console.error('[workflow] Error starting workflow:', err);
-        const errMsg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
-      }
-    }
-
-    // GET /browser-quota/sandbox-leases - active sandbox_exec leases, read-only.
-    // Consumed by the gateway's orphan-container sweep. Unlike /start and
-    // /status (service-binding-only callers), this is guarded by the internal
-    // API key since it exposes quota state.
-    if (request.method === 'GET' && url.pathname === '/browser-quota/sandbox-leases') {
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      try {
-        const stub = env.BROWSER_QUOTA.get(env.BROWSER_QUOTA.idFromName('global'));
-        const leases = await stub.listSandboxLeases();
-        return Response.json({ leases });
-      } catch (err) {
-        console.error('[workflow] Error listing sandbox leases:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
         return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
       }
