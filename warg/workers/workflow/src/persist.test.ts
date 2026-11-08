@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkflowStep } from 'cloudflare:workers';
 import type { ArtifactMeta, ArchiveManifest, WorkflowCheckpoint } from '@warg/shared';
-import { getR2Key } from '@warg/shared';
+import { getOptionsKey, getR2Key } from '@warg/shared';
 import { createCheckpoint, recordArtifacts } from './checkpoint.js';
 import { persistArtifactsIncremental, writeManifest } from './persist.js';
 
@@ -122,7 +122,7 @@ const singlefileHtml = artifact('singlefile.html', 'text/html', 8800);
 const renderArtifacts = [renderedHtml, screenshot];
 
 function makeCheckpoint(): WorkflowCheckpoint {
-  const checkpoint = createCheckpoint(REQUEST_ID, getR2Key(REQUEST_ID, 'options.json'), true);
+  const checkpoint = createCheckpoint(REQUEST_ID, getOptionsKey(REQUEST_ID), true);
   recordArtifacts(checkpoint, 'render', renderArtifacts);
   recordArtifacts(checkpoint, 'singlefile', [singlefileHtml]);
   return checkpoint;
@@ -159,7 +159,7 @@ describe('persistArtifactsIncremental — persist flow', () => {
     await persistRender(env, step, makeCheckpoint());
 
     expect(names).toHaveLength(4);
-    const [manifest, start, gcs, complete] = names;
+    const [manifest = '', start, gcs, complete] = names;
     expect(manifest).toMatch(/^write-manifest-render-.+\.json$/);
     const token = manifest.slice('write-manifest-'.length).replace(/[^a-zA-Z0-9_-]/g, '_');
     expect(start).toBe(`log-persist-start-${token}`);
@@ -191,8 +191,9 @@ describe('persistArtifactsIncremental — persist flow', () => {
 
     const keys = manifestKeys(bucket.objects);
     expect(keys).toHaveLength(1);
-    expect(keys[0]).toMatch(new RegExp(`^${MANIFEST_PREFIX}render-.+\\.json$`));
-    const manifest = JSON.parse(bucket.objects.get(keys[0]) ?? '') as ArchiveManifest;
+    const [key = ''] = keys;
+    expect(key).toMatch(new RegExp(`^${MANIFEST_PREFIX}render-.+\\.json$`));
+    const manifest = JSON.parse(bucket.objects.get(key) ?? '') as ArchiveManifest;
     expect(manifest).toMatchObject({ requestId: REQUEST_ID, url: URL, artifacts: renderArtifacts });
   });
 
