@@ -67,6 +67,18 @@ describe('BrowserQuotaDO lease expiry', () => {
     expect(setAlarm).not.toHaveBeenCalled();
   });
 
+  it('drops a lease whose age is exactly the TTL', async () => {
+    const { quota, setAlarm } = makeDo();
+    await quota.acquire('sandbox_exec', 'req-a');
+    setAlarm.mockClear();
+
+    vi.setSystemTime(T0 + 300_000);
+    await quota.alarm();
+
+    expect(await sandboxRequestIds(quota)).toEqual([]);
+    expect(setAlarm).not.toHaveBeenCalled();
+  });
+
   it('drops a stale lease on acquire before it counts the pool', async () => {
     const { quota } = makeDo();
     await quota.acquire('sandbox_exec', 'req-a');
