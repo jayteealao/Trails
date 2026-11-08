@@ -395,3 +395,44 @@ describe('gateway 500 never leaks the secret of a thrown error', () => {
     );
   });
 });
+
+/** The JSON value of each ARCHIVE_BUCKET.put call, in call order. */
+function storedOptions(env: Env): unknown[] {
+  const put = env.ARCHIVE_BUCKET.put as unknown as ReturnType<typeof vi.fn>;
+  return put.mock.calls.map((args) => JSON.parse(String(args[1])));
+}
+
+describe('begin accepts valid options as before', () => {
+  const url = 'https://example.com/article';
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    { name: 'the backfill body', body: { url, request_id: 'req-ok-2', includeScreenshot: true, includePdf: false } },
+    { name: 'the dashboard body', body: { url, request_id: 'req-ok-3', steps: ['singlefile'] } }
+  ])('accepts valid options: $name', async ({ body }) => {
+    const { env, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const response = await gateway.fetch(publicPost('/begin', body), env, {} as ExecutionContext);
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ requestId: body.request_id });
+    const { request_id: _id, ...expected } = body;
+    expect(storedOptions(env)).toEqual([expected]);
+    expect(workflowFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts valid options: strips the script fields before storing', async () => {
+    const { env, workflowFetch } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+    const response = await gateway.fetch(
+      publicPost('/begin', { url, request_id: 'req-ok-4', preScript: 'x', cleanupScript: 'y' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(201);
+    expect(storedOptions(env)).toEqual([{ url }]);
+    expect(workflowFetch).toHaveBeenCalledTimes(1);
+  });
+});
