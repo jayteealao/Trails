@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mergedTargetOf, resolveCanonicalItemId } from '../util.js';
+import { mergedTargetOf, resolveCanonicalItemId } from '@warg/article-writer';
 
 // The dashboard's answers on the cases where the server's link readers have
 // disagreed: which shared article a user article reads, and whether a shared

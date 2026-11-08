@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readSharedArticle, readSharedArticles, resolveCanonicalItemId } from '../util.js';
+import { readSharedArticle, readSharedArticles, resolveCanonicalItemId } from '@warg/article-writer';
 import { makeFakeDb } from './fake-firestore.js';
 
 // ── resolveCanonicalItemId ──────────────────────────────────────────────────

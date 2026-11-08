@@ -2,7 +2,8 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import type { ArticleDetail } from './types.js';
 import { getDashboardUserId } from './config.js';
-import { readSharedArticle, resolveCanonicalItemId, timestampToIso } from './util.js';
+import { readSharedArticle, resolveCanonicalItemId } from '@warg/article-writer';
+import { timestampToIso } from './util.js';
 import { mergeArticle } from './list-articles.js';
 
 /**

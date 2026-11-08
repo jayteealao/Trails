@@ -4,11 +4,13 @@ import {
   backfillSharedArticleBaseFields,
   bootstrapSharedArticle,
   buildBootstrapBackfillPatch,
+  readSharedArticle,
+  resolveCanonicalItemId,
   setUserArticleResolvedLink,
   type PocketInput,
 } from '@warg/article-writer';
 import { getDashboardUserId } from './config.js';
-import { extractDomain, readSharedArticle, resolveCanonicalItemId } from './util.js';
+import { extractDomain } from './util.js';
 
 const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
 

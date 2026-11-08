@@ -4,12 +4,8 @@ import type { Request, Response } from 'express';
 import type { ArchiveClassification, ArticleListItem, ArticleListResponse } from './types.js';
 import { classifyArchiveStatus, buildArchiveStatuses, buildArticleHealth } from './classify.js';
 import { getDashboardUserId } from './config.js';
-import {
-  extractDomain,
-  readSharedArticles,
-  resolveCanonicalItemId,
-  timestampToIso,
-} from './util.js';
+import { readSharedArticles, resolveCanonicalItemId } from '@warg/article-writer';
+import { extractDomain, timestampToIso } from './util.js';
 
 /**
  * Merge a user article doc + optional canonical doc into an ArticleListItem.

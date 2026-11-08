@@ -2,7 +2,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { Storage } from '@google-cloud/storage';
 import { SignedLinkCache, sharedSignedLinkCache } from './signed-link-cache.js';
 import { ALL_ARCHIVE_KEYS } from './types.js';
-import { readSharedArticle, resolveCanonicalItemId } from './util.js';
+import { readSharedArticle, resolveCanonicalItemId } from '@warg/article-writer';
 
 const GCS_BUCKET = process.env['GCS_BUCKET'] || 'htbase-archives-standard';
 const GCS_PROJECT_ID = process.env['GCS_PROJECT_ID'] || 'trails-414917';

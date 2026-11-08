@@ -1,8 +1,13 @@
 import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
-import { markSharedArticleProcessing, setUserArticleResolvedLink } from '@warg/article-writer';
+import {
+  markSharedArticleProcessing,
+  readSharedArticle,
+  resolveCanonicalItemId,
+  setUserArticleResolvedLink,
+} from '@warg/article-writer';
 import { getDashboardUserId } from './config.js';
-import { extractDomain, readSharedArticle, resolveCanonicalItemId } from './util.js';
+import { extractDomain } from './util.js';
 
 const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
 

@@ -92,7 +92,6 @@ test('the reader shared-id shape accepts every id a creator makes, and the creat
 const KNOWN_COPIES = [
   'backfill-archiver/src/canonical.ts',
   'dashboard-api/src/bootstrap-article.ts',
-  'dashboard-api/src/util.ts',
   'user-triggers/src/handler.ts',
   'user-triggers/src/link.ts',
 ];
