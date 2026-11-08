@@ -686,3 +686,25 @@ describe('render fallback stays narrow', () => {
     expect(await fallbackReasonOf(wrappedContentFailure(details))).toBe('browser_rendering_5006');
   });
 });
+
+describe('fallback for access-blocked and unreachable pages', () => {
+  function makeHyperrendererSuccess(): RendererResponse {
+    const success = makeRendererSuccess('rendered-fallback.html');
+    return { ...success, meta: { skipped: [], provider: 'hyperbrowser' } };
+  }
+
+  it('renders an access-blocked page through the hyperrenderer exactly once', async () => {
+    const rendererFetch = vi.fn(async () => wrappedContentFailure('forbidden', 403));
+    const hyperrendererFetch = vi.fn(async () => makeJsonResponse(200, makeHyperrendererSuccess()));
+
+    const outcome = await runRenderStep(makeEnv(rendererFetch, hyperrendererFetch));
+
+    expect(outcome).toMatchObject({
+      fallbackUsed: true,
+      fallbackReason: 'browser_rendering_403',
+      result: { artifacts: [{ r2Key: 'archives/req/raw/rendered-fallback.html' }], meta: { provider: 'hyperbrowser' } },
+    });
+    expect(rendererFetch).toHaveBeenCalledTimes(1);
+    expect(hyperrendererFetch).toHaveBeenCalledTimes(1);
+  });
+});
