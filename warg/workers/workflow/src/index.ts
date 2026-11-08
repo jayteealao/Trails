@@ -22,7 +22,7 @@ import type {
   WorkflowResult
 } from './types.js';
 import {
-  callRendererWith403Fallback,
+  callRendererForStep,
   callSinglefile,
   callReadability,
   callMonolith,
@@ -978,14 +978,18 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           timeout: '5 minutes'
         },
         async () => {
-          return await callRendererWith403Fallback(this.env, {
-            request_id: requestId,
-            url,
-            browser_quota_kind: 'rest_request',
-            include_screenshot: options.includeScreenshot,
-            include_pdf: options.includePdf,
-            include_markdown: options.includeMarkdown ?? true
-          });
+          return await callRendererForStep(
+            this.env,
+            {
+              request_id: requestId,
+              url,
+              browser_quota_kind: 'rest_request',
+              include_screenshot: options.includeScreenshot,
+              include_pdf: options.includePdf,
+              include_markdown: options.includeMarkdown ?? true
+            },
+            (m) => new NonRetryableError(m)
+          );
         }
       );
       const renderResult = renderOutcome.result;
