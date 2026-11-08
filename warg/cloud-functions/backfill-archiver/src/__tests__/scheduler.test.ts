@@ -605,3 +605,42 @@ test('articles out of retries, abandoned as bad data or still in progress are li
   );
   assert.deepEqual(tracker['change_marker'], { time_updated: T0 - 5 * MIN, item_id: 'itemE0003' });
 });
+
+test('start failures are classed; a workflow trigger and a missing request id are queued, bad data is not', async () => {
+  const h = harness();
+  seedCompletedPass(h, { time_updated: T0 - 30 * MIN, item_id: '' });
+  userArticle(h, 'itemK0001', { timeUpdated: T0 - 7 * MIN, canonicalId: 'sharedK001' });
+  userArticle(h, 'itemK0002', { timeUpdated: T0 - 6 * MIN, canonicalId: 'sharedK002' });
+  userArticle(h, 'itemK0003', { timeUpdated: T0 - 5 * MIN, canonicalId: 'sharedK003' });
+
+  await runBackfill(
+    h.deps({
+      beginArchive: async (payload) => {
+        h.sent.push(payload);
+        if (payload.request_id === 'sharedK001') throw new Error('Gateway begin failed: 502 workflow trigger failed');
+        if (payload.request_id === 'sharedK002') throw new Error('Gateway begin failed: 400 invalid request_id');
+        return {};
+      },
+    })
+  );
+
+  const failure = (id: string) => h.fake.read(`articles/${id}`)!['failure'] as Record<string, unknown>;
+  assert.deepEqual(
+    ['sharedK001', 'sharedK002', 'sharedK003'].map((id) => failure(id)['class']),
+    ['WORKFLOW_TRIGGER', 'DATA_ISSUE', 'TRANSIENT_UPSTREAM']
+  );
+  assert.equal(failure('sharedK003')['last_error_message'], 'Gateway begin returned no request id');
+  const tracker = h.tracker();
+  const queue = tracker['retry_queue'] as Array<Record<string, unknown>>;
+  assert.deepEqual(
+    queue.map((e) => [e['item_id'], ms(e['not_before'])]),
+    [
+      ['sharedK001', T0 + RETRY_DELAY_MS],
+      ['sharedK003', T0 + RETRY_DELAY_MS],
+    ]
+  );
+  assert.deepEqual(tracker['batch'], []);
+  assert.equal(tracker['last_run_result'], 'backoff');
+  assert.equal(tracker['paused'], false);
+  assert.equal(tracker['global_pause_until'], null);
+});
