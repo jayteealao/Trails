@@ -48,44 +48,63 @@ function parseRoot(argv: readonly string[]): string {
 }
 
 const repoRoot = parseRoot(process.argv.slice(2));
-const inRoot = (relativePath: string): string => resolve(repoRoot, relativePath);
 
-const CANONICAL_DOC = inRoot('shared-types/WargMetadata.md');
-const WARG_TYPES = inRoot('warg/cloud-functions/archive-gateway/src/types.ts');
-const TRAILS_SOURCE = inRoot(
-  'android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt',
-);
+// Every path below is relative to the checked tree; messages print it as is.
+const CANONICAL_DOC = 'shared-types/WargMetadata.md';
+const WARG_TYPES = 'warg/cloud-functions/archive-gateway/src/types.ts';
+const TRAILS_SOURCE =
+  'android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt';
 
 // Marker contract: users/{uid}/articleMarkers/{key} — see MarkerSchema.md.
-const MARKER_DOC = inRoot('shared-types/MarkerSchema.md');
+const MARKER_DOC = 'shared-types/MarkerSchema.md';
 const MARKER_COLLECTION = 'articleMarkers';
 const CANONICAL_ID_FIELD = 'canonicalId';
 // Server marker producer: the Warg Admin-SDK backfill. Its pure key module is
 // the source of truth for the collection name + field body it writes.
-const WARG_MARKER_BACKFILL = inRoot('warg/cloud-functions/backfill-scripts/src/keys.ts');
+const WARG_MARKER_BACKFILL = 'warg/cloud-functions/backfill-scripts/src/keys.ts';
 // Server marker producer: the Warg user-article trigger, which writes the
 // marker in the same transaction as canonicalId.
-const WARG_MARKER_TRIGGER = inRoot('warg/cloud-functions/user-triggers/src/link.ts');
+const WARG_MARKER_TRIGGER = 'warg/cloud-functions/user-triggers/src/link.ts';
 // The app's backup writer and its Article model: neither may write markers or
 // carry the server-owned canonicalId.
-const TRAILS_BACKUP_WRITER = inRoot(
-  'android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt',
-);
-const TRAILS_ARTICLE_MODEL = inRoot(
-  'android/app/src/main/java/com/jayteealao/trails/data/local/database/Article.kt',
-);
+const TRAILS_BACKUP_WRITER =
+  'android/app/src/main/java/com/jayteealao/trails/services/firestore/FirestoreBackupService.kt';
+const TRAILS_ARTICLE_MODEL =
+  'android/app/src/main/java/com/jayteealao/trails/data/local/database/Article.kt';
 
 // Trails only reads a subset of fields; fields listed here are exempt from
 // the Trails-side check.
 const TRAILS_OPTIONAL: ReadonlySet<string> = new Set(['published_time', 'site_name']);
 
-function readFile(path: string): string {
+function readFile(relativePath: string): string {
   try {
-    return readFileSync(path, 'utf8');
+    return readFileSync(resolve(repoRoot, relativePath), 'utf8');
   } catch (err) {
-    console.error(`[drift] could not read ${path}: ${(err as Error).message}`);
+    console.error(`[drift] could not read ${relativePath}: ${(err as Error).message}`);
     process.exit(1);
   }
+}
+
+// Whole-name matchers. A name never matches inside a longer word: `title` is
+// not found in `subtitle`, and `byline` is not found in `bylines`.
+function escapeRegExp(name: string): string {
+  return name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// The name as a whole identifier token.
+function hasToken(src: string, name: string): boolean {
+  return new RegExp(`(?<![A-Za-z0-9_$])${escapeRegExp(name)}(?![A-Za-z0-9_$])`).test(src);
+}
+
+// The name as an object or type property key (`name:` or `name?:`), not as a
+// member access such as `readability.name`.
+function hasPropertyKey(src: string, name: string): boolean {
+  return new RegExp(`(?<![A-Za-z0-9_$.])${escapeRegExp(name)}\\??\\s*:`).test(src);
+}
+
+// The name as a whole string literal (`"name"` or `'name'`), such as a map key.
+function hasStringLiteral(src: string, name: string): boolean {
+  return new RegExp(`(["'])${escapeRegExp(name)}\\1`).test(src);
 }
 
 const METADATA_FIELDS_HEADING = 'Firestore field names (snake_case)';
@@ -140,30 +159,30 @@ function extractLinkFields(md: string): string[] {
   return extractSectionFields(md, 'Server-owned link fields');
 }
 
-function findMissing(haystack: string, needles: readonly string[]): string[] {
-  return needles.filter((needle) => !haystack.includes(needle));
+function findMissing(
+  src: string,
+  names: readonly string[],
+  has: (src: string, name: string) => boolean,
+): string[] {
+  return names.filter((name) => !has(src, name));
 }
 
-// Assert one marker producer references the collection name + every field.
-// Returns true if drift was detected for that producer.
-function checkMarkerProducer(
-  label: string,
-  path: string,
-  markerFields: readonly string[],
-): boolean {
+// Assert one marker producer names the collection and every field as whole
+// tokens. Returns true if drift was detected for that producer.
+function checkMarkerProducer(path: string, markerFields: readonly string[]): boolean {
   const src = readFile(path);
   let drift = false;
 
-  if (!src.includes(MARKER_COLLECTION)) {
+  if (!hasToken(src, MARKER_COLLECTION)) {
     console.error(
-      `[drift] ${label} does not reference the marker collection "${MARKER_COLLECTION}".`,
+      `[drift] ${path} does not reference the marker collection "${MARKER_COLLECTION}".`,
     );
     drift = true;
   }
 
-  const missing = findMissing(src, markerFields);
+  const missing = findMissing(src, markerFields, hasToken);
   if (missing.length > 0) {
-    console.error(`[drift] ${label} is missing marker field name(s): ${missing.join(', ')}`);
+    console.error(`[drift] ${path} is missing marker field name(s): ${missing.join(', ')}`);
     drift = true;
   }
 
@@ -176,8 +195,8 @@ function checkMarkerContract(): boolean {
   console.log(`[drift] marker fields: ${markerFields.join(', ')}`);
 
   // Every server producer must agree on the path + field names.
-  const backfillDrift = checkMarkerProducer('backfill-scripts/src/keys.ts', WARG_MARKER_BACKFILL, markerFields);
-  const triggerDrift = checkMarkerProducer('user-triggers/src/link.ts', WARG_MARKER_TRIGGER, markerFields);
+  const backfillDrift = checkMarkerProducer(WARG_MARKER_BACKFILL, markerFields);
+  const triggerDrift = checkMarkerProducer(WARG_MARKER_TRIGGER, markerFields);
   return backfillDrift || triggerDrift;
 }
 
@@ -192,30 +211,30 @@ function checkTrailsLinkContract(): boolean {
   const articleSrc = readFile(TRAILS_ARTICLE_MODEL);
   let drift = false;
 
-  for (const [label, src] of [
-    ['FirestoreBackupService.kt', backupSrc],
-    ['ArchiveService.kt', archiveSrc],
+  for (const [path, src] of [
+    [TRAILS_BACKUP_WRITER, backupSrc],
+    [TRAILS_SOURCE, archiveSrc],
   ] as const) {
-    if (src.includes(MARKER_COLLECTION)) {
-      console.error(`[drift] ${label} references "${MARKER_COLLECTION}"; the app must not write markers.`);
+    if (hasToken(src, MARKER_COLLECTION)) {
+      console.error(`[drift] ${path} references "${MARKER_COLLECTION}"; the app must not write markers.`);
       drift = true;
     }
   }
-  for (const [label, src] of [
-    ['FirestoreBackupService.kt', backupSrc],
-    ['Article.kt', articleSrc],
+  for (const [path, src] of [
+    [TRAILS_BACKUP_WRITER, backupSrc],
+    [TRAILS_ARTICLE_MODEL, articleSrc],
   ] as const) {
-    if (src.includes(CANONICAL_ID_FIELD)) {
-      console.error(`[drift] ${label} references "${CANONICAL_ID_FIELD}"; it is a server-owned field the app never stores or writes.`);
+    if (hasToken(src, CANONICAL_ID_FIELD)) {
+      console.error(`[drift] ${path} references "${CANONICAL_ID_FIELD}"; it is a server-owned field the app never stores or writes.`);
       drift = true;
     }
   }
-  if (!archiveSrc.includes(CANONICAL_ID_FIELD)) {
-    console.error(`[drift] ArchiveService.kt does not read "${CANONICAL_ID_FIELD}".`);
+  if (!hasStringLiteral(archiveSrc, CANONICAL_ID_FIELD)) {
+    console.error(`[drift] ${TRAILS_SOURCE} does not read "${CANONICAL_ID_FIELD}".`);
     drift = true;
   }
   if (!linkFields.includes(CANONICAL_ID_FIELD)) {
-    console.error(`[drift] MarkerSchema.md "## Server-owned link fields" does not list "${CANONICAL_ID_FIELD}".`);
+    console.error(`[drift] ${MARKER_DOC} "## Server-owned link fields" does not list "${CANONICAL_ID_FIELD}".`);
     drift = true;
   }
 
@@ -229,20 +248,20 @@ function main(): void {
   const wargSrc = readFile(WARG_TYPES);
   const trailsSrc = readFile(TRAILS_SOURCE);
 
-  const missingFromWarg = findMissing(wargSrc, canonical);
+  const missingFromWarg = findMissing(wargSrc, canonical, hasPropertyKey);
   const trailsRequired = canonical.filter((f) => !TRAILS_OPTIONAL.has(f));
-  const missingFromTrails = findMissing(trailsSrc, trailsRequired);
+  const missingFromTrails = findMissing(trailsSrc, trailsRequired, hasStringLiteral);
 
   let drift = false;
   if (missingFromWarg.length > 0) {
     console.error(
-      `[drift] Warg types.ts is missing canonical field(s): ${missingFromWarg.join(', ')}`,
+      `[drift] ${WARG_TYPES} is missing canonical field(s): ${missingFromWarg.join(', ')}`,
     );
     drift = true;
   }
   if (missingFromTrails.length > 0) {
     console.error(
-      `[drift] Trails ArchiveService.kt is missing canonical field(s): ${missingFromTrails.join(', ')}`,
+      `[drift] ${TRAILS_SOURCE} is missing canonical field(s): ${missingFromTrails.join(', ')}`,
     );
     drift = true;
   }
