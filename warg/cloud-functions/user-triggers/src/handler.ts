@@ -1,4 +1,10 @@
-import { Timestamp, type Firestore } from 'firebase-admin/firestore';
+import type { Firestore } from 'firebase-admin/firestore';
+import {
+  markSharedArticleArchiveStarted,
+  markSharedArticleFailed,
+  markUserArticleArchivalTriggered,
+  recordUserArticleError,
+} from '@warg/article-writer';
 import { InvalidSharedIdError, SharedIdConflictError, isValidSharedId, linkUserArticle } from './link.js';
 
 /** Starts the archive of a shared article (the gateway /begin call). */
@@ -66,13 +72,13 @@ export async function handleUserArticleCreated(
   const url = data['url'];
   if (!url) {
     console.error(`Missing URL for article ${itemId}`);
-    await recordFailure(itemId, () => userRef.update({ error: 'Missing URL', error_at: Timestamp.now() }));
+    await recordFailure(itemId, () => recordUserArticleError(userRef, 'Missing URL'));
     return 'missing-url';
   }
 
   if (!isValidSharedId(itemId)) {
     console.error(`[onUserArticleSave] Invalid article id ${JSON.stringify(itemId)}`);
-    await recordFailure(itemId, () => userRef.update({ error: 'Invalid article id', error_at: Timestamp.now() }));
+    await recordFailure(itemId, () => recordUserArticleError(userRef, 'Invalid article id'));
     return 'invalid-id';
   }
 
@@ -100,12 +106,8 @@ export async function handleUserArticleCreated(
       const requestId = begun.requestId ?? begun.request_id;
       console.log(`[onUserArticleSave] Warg archive started: ${requestId}`);
 
-      await db.collection('articles').doc(outcome.canonicalId).update({
-        warg_request_id: requestId,
-        status: 'processing',
-        processing_started_at: Timestamp.now(),
-      });
-      await userRef.update({ archival_triggered: true });
+      await markSharedArticleArchiveStarted(db.collection('articles').doc(outcome.canonicalId), requestId);
+      await markUserArticleArchivalTriggered(userRef);
     }
 
     if (outcome.alreadyLinked) return 'already-linked';
@@ -114,12 +116,12 @@ export async function handleUserArticleCreated(
     if (error instanceof SharedIdConflictError) {
       console.error(`[onUserArticleSave] ${error.message}`);
       await recordFailure(itemId, () =>
-        userRef.update({ error: 'Shared article id conflict', error_at: Timestamp.now() })
+        recordUserArticleError(userRef, 'Shared article id conflict')
       );
       return 'conflict';
     }
     if (error instanceof InvalidSharedIdError) {
-      await recordFailure(itemId, () => userRef.update({ error: 'Invalid article id', error_at: Timestamp.now() }));
+      await recordFailure(itemId, () => recordUserArticleError(userRef, 'Invalid article id'));
       return 'invalid-id';
     }
 
@@ -138,15 +140,11 @@ export async function handleUserArticleCreated(
     await recordFailure(itemId, async () => {
       const articleDoc = await articleRef.get();
       if (articleDoc.exists && articleDoc.data()?.['status'] === 'pending') {
-        await articleRef.update({
-          status: 'failed',
-          error: message,
-          failed_at: Timestamp.now(),
-        });
+        await markSharedArticleFailed(articleRef, message);
       }
     });
 
-    await recordFailure(itemId, () => userRef.update({ error: message, error_at: Timestamp.now() }));
+    await recordFailure(itemId, () => recordUserArticleError(userRef, message));
     return 'error';
   }
 }
