@@ -1,5 +1,6 @@
 package com.jayteealao.trails.services.firestore
 
+import com.google.firebase.Timestamp
 import com.jayteealao.trails.data.local.database.Article
 
 /**
@@ -119,7 +120,10 @@ internal data class UserArticleWire(
          * narrowed or truncated as the mapper does, and a value the mapper refused (a
          * wrong type, an out-of-range number, a null in a non-null number or boolean)
          * throws [IllegalArgumentException] naming the field. A null in a non-null text
-         * field reads as that field's default.
+         * field reads as that field's default. One rule differs from the mapper: a
+         * Firestore [Timestamp] in a time field (the dashboard queue stores `timeAdded`
+         * that way) reads as epoch milliseconds, the unit the app stores, so a queued
+         * article restores instead of failing its restore page.
          */
         fun fromFirestore(data: Map<String, Any?>) = UserArticleWire(
             itemId = data.wireString(ITEM_ID, "") ?: "",
@@ -248,11 +252,15 @@ private fun Map<String, Any?>.wireInt(name: String, default: Int?): Int? {
     }
 }
 
-/** Missing → [default]; null → null; otherwise a number within the 64-bit range, truncated. */
+/**
+ * Missing → [default]; null → null; a [Timestamp] → its epoch milliseconds; otherwise a
+ * number within the 64-bit range, truncated.
+ */
 private fun Map<String, Any?>.wireLong(name: String, default: Long?): Long? {
     if (!containsKey(name)) return default
     return when (val value = get(name)) {
         null -> null
+        is Timestamp -> value.toDate().time
         is Int -> value.toLong()
         is Long -> value
         is Double -> {

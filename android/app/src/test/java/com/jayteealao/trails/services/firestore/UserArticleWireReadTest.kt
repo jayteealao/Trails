@@ -52,9 +52,10 @@ class UserArticleWireReadTest {
     }
 
     @Test
-    fun `F6 a dashboard-queued doc with a timestamp timeAdded throws`() {
+    fun `F6 a dashboard-queued doc with a timestamp timeAdded reads it as epoch milliseconds`() {
+        // App versions in users' hands throw on it; this reader restores the article.
         assertThrows(RuntimeException::class.java) { deployedRead(F6) }
-        assertThrows(IllegalArgumentException::class.java) { dtoRead(F6) }
+        assertEquals(F6_ARTICLE, dtoRead(F6))
     }
 
     @Test
@@ -209,6 +210,11 @@ class UserArticleWireReadTest {
             "timeAdded" to Timestamp(1_700_000_000L, 0),
             "queued_at" to Timestamp(1_700_000_000L, 0),
             "queued_by" to "dashboard",
+        )
+        val F6_ARTICLE = Article(
+            itemId = "item-6",
+            url = "https://example.com/queued",
+            timeAdded = 1_700_000_000_000L,
         )
 
         val F7: Map<String, Any?> = mapOf("itemId" to "item-7", "title" to 42L)

@@ -146,7 +146,7 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 | `url` | `users/{uid}/articles/{id}` | enqueueUserArticle | the app writes it on its own saves |
 | `favorite` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
 | `status` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
-| `timeAdded` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
+| `timeAdded` | `users/{uid}/articles/{id}` | enqueueUserArticle | a Firestore Timestamp; the app stores epoch milliseconds and reads a Timestamp as its milliseconds |
 | `timeRead` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
 | `queued_at` | `users/{uid}/articles/{id}` | enqueueUserArticle | |
 | `queued_by` | `users/{uid}/articles/{id}` | enqueueUserArticle | `dashboard` |
