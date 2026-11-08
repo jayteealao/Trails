@@ -1,6 +1,14 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type {
+  BackfillUpsertPatch,
   BootstrapBackfillPatch,
+  EnqueueUserArticlePatch,
+  FailurePatch,
+  SharedArticleBackfillBegunPatch,
+  SharedArticleBackfillFailurePatch,
+  SharedArticleDerivedStatusPatch,
+  SharedArticleStuckPatch,
+  UserArticleCanonicalIdClearPatch,
   BootstrapSharedArticlePatch,
   CountSharedArticleSavePatch,
   CreateSharedArticlePatch,
@@ -93,5 +101,57 @@ const _resolvedLink: UserArticleResolvedLinkPatch = {
 const _pocket: CreateSharedArticlePatch['pocket'] = {
   favorite: '1',
   // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the pocket map
+  not_a_field: 1,
+};
+
+const _derivedStatus: SharedArticleDerivedStatusPatch = {
+  status: 'complete', status_updated_at: now,
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the shared article
+  not_a_field: 1,
+};
+
+const _backfillUpsert: BackfillUpsertPatch = {
+  item_id: 'i', url: 'u', domain: 'd', retry_count: 0, updated_at: now,
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the shared article
+  not_a_field: 1,
+};
+
+const _backfillBegun: SharedArticleBackfillBegunPatch = {
+  warg_request_id: 'r', processing_started_at: now, updated_at: now, error: FieldValue.delete(),
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the shared article
+  not_a_field: 1,
+};
+
+const event = { status: 'failed', error: 'e', created_at: '1970-01-01T00:00:00.000Z' };
+const failure: FailurePatch = { class: 'TRANSIENT_UPSTREAM', last_seen_at: now, count: FieldValue.increment(1), last_error_message: 'e' };
+
+const _backfillFailure: SharedArticleBackfillFailurePatch = {
+  archives: { gateway_begin: event }, failure, error: 'e', failed_at: now, retry_count: 1, updated_at: now,
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the shared article
+  not_a_field: 1,
+};
+
+const _stuck: SharedArticleStuckPatch = {
+  archives: { workflow_settlement: event }, error: 'e', failed_at: now, updated_at: now,
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the shared article
+  not_a_field: 1,
+};
+
+const _canonicalIdClear: UserArticleCanonicalIdClearPatch = {
+  canonicalId: FieldValue.delete(),
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the user article
+  not_a_field: 1,
+};
+
+const _enqueue: EnqueueUserArticlePatch = {
+  url: 'u', favorite: '', status: '', timeAdded: now, timeRead: 0, resolvedId: 'i', archival_triggered: false, queued_at: now, queued_by: 'dashboard',
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the user article
+  not_a_field: 1,
+};
+
+// The failure map rejects an unknown field too.
+const _failure: FailurePatch = {
+  ...failure,
+  // @ts-expect-error sdlc-debt: none, this rejection is the assertion — not a field of the failure map
   not_a_field: 1,
 };
