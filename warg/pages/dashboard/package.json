@@ -5,6 +5,10 @@
     "dev": "wrangler pages dev . --port 8788",
     "deploy": "node -e \"console.error('Deploy the dashboard with scripts/deploy.sh: from warg/, run pnpm deploy:pages');process.exit(1)\"",
     "typecheck": "tsc --noEmit -p functions/tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
   }
 }
