@@ -2,6 +2,14 @@ name = "warg-dashboard"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "."
 
+# Sign-in secret: DASHBOARD_AUTH holds the dashboard credential as
+# `user:password`. It is a Pages secret, so it never sits in this file. Set it
+# from warg/ with:
+#   pnpm exec wrangler pages secret put DASHBOARD_AUTH --project-name warg-dashboard
+# Without it every dashboard page and API call answers 500 ("Dashboard auth is
+# not configured."), and `scripts/deploy.sh --with-pages` refuses to deploy.
+# A Pages config cannot declare required secrets, so it is named here.
+
 [vars]
 BACKFILL_STATUS_URL = "https://us-central1-trails-e428e.cloudfunctions.net/backfillStatus"
 DASHBOARD_API_URL = "https://us-central1-trails-e428e.cloudfunctions.net/dashboardApi"
