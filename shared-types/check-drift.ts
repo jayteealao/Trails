@@ -82,16 +82,19 @@ function readFile(path: string): string {
   }
 }
 
+const METADATA_FIELDS_HEADING = 'Firestore field names (snake_case)';
+
 function extractCanonicalFields(md: string): string[] {
-  // Pull names from the first markdown table column: lines that look like
-  // "| `field_name` | ..." — backticks delimit the field name.
+  // Pull names from the first table column of the metadata section only: lines
+  // that look like "| `field_name` | ..." — backticks delimit the field name.
+  // The other tables of the doc (the articles document fields) are not metadata.
   const fields: string[] = [];
-  for (const line of md.split('\n')) {
+  for (const line of sectionLines(md, METADATA_FIELDS_HEADING)) {
     const match = line.match(/^\|\s*`([a-z_][a-z0-9_]*)`\s*\|/);
     if (match) fields.push(match[1]);
   }
   if (fields.length === 0) {
-    console.error('[drift] no fields parsed from WargMetadata.md — table format changed?');
+    console.error(`[drift] no fields parsed from WargMetadata.md "## ${METADATA_FIELDS_HEADING}" — table format changed?`);
     process.exit(1);
   }
   return fields;
