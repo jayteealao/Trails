@@ -1213,6 +1213,113 @@ describe('LoggerDO', () => {
       expect(view?.derived.stage).toBe('queued');
       expect(view?.derived.terminal).toBe(false);
     });
+
+    async function readIndexRow(requestId: string): Promise<{ stage: string; terminal_state: number } | null> {
+      return env.INDEX_DB.prepare('SELECT stage, terminal_state FROM requests_index WHERE request_id = ?')
+        .bind(requestId)
+        .first<{ stage: string; terminal_state: number }>();
+    }
+
+    it('keeps a done request done when persist events are appended again, and still logs them', async () => {
+      const { requestId, stub } = await initReplayRequest('done-persist');
+
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      await stub.appendEvent(requestId, infoEvent('persist.completed', 'Persisted', { duration_ms: 40 }));
+      await stub.appendEvent(requestId, infoEvent('request.done', 'Request completed'));
+      const eventsBefore = (await stub.getRequestView(requestId))?.events.length ?? 0;
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      await stub.appendEvent(requestId, infoEvent('persist.completed', 'Persisted', { duration_ms: 77 }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+      expect(view?.events).toHaveLength(eventsBefore + 2);
+      expect(view?.events.slice(-2).map((event) => event.type)).toEqual(['persist.started', 'persist.completed']);
+      expect(view?.derived.diagnostics?.persistMs).toBe(77);
+
+      const row = await readIndexRow(requestId);
+      expect(row?.stage).toBe('done');
+      expect(row?.terminal_state).toBe(1);
+    });
+
+    it('keeps a batch that replays persist events after request.done terminal', async () => {
+      const { requestId, stub } = await initReplayRequest('done-persist-batch');
+
+      const result = await stub.appendEvents(requestId, [
+        infoEvent('request.done', 'Request completed'),
+        infoEvent('persist.started', 'Persisting to GCS'),
+        infoEvent('persist.completed', 'Persisted', { duration_ms: 77 })
+      ]);
+
+      expect(result.eventIds).toHaveLength(3);
+      expect(result.derivedUpdated).toBe(true);
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+      expect(view?.events).toHaveLength(3);
+
+      const row = await readIndexRow(requestId);
+      expect(row?.stage).toBe('done');
+      expect(row?.terminal_state).toBe(1);
+    });
+
+    it('keeps a done request done when a step start is replayed', async () => {
+      const { requestId, stub } = await initReplayRequest('done-step');
+
+      await stub.appendEvent(requestId, infoEvent('request.done', 'Request completed'));
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+    });
+
+    it('keeps a failed request failed when persist events are replayed', async () => {
+      const { requestId, stub } = await initReplayRequest('failed-persist');
+
+      await stub.appendEvent(requestId, {
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'request.failed',
+        level: 'error',
+        message: 'Request failed',
+        data: { errorCode: 'SINGLEFILE_TIMEOUT', error: 'SingleFile timed out' }
+      });
+      const before = await stub.getRequestView(requestId);
+      expect(before?.derived.diagnostics?.errorCode).toBe('SINGLEFILE_TIMEOUT');
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      await stub.appendEvent(requestId, infoEvent('persist.completed', 'Persisted', { duration_ms: 12 }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('failed');
+      expect(view?.derived.terminal).toBe(true);
+      expect(view?.derived.diagnostics?.errorCode).toBe(before?.derived.diagnostics?.errorCode);
+      expect(view?.derived.diagnostics?.errorMessage).toBe(before?.derived.diagnostics?.errorMessage);
+      expect(view?.events).toHaveLength((before?.events.length ?? 0) + 2);
+    });
+
+    it('keeps an incomplete request incomplete when persist events are replayed', async () => {
+      const { requestId, stub } = await initReplayRequest('incomplete-persist');
+
+      await stub.appendEvent(
+        requestId,
+        infoEvent('workflow.completed', 'Workflow completed with monolith degraded', {
+          degraded: true,
+          degradedSteps: ['monolith']
+        })
+      );
+      expect((await stub.getRequestView(requestId))?.derived.stage).toBe('incomplete');
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      await stub.appendEvent(requestId, infoEvent('persist.completed', 'Persisted', { duration_ms: 12 }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('incomplete');
+      expect(view?.derived.terminal).toBe(true);
+    });
   });
 });
 
