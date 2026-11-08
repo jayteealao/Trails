@@ -1,4 +1,4 @@
-import { Timestamp, type DocumentReference, type Transaction, type WriteResult } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type DocumentReference, type Transaction, type WriteResult } from 'firebase-admin/firestore';
 import type { Expect, OnlyFields, UserArticleField } from './fields.js';
 
 // The write kinds of the user article `users/{uid}/articles/{id}` that the
@@ -82,8 +82,75 @@ export function setUserArticleResolvedLink(
   return ref.set(buildUserArticleResolvedLinkPatch(input), { merge: true });
 }
 
+// --- clearUserArticleCanonicalId: drop the link the scan read, ref.update with a precondition ---
+
+export interface UserArticleCanonicalIdClearPatch {
+  /** Always FieldValue.delete(). */
+  canonicalId: FieldValue;
+}
+
+export function buildUserArticleCanonicalIdClearPatch(): UserArticleCanonicalIdClearPatch {
+  return { canonicalId: FieldValue.delete() };
+}
+
+/** Fails with FAILED_PRECONDITION when the user article changed after `lastUpdateTime`. */
+export function clearUserArticleCanonicalId(ref: DocumentReference, lastUpdateTime: Timestamp): Promise<WriteResult> {
+  return ref.update(buildUserArticleCanonicalIdClearPatch(), { lastUpdateTime });
+}
+
+// --- enqueueUserArticle: the dashboard queues a URL as a new user article, ref.create ---
+
+export interface EnqueueUserArticlePatch {
+  url: string;
+  favorite: string;
+  status: string;
+  timeAdded: Timestamp;
+  timeRead: number;
+  resolvedId: string;
+  archival_triggered: false;
+  queued_at: Timestamp;
+  queued_by: 'dashboard';
+}
+
+/** The fields as the caller validated and coerced them; `resolvedId` is the new item id. */
+export interface EnqueuedUserArticle {
+  url: string;
+  favorite: string;
+  status: string;
+  timeRead: number;
+  resolvedId: string;
+}
+
+export function buildEnqueueUserArticlePatch(
+  input: EnqueuedUserArticle,
+  now: Timestamp = Timestamp.now()
+): EnqueueUserArticlePatch {
+  return {
+    url: input.url,
+    favorite: input.favorite,
+    status: input.status,
+    timeAdded: now,
+    timeRead: input.timeRead,
+    resolvedId: input.resolvedId,
+    archival_triggered: false,
+    queued_at: now,
+    queued_by: 'dashboard',
+  };
+}
+
+/** Creates the user article; fails with ALREADY_EXISTS when it exists. Its creation starts the save trigger. */
+export function enqueueUserArticle(
+  ref: DocumentReference,
+  input: EnqueuedUserArticle,
+  now: Timestamp = Timestamp.now()
+): Promise<WriteResult> {
+  return ref.create(buildEnqueueUserArticlePatch(input, now));
+}
+
 // Every patch of the user article writes only the names of USER_ARTICLE_FIELDS.
 type _UserPatchesUseListedFields = [
+  Expect<OnlyFields<UserArticleCanonicalIdClearPatch, UserArticleField>>,
+  Expect<OnlyFields<EnqueueUserArticlePatch, UserArticleField>>,
   Expect<OnlyFields<UserArticleLinkPatch, UserArticleField>>,
   Expect<OnlyFields<UserArticleErrorPatch, UserArticleField>>,
   Expect<OnlyFields<UserArticleArchivalTriggeredPatch, UserArticleField>>,
