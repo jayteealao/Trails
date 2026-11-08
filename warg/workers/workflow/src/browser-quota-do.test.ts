@@ -90,3 +90,36 @@ describe('BrowserQuotaDO lease expiry', () => {
     expect(await sandboxRequestIds(quota)).toEqual(['req-b']);
   });
 });
+
+describe('BrowserQuotaDO at the shared lease ages', () => {
+  // The same ages and verdicts as the container sweep's table test.
+  const AGES = [
+    { requestId: 'req-299', ageMs: 299_000, stale: false },
+    { requestId: 'req-300', ageMs: 300_000, stale: true },
+    { requestId: 'req-301', ageMs: 301_000, stale: true }
+  ];
+  const NOW = T0 + 301_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps on its alarm exactly the leases the container sweep treats as live', async () => {
+    const { quota } = makeDo();
+    for (const row of AGES) {
+      vi.setSystemTime(NOW - row.ageMs);
+      await quota.acquire('sandbox_exec', row.requestId);
+    }
+
+    vi.setSystemTime(NOW);
+    await quota.alarm();
+
+    expect(await sandboxRequestIds(quota)).toEqual(
+      AGES.filter((row) => !row.stale).map((row) => row.requestId)
+    );
+  });
+});

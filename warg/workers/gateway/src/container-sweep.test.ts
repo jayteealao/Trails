@@ -176,3 +176,43 @@ describe('sweepOrphanContainers lease age boundary', () => {
     expect(JSON.parse(String(stopInit.body))).toEqual({ request_id: 'req-old' });
   });
 });
+
+describe('sweepOrphanContainers at the shared lease ages', () => {
+  const T0 = 1_700_000_000_000;
+  // The same ages and verdicts as the quota object's table test.
+  const AGES = [
+    { requestId: 'req-299', ageMs: 299_000, stale: false },
+    { requestId: 'req-300', ageMs: 300_000, stale: true },
+    { requestId: 'req-301', ageMs: 301_000, stale: true }
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('stops exactly the leases the quota object treats as stale', async () => {
+    const { env, monolithFetch } = createEnv(
+      jsonResponse({
+        leases: AGES.map((row, i) => ({
+          leaseId: `l${i}`,
+          requestId: row.requestId,
+          acquiredAt: T0 - row.ageMs
+        }))
+      })
+    );
+
+    const summary = await sweepOrphanContainers(env, 'test');
+
+    const stopped = monolithFetch.mock.calls.map((call) => {
+      const [, init] = call as unknown as [string, RequestInit];
+      return (JSON.parse(String(init.body)) as { request_id: string }).request_id;
+    });
+    expect(stopped).toEqual(AGES.filter((row) => row.stale).map((row) => row.requestId));
+    expect(summary).toEqual({ source: 'test', leases: 3, stale: 2, stopped: 2, failures: [] });
+  });
+});
