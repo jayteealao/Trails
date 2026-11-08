@@ -1,5 +1,12 @@
 import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
+import {
+  backfillSharedArticleBaseFields,
+  bootstrapSharedArticle,
+  buildBootstrapBackfillPatch,
+  setUserArticleResolvedLink,
+  type PocketInput,
+} from '@warg/article-writer';
 import { getDashboardUserId } from './config.js';
 import { extractDomain, readSharedArticle, resolveCanonicalItemId } from './util.js';
 
@@ -27,10 +34,7 @@ function asPocketTime(value: unknown): number {
   return 0;
 }
 
-function buildPocket(
-  userDoc: Record<string, unknown>,
-  canonicalItemId: string
-): Record<string, unknown> {
+function buildPocket(userDoc: Record<string, unknown>, canonicalItemId: string): PocketInput {
   const pocket = userDoc['pocket'];
   const pocketObj =
     pocket && typeof pocket === 'object'
@@ -89,11 +93,11 @@ export async function handleBootstrapArticle(
   const canonicalItemId = shared?.id ?? linkId;
   const linkedExisting = canonicalItemId !== itemId;
 
-  const pocket = buildPocket(userDoc, canonicalItemId);
-  const stats = {
-    last_accessed: '',
-    total_saves: 1,
-    total_views: 0,
+  const article = {
+    itemId: canonicalItemId,
+    url,
+    domain: extractDomain(url),
+    pocket: buildPocket(userDoc, canonicalItemId),
   };
 
   const articleRef = db.collection('articles').doc(canonicalItemId);
@@ -102,63 +106,24 @@ export async function handleBootstrapArticle(
   let patched = false;
 
   if (!shared) {
-    await articleRef.set({
-      item_id: canonicalItemId,
-      url,
-      domain: extractDomain(url),
-      created_at: now,
-      updated_at: now,
-      status: 'pending',
-      archives: {},
-      pocket,
-      stats,
-    });
+    await bootstrapSharedArticle(articleRef, article, now);
     created = true;
   } else {
-    const canonicalDoc = shared.data;
-    const update: Record<string, unknown> = { updated_at: now };
-
-    if (!canonicalDoc['item_id']) {
-      update['item_id'] = canonicalItemId;
-      patched = true;
-    }
-    if (!canonicalDoc['url']) {
-      update['url'] = url;
-      patched = true;
-    }
-    if (!canonicalDoc['domain']) {
-      update['domain'] = extractDomain(url);
-      patched = true;
-    }
-    if (!canonicalDoc['created_at']) {
-      update['created_at'] = now;
-      patched = true;
-    }
-    if (!canonicalDoc['pocket']) {
-      update['pocket'] = pocket;
-      patched = true;
-    }
-    if (!canonicalDoc['stats']) {
-      update['stats'] = stats;
-      patched = true;
-    }
-
-    if (Object.keys(update).length > 1) {
-      await articleRef.set(update, { merge: true });
+    // A patch with more than updated_at means a base field is missing.
+    const update = buildBootstrapBackfillPatch(shared.data, article, now);
+    patched = Object.keys(update).length > 1;
+    if (patched) {
+      await backfillSharedArticleBaseFields(articleRef, update);
     }
   }
 
-  const userPatch: Record<string, unknown> = {
-    resolvedId: canonicalItemId,
-  };
   const shouldStart = canonicalItemId === itemId;
 
-  if (!shouldStart) {
-    userPatch['archival_triggered'] = true;
-  }
-
   if (userDoc['resolvedId'] !== canonicalItemId || !shouldStart) {
-    await userRef.set(userPatch, { merge: true });
+    await setUserArticleResolvedLink(userRef, {
+      resolvedId: canonicalItemId,
+      archivalTriggered: !shouldStart,
+    });
   }
 
   const canonicalData = shared?.data;
