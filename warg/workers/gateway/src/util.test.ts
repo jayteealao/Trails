@@ -528,14 +528,51 @@ describe('capEventStream', () => {
     expect(up.cancel).not.toHaveBeenCalled();
   });
 
-  it('ends a frame cut in the middle before the timeout event', async () => {
+  it('drops a frame cut in the middle at the cap instead of delivering half of it', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('event: init\ndata: {}\n\ndata: {"a"');
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS);
+
+    expect(out.text).toBe('event: init\ndata: {}\n\n' + END_EVENT);
+    expect(out.done).toBe(true);
+  });
+
+  it('delivers a frame split across chunks once it is whole', async () => {
     const up = upstream();
     const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
     up.send('data: {"a"');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(out.text).toBe('');
+
+    up.send(':1}\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(out.text).toBe('');
+
+    up.send('\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(out.text).toBe('data: {"a":1}\n\n');
+  });
+
+  it('forwards a held tail when the upstream ends', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('data: {}\n\ndata: tail');
+    up.end();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(out.text).toBe('data: {}\n\ndata: tail');
+    expect(out.done).toBe(true);
+  });
+
+  it('forwards a partial frame too long to hold and ends it before the timeout event', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    const long = 'data: ' + 'x'.repeat(64 * 1024);
+    up.send(long);
     await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS);
 
-    expect(out.text).toBe('data: {"a"\n\n' + END_EVENT);
-    expect(out.done).toBe(true);
+    expect(out.text).toBe(long + '\n\n' + END_EVENT);
   });
 
   it('cancelling the capped stream cancels the upstream and clears the timer', async () => {
