@@ -1,6 +1,5 @@
 import { getOptionsKey, timingSafeEqual, createEvent } from '@warg/shared';
 import type {
-  ArchiveOptions,
   LogEvent,
   InitRequestPayload
 } from '@warg/shared';
@@ -10,8 +9,10 @@ import {
   errorIdFor,
   errorResponse,
   generateRequestId,
+  isPlainObject,
   isValidArchiveUrl,
   isValidRequestId,
+  validateArchiveOptions,
   withRequestId
 } from './util.js';
 
@@ -506,40 +507,56 @@ export default {
       // The id of an error response: a fresh correlation id until the request id is known and valid.
       let errorId = errorIdFor(undefined);
       try {
-        let body: ArchiveOptions & { request_id?: string };
+        let parsed: unknown;
         try {
-          body = (await request.json()) as ArchiveOptions & { request_id?: string };
+          parsed = await request.json();
         } catch {
           return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_JSON, 'Invalid JSON', errorId);
         }
 
+        if (!isPlainObject(parsed)) {
+          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_OPTIONS, 'Request body must be a JSON object', errorId);
+        }
+
+        // Take out the request id and the script fields (stripped: they could enable script injection);
+        // the rest are the archive options.
+        const { request_id: rawRequestId, preScript: _ps, cleanupScript: _cs, ...fields } = parsed;
+
         // Use client-provided request_id or generate one
-        const requestId = body.request_id ?? generateRequestId();
-        if (body.request_id && !isValidRequestId(requestId)) {
-          return errorResponse(
-            400,
-            GATEWAY_ERROR_CODES.INVALID_REQUEST_ID,
-            'Invalid request_id format (UUID v4 or 1-40 char alphanumeric/hyphen/underscore required)',
-            errorId
-          );
+        const invalidRequestIdMessage =
+          'Invalid request_id format (UUID v4 or 1-40 char alphanumeric/hyphen/underscore required)';
+        if (rawRequestId !== undefined && rawRequestId !== null && typeof rawRequestId !== 'string') {
+          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_REQUEST_ID, invalidRequestIdMessage, errorId);
+        }
+        const requestId = rawRequestId ?? generateRequestId();
+        if (rawRequestId && !isValidRequestId(requestId)) {
+          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_REQUEST_ID, invalidRequestIdMessage, errorId);
         }
         errorId = requestId;
 
-        // Validate URL presence and format
-        const urlError = !body.url
-          ? 'url is required'
-          : !isValidArchiveUrl(body.url)
-            ? 'Invalid URL: only http and https URLs are supported'
-            : undefined;
+        // Check the option types before anything is stored or logged
+        const validation = validateArchiveOptions(fields);
+        if (!validation.ok) {
+          return errorResponse(400, GATEWAY_ERROR_CODES.INVALID_OPTIONS, validation.message, requestId);
+        }
+        if (validation.droppedKeys.length > 0) {
+          console.warn('[gateway] /begin dropped unknown option keys', {
+            id: requestId,
+            keys: validation.droppedKeys.slice(0, 20)
+          });
+        }
 
-        if (urlError) {
+        // Validate URL presence and format
+        const url = validation.options.url;
+        if (!url || !isValidArchiveUrl(url)) {
+          const urlError = !url ? 'url is required' : 'Invalid URL: only http and https URLs are supported';
           // We have a valid request_id — init logger so this failure is visible
-          await initLoggerRequest(env, { requestId, url: body.url ?? '' });
+          await initLoggerRequest(env, { requestId, url: url ?? '' });
           await appendLogEvent(
             env,
             requestId,
             createEvent('gateway', 'request.failed', 'error', urlError, {
-              url: body.url,
+              url,
               errorCode: 'INVALID_INPUT_URL',
               retryable: false,
               recommendedAction: 'inspect_url'
@@ -550,19 +567,15 @@ export default {
 
         const optionsR2Key = getOptionsKey(requestId);
 
-        // Extract options: remove request_id and strip fields that could enable script injection
-        const { request_id: _, preScript: _ps, cleanupScript: _cs, ...options } = body as
-          ArchiveOptions & { request_id?: string; preScript?: unknown; cleanupScript?: unknown };
-
         // Store options in R2
-        await env.ARCHIVE_BUCKET.put(optionsR2Key, JSON.stringify(options), {
+        await env.ARCHIVE_BUCKET.put(optionsR2Key, JSON.stringify(validation.options), {
           httpMetadata: { contentType: 'application/json' }
         });
 
         // Initialize request in logger
         await initLoggerRequest(env, {
           requestId,
-          url: options.url,
+          url,
           optionsR2Key
         });
 
@@ -571,7 +584,7 @@ export default {
           env,
           requestId,
           createEvent('gateway', 'request.created', 'info', 'Archive request created', {
-            url: options.url,
+            url,
             optionsR2Key
           })
         );
@@ -582,7 +595,7 @@ export default {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             request_id: requestId,
-            url: options.url,
+            url,
             options_r2_key: optionsR2Key
           })
         });
