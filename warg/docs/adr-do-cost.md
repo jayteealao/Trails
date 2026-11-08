@@ -49,11 +49,12 @@ Now, three layers guarantee containers do not outlive their job:
    Cost note: at a 1% `stop()` miss rate, orphaned containers idle up to 5
    minutes before reaping, contributing ~21 GB-s/month — negligible versus
    the 400k GB-s/month free tier.
-3. **Cron orphan sweep** — the gateway's existing 10-minute cron also calls
-   the workflow worker for active sandbox quota leases and asks the monolith
-   worker (`POST /container/stop`) to stop the container behind any lease
-   older than the 5-minute lease TTL (a lease that old means its workflow
-   crashed before releasing).
+3. **Stale-lease container stop** — the workflow's quota object
+   (`BrowserQuotaDO`), when it drops a sandbox lease that outlived the
+   5-minute lease TTL (a lease that old means its workflow crashed before
+   releasing), asks the monolith worker (`POST /container/stop`) to stop that
+   container on its alarm. Failures are logged and not retried; the 5m
+   `sleepAfter` idle stop remains the backstop.
 
 Trade-off accepted: every job cold-starts a container. Cost is prioritized
 over latency for this batch pipeline. The warm pool, its slot plumbing in the
@@ -109,14 +110,24 @@ logger DO wall-time metric when dashboards are in use.
 requests/month that is ~129k reads/month, well under the 150M/month free tier.
 Revisit if request volume grows ~10×.
 
-(c) **Gateway cron sub-request** — the 10-minute orphan cron makes one
-sandbox-leases sub-request to the workflow worker per tick, regardless of load.
-The request count is negligible (~4,320/month).
+(c) **Container stop sub-requests** — the gateway's per-tick lease-listing
+sub-request is gone. The stale-lease stop adds one monolith sub-request per
+stale sandbox lease, on an alarm the quota object already runs; with no crashed
+jobs it adds none.
 
 ## Rollback
 
 - **Container lifecycle:** revert the `finally`/`stop()` block, the
   `sleepAfter = '5m'` field, and re-add warm-pool slot passing. Redeploy.
+- **Stale-lease container stop (deploy order):** deploy the workflow first,
+  then the gateway (`scripts/deploy.sh` tiers 2 then 3). Between the two, the
+  old gateway cron finds the lease-listing route gone, logs the failure and
+  stops nothing, so only the quota object stops containers. In the reverse
+  order no layer-3 stop runs until the workflow lands and containers fall back
+  to the idle stop. Any overlap is harmless: monolith answers `200 ok` for a
+  container that is already stopped or never started. Rolling the workflow
+  back alone leaves no layer-3 stop until the gateway is rolled back too; the
+  idle stop still applies.
 - **Logger keying:** point writes back at `idFromName(requestId)` and drop
   the dual-read. Redeploy. Bucket-era requests then need the same dual-read
   in reverse, so this is a fast-failure escape hatch, not a free undo.
