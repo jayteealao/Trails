@@ -58,7 +58,18 @@ secrets each worker needs, and how each target is verified.
    firebase and, for the rules, gcloud sign-ins before the first upload. Start
    Docker before a deploy that includes `monolith` (its container image is
    built locally).
-3. Deploy from `warg/`:
+3. Before the first dashboard deploy, set its sign-in secret. Every dashboard
+   page and API call asks for it through the browser's sign-in prompt (HTTP
+   Basic); without it every page answers 500 `Dashboard auth is not
+   configured.` and `--with-pages` stops with exit 3 before anything deploys:
+
+   ```bash
+   pnpm exec wrangler pages secret put DASHBOARD_AUTH --project-name warg-dashboard
+   ```
+
+   The value is `user:password`. Use a generated password, for example the
+   output of `openssl rand -base64 24`.
+4. Deploy from `warg/`:
 
    ```bash
    pnpm deploy:all                   # workers, functions and the dashboard (never the rules; prints a rules: not deployed row)
