@@ -11,6 +11,15 @@ export const POCKET_FIELDS = ['favorite', 'resolved_id', 'status', 'time_added',
 /** The fields of the shared article's `stats` map. */
 export const STATS_FIELDS = ['last_accessed', 'total_saves', 'total_views', 'last_saved_at'] as const;
 
+/** The fields of the shared article's `failure` map: the last failed archive start. */
+export const FAILURE_FIELDS = ['class', 'last_seen_at', 'count', 'last_error_message', 'first_seen_at'] as const;
+
+/** The archive entries the backfill writes itself, under `archives`. */
+export const ARCHIVE_EVENT_KEYS = ['gateway_begin', 'workflow_settlement'] as const;
+
+/** The fields of an archive entry the backfill writes. */
+export const ARCHIVE_EVENT_FIELDS = ['status', 'error', 'created_at'] as const;
+
 /** Every field the server writes on `articles/{id}`. */
 export const SHARED_ARTICLE_FIELDS = [
   'item_id',
@@ -21,6 +30,10 @@ export const SHARED_ARTICLE_FIELDS = [
   'updated_at',
   'status',
   'archives',
+  ...ARCHIVE_EVENT_KEYS.flatMap((key) => [
+    `archives.${key}` as const,
+    ...ARCHIVE_EVENT_FIELDS.map((f) => `archives.${key}.${f}` as const),
+  ]),
   'pocket',
   ...POCKET_FIELDS.map((f) => `pocket.${f}` as const),
   'stats',
@@ -29,13 +42,34 @@ export const SHARED_ARTICLE_FIELDS = [
   'processing_started_at',
   'error',
   'failed_at',
+  'retry_count',
+  'status_updated_at',
+  'failure',
+  ...FAILURE_FIELDS.map((f) => `failure.${f}` as const),
+  'mergedInto',
 ] as const;
 
 /** Every field the server writes on `users/{uid}/articles/{id}`. */
-export const USER_ARTICLE_FIELDS = ['canonicalId', 'resolvedId', 'archival_triggered', 'error', 'error_at'] as const;
+export const USER_ARTICLE_FIELDS = [
+  'canonicalId',
+  'resolvedId',
+  'archival_triggered',
+  'error',
+  'error_at',
+  'url',
+  'favorite',
+  'status',
+  'timeAdded',
+  'timeRead',
+  'queued_at',
+  'queued_by',
+] as const;
 
 export type PocketField = (typeof POCKET_FIELDS)[number];
 export type StatsField = (typeof STATS_FIELDS)[number];
+export type FailureField = (typeof FAILURE_FIELDS)[number];
+export type ArchiveEventKey = (typeof ARCHIVE_EVENT_KEYS)[number];
+export type ArchiveEventField = (typeof ARCHIVE_EVENT_FIELDS)[number];
 export type SharedArticleField = (typeof SHARED_ARTICLE_FIELDS)[number];
 export type UserArticleField = (typeof USER_ARTICLE_FIELDS)[number];
 
