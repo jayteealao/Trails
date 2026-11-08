@@ -272,6 +272,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Test drift check
+        run: node --experimental-strip-types --test shared-types/check-drift.test.ts
+
       - name: Run drift check
         run: node --experimental-strip-types shared-types/check-drift.ts
 
