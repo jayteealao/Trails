@@ -546,3 +546,22 @@ test('a queued failed start is not re-sent before RETRY_DELAY_MS and is re-sent 
   assert.equal(h.fake.read('articles/sharedF001')!['retry_count'], 1);
   assert.equal(queued().includes('sharedF001'), false);
 });
+
+test('the change scan after a pass starts CHANGE_MARKER_MARGIN_MS before the pass began, with or without a stored marker', async () => {
+  const P = T0 - 120 * MIN; // pass_started_at of seedCompletedPass
+  for (const marker of [{ time_updated: P - CHANGE_MARKER_MARGIN_MS, item_id: '' }, null]) {
+    const h = harness();
+    seedCompletedPass(h, { time_updated: 0, item_id: '' }, { change_marker: marker });
+    userArticle(h, 'itemM0001', { timeUpdated: P - CHANGE_MARKER_MARGIN_MS - 1, canonicalId: 'sharedM001' });
+    userArticle(h, 'itemM0002', { timeUpdated: P - CHANGE_MARKER_MARGIN_MS, canonicalId: 'sharedM002' });
+    userArticle(h, 'itemM0003', { timeUpdated: P + 5 * MIN, canonicalId: 'sharedM003' });
+
+    await runBackfill(h.deps());
+
+    const label = marker ? 'stored marker' : 'default marker';
+    assert.deepEqual(h.sent.map((p) => p.request_id), ['sharedM002', 'sharedM003'], label);
+    const q = queries(h);
+    assert.equal(q.length, 1, label);
+    assert.deepEqual(q[0]!.filters, [['timeUpdated', '>=', P - CHANGE_MARKER_MARGIN_MS]], label);
+  }
+});
