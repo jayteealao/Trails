@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sweepOrphanContainers, CONTAINER_SWEEP_MIN_LEASE_AGE_MS } from './index.js';
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -151,5 +151,36 @@ describe('CONTAINER_SWEEP_MIN_LEASE_AGE_MS', () => {
     // Tripwire: if this constant drifts from BrowserQuotaDO.LEASE_TTL_MS the
     // sweep will either kill valid leases (too low) or miss orphans (too high).
     expect(CONTAINER_SWEEP_MIN_LEASE_AGE_MS).toBe(5 * 60 * 1000);
+  });
+});
+
+describe('sweepOrphanContainers lease age boundary', () => {
+  const T0 = 1_700_000_000_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('stops a lease one second past the TTL and keeps one a second short of it', async () => {
+    const { env, monolithFetch } = createEnv(
+      jsonResponse({
+        leases: [
+          { leaseId: 'l1', requestId: 'req-young', acquiredAt: T0 - 299_000 },
+          { leaseId: 'l2', requestId: 'req-old', acquiredAt: T0 - 301_000 }
+        ]
+      })
+    );
+
+    const summary = await sweepOrphanContainers(env, 'test');
+
+    expect(summary).toEqual({ source: 'test', leases: 2, stale: 1, stopped: 1, failures: [] });
+    expect(monolithFetch).toHaveBeenCalledTimes(1);
+    const [, stopInit] = monolithFetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(stopInit.body))).toEqual({ request_id: 'req-old' });
   });
 });
