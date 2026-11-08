@@ -101,7 +101,9 @@ export interface ArticleListResponse {
 
 /**
  * Response of GET /stats/completed-today: the articles that became complete
- * since `since`, the start of the current UTC day (ISO).
+ * since `since`, the start of the current UTC day (ISO). An article becomes
+ * complete when its last core archive succeeds, so an article whose core
+ * archive is run again today counts again.
  *
  * The count covers the dashboard user's most recently added articles only (the
  * cap of the filtered list); `truncated` is true when the user has more, so an

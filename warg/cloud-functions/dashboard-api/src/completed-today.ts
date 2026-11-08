@@ -17,6 +17,10 @@ export function startOfUtcDay(now: Date): Date {
  * When the article became complete: the newest success time of its core
  * archives (each one is stamped when that archive succeeds). Undefined when no
  * core archive has a time that parses.
+ *
+ * No stored field records the first completion, so a core archive that is run
+ * again and succeeds moves this time: an old article re-archived today counts
+ * as completed today.
  */
 export function completedAtMs(item: ArticleListItem): number | undefined {
   let newest: number | undefined;
