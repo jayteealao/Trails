@@ -276,6 +276,9 @@ async function fetchQueuedOrphanCandidates(
         Number.isFinite(createdAtMs) && nowMs - createdAtMs >= safeMinAgeMs;
 
       if (!requestId || !url || !createdAt) continue;
+      // Defence in depth: the logger's list query already returns only queued rows with
+      // no event, older than the cut-off. These checks keep a row out if that query or
+      // its answer drifts; the query is the definition of an orphan row.
       if (!queuedStage || hasLastEvent || !isOldEnough) continue;
 
       candidates.push({
