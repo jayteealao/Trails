@@ -268,6 +268,18 @@ jobs:
         timeout-minutes: 20
         run: pnpm --filter warg-dashboard test:e2e
 
+      # The two checks below start the real logger (and, for the settle run, the
+      # workflow worker in mock mode) under wrangler dev over a fresh local D1.
+      # Their ports overlap, so they run one after the other, after the default
+      # checks have stopped their servers.
+      - name: Stats panel against the local logger
+        timeout-minutes: 10
+        run: pnpm --filter warg-dashboard test:e2e:logger
+
+      - name: An archive run settles its status on the dashboard
+        timeout-minutes: 10
+        run: pnpm --filter warg-dashboard test:e2e:settle
+
   workflow-lint:
     # Every action pinned to a commit SHA with its version comment, no
     # dispatch input interpolated into a shell line, no retired branch in a
