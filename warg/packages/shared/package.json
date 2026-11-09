@@ -8,9 +8,15 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./archive-ids": {
+      "types": "./dist/archive-ids.d.ts",
+      "import": "./dist/archive-ids.js"
     }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
