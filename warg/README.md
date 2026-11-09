@@ -39,10 +39,13 @@ pnpm -r --if-present run test        # every package's unit tests (what CI runs)
 
 The dashboard also has browser checks (Playwright, Chromium) of the sign-in,
 the archive content policy, the archive preview, the infra view and the inbox.
-They start the dashboard Worker under a local `wrangler dev`
-(`pages/dashboard/wrangler.jsonc`) with test credentials, a stand-in logger
-worker and per-spec stubs, so they need no live service and no Cloudflare
-account. Install the browser once, then run them:
+They start the dashboard Worker under a local `cf dev`
+(`pages/dashboard/cloudflare.config.ts`) with test credentials, a stand-in
+logger worker (`pages/dashboard/e2e/stub-logger`, also under `cf dev`) and
+per-spec stubs, so they need no live service and no Cloudflare account. The
+test credentials go in a gitignored `.dev.vars.e2e` (or `.dev.vars.e2e-logger`,
+`.dev.vars.e2e-settle`) that the Playwright config writes before each run;
+your own `.dev.vars` is not read. Install the browser once, then run them:
 
 ```bash
 pnpm --filter warg-dashboard exec playwright install chromium
@@ -53,12 +56,24 @@ They use the local ports 18797 (stand-in logger), 18798 (stubs) and 18799
 (dashboard); set `E2E_LOGGER_PORT`, `E2E_STUB_PORT` or `E2E_PAGES_PORT` when
 one is taken. CI runs them in a job of their own, apart from the unit tests.
 
+`test:e2e:logger` and `test:e2e:settle` run the dashboard against the real
+logger (and, for the settle check, the workflow worker in mock mode). Those two
+workers start under `wrangler dev`, not `cf dev`: each run gets its own fresh
+D1 and R2 folder through `--persist-to`, which `cf dev` (cf 1.0.0-beta.17) has
+no option for.
+
 ### Run a worker locally
 
 ```bash
 pnpm --filter @warg/gateway dev
 pnpm --filter warg-dashboard dev    # the dashboard Worker on http://127.0.0.1:8788
 ```
+
+The `dev` scripts run `cf dev`, which reads the worker's `cloudflare.config.ts`
+(cf hands it to wrangler's dev server) and its `.dev.vars`. It accepts only
+`--mode`, `--host`, `--port` and `--local`; a mode `<m>` reads `.dev.vars.<m>`
+in place of `.dev.vars`. Monolith's `dev` stays on `wrangler dev`: cf dev
+rejects its container-backed Durable Object.
 
 The dashboard is the Worker `warg-dashboard` in `pages/dashboard/`: static
 files in `public/` (served by its assets binding), the Pages-style handlers in
@@ -232,16 +247,19 @@ Then rotate `DASHBOARD_API_KEY` and `BACKFILL_STATUS_KEY` with the two steps of
 [Rotating the function keys](#rotating-the-function-keys-two-steps), so the
 copies the old project held stop working.
 
-Two configs per worker: `cloudflare.config.ts` is what `cf deploy` reads, and
-`wrangler.jsonc` still serves `wrangler dev` and `wrangler types`. The
+Two configs per worker: `cloudflare.config.ts` is what `cf deploy` and
+`cf dev` read, and `wrangler.jsonc` still serves `wrangler types`, the logger's
+Workers-pool unit tests, and the `wrangler dev` runs that cf dev cannot do yet
+(monolith, and the logger and workflow servers of the browser checks). The
 dashboard Worker adds `wrangler.config.ts`, which tells `cf deploy` that its
 static files are `public/`. Change a binding in both; `node
 scripts/check-worker-configs.mjs` (run in CI, over `workers/*` and
 `pages/dashboard`) fails when they disagree.
 
 Each worker's `node_modules/wrangler` (the dashboard's too) is a link that the root `postinstall`
-(`scripts/link-worker-bundler.mjs`) creates, because `cf deploy` looks for the
-bundler only inside the worker folder. After an install with
+(`scripts/link-worker-bundler.mjs`) creates, because `cf deploy` and `cf dev`
+look for wrangler only inside the worker folder; the browser checks' stand-in
+logger gets one too. After an install with
 `--ignore-scripts`, run `node scripts/link-worker-bundler.mjs` before
 deploying. Remove the script and the `postinstall` entry once cf finds the
 bundler through the normal Node module lookup, or the workspace stops using the

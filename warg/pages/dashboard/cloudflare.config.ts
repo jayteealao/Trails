@@ -1,8 +1,9 @@
 import { bindings, defineConfig } from "cf/config";
 
-// The dashboard Worker, deployed by scripts/deploy.sh with `cf deploy`.
+// The dashboard Worker, deployed by scripts/deploy.sh with `cf deploy` and
+// run locally (and in the browser checks) with `cf dev`.
 // wrangler.config.ts names the static assets directory (public/);
-// wrangler.jsonc serves `wrangler dev` and `wrangler types`. Change a binding
+// wrangler.jsonc serves `wrangler types`. Change a binding
 // in both cloudflare.config.ts and wrangler.jsonc.
 //
 // Secrets are not declared here, as for the other Warg workers: deploy.sh

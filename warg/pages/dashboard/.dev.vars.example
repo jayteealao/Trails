@@ -2,7 +2,8 @@
 # For local development of the dashboard Worker (pnpm --filter warg-dashboard dev).
 # BACKFILL_STATUS_URL and DASHBOARD_API_URL come from wrangler.jsonc; LOGGER
 # and GATEWAY are service bindings, reached through the local dev registry
-# when those workers run under wrangler dev too.
+# when those workers run under cf dev too. The browser checks write their own
+# .dev.vars.e2e* files and do not read this one's copy.
 
 # The sign-in credential, user:password
 DASHBOARD_AUTH=your-user:your-password

@@ -58,6 +58,7 @@ export default defineConfig({
     dashboardServer({
       port: PAGES_PORT,
       registry: REGISTRY,
+      mode: 'e2e-logger',
       stubPort: STUB_PORT,
       internalKey: INTERNAL_KEY,
       user: E2E_AUTH_USER,
