@@ -163,18 +163,3 @@ export const KIND_TO_ARCHIVE_KEY: Partial<Record<ArtifactKind, GatewayArchiveKey
   'screenshot.png': 'screenshot',
   'rendered.html': 'rendered',
 };
-
-/**
- * GCS path pattern configuration.
- */
-export const GCS_PATH_CONFIG: Record<ArtifactKind, { folder: string; filename: string }> = {
-  'singlefile.html': { folder: 'singlefile', filename: 'output.html.gz' },
-  'monolith.html': { folder: 'monolith', filename: 'output.html.gz' },
-  'readability.json': { folder: 'readability', filename: 'output.json' },
-  'readability.md': { folder: 'readability', filename: 'output.md.gz' },
-  'page.pdf': { folder: 'pdf', filename: 'output.pdf' },
-  'screenshot.png': { folder: 'screenshot', filename: 'output.png' },
-  'rendered.html': { folder: 'rendered', filename: 'output.html.gz' },
-  'rendered.md': { folder: 'rendered', filename: 'output.md.gz' },
-  'manifest.json': { folder: 'manifest', filename: 'manifest.json' }
-};

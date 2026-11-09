@@ -8,37 +8,17 @@ import {
   type GatewayArchiveEntries,
   type GatewayArchiveEntry
 } from '@warg/article-writer';
+import { extractHostname, getGcsPath } from '@warg/shared/archive-ids';
 import type {
   CreateUploadRequest,
   CreateUploadResponse,
-  UploadEntry,
-  ArtifactKind
+  UploadEntry
 } from './types.js';
-import { GCS_PATH_CONFIG, KIND_TO_ARCHIVE_KEY } from './types.js';
+import { KIND_TO_ARCHIVE_KEY } from './types.js';
 import { logEvent } from './logging.js';
 
 const GCS_BUCKET = process.env['GCS_BUCKET'] ?? 'htbase-archives-standard';
 const SIGNED_URL_EXPIRY_MINUTES = 15;
-
-/**
- * Get the GCS path for an artifact.
- */
-function getGcsPath(requestId: string, kind: ArtifactKind): string {
-  const config = GCS_PATH_CONFIG[kind];
-  return `archives/${requestId}/${config.folder}/${config.filename}`;
-}
-
-/**
- * Extract domain from URL.
- */
-function extractDomain(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname;
-  } catch {
-    return 'unknown';
-  }
-}
 
 /**
  * Handler for POST /create-upload.
@@ -108,7 +88,7 @@ export async function handleCreateUpload(
       archives[archiveKey] = {
         ...(existing ?? {}),
         status: 'uploading',
-        gcs_path: `gs://${GCS_BUCKET}/${getGcsPath(request_id, artifact.kind)}`,
+        gcs_path: `gs://${GCS_BUCKET}/${getGcsPath(request_id, artifact.kind).path}`,
         gcs_bucket: GCS_BUCKET,
         started_at: startedAt,
       };
@@ -117,7 +97,7 @@ export async function handleCreateUpload(
     await journalSharedArticleUploads(
       docRef,
       buildArchiveUploadJournalPatch(
-        { itemId: request_id, url, domain: extractDomain(url), archives, isNew: !existingDoc.exists },
+        { itemId: request_id, url, domain: extractHostname(url), archives, isNew: !existingDoc.exists },
         now
       )
     );
@@ -128,7 +108,7 @@ export async function handleCreateUpload(
     const expiresAt = new Date(Date.now() + SIGNED_URL_EXPIRY_MINUTES * 60 * 1000);
 
     for (const artifact of artifacts) {
-      const gcsPath = getGcsPath(request_id, artifact.kind);
+      const gcsPath = getGcsPath(request_id, artifact.kind).path;
       const file = bucket.file(gcsPath);
 
       const signedUrlOptions: GetSignedUrlConfig = {
