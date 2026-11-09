@@ -1,3 +1,6 @@
+/** SQL condition for a row that no event has reached yet. */
+export const NO_EVENT_CONDITION = "(last_event_ts IS NULL OR trim(last_event_ts) = '')";
+
 export interface RequestListQuery {
   sql: string;
   bindings: (string | number)[];
@@ -45,7 +48,7 @@ export function buildRequestListQuery(params: URLSearchParams): RequestListQuery
     bindings.push(to);
   }
   if (params.get('events') === 'none') {
-    conditions.push("(last_event_ts IS NULL OR trim(last_event_ts) = '')");
+    conditions.push(NO_EVENT_CONDITION);
   }
   if (conditions.length > 0) {
     sql += ' WHERE ' + conditions.join(' AND ');
