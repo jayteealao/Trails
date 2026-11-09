@@ -10,6 +10,7 @@ import type {
   SinglefileParams
 } from './types.js';
 import {
+  INTERNAL_API_KEY_HEADER,
   classifyServiceFailure,
   classifyServiceTimeout,
   rendererFallbackReasonFromBody,
@@ -62,7 +63,7 @@ async function serviceCall<T>(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Internal-API-Key': apiKey
+          [INTERNAL_API_KEY_HEADER]: apiKey
         },
         body: JSON.stringify(body),
         signal: controller.signal

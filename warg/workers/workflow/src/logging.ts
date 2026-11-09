@@ -1,5 +1,6 @@
 import type { EventType, LogEvent, LogLevel, RequestSettle } from '@warg/shared';
 import {
+  INTERNAL_API_KEY_HEADER,
   classifyError,
   createEvent,
   isIncompleteDegradation,
@@ -29,7 +30,7 @@ async function loggerPost(env: Env, path: string, body: unknown, label: string):
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Internal-API-Key': env.INTERNAL_API_KEY
+        [INTERNAL_API_KEY_HEADER]: env.INTERNAL_API_KEY
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
@@ -298,7 +299,7 @@ export async function settleRequest(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Internal-API-Key': env.INTERNAL_API_KEY
+        [INTERNAL_API_KEY_HEADER]: env.INTERNAL_API_KEY
       },
       body: JSON.stringify(settle),
       signal: AbortSignal.timeout(10_000),
@@ -347,7 +348,7 @@ export async function updateManifestKey(
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-Internal-API-Key': env.INTERNAL_API_KEY
+          [INTERNAL_API_KEY_HEADER]: env.INTERNAL_API_KEY
         },
         body: JSON.stringify({ manifestR2Key })
       }

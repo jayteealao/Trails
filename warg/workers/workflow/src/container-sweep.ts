@@ -1,3 +1,5 @@
+import { INTERNAL_API_KEY_HEADER } from '@warg/shared';
+
 /** A sandbox lease the quota object dropped because it outlived the lease TTL. */
 export interface StaleSandboxLease {
   leaseId: string;
@@ -32,7 +34,7 @@ export async function stopStaleContainers(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Internal-API-Key': internalApiKey
+          [INTERNAL_API_KEY_HEADER]: internalApiKey
         },
         body: JSON.stringify({ request_id: lease.requestId }),
         signal: AbortSignal.timeout(10_000)
