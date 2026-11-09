@@ -1610,6 +1610,17 @@ describe('Logger HTTP service routing (dual-read)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('POST /request/:id/settle — a body that is not JSON → 400', async () => {
+    const requestId = await initViaService('not-json');
+    const res = await SELF.fetch(`https://logger.internal/request/${requestId}/settle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': API_KEY },
+      body: '{not json'
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid settle body' });
+  });
+
   it('POST /request/:id/settle — unknown request id → 404', async () => {
     const res = await servicePost(`/request/svc-settle-unknown-${Date.now()}/settle`, doneSettle());
     expect(res.status).toBe(404);

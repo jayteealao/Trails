@@ -786,7 +786,8 @@ export default {
       // run settled in. Targets the creation-hour bucket, then the legacy
       // per-request DO (as PATCH does); 404 when neither holds the request.
       if (method === 'POST' && path === '/request/:id/settle' && requestId) {
-        const settle = parseRequestSettle(await request.json());
+        // A body that is not JSON is an invalid settle body too, not a server error.
+        const settle = parseRequestSettle(await request.json().catch(() => undefined));
         if (!settle) {
           return Response.json({ error: 'Invalid settle body' }, { status: 400 });
         }
