@@ -222,10 +222,21 @@ export class BrowserQuotaDO extends DurableObject<Env> {
    */
   private async stopPendingContainers(): Promise<void> {
     const snapshot = [...this.pendingStops];
+    // A stop targets the request's container, not the lease. When a retry of the
+    // same request already holds a newer sandbox lease, the container is the
+    // retry's, so the stale stop is skipped.
+    const toStop = snapshot.filter((stale) => !this.hasNewerSandboxLease(stale.requestId, stale.acquiredAt));
+    const skipped = snapshot.filter((stale) => !toStop.includes(stale));
+    if (skipped.length > 0) {
+      console.warn(
+        '[workflow] container stop skipped: the request holds a newer sandbox lease',
+        JSON.stringify({ requestIds: skipped.map((stale) => stale.requestId) })
+      );
+    }
     const summary = await stopStaleContainers(
       this.env.MONOLITH,
       this.env.INTERNAL_API_KEY,
-      snapshot,
+      toStop,
       'quota-alarm'
     );
     if (summary.failures.length > 0) {
@@ -237,6 +248,16 @@ export class BrowserQuotaDO extends DurableObject<Env> {
     const handled = new Set(snapshot.map((lease) => lease.leaseId));
     this.pendingStops = this.pendingStops.filter((lease) => !handled.has(lease.leaseId));
     await this.saveState();
+  }
+
+  /** Whether the request holds a sandbox lease acquired after the given time. */
+  private hasNewerSandboxLease(requestId: string, acquiredAt: number): boolean {
+    for (const lease of this.activeLeases!.values()) {
+      if (lease.kind === 'sandbox_exec' && lease.requestId === requestId && lease.acquiredAt > acquiredAt) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

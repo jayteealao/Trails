@@ -223,6 +223,25 @@ describe('BrowserQuotaDO container sweep', () => {
     expect(stoppedRequestIds(monolithFetch)).toEqual(['req-a']);
   });
 
+  it('skips the stale stop when a retry of the same request holds a newer sandbox lease', async () => {
+    const { quota, monolithFetch } = makeDo();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await quota.acquire('sandbox_exec', 'req-retry');
+
+    vi.setSystemTime(T0 + 301_000);
+    await quota.acquire('sandbox_exec', 'req-retry');
+    await quota.alarm();
+
+    expect(monolithFetch).not.toHaveBeenCalled();
+    expect(await sandboxRequestIds(quota)).toEqual(['req-retry']);
+    const logged = warnSpy.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+    expect(logged).toContain('skipped');
+    expect(logged).toContain('req-retry');
+
+    await quota.alarm();
+    expect(monolithFetch).not.toHaveBeenCalled();
+  });
+
   it('stops a queued container left by an interrupted alarm once, and only once', async () => {
     const { quota, monolithFetch } = makeDo({
       stored: {
