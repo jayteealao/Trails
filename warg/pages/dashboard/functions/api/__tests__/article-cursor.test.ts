@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error - dashboard runtime modules are plain JS and intentionally imported in tests.
-import { fetchArticles } from '../../../modules/api.js';
+import { fetchArticles } from '../../../public/modules/api.js';
 
 // The list request: the unfiltered list sends the saved cursor for the page it
 // asks for; a filtered or searched list, and page 1, never send one.

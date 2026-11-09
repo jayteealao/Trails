@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
-// Browser checks run the real Pages functions under `wrangler pages dev`,
-// pointed at a stub dashboard-api that each spec starts on STUB_PORT.
+// Browser checks run the real dashboard Worker under `wrangler dev` (local
+// only, from wrangler.jsonc), pointed at a stub dashboard-api that each spec
+// starts on STUB_PORT.
 // The ports stay off the wrangler defaults so a local dev server is never
 // mistaken for the one under test.
 const PAGES_PORT = Number(process.env.E2E_PAGES_PORT ?? '18799');
@@ -66,17 +67,19 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
+      // LOGGER and GATEWAY are the service bindings of wrangler.jsonc; LOGGER
+      // reaches the stand-in above through the registry, GATEWAY is not
+      // running.
       command:
-        `pnpm exec wrangler pages dev . --ip 127.0.0.1 --port ${PAGES_PORT}` +
-        ` --binding DASHBOARD_API_URL=http://127.0.0.1:${STUB_PORT}/` +
-        ' --binding DASHBOARD_API_KEY=e2e-key' +
-        ` --binding DASHBOARD_AUTH=${E2E_AUTH_USER}:${E2E_AUTH_PASSWORD}` +
+        `pnpm exec wrangler dev --ip 127.0.0.1 --port ${PAGES_PORT}` +
+        ` --var DASHBOARD_API_URL:http://127.0.0.1:${STUB_PORT}/` +
+        ' --var DASHBOARD_API_KEY:e2e-key' +
+        ` --var DASHBOARD_AUTH:${E2E_AUTH_USER}:${E2E_AUTH_PASSWORD}` +
         // The infra check points the infra function's Cloudflare API calls
         // at the stub that its spec starts on STUB_PORT (test strings only).
-        ' --binding CF_API_TOKEN=e2e-cf-token' +
-        ' --binding CF_ACCOUNT_ID=e2e-account' +
-        ` --binding CF_API_URL=http://127.0.0.1:${STUB_PORT}/client/v4` +
-        ' --service LOGGER=logger',
+        ' --var CF_API_TOKEN:e2e-cf-token' +
+        ' --var CF_ACCOUNT_ID:e2e-account' +
+        ` --var CF_API_URL:http://127.0.0.1:${STUB_PORT}/client/v4`,
       url: `http://127.0.0.1:${PAGES_PORT}/`,
       env: { WRANGLER_REGISTRY_PATH: REGISTRY },
       timeout: 120_000,

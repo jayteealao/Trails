@@ -67,8 +67,8 @@ export function workflowServer(options: {
   };
 }
 
-/** The dashboard under `wrangler pages dev`, bound to the logger; the other APIs point at a port where nothing listens. */
-export function pagesServer(options: {
+/** The dashboard Worker under `wrangler dev`, bound to the logger; the other APIs point at a port where nothing listens. */
+export function dashboardServer(options: {
   port: number;
   registry: string;
   stubPort: number;
@@ -78,16 +78,16 @@ export function pagesServer(options: {
 }): WebServerEntry {
   const { port, registry, stubPort, internalKey, user, password } = options;
   return {
+    // LOGGER and GATEWAY are the service bindings of wrangler.jsonc.
     command:
-      `pnpm exec wrangler pages dev . --ip 127.0.0.1 --port ${port}` +
-      ` --binding DASHBOARD_AUTH=${user}:${password}` +
-      ` --binding INTERNAL_API_KEY=${internalKey}` +
-      ` --binding DASHBOARD_API_URL=http://127.0.0.1:${stubPort}/` +
-      ' --binding DASHBOARD_API_KEY=e2e-key' +
-      ' --binding CF_API_TOKEN=e2e-cf-token' +
-      ' --binding CF_ACCOUNT_ID=e2e-account' +
-      ` --binding CF_API_URL=http://127.0.0.1:${stubPort}/client/v4` +
-      ' --service LOGGER=logger',
+      `pnpm exec wrangler dev --ip 127.0.0.1 --port ${port}` +
+      ` --var DASHBOARD_AUTH:${user}:${password}` +
+      ` --var INTERNAL_API_KEY:${internalKey}` +
+      ` --var DASHBOARD_API_URL:http://127.0.0.1:${stubPort}/` +
+      ' --var DASHBOARD_API_KEY:e2e-key' +
+      ' --var CF_API_TOKEN:e2e-cf-token' +
+      ' --var CF_ACCOUNT_ID:e2e-account' +
+      ` --var CF_API_URL:http://127.0.0.1:${stubPort}/client/v4`,
     cwd: DASHBOARD_DIR,
     url: `http://127.0.0.1:${port}/`,
     env: { WRANGLER_REGISTRY_PATH: registry },

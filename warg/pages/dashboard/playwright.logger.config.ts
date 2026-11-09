@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { loggerServer, pagesServer } from './e2e-logger/local-servers';
+import { loggerServer, dashboardServer } from './e2e-logger/local-servers';
 
 // The stats panel check runs the dashboard against the real logger worker
 // under `wrangler dev`, over a fresh local D1 that holds the rows of
@@ -55,7 +55,7 @@ export default defineConfig({
       internalKey: INTERNAL_KEY,
       seedFile: SEED,
     }),
-    pagesServer({
+    dashboardServer({
       port: PAGES_PORT,
       registry: REGISTRY,
       stubPort: STUB_PORT,

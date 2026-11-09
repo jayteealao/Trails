@@ -1,7 +1,7 @@
 # A stand-in for the logger service, for the dashboard's browser checks only.
 # Playwright starts it with `wrangler dev -c e2e/stub-logger.wrangler.toml`;
-# it is never deployed, and the dashboard's own wrangler.toml stays the
-# config of the Pages project.
+# it is never deployed; the dashboard's own config is wrangler.jsonc beside
+# e2e/.
 name = "logger"
 main = "stub-logger.ts"
 compatibility_date = "2025-06-01"

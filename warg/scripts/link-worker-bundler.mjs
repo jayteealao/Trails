@@ -1,4 +1,5 @@
-// Links the workspace's wrangler into each worker's own node_modules.
+// Links the workspace's wrangler into each worker's own node_modules: the
+// workers/* folders and the dashboard Worker (pages/dashboard).
 //
 // `cf deploy` (cf 1.0.0-beta.17, its project-discovery step) looks for the
 // Wrangler bundler only at `<worker dir>/node_modules/wrangler` and does not
@@ -21,9 +22,13 @@ if (!existsSync(join(target, 'package.json'))) {
 }
 
 const workersDir = join(root, 'workers');
-for (const worker of readdirSync(workersDir)) {
-  if (!existsSync(join(workersDir, worker, 'cloudflare.config.ts'))) continue;
-  const modules = join(workersDir, worker, 'node_modules');
+const workerDirs = [
+  ...readdirSync(workersDir).map((worker) => join(workersDir, worker)),
+  join(root, 'pages', 'dashboard'),
+];
+for (const dir of workerDirs) {
+  if (!existsSync(join(dir, 'cloudflare.config.ts'))) continue;
+  const modules = join(dir, 'node_modules');
   const link = join(modules, 'wrangler');
   let present = false;
   try {

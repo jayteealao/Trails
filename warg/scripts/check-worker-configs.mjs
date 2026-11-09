@@ -1,7 +1,9 @@
 // Checks that each worker's two configs agree.
 //
-// `cf deploy` reads workers/<w>/cloudflare.config.ts; `wrangler dev` and
-// `wrangler types` still read workers/<w>/wrangler.jsonc. A binding, Durable
+// `cf deploy` reads <worker>/cloudflare.config.ts (plus wrangler.config.ts,
+// which names the static assets directory); `wrangler dev` and
+// `wrangler types` still read <worker>/wrangler.jsonc. The workers are
+// workers/* and the dashboard (pages/dashboard). A binding, Durable
 // Object class, cron trigger or compatibility setting changed in one file and
 // not the other either breaks local dev and the generated types, or ships a
 // worker that differs from what was tested. This script loads both files for
@@ -60,6 +62,7 @@ const KNOWN_WRANGLER_KEYS = new Set([
   'compatibility_date',
   'compatibility_flags',
   'workers_dev',
+  'assets',
   'observability',
   'vars',
   'r2_buckets',
@@ -74,6 +77,17 @@ const KNOWN_WRANGLER_KEYS = new Set([
 ]);
 
 const sorted = (xs) => [...xs].sort();
+
+// One line for a static assets setup, the same from either config.
+function assetsLine({ binding, directory, runWorkerFirst, notFoundHandling, htmlHandling }) {
+  return [
+    `binding=${binding ?? '-'}`,
+    `directory=${directory ?? '-'}`,
+    `runWorkerFirst=${JSON.stringify(runWorkerFirst ?? false)}`,
+    `notFoundHandling=${notFoundHandling ?? 'none'}`,
+    `htmlHandling=${htmlHandling ?? 'auto-trailing-slash'}`
+  ].join(' ');
+}
 
 // The common shape both configs reduce to.
 export function fromWrangler(w) {
@@ -100,6 +114,16 @@ export function fromWrangler(w) {
   for (const b of w.workflows ?? [])
     bindings[b.binding] = `workflow:${b.name}:${b.class_name}`;
   if (w.browser) bindings[w.browser.binding] = 'browser';
+  if (w.assets?.binding) bindings[w.assets.binding] = 'assets';
+  const assets = w.assets
+    ? assetsLine({
+        binding: w.assets.binding,
+        directory: w.assets.directory,
+        runWorkerFirst: w.assets.run_worker_first,
+        notFoundHandling: w.assets.not_found_handling,
+        htmlHandling: w.assets.html_handling
+      })
+    : '-';
 
   const exportsOut = {};
   for (const m of w.migrations ?? []) {
@@ -129,6 +153,7 @@ export function fromWrangler(w) {
       workersDev: w.workers_dev ?? true,
       observability: Boolean(w.observability?.enabled),
       crons: sorted(w.triggers?.crons ?? []),
+      assets,
       bindings,
       exports: exportsOut,
       containers: sorted(containers)
@@ -136,10 +161,12 @@ export function fromWrangler(w) {
   };
 }
 
-export function fromCf(config) {
+// `tooling` is the default export of wrangler.config.ts, when there is one.
+export function fromCf(config, tooling = {}) {
   const errors = [];
   const worker = config.worker ?? {};
   const bindings = {};
+  let assetsBinding;
   for (const [name, b] of Object.entries(worker.env ?? {})) {
     switch (b.type) {
       case 'text':
@@ -162,6 +189,10 @@ export function fromCf(config) {
         break;
       case 'browser':
         bindings[name] = 'browser';
+        break;
+      case 'assets':
+        bindings[name] = 'assets';
+        assetsBinding = name;
         break;
       default:
         errors.push(
@@ -196,6 +227,16 @@ export function fromCf(config) {
         `cloudflare.config.ts trigger type "${t.type}" is not compared by this check`
       );
   }
+  const assets =
+    worker.assets || assetsBinding || tooling.assetsDirectory
+      ? assetsLine({
+          binding: assetsBinding,
+          directory: tooling.assetsDirectory,
+          runWorkerFirst: worker.assets?.runWorkerFirst,
+          notFoundHandling: worker.assets?.notFoundHandling,
+          htmlHandling: worker.assets?.htmlHandling
+        })
+      : '-';
   return {
     errors,
     shape: {
@@ -206,6 +247,7 @@ export function fromCf(config) {
       workersDev: worker.workersDev ?? true,
       observability: Boolean(worker.observability?.enabled),
       crons: sorted(crons),
+      assets,
       bindings,
       exports: exportsOut,
       containers: sorted(containers)
@@ -221,7 +263,8 @@ export function compareShapes(a, b) {
     'entrypoint',
     'compatibilityDate',
     'workersDev',
-    'observability'
+    'observability',
+    'assets'
   ]) {
     if (a[key] !== b[key])
       diffs.push(
@@ -248,9 +291,9 @@ export function compareShapes(a, b) {
   return diffs;
 }
 
-export async function loadCfConfig(workerDir) {
+export async function loadCfConfig(workerDir, file = 'cloudflare.config.ts') {
   const result = await build({
-    entryPoints: [join(workerDir, 'cloudflare.config.ts')],
+    entryPoints: [join(workerDir, file)],
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -270,8 +313,11 @@ export async function checkWorker(workerDir) {
     readFileSync(join(workerDir, 'wrangler.jsonc'), 'utf8')
   );
   const cf = await loadCfConfig(workerDir);
+  const tooling = existsSync(join(workerDir, 'wrangler.config.ts'))
+    ? await loadCfConfig(workerDir, 'wrangler.config.ts')
+    : {};
   const w = fromWrangler(wrangler);
-  const c = fromCf(cf);
+  const c = fromCf(cf, tooling);
   return [...w.errors, ...c.errors, ...compareShapes(w.shape, c.shape)];
 }
 
@@ -279,9 +325,10 @@ async function main() {
   const args = process.argv.slice(2);
   const dirs = args.length
     ? args.map((d) => resolve(d))
-    : readdirSync(join(WARG, 'workers'))
-        .map((w) => join(WARG, 'workers', w))
-        .filter((d) => existsSync(join(d, 'cloudflare.config.ts')));
+    : [
+        ...readdirSync(join(WARG, 'workers')).map((w) => join(WARG, 'workers', w)),
+        join(WARG, 'pages', 'dashboard')
+      ].filter((d) => existsSync(join(d, 'cloudflare.config.ts')));
   let failed = 0;
   for (const dir of dirs) {
     const problems = await checkWorker(dir);
