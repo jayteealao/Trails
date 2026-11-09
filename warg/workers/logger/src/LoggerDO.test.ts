@@ -1543,6 +1543,79 @@ describe('Logger HTTP service routing (dual-read)', () => {
     });
   }
 
+  function servicePost(path: string, body: unknown, key: string = API_KEY): Promise<Response> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (key) headers['X-Internal-API-Key'] = key;
+    return SELF.fetch(`https://logger.internal${path}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+  }
+
+  function doneSettle(runId = 'run-http-1'): RequestSettle {
+    return { state: 'done', runId, settledAt: new Date().toISOString() };
+  }
+
+  async function initViaService(suffix: string): Promise<string> {
+    const requestId = `svc-settle-${Date.now()}-${suffix}`;
+    const res = await servicePost('/request/init', { requestId, url: 'https://example.com/settle-http' });
+    expect(res.status).toBe(201);
+    return requestId;
+  }
+
+  it('POST /request/:id/settle — settles a request and the view shows done', async () => {
+    const requestId = await initViaService('done');
+
+    const res = await servicePost(`/request/${requestId}/settle`, doneSettle());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ found: true, applied: true, stage: 'done' });
+
+    const view = await serviceGet(`/request/${requestId}`);
+    const body = await view.json() as { derived: DerivedSummary };
+    expect(body.derived.stage).toBe('done');
+  });
+
+  it('POST /request/:id/settle — the same settle again answers applied false', async () => {
+    const requestId = await initViaService('again');
+    const settle = doneSettle();
+
+    await servicePost(`/request/${requestId}/settle`, settle);
+    const res = await servicePost(`/request/${requestId}/settle`, settle);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ found: true, applied: false });
+  });
+
+  it('POST /request/:id/settle — an invalid body → 400', async () => {
+    const requestId = await initViaService('invalid');
+    const res = await servicePost(`/request/${requestId}/settle`, { state: 'queued' });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /request/:id/settle — unknown request id → 404', async () => {
+    const res = await servicePost(`/request/svc-settle-unknown-${Date.now()}/settle`, doneSettle());
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /request/:id/settle — no key → 401', async () => {
+    const requestId = await initViaService('nokey');
+    const res = await servicePost(`/request/${requestId}/settle`, doneSettle(), '');
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /request/:id/settle — a request only in the legacy per-request object is settled there', async () => {
+    const requestId = `svc-settle-legacy-${Date.now()}`;
+    const createdAt = '2026-06-08T09:00:00.000Z'; // bucket:2026060809 — holds no row for this request
+    const legacyStub = getStub(requestId);
+    await legacyStub.initRequest({ requestId, url: 'https://example.com/settle-legacy' }, createdAt);
+    await legacyStub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+
+    const res = await servicePost(`/request/${requestId}/settle`, doneSettle());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ found: true, applied: true, stage: 'done' });
+    expect((await legacyStub.getRequestView(requestId))?.derived.stage).toBe('done');
+  });
+
   it('GET /request/:id — bucket hit: D1 row resolves bucket key, bucket DO has data, returns view', async () => {
     const requestId = `svc-bucket-hit-${Date.now()}`;
     // Pick a fixed creation hour so the bucket key is deterministic
