@@ -6,11 +6,12 @@ import type {
   ArtifactRecord,
   RequestFieldsPatch,
   RequestDiagnostics,
-  RequestErrorCode
+  RequestErrorCode,
+  RequestSettle
 } from '@warg/shared';
-import { timingSafeEqual } from '@warg/shared';
+import { parseRequestSettle, timingSafeEqual } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
-import { LoggerDO } from './LoggerDO.js';
+import { LoggerDO, type SettleResult } from './LoggerDO.js';
 import { buildRequestListQuery } from './request-list-query.js';
 import {
   STATS_COUNTS_SQL,
@@ -91,6 +92,7 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  settleRequest(requestId: string, settle: RequestSettle): Promise<SettleResult>;
 }
 
 const VALID_ERROR_CODES = new Set<RequestErrorCode>([
@@ -824,6 +826,12 @@ function parseRoute(
     return { path: '/request/:id/stream', requestId: streamMatch[1], params };
   }
 
+  // Match /request/:id/settle pattern (before /request/:id)
+  const settleMatch = path.match(/^\/request\/([^/]+)\/settle$/);
+  if (settleMatch) {
+    return { path: '/request/:id/settle', requestId: settleMatch[1], params };
+  }
+
   // Match /request/:id pattern
   const requestMatch = path.match(/^\/request\/([^/]+)$/);
   if (requestMatch) {
@@ -935,6 +943,28 @@ export default {
           return Response.json({ error: 'Request not found' }, { status: 404 });
         }
         return Response.json({ ok: true });
+      }
+
+      // POST /request/:id/settle - The workflow records the terminal state a
+      // run settled in. Targets the creation-hour bucket, then the legacy
+      // per-request DO (as PATCH does); 404 when neither holds the request.
+      if (method === 'POST' && path === '/request/:id/settle' && requestId) {
+        const settle = parseRequestSettle(await request.json());
+        if (!settle) {
+          return Response.json({ error: 'Invalid settle body' }, { status: 400 });
+        }
+        const key = await getBucketKeyFromD1(env, requestId);
+        let result: SettleResult = { found: false };
+        if (key) {
+          result = await getStubForKey(env, key).settleRequest(requestId, settle);
+        }
+        if (!result.found) {
+          result = await getLegacyStub(env, requestId).settleRequest(requestId, settle);
+        }
+        if (!result.found) {
+          return Response.json({ error: 'Request not found' }, { status: 404 });
+        }
+        return Response.json(result);
       }
 
       // GET /request/:id - Get full request view (dual-read)
