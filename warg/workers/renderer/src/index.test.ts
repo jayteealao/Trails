@@ -204,3 +204,84 @@ describe('one page load per render', () => {
     expect(networkFetch).not.toHaveBeenCalled();
   });
 });
+
+describe('a failed optional output keeps the html', () => {
+  it('stores the html and skips the screenshot when the snapshot has no screenshot', async () => {
+    const { env, bucket } = makeEnv([snapshotAnswer({ content: PAGE_HTML, markdown: PAGE_MARKDOWN }), pdfAnswer()]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(200);
+    expect(json.artifacts?.map((a) => a.kind)).toEqual(['rendered.html', 'page.pdf', 'rendered.md']);
+    expect(json.meta?.skipped).toEqual(['screenshot: snapshot returned no screenshot']);
+    expect(storedKinds(bucket)).toContain('rendered.html');
+  });
+
+  it('stores the html and skips the screenshot when the screenshot is not valid base64', async () => {
+    const { env, bucket } = makeEnv([
+      snapshotAnswer({ content: PAGE_HTML, screenshot: 'not base64!', markdown: PAGE_MARKDOWN }),
+      pdfAnswer()
+    ]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(200);
+    expect(json.artifacts?.map((a) => a.kind)).toEqual(['rendered.html', 'page.pdf', 'rendered.md']);
+    expect(json.meta?.skipped).toEqual(['screenshot: snapshot screenshot is not valid base64']);
+    expect(storedKinds(bucket)).not.toContain('screenshot.png');
+  });
+
+  it('loads the html alone once when the snapshot answers 500', async () => {
+    const { env, browser, bucket } = makeEnv([errorAnswer(500), contentAnswer(PAGE_HTML), pdfAnswer()]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(200);
+    expect(browser.quickAction.mock.calls.map(([action]) => action)).toEqual(['snapshot', 'content', 'pdf']);
+    expect(json.artifacts?.map((a) => a.kind)).toEqual(['rendered.html', 'page.pdf']);
+    expect(json.meta?.skipped).toEqual(['screenshot: snapshot failed with 500', 'markdown: snapshot failed with 500']);
+    expect(storedKinds(bucket)).toEqual(['rendered.html', 'page.pdf']);
+  });
+
+  it('loads the html alone once when the snapshot call throws', async () => {
+    const { env, browser, bucket } = makeEnv([new Error('browser crashed'), contentAnswer(PAGE_HTML), pdfAnswer()]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(200);
+    expect(browser.quickAction.mock.calls.map(([action]) => action)).toEqual(['snapshot', 'content', 'pdf']);
+    expect(json.meta?.skipped).toEqual([
+      'screenshot: snapshot failed with browser crashed',
+      'markdown: snapshot failed with browser crashed'
+    ]);
+    expect(storedKinds(bucket)).toEqual(['rendered.html', 'page.pdf']);
+  });
+
+  it('keeps html, screenshot and markdown when the pdf answers 500', async () => {
+    const { env, bucket } = makeEnv([
+      snapshotAnswer({ content: PAGE_HTML, screenshot: PNG_BASE64, markdown: PAGE_MARKDOWN }),
+      errorAnswer(500)
+    ]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(200);
+    expect(json.artifacts?.map((a) => a.kind)).toEqual(['rendered.html', 'screenshot.png', 'rendered.md']);
+    expect(json.meta?.skipped).toEqual(['pdf: API returned 500']);
+    expect(storedKinds(bucket)).toEqual(['rendered.html', 'screenshot.png', 'rendered.md']);
+  });
+
+  it('keeps html, screenshot and markdown when the pdf call throws', async () => {
+    const { env, bucket } = makeEnv([
+      snapshotAnswer({ content: PAGE_HTML, screenshot: PNG_BASE64, markdown: PAGE_MARKDOWN }),
+      new Error('pdf crashed')
+    ]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(200);
+    expect(json.artifacts?.map((a) => a.kind)).toEqual(['rendered.html', 'screenshot.png', 'rendered.md']);
+    expect(json.meta?.skipped).toEqual(['pdf: pdf crashed']);
+    expect(storedKinds(bucket)).toEqual(['rendered.html', 'screenshot.png', 'rendered.md']);
+  });
+});
