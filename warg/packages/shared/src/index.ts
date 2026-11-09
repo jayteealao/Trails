@@ -66,7 +66,7 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
-export type { ErrorClassification, SandboxFailureCode } from './failure-classify.js';
+export type { ErrorClassification, RendererFallbackReason, SandboxFailureCode } from './failure-classify.js';
 export {
   withClassificationTag,
   readClassificationTag,
@@ -74,6 +74,9 @@ export {
   isMonolithInputTooLarge,
   classifySandboxOutput,
   classifyError,
+  classifyServiceTimeout,
+  classifyServiceFailure,
+  rendererFallbackReasonFromBody,
 } from './failure-classify.js';
 
 export type { InternalJsonRequest } from './worker-request.js';
