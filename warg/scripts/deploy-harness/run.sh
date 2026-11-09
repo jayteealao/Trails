@@ -18,15 +18,15 @@ DEPLOY_SH="$WARG/scripts/deploy.sh"
 # from deploy.sh itself, so the harness never keeps its own copy.
 read -r -a WORKERS <<<"$(sed -n 's/^WORKERS=(\(.*\))$/\1/p' "$DEPLOY_SH")"
 read -r -a FUNCTIONS <<<"$(sed -n 's/^CLOUD_FUNCTIONS=(\(.*\))$/\1/p' "$DEPLOY_SH")"
-if [ "${#WORKERS[@]}" -eq 0 ] || [ "${#FUNCTIONS[@]}" -eq 0 ]; then
-  echo "deploy harness: cannot read WORKERS or CLOUD_FUNCTIONS from $DEPLOY_SH" >&2
+DASHBOARD_WORKER="$(sed -n 's/^DASHBOARD_WORKER=\(.*\)$/\1/p' "$DEPLOY_SH")"
+DASHBOARD_DIR="$(sed -n 's/^DASHBOARD_DIR=\(.*\)$/\1/p' "$DEPLOY_SH")"
+if [ "${#WORKERS[@]}" -eq 0 ] || [ "${#FUNCTIONS[@]}" -eq 0 ] || [ -z "$DASHBOARD_WORKER" ] || [ -z "$DASHBOARD_DIR" ]; then
+  echo "deploy harness: cannot read WORKERS, CLOUD_FUNCTIONS, DASHBOARD_WORKER or DASHBOARD_DIR from $DEPLOY_SH" >&2
   exit 1
 fi
-eval "$(sed -n '/^required_secrets_for() {$/,/^}$/p; /^required_pages_secrets() {$/,/^}$/p; /^function_names_for() {$/,/^}$/p; /^private_functions_for() {$/,/^}$/p' "$DEPLOY_SH")"
-H_ALL_SECRETS="$(for w in "${WORKERS[@]}"; do required_secrets_for "$w" | tr ' ' '\n'; done | sort -u | tr '\n' ' ')"
+eval "$(sed -n '/^required_secrets_for() {$/,/^}$/p; /^function_names_for() {$/,/^}$/p; /^private_functions_for() {$/,/^}$/p' "$DEPLOY_SH")"
+H_ALL_SECRETS="$(for w in "${WORKERS[@]}" "$DASHBOARD_WORKER"; do required_secrets_for "$w" | tr ' ' '\n'; done | sort -u | tr '\n' ' ')"
 export H_ALL_SECRETS
-H_PAGES_SECRETS="$(required_pages_secrets 2>/dev/null || true)"
-export H_PAGES_SECRETS
 
 if [ -n "${HARNESS_TMP:-}" ]; then
   mkdir -p "$HARNESS_TMP"
@@ -39,7 +39,7 @@ trap 'rm -rf "$ROOT"' EXIT
 
 # --- Fixture tree ---------------------------------------------------------------
 FIX="$ROOT/repo"
-mkdir -p "$FIX/scripts" "$FIX/pages/dashboard"
+mkdir -p "$FIX/scripts" "$FIX/$DASHBOARD_DIR"
 cp "$WARG/scripts/deploy.sh" "$FIX/scripts/deploy.sh"
 cp "$WARG/scripts/rules-release.mjs" "$FIX/scripts/rules-release.mjs"
 for w in "${WORKERS[@]}"; do
@@ -66,7 +66,7 @@ mkdir -p "$RULES_FIX"
 for f in firebase.json .firebaserc firestore.rules storage.rules; do
   cp "$RULES_SRC/$f" "$RULES_FIX/$f"
 done
-echo 'name = "warg-dashboard"' >"$FIX/pages/dashboard/wrangler.toml"
+echo "{}" >"$FIX/$DASHBOARD_DIR/package.json"
 # A clean production dry run of the link re-derive, where deploy.sh looks for
 # it by default; the link-check scenarios pass their own reports.
 # rederive_report <file> <mode> <target> <linkAdds> [markerRemovals]: writes a
@@ -158,15 +158,15 @@ scenario_full_success() {
   run_deploy full-success -- --all --with-rules
   expect_rc 0
   expect_out "^Deploying label: $SHA\$"
-  expect_calls 9 '^cf workers secrets list --worker '
-  expect_calls 1 '^cf pages get warg-dashboard'
+  expect_calls 10 '^cf workers secrets list --worker '
+  expect_calls 1 '^cf workers secrets list --worker warg-dashboard$'
   expect_calls 1 '^pnpm -r typecheck$'
   expect_calls 1 '^pnpm -r test$'
   local w fn
   for w in "${WORKERS[@]}"; do
     expect_row "worker:$w" deployed "$UUID"
   done
-  expect_calls 9 "^cf deploy --tag $SHORT --message $SHA --provision=false\$"
+  expect_calls 10 "^cf deploy --tag $SHORT --message $SHA --provision=false\$"
   for fn in "${FUNCTIONS[@]}"; do
     expect_row "function:$fn" deployed ".*@20[0-9-]+T.*"
     expect_calls 1 "^firebase deploy --only functions:$fn --project trails-e428e --non-interactive GIT_SHA=$SHA\$"
@@ -181,14 +181,25 @@ scenario_full_success() {
   expect_calls 0 'no-timeouts'
   expect_no_out 'harness-token'
   expect_calls 0 'harness-token'
-  expect_calls 1 "^wrangler pages deploy --branch master --commit-hash $SHA --commit-message $SHA --commit-dirty=false\$"
-  expect_row "pages:dashboard" deployed "$UUID"
+  expect_calls 0 '^wrangler '
+  expect_row "worker:warg-dashboard" deployed "$UUID"
+  expect_dashboard_last
   expect_out '^=== Link check passed: cloud-functions/backfill-scripts/tmp/rederive-pass-b-20261027T000000Z.json '
   expect_out '^=== Rules link check passed: '
   expect_no_out '^rules +skipped +not deployed'
   expect_out '^TARGET +RESULT +DETAIL +LABEL$'
   expect_out '^Exit code: 0$'
   finish
+}
+
+# The dashboard Worker deploys from its own folder, after every other target:
+# after gateway and logger, which it binds, and after the functions and rules.
+expect_dashboard_last() {
+  expect_calls 1 '^cf-deploy-worker warg-dashboard$'
+  local last
+  last="$(grep -E '^(cf-deploy-worker |firebase deploy )' "$CALLS" | tail -n 1)"
+  [ "$last" = "cf-deploy-worker warg-dashboard" ] || fail "the last deploy is '$last', expected the dashboard Worker"
+  [ "$(grep -c '^cf-deploy-worker ' "$CALLS")" -gt 1 ] || fail "no worker deployed before the dashboard"
 }
 
 # The link check: a re-derive report that plans a link change, one that is not
@@ -231,8 +242,8 @@ scenario_link_check_missing_report() {
   run_deploy link-check-missing-report -- --all --skip-checks --rederive-report "$ROOT/no-such-report.json"
   expect_rc 0
   expect_dashboard_held 'no link re-derive dry-run report at .*'
-  expect_calls 9 '^cf deploy '
-  expect_row "pages:dashboard" deployed "$UUID"
+  expect_calls 10 '^cf deploy '
+  expect_row "worker:warg-dashboard" deployed "$UUID"
   expect_out '^Exit code: 0$'
   finish
 }
@@ -309,8 +320,9 @@ scenario_rules_gate_before_workers() {
   run_deploy rules-gate-before-workers -- --all --with-rules --skip-checks --rederive-report "$ROOT/report-removals-all.json"
   expect_rules_refused '.*plans markerRemovals=2 errors=0.*'
   expect_calls 0 '^cf deploy'
-  expect_calls 0 '^wrangler pages deploy'
+  expect_calls 0 '^wrangler '
   expect_row "worker:logger" skipped '-'
+  expect_row "worker:warg-dashboard" skipped '-'
   expect_row "function:archive-gateway" skipped '-'
   finish
 }
@@ -366,7 +378,8 @@ scenario_secret_missing() {
   expect_row "worker:readability" skipped '-'
   expect_row "worker:monolith" failed 'missing secret\(s\): R2_ACCOUNT_ID'
   expect_row "worker:gcs" skipped '-'
-  expect_out 'wrangler secret put <NAME> --config workers/monolith/wrangler.jsonc'
+  expect_out '^Set each with: cf workers secrets update <NAME> --worker monolith --type secret_text --text <value>$'
+  expect_calls 0 '^wrangler '
   expect_calls 0 '^cf deploy'
   finish
 }
@@ -383,7 +396,7 @@ scenario_secret_missing_last_worker() {
     expect_row "worker:$w" skipped '-'
   done
   expect_row "function:archive-gateway" skipped '-'
-  expect_row "pages:dashboard" skipped '-'
+  expect_row "worker:warg-dashboard" skipped '-'
   expect_calls 9 '^cf workers secrets list --worker '
   expect_calls 0 '^cf deploy'
   expect_calls 0 '^cf workers deployments list'
@@ -475,12 +488,12 @@ scenario_dirty_allowed() {
   rm -f "$FIX/untracked.txt"
   expect_rc 0
   expect_out "^Deploying label: $SHA-dirty\$"
-  expect_calls 9 '^cf deploy '
-  expect_calls 9 "^cf deploy --tag $SHORT-dirty --message $SHA-dirty --provision=false\$"
+  expect_calls 10 '^cf deploy '
+  expect_calls 10 "^cf deploy --tag $SHORT-dirty --message $SHA-dirty --provision=false\$"
   expect_calls 5 '^firebase deploy '
   expect_calls 5 "^firebase deploy .* GIT_SHA=$SHA-dirty\$"
-  expect_calls 1 "^wrangler pages deploy --branch master --commit-hash $SHA-dirty --commit-message $SHA-dirty --commit-dirty=true\$"
-  expect_row "pages:dashboard" deployed "$UUID"
+  expect_calls 0 '^wrangler '
+  expect_row "worker:warg-dashboard" deployed "$UUID"
   expect_row "worker:gateway" deployed "$UUID"
   expect_out '^=== Rules link check passed: '
   expect_no_out '^rules +skipped +not deployed'
@@ -524,7 +537,7 @@ scenario_fn_new_updatetime() {
   expect_calls 1 '^gcloud run services get-iam-policy onuserarticlesave '
   expect_calls 1 '^gcloud run services get-iam-policy backfillarchiver '
   expect_calls 1 '^gcloud run services get-iam-policy articlestatusderive '
-  expect_no_out '^pages:dashboard '
+  expect_no_out '^worker:warg-dashboard '
   expect_no_out '^rules:'
   finish
 }
@@ -572,100 +585,117 @@ scenario_fn_pass_label_missing() {
   finish
 }
 
-scenario_pages_hash_mismatch() {
-  start pages-hash-mismatch
-  run_deploy pages-hash-mismatch H_PAGES_HASH=0123456789abcdef0123456789abcdef01234567 -- --with-pages --skip-checks
+# The dashboard Worker is verified like every other worker: its deployment
+# list must show the version this run's cf deploy printed.
+scenario_dashboard_unverified() {
+  start dashboard-unverified
+  run_deploy dashboard-unverified H_SAME_IDS=warg-dashboard -- --with-dashboard --skip-checks
   expect_rc 3
-  expect_row "pages:dashboard" unverified "newest commit_hash is 0123456789abcdef0123456789abcdef01234567, expected $SHA"
-  expect_calls 1 "^wrangler pages deploy --branch master --commit-hash $SHA "
-  finish
-}
-
-# The dashboard refuses every request without its sign-in secret, so a
-# dashboard deploy stops before any worker deploys when the Pages project lacks
-# it; a deploy without the dashboard does not read the project at all.
-scenario_pages_secret_missing() {
-  start pages-secret-missing
-  run_deploy pages-secret-missing H_PAGES_SECRETS_MISSING=DASHBOARD_AUTH -- --with-pages --skip-checks
-  expect_rc 3
-  expect_row "pages:dashboard" failed 'missing secret\(s\): DASHBOARD_AUTH'
-  expect_out 'wrangler pages secret put <NAME> --project-name warg-dashboard'
-  local w
-  for w in "${WORKERS[@]}"; do
-    expect_row "worker:$w" skipped '-'
-  done
-  expect_calls 1 '^cf pages get warg-dashboard'
-  expect_calls 0 '^cf deploy'
-  expect_calls 0 '^wrangler pages deploy'
+  expect_row "worker:gateway" deployed "$UUID"
+  expect_row "worker:warg-dashboard" unverified "no new version id"
+  expect_calls 1 '^cf-deploy-worker warg-dashboard$'
+  expect_calls 1 "^cf deploy --tag $SHORT --message $SHA --provision=false\$" # the dashboard's, from its own folder
   expect_out '^Exit code: 3$'
-  run_deploy pages-secret-not-needed H_PAGES_SECRETS_MISSING=DASHBOARD_AUTH -- --skip-checks
-  expect_rc 0
-  expect_calls 0 '^cf pages get'
-  NAME=pages-secret-missing
   finish
 }
 
-# A failed read of the Pages project hides an auth failure, so it stops too.
-scenario_pages_secret_list_fails() {
-  start pages-secret-list-fails
-  run_deploy pages-secret-list-fails H_PAGES_GET_FAIL=1 -- --with-pages --skip-checks
+# The dashboard refuses every request without its sign-in secret and its API
+# routes need their keys, so a dashboard deploy stops before any worker
+# deploys when the Worker lacks one; a deploy without the dashboard does not
+# list its secrets at all.
+scenario_dashboard_secret_missing() {
+  start dashboard-secret-missing
+  local name w
+  for name in $(required_secrets_for warg-dashboard); do
+    run_deploy "dashboard-secret-missing-$name" H_SECRETS_MISSING="warg-dashboard:$name" -- --with-dashboard --skip-checks
+    expect_rc 3
+    expect_row "worker:warg-dashboard" failed "missing secret\\(s\\): $name"
+    for w in "${WORKERS[@]}"; do
+      expect_row "worker:$w" skipped '-'
+    done
+    expect_calls 0 '^cf deploy'
+  done
+  expect_out '^Set each with: cf workers secrets update <NAME> --worker warg-dashboard --type secret_text --text <value>$'
+  expect_calls 1 '^cf workers secrets list --worker warg-dashboard$'
+  expect_calls 0 '^wrangler '
+  expect_out '^Exit code: 3$'
+  run_deploy dashboard-secret-not-needed H_SECRETS_MISSING=warg-dashboard:DASHBOARD_AUTH -- --skip-checks
+  expect_rc 0
+  expect_calls 0 '^cf workers secrets list --worker warg-dashboard$'
+  expect_no_out '^worker:warg-dashboard '
+  NAME=dashboard-secret-missing
+  finish
+}
+
+# A failed listing of the dashboard's secrets hides an auth failure, so it
+# stops too.
+scenario_dashboard_secret_list_fails() {
+  start dashboard-secret-list-fails
+  run_deploy dashboard-secret-list-fails H_SECRETS_FAIL=warg-dashboard -- --with-dashboard --skip-checks
   expect_rc 1
-  expect_row "pages:dashboard" failed 'Pages project read failed \(exit 1\)'
+  expect_row "worker:warg-dashboard" failed 'secret listing failed \(exit 1\)'
   expect_out 'Authentication error'
   expect_calls 0 '^cf deploy'
-  expect_calls 0 '^wrangler pages deploy'
   finish
 }
 
-# A dashboard deploy with wrangler not signed in stops before the first worker
-# upload; the same for the functions with firebase not signed in. A token in
-# the environment counts as a firebase sign-in.
-scenario_pages_unauth() {
-  start pages-unauth
-  run_deploy pages-unauth HARNESS_WRANGLER_UNAUTH=1 -- --with-pages --skip-checks
-  expect_rc 3
-  expect_row "pages:dashboard" failed 'wrangler is not signed in \(run wrangler login or set CLOUDFLARE_API_TOKEN\)'
-  local w
-  for w in "${WORKERS[@]}"; do
-    expect_row "worker:$w" skipped '-'
-  done
-  expect_no_out ' deployed '
-  expect_calls 1 '^wrangler whoami$'
-  expect_calls 0 '^cf deploy'
-  expect_calls 0 '^wrangler pages deploy'
-  expect_out '^Exit code: 3$'
-  finish
-}
-
-# A dry run lists what the same flags would deploy: one Pages project, every
-# worker, and (with --all) every function, each "planned". It reads no
-# project, signs in nowhere and deploys nothing, so no stub tool is called.
-scenario_dry_run_pages() {
-  start dry-run-pages
-  run_deploy dry-run-pages -- --with-pages --dry-run
+# The dashboard deploys with cf alone: no wrangler call, no Pages read. Its
+# first deploy, before the Worker exists, skips its secret preflight with
+# --allow-missing-secrets warg-dashboard, as for any new worker. --with-pages
+# is the old name of --with-dashboard.
+scenario_dashboard_cf_only() {
+  start dashboard-cf-only
+  run_deploy dashboard-cf-only -- --with-dashboard --skip-checks
   expect_rc 0
-  expect_out '^=== Dry run: nothing deployed ===$'
-  expect_row "pages:dashboard" planned 'project warg-dashboard \(pages/dashboard\)'
-  local n w
-  n="$(printf '%s\n' "$OUT" | grep -Ec '^pages:' || true)"
-  [ "$n" -eq 1 ] || fail "$n summary rows name a Pages project, expected 1"
-  for w in "${WORKERS[@]}"; do
-    expect_row "worker:$w" planned '-'
-  done
-  # [2] keeps a repo-wide search for the retired project name empty.
-  expect_no_out 'dashboard-v[2]'
-  expect_calls 0 '^cf '
+  expect_row "worker:warg-dashboard" deployed "$UUID"
+  expect_dashboard_last
+  expect_calls 1 '^pnpm --filter @warg/shared run build$'
   expect_calls 0 '^wrangler '
-  expect_calls 0 '^pnpm '
-  expect_calls 0 '^firebase '
+  expect_calls 0 '^cf pages '
   expect_out '^Exit code: 0$'
+  run_deploy dashboard-first-deploy H_SECRETS_FAIL=warg-dashboard H_NO_DEPLOYMENTS=warg-dashboard -- --with-dashboard --skip-checks --allow-missing-secrets warg-dashboard
+  expect_rc 0
+  expect_row "worker:warg-dashboard" deployed "$UUID"
+  expect_out '^WARNING: preflight skipped for warg-dashboard \(--allow-missing-secrets\)$'
+  expect_calls 0 '^cf workers secrets list --worker warg-dashboard$'
+  run_deploy dashboard-pages-alias -- --with-pages --skip-checks
+  expect_rc 0
+  expect_row "worker:warg-dashboard" deployed "$UUID"
+  expect_calls 0 '^wrangler '
+  NAME=dashboard-cf-only
+  finish
+}
+
+# A dry run lists what the same flags would deploy: the dashboard Worker,
+# every worker, and (with --all) every function, each "planned". It reads no
+# secret, signs in nowhere and deploys nothing, so no stub tool is called.
+scenario_dry_run_dashboard() {
+  start dry-run-dashboard
+  local flag n w
+  for flag in --with-dashboard --with-pages; do
+    run_deploy "dry-run-dashboard$flag" -- "$flag" --dry-run
+    expect_rc 0
+    expect_out '^=== Dry run: nothing deployed ===$'
+    expect_row "worker:warg-dashboard" planned 'pages/dashboard'
+    n="$(printf '%s\n' "$OUT" | grep -Ec '^worker:warg-dashboard ' || true)"
+    [ "$n" -eq 1 ] || fail "$flag: $n summary rows name the dashboard Worker, expected 1"
+    n="$(printf '%s\n' "$OUT" | grep -Ec '^pages:' || true)"
+    [ "$n" -eq 0 ] || fail "$flag: $n summary rows name a Pages target, expected 0"
+    for w in "${WORKERS[@]}"; do
+      expect_row "worker:$w" planned '-'
+    done
+    expect_calls 0 '^cf '
+    expect_calls 0 '^wrangler '
+    expect_calls 0 '^pnpm '
+    expect_calls 0 '^firebase '
+    expect_out '^Exit code: 0$'
+  done
   run_deploy dry-run-all -- --all --dry-run
   expect_rc 0
   expect_row "rules" skipped 'not deployed \(pass --with-rules\)'
   expect_row "function:dashboard-api" planned '-'
-  n="$(printf '%s\n' "$OUT" | grep -Ec '^pages:' || true)"
-  [ "$n" -eq 1 ] || fail "--all: $n summary rows name a Pages project, expected 1"
-  NAME=dry-run-pages
+  expect_row "worker:warg-dashboard" planned 'pages/dashboard'
+  NAME=dry-run-dashboard
   finish
 }
 
@@ -702,7 +732,7 @@ scenario_induced_failure_rc() {
   expect_row "worker:renderer" failed "cf deploy exited 7"
   expect_row "worker:gateway" skipped '-'
   expect_row "function:archive-gateway" skipped '-'
-  expect_row "pages:dashboard" skipped '-'
+  expect_row "worker:warg-dashboard" skipped '-'
   expect_row "rules" skipped 'not deployed \(pass --with-rules\)'
   expect_out '^Exit code: 7$'
   finish
@@ -953,6 +983,13 @@ scenario_worker_list_sync() {
   listed="$(printf '%s\n' "${WORKERS[@]}" | sort | tr '\n' ' ')"
   on_disk="$(for d in "$WARG"/workers/*/; do if [ -f "$d/cloudflare.config.ts" ]; then basename "$d"; fi; done | sort | tr '\n' ' ')"
   [ "$listed" = "$on_disk" ] || fail "deploy.sh WORKERS ($listed) differ from workers with a cloudflare.config.ts ($on_disk)"
+  # The dashboard Worker deploys from DASHBOARD_DIR under the name DASHBOARD_WORKER.
+  local config="$WARG/$DASHBOARD_DIR/cloudflare.config.ts"
+  if [ ! -f "$config" ]; then
+    fail "$config is missing"
+  elif ! grep -Eq "^[[:space:]]*name: \"$DASHBOARD_WORKER\"," "$config"; then
+    fail "$config does not name the Worker $DASHBOARD_WORKER"
+  fi
   finish
 }
 
@@ -962,16 +999,12 @@ scenario_secrets_doc_sync() {
   start secrets-doc-sync
   local doc w want got
   doc="$(sed -n '/^# Required secrets per worker/,/^# A failed listing/p' "$DEPLOY_SH")"
-  for w in "${WORKERS[@]}"; do
+  for w in "${WORKERS[@]}" "$DASHBOARD_WORKER"; do
     want="$(required_secrets_for "$w" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
     got="$(printf '%s\n' "$doc" | sed -n "s/^#   $w: *//p" | tr ',' '\n' | tr -d ' ' | sed '/^$/d' | sort | tr '\n' ' ')"
+    [ -n "$want" ] || fail "required_secrets_for() names no secret for $w"
     [ "$want" = "$got" ] || fail "header lists '$got' for $w, required_secrets_for() has '$want'"
   done
-  doc="$(sed -n '/^# Required secrets of the Pages dashboard/,/^#$/p' "$DEPLOY_SH")"
-  want="$(required_pages_secrets | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
-  got="$(printf '%s\n' "$doc" | sed -n 's/^#   warg-dashboard: *//p' | tr ',' '\n' | tr -d ' ' | sed '/^$/d' | sort | tr '\n' ' ')"
-  [ -n "$want" ] || fail "required_pages_secrets() names no secret"
-  [ "$want" = "$got" ] || fail "header lists '$got' for the Pages dashboard, required_pages_secrets() has '$want'"
   finish
 }
 
@@ -1064,7 +1097,6 @@ scenario_functions_only() {
     expect_row "function:$fn" deployed ".*@20[0-9-]+T.*"
   done
   expect_no_out '^worker:'
-  expect_no_out '^pages:dashboard '
   expect_out '^=== Secret preflight skipped \(--functions-only\) ===$'
   expect_calls 0 '^cf deploy'
   expect_calls 0 '^cf workers secrets list'
@@ -1080,9 +1112,13 @@ scenario_functions_only_usage() {
   expect_rc 2
   expect_out 'cannot be combined with'
   expect_calls 0 '^firebase '
+  run_deploy functions-only-dashboard -- --functions-only --with-dashboard
+  expect_rc 2
+  expect_out 'cannot be combined with --with-dashboard'
+  expect_calls 0 '^firebase '
   run_deploy functions-only-pages -- --functions-only --with-pages
   expect_rc 2
-  expect_out 'cannot be combined with --with-pages'
+  expect_out 'cannot be combined with --with-dashboard'
   expect_calls 0 '^firebase '
   run_deploy functions-only-allow-missing -- --functions-only --allow-missing-secrets gcs
   expect_rc 2
@@ -1101,7 +1137,6 @@ scenario_rules_only() {
   expect_row "rules:storage" deployed ".*"
   expect_no_out '^worker:'
   expect_no_out '^function:'
-  expect_no_out '^pages:dashboard '
   expect_out '^=== Secret preflight skipped \(--rules-only\) ===$'
   expect_calls 0 '^cf deploy'
   expect_calls 0 '^cf workers secrets list'
@@ -1124,6 +1159,9 @@ scenario_rules_only_usage() {
   run_deploy rules-only-functions-only -- --rules-only --functions-only
   expect_rc 2
   expect_out 'cannot be combined with --functions-only'
+  run_deploy rules-only-dashboard -- --rules-only --with-dashboard
+  expect_rc 2
+  expect_out 'cannot be combined with --with-dashboard'
   NAME=rules-only-usage
   finish
 }
@@ -1160,7 +1198,7 @@ scenario_secret_in_env() {
 ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
   quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
-  pages-hash-mismatch pages-unauth dry-run-pages pages-secret-missing pages-secret-list-fails functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
+  dashboard-unverified dashboard-cf-only dry-run-dashboard dashboard-secret-missing dashboard-secret-list-fails functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
   worker-list-sync secrets-doc-sync function-exports-sync
   functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env
   rules-first-stamp rules-reused-stamp rules-released-zero rules-hash-mismatch rules-storage-drift
