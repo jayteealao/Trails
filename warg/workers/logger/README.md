@@ -49,6 +49,7 @@ request. It is idempotent.
 | `POST /events/batch` | atomically appends up to 100 events in one DO round-trip; body `{ requestId, events[] }`; returns `{ eventIds, derivedUpdated }`; terminal events are sent per-event by design |
 | `POST /artifact` | upserts artifact metadata |
 | `PATCH /request/:id` | manifest key / external json; returns **404** for unknown request ids |
+| `POST /request/:id/settle` | the workflow sends the terminal state a run ended in (`done`, `failed` or `incomplete`, with its error code) once per run, after every exit; body `{ state, runId, settledAt, errorCode?, errorMessage?, retryable?, recommendedAction? }`; idempotent per run (the same run and state again answers `applied: false`); stored as a `request.settled` event, and later events of the old run do not move the settled state: only a new run (`request.created` / `workflow.started`) reopens the request; bucket then legacy object; **400** for an invalid body, **404** for unknown request ids |
 | `GET /request/:id` | canonical view (dual-read); returns **404** for unknown request ids |
 | `GET /request/:id/events` | paginated events (dual-read); returns **200 `{ events: [] }`** for unknown ids (intentional historical wire shape — `GET /request/:id` is the authoritative existence check) |
 | `GET /request/:id/stream` | SSE, 3s poll, 2-minute cap (dual-read) |
