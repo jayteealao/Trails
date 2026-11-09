@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ArchiveManifest, ArtifactKind } from '@warg/shared';
+import { getGcsPath } from '@warg/shared';
 import worker from './index.js';
 import type { PersistResponse } from './types.js';
 
@@ -573,5 +574,75 @@ describe('partial', () => {
         failed: [{ kind: 'page.pdf', error: expect.stringContaining('Artifact not found in R2') }]
       }
     });
+  });
+});
+
+describe('storage path parity', () => {
+  // Every kind the worker persists (manifest.json is filtered out before persist).
+  const PERSISTED_KINDS: ArtifactKind[] = [
+    'singlefile.html',
+    'monolith.html',
+    'readability.json',
+    'readability.md',
+    'page.pdf',
+    'screenshot.png',
+    'rendered.html',
+    'rendered.md'
+  ];
+
+  const READABILITY_BODY = JSON.stringify({
+    title: 't',
+    byline: null,
+    dir: null,
+    lang: null,
+    content: null, // no HTML, so the image scan (Workers-only HTMLRewriter) is skipped
+    textContent: 'x',
+    length: 1,
+    excerpt: null,
+    siteName: null,
+    publishedTime: null
+  });
+
+  function singleKindBucket(kind: ArtifactKind): { m: ArchiveManifest; bucket: FakeBucket } {
+    const m = manifest([kind]);
+    const objects: Record<string, string | object> = { [MANIFEST_KEY]: m };
+    objects[m.artifacts[0]!.r2Key] = kind === 'readability.json' ? READABILITY_BODY : `body of ${kind}`;
+    return { m, bucket: makeBucket(objects) };
+  }
+
+  it.each(PERSISTED_KINDS)('%s: the worker and the upload function agree on the storage path', async (kind) => {
+    const expected = getGcsPath(REQUEST_ID, kind);
+    const { bucket } = singleKindBucket(kind);
+    const calls = stubNetwork({
+      // The upload function answers with the shared helper's path, as it does in production.
+      createUpload: (body) =>
+        Response.json({
+          firestore_doc_id: DOC_ID,
+          uploads: body.artifacts.map((a) => ({
+            kind: a.kind,
+            signed_url: `https://upload.test/${a.kind}`,
+            gcs_path: getGcsPath(body.request_id, a.kind).path,
+            expires_at: '2026-11-08T01:00:00Z'
+          }))
+        })
+    });
+
+    const result = await run(persistRequest(validBody), bucket);
+    expect(result.status).toBe(200);
+
+    const createUpload = calls.find((c) => c.url === `${FN_BASE}/create-upload`)!;
+    const listed = (createUpload.json as { artifacts: Array<{ kind: ArtifactKind; filename: string }> }).artifacts;
+    expect(listed).toEqual([expect.objectContaining({ kind, filename: expected.filename })]);
+
+    const finalize = calls.find((c) => c.url === `${FN_BASE}/finalize`)!;
+    const uploaded = (finalize.json as { uploaded: Array<{ kind: ArtifactKind; gcs_path: string }> }).uploaded;
+    expect(uploaded).toEqual([expect.objectContaining({ kind, gcs_path: expected.path })]);
+
+    vi.unstubAllGlobals();
+    stubNetwork();
+    const dryRun = await run(persistRequest({ ...validBody, dryRun: true }), singleKindBucket(kind).bucket);
+    expect(dryRun.body).toEqual(
+      expect.objectContaining({ artifacts: [{ kind, gcs_path: expected.path }], dryRun: true })
+    );
   });
 });
