@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ArchiveManifest, ArchiveOptions } from '@warg/shared';
 import { getCheckpointKey, getOptionsKey } from '@warg/shared';
 import { createCheckpoint, markArtifactsPersisted, recordArtifacts } from './checkpoint.js';
@@ -322,5 +322,98 @@ describe('ArchiveWorkflow.run', () => {
     expect(fake.quota.acquired).toHaveLength(leases);
     expect(new Set(fake.quota.released).size).toBe(fake.quota.released.length);
     expect([...fake.quota.released].sort()).toEqual([...fake.quota.acquired].sort());
+  });
+});
+
+describe('settle to the logger', () => {
+  let consoleError: ReturnType<typeof vi.spyOn> | undefined;
+
+  afterEach(() => {
+    consoleError?.mockRestore();
+    consoleError = undefined;
+  });
+
+  function settlesFor(fake: FakeEnv): Array<Record<string, unknown>> {
+    return fake.logger.settles.filter((entry) => entry.requestId === REQUEST_ID).map((entry) => entry.body);
+  }
+
+  it('settles a run that finishes done once, after the completion log', async () => {
+    const { fake, run, outcome } = await runRequest({});
+
+    expect(resultOf(outcome).status).toBe('done');
+    const settles = settlesFor(fake);
+    expect(settles).toHaveLength(1);
+    expect(settles[0]).toMatchObject({ state: 'done', runId: makeEvent(REQUEST_ID, URL).instanceId });
+    expect(Number.isNaN(Date.parse(String(settles[0]?.settledAt)))).toBe(false);
+    expect(countOf(run.names, 'settle-logger')).toBe(1);
+    expect(run.names.indexOf('settle-logger')).toBeGreaterThan(run.names.indexOf('log-completed'));
+  });
+
+  it('settles a dry run as done', async () => {
+    const { fake, outcome } = await runRequest({ dryRun: true });
+
+    expect(resultOf(outcome).dryRun).toBe(true);
+    expect(settlesFor(fake).map((body) => body.state)).toEqual(['done']);
+  });
+
+  it('settles a mock pipeline run as done', async () => {
+    const { fake, outcome } = await runRequest({}, { mockPipeline: true });
+
+    expect(resultOf(outcome).mock).toBe(true);
+    expect(settlesFor(fake).map((body) => body.state)).toEqual(['done']);
+  });
+
+  it('settles a failed run as failed with the error code of the failure log', async () => {
+    const { fake, run, outcome } = await runRequest(
+      { steps: ['render'] },
+      { handlers: { RENDERER: () => accessBlockedResponse() } }
+    );
+
+    expect(errorOf(outcome).name).toBe('WorkflowTerminalError');
+    const requestFailed = eventsOfType(fake.logger, 'request.failed');
+    expect(requestFailed[0]?.data.errorCode).toBe('NO_OUTPUTS_PRODUCED');
+    const settles = settlesFor(fake);
+    expect(settles).toHaveLength(1);
+    expect(settles[0]).toMatchObject({ state: 'failed', errorCode: requestFailed[0]?.data.errorCode });
+    expect(run.names.indexOf('settle-logger')).toBeGreaterThan(run.names.indexOf('log-workflow-failed'));
+  });
+
+  it('settles a run whose monolith output is missing as incomplete', async () => {
+    const { fake, outcome } = await runRequest({}, { handlers: { MONOLITH: () => monolithInputTooLarge() } });
+
+    expect(resultOf(outcome).degraded).toBe(true);
+    expect(settlesFor(fake).map((body) => body.state)).toEqual(['incomplete']);
+    const monolithFailures = eventsOfType(fake.logger, 'step.failed').filter((event) =>
+      String(event.data.step).startsWith('monolith')
+    );
+    expect(monolithFailures.map((event) => event.data.errorCode)).toContain('MONOLITH_INPUT_TOO_LARGE');
+  });
+
+  it('keeps the archive result when the logger rejects the settle, and logs the failure', async () => {
+    const baseline = resultOf((await runRequest({})).outcome);
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const { run, outcome } = await runRequest({}, { settle: () => new Response('boom', { status: 500 }) });
+
+    expect(resultOf(outcome)).toEqual(baseline);
+    expect(run.attempts.get('settle-logger')).toBe(3);
+    expect(consoleError.mock.calls.some((args) => String(args[0]).includes('settle failed'))).toBe(true);
+  });
+
+  it('rethrows the archive failure, not the settle failure, when the settle times out', async () => {
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const { fake, outcome } = await runRequest(
+      { steps: ['render'] },
+      {
+        handlers: { RENDERER: () => accessBlockedResponse() },
+        settle: () => {
+          throw new DOMException('timed out', 'TimeoutError');
+        },
+      }
+    );
+
+    expect(errorOf(outcome).name).toBe('WorkflowTerminalError');
+    expect(eventsOfType(fake.logger, 'request.failed')).toHaveLength(1);
   });
 });
