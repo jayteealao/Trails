@@ -73,6 +73,7 @@ export {
   isRpc32MiBLimit,
   isMonolithInputTooLarge,
   classifySandboxOutput,
+  classifyError,
 } from './failure-classify.js';
 
 export type { InternalJsonRequest } from './worker-request.js';
