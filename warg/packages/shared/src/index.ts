@@ -66,6 +66,15 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
+export type { ErrorClassification, SandboxFailureCode } from './failure-classify.js';
+export {
+  withClassificationTag,
+  readClassificationTag,
+  isRpc32MiBLimit,
+  isMonolithInputTooLarge,
+  classifySandboxOutput,
+} from './failure-classify.js';
+
 export type { InternalJsonRequest } from './worker-request.js';
 export { INTERNAL_API_KEY_HEADER, readInternalJsonRequest } from './worker-request.js';
 
