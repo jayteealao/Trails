@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - dashboard runtime modules are plain JS and intentionally imported in tests.
-import { parseLocation, buildUrl, normalizeRouteState } from '../../../modules/route-state.js';
+import { parseLocation, buildUrl, normalizeRouteState } from '../../../public/modules/route-state.js';
 
 describe('route-state codec', () => {
   it('parses request detail path with from query', () => {
