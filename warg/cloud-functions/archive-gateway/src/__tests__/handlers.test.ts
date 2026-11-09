@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import type { Request } from 'firebase-functions/v2/https';
 import * as firestore from 'firebase-admin/firestore';
 import { SHARED_ARTICLE_FIELDS } from '@warg/article-writer';
+import { getGcsPath } from '@warg/shared/archive-ids';
+import { KIND_TO_ARCHIVE_KEY, type ArtifactKind } from '../types.js';
 import { makeFakeFirestore, normalise } from './fake-firestore.js';
 import {
   fakeResponse,
@@ -480,4 +482,50 @@ test('finalize of an unknown article answers 404, creates nothing and logs the f
   assert.deepEqual(logs.state.posts, [
     logPost('persist.failed', `Failed to finalize: ${message}`, { error: message }, 'error')
   ]);
+});
+
+const ALL_KINDS: ArtifactKind[] = [
+  'singlefile.html',
+  'monolith.html',
+  'readability.json',
+  'readability.md',
+  'page.pdf',
+  'screenshot.png',
+  'rendered.html',
+  'rendered.md',
+  'manifest.json'
+];
+
+test('create-upload signs and journals the shared storage path of every artifact kind, and keeps the www. host as the domain', async () => {
+  const body = uploadBody({
+    url: 'https://www.example.com/a',
+    artifacts: ALL_KINDS.map((kind) => artifact(kind, 'application/octet-stream'))
+  });
+  const out = await send(gatewayRequest({ path: '/create-upload', key: KEY, body }));
+  assert.equal(out.status, 200);
+
+  const uploads = (out.body as { uploads: Array<{ kind: ArtifactKind; gcs_path: string }> }).uploads;
+  assert.deepEqual(
+    uploads.map((u) => [u.kind, u.gcs_path]),
+    ALL_KINDS.map((kind) => [kind, getGcsPath(ID, kind).path])
+  );
+  assert.deepEqual(
+    storage.state.calls.map((c) => c.path),
+    ALL_KINDS.map((kind) => getGcsPath(ID, kind).path)
+  );
+
+  assert.equal(fake.writes.length, 1);
+  const data = fake.writes[0]!.data as {
+    domain: string;
+    archives: Record<string, { gcs_path: string }>;
+  };
+  assert.equal(data.domain, 'www.example.com');
+  const journalled = ALL_KINDS.flatMap((kind) => {
+    const key = KIND_TO_ARCHIVE_KEY[kind];
+    return key ? [[key, `gs://${BUCKET}/${getGcsPath(ID, kind).path}`]] : [];
+  });
+  assert.deepEqual(
+    Object.entries(data.archives).map(([key, entry]) => [key, entry.gcs_path]).sort(),
+    journalled.sort()
+  );
 });
