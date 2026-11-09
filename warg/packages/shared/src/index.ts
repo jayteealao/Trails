@@ -45,7 +45,15 @@ export type {
   ArticleHealth
 } from './dashboard.js';
 
-export { REQUEST_ERROR_CODES, USER_ACTION_HINTS } from './dashboard.js';
+export {
+  REQUEST_ERROR_CODES,
+  USER_ACTION_HINTS,
+  isRequestErrorCode,
+  isUserActionHint,
+} from './dashboard.js';
+
+export type { RequestSettle, SettledRecord } from './settle.js';
+export { parseRequestSettle, isIncompleteDegradation } from './settle.js';
 
 export { createEvent } from './logging.js';
 

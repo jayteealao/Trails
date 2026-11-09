@@ -11,6 +11,10 @@ export const USER_ACTION_HINTS = [
 
 export type UserActionHint = (typeof USER_ACTION_HINTS)[number];
 
+export function isUserActionHint(value: unknown): value is UserActionHint {
+  return USER_ACTION_HINTS.some((hint) => hint === value);
+}
+
 export const REQUEST_ERROR_CODES = [
   'INVALID_INPUT_URL',
   'WORKFLOW_TRIGGER_FAILED',
@@ -36,6 +40,10 @@ export const REQUEST_ERROR_CODES = [
 ] as const;
 
 export type RequestErrorCode = (typeof REQUEST_ERROR_CODES)[number];
+
+export function isRequestErrorCode(value: unknown): value is RequestErrorCode {
+  return REQUEST_ERROR_CODES.some((code) => code === value);
+}
 
 export interface RequestDiagnostics {
   errorCode?: RequestErrorCode;
