@@ -61,14 +61,17 @@ function parseLoadedPage(json: unknown): LoadedPage | undefined {
 }
 
 /** Screenshot bytes from base64 text, with or without a data-URI prefix; undefined when the text is not base64. */
-function decodeScreenshot(screenshot: string): ArrayBuffer | undefined {
+function decodeScreenshot(screenshot: string, requestId: string): ArrayBuffer | undefined {
   try {
     const binary = atob(screenshot.replace(/^data:[^,]*;base64,/i, ''));
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return bytes.buffer;
   } catch (err) {
-    console.error('[renderer] snapshot screenshot is not valid base64:', err instanceof Error ? err.message : String(err));
+    console.warn(
+      '[renderer] snapshot screenshot is not valid base64',
+      JSON.stringify({ request_id: requestId, failure: err instanceof Error ? err.message : String(err) })
+    );
     return undefined;
   }
 }
@@ -153,7 +156,7 @@ export default {
       }
       if (!pageResp) {
         // A failed snapshot must not lose the HTML: load the HTML alone once, and skip the other formats.
-        console.error(
+        console.warn(
           '[renderer] snapshot load failed, retrying the HTML alone',
           JSON.stringify({ request_id, formats, failure: snapshotFailure })
         );
@@ -164,7 +167,9 @@ export default {
       }
       if (!pageResp.ok) {
         const errorText = await pageResp.text();
-        console.error('[renderer] page load failed', JSON.stringify({ request_id, action, status: pageResp.status }));
+        // A 403 is the target blocking access, an expected outcome the workflow handles.
+        const log = pageResp.status === 403 ? console.warn : console.error;
+        log('[renderer] page load failed', JSON.stringify({ request_id, action, status: pageResp.status }));
         // The shared failure classifier reads this error text to classify the failure and pick
         // the workflow's renderer fallback; it covers content and snapshot loads alike.
         return Response.json(
@@ -205,7 +210,7 @@ export default {
       let screenshotMeta: ArtifactMeta | undefined;
       let screenshotSkip = 'screenshot: not requested';
       if (includeScreenshot) {
-        const screenshotData = page.screenshot ? decodeScreenshot(page.screenshot) : undefined;
+        const screenshotData = page.screenshot ? decodeScreenshot(page.screenshot, request_id) : undefined;
         if (screenshotData) {
           screenshotMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', screenshotData, 'image/png');
         } else {
@@ -246,7 +251,7 @@ export default {
         } catch (err) {
           // The PDF is optional: a thrown load becomes a skip note and keeps the stored artifacts.
           const message = err instanceof Error ? err.message : String(err);
-          console.error('[renderer] pdf load failed', JSON.stringify({ request_id, failure: message }));
+          console.warn('[renderer] pdf load failed', JSON.stringify({ request_id, failure: message }));
           pdfSkip = `pdf: ${message}`;
         }
         if (pdfResp) {
