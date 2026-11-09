@@ -138,12 +138,39 @@ export default {
 
       const browserApiStart = Date.now();
       const formats = planFormats({ includeScreenshot, includeMarkdown });
-      const action = formats.length >= 2 ? 'snapshot' : 'content';
+      let action: 'snapshot' | 'content' = formats.length >= 2 ? 'snapshot' : 'content';
 
       // 1. One page load for the HTML and the requested screenshot and markdown
-      const pageResp = await loadPage(env, targetUrl, formats);
-      const pageRateLimit = checkRateLimit(pageResp, '');
-      if (pageRateLimit) return pageRateLimit;
+      let pageResp: Response | undefined;
+      let snapshotFailure: string | undefined;
+      try {
+        pageResp = await loadPage(env, targetUrl, formats);
+      } catch (err) {
+        // A content load that throws has no HTML to keep: the outer handler answers 500.
+        if (action !== 'snapshot') throw err;
+        snapshotFailure = err instanceof Error ? err.message : String(err);
+      }
+      if (pageResp) {
+        const pageRateLimit = checkRateLimit(pageResp, '');
+        if (pageRateLimit) return pageRateLimit;
+        // A 403 is the target blocking access: answer it at once so the workflow's fallback sees it.
+        if (!pageResp.ok && action === 'snapshot' && pageResp.status !== 403) {
+          snapshotFailure = String(pageResp.status);
+          await pageResp.body?.cancel();
+          pageResp = undefined;
+        }
+      }
+      if (!pageResp) {
+        // A failed snapshot must not lose the HTML: load the HTML alone once, and skip the other formats.
+        console.error(
+          '[renderer] snapshot load failed, retrying the HTML alone',
+          JSON.stringify({ request_id, formats, failure: snapshotFailure })
+        );
+        action = 'content';
+        pageResp = await loadPage(env, targetUrl, ['content']);
+        const retryRateLimit = checkRateLimit(pageResp, '');
+        if (retryRateLimit) return retryRateLimit;
+      }
       if (!pageResp.ok) {
         const errorText = await pageResp.text();
         console.error('[renderer] page load failed', JSON.stringify({ request_id, action, status: pageResp.status }));
@@ -191,9 +218,11 @@ export default {
         if (screenshotData) {
           screenshotMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', screenshotData, 'image/png');
         } else {
-          screenshotSkip = page.screenshot
-            ? 'screenshot: snapshot screenshot is not valid base64'
-            : 'screenshot: snapshot returned no screenshot';
+          screenshotSkip = snapshotFailure
+            ? `screenshot: snapshot failed with ${snapshotFailure}`
+            : page.screenshot
+              ? 'screenshot: snapshot screenshot is not valid base64'
+              : 'screenshot: snapshot returned no screenshot';
         }
       }
 
@@ -210,7 +239,9 @@ export default {
             'text/markdown'
           );
         } else {
-          markdownSkip = 'markdown: snapshot returned no markdown';
+          markdownSkip = snapshotFailure
+            ? `markdown: snapshot failed with ${snapshotFailure}`
+            : 'markdown: snapshot returned no markdown';
         }
       }
 
@@ -218,14 +249,24 @@ export default {
       let pdfMeta: ArtifactMeta | undefined;
       let pdfSkip = 'pdf: not requested';
       if (includePdf) {
-        const pdfResp = await env.BROWSER.quickAction('pdf', { url: targetUrl, gotoOptions: GOTO_OPTIONS });
-        const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
-        if (pdfRateLimit) return pdfRateLimit;
-        if (pdfResp.ok) {
-          const pdfData = await pdfResp.arrayBuffer();
-          pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
-        } else {
-          pdfSkip = `pdf: API returned ${pdfResp.status}`;
+        let pdfResp: Response | undefined;
+        try {
+          pdfResp = await env.BROWSER.quickAction('pdf', { url: targetUrl, gotoOptions: GOTO_OPTIONS });
+        } catch (err) {
+          // The PDF is optional: a thrown load becomes a skip note and keeps the stored artifacts.
+          const message = err instanceof Error ? err.message : String(err);
+          console.error('[renderer] pdf load failed', JSON.stringify({ request_id, failure: message }));
+          pdfSkip = `pdf: ${message}`;
+        }
+        if (pdfResp) {
+          const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
+          if (pdfRateLimit) return pdfRateLimit;
+          if (pdfResp.ok) {
+            const pdfData = await pdfResp.arrayBuffer();
+            pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
+          } else {
+            pdfSkip = `pdf: API returned ${pdfResp.status}`;
+          }
         }
       }
 
