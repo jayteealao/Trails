@@ -5,7 +5,7 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
 // in the preview overlay: HTML text without its script, PDFs in the browser's
 // own viewer, and screenshots as images (or a plain failure line when the
 // image does not load). The stub below stands in for dashboard-api and the
-// archive store, so the run goes through the real dashboard and its Pages
+// archive store, so the run goes through the real dashboard Worker and its
 // functions.
 
 // The default headless shell has no PDF viewer and downloads PDFs instead;

@@ -3,8 +3,8 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { E2E_AUTH_PASSWORD, E2E_AUTH_USER } from '../playwright.config';
 import { listRoutes } from '../functions/api/__tests__/route-inventory';
 
-// Every dashboard page and API route, served by the real Pages router under
-// `wrangler pages dev`, asks for the dashboard sign-in and lets the right
+// Every dashboard page and API route, served by the dashboard Worker's router
+// under `wrangler dev`, asks for the dashboard sign-in and lets the right
 // credential through to the page or handler.
 const routes = listRoutes(path.join(__dirname, '..', 'functions', 'api'));
 const CHALLENGE = 'Basic realm="Warg dashboard", charset="UTF-8"';

@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { defineConfig } from '@playwright/test';
-import { loggerServer, pagesServer, workflowServer } from './e2e-logger/local-servers';
+import { loggerServer, dashboardServer, workflowServer } from './e2e-logger/local-servers';
 
 // The settle check runs one archive request end to end on this machine: the
 // real logger over a fresh local D1, the real workflow worker in mock mode on
@@ -69,7 +69,7 @@ export default defineConfig({
       optionsKey: SETTLE_OPTIONS_KEY,
       optionsFile: OPTIONS_FILE,
     }),
-    pagesServer({
+    dashboardServer({
       port: PAGES_PORT,
       registry: REGISTRY,
       stubPort: STUB_PORT,
