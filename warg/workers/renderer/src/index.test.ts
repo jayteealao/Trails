@@ -285,3 +285,136 @@ describe('a failed optional output keeps the html', () => {
     expect(storedKinds(bucket)).toEqual(['rendered.html', 'screenshot.png', 'rendered.md']);
   });
 });
+
+// Byte-exact copy of the stub archived by the 2026-09-04 canary: Chrome's
+// plain-text rendering of the proxy's DNS failure, served as HTTP 200.
+const DEAD_HOST_STUB =
+  '<html><head><meta name="color-scheme" content="light dark"></head>' +
+  '<body><pre style="word-wrap: break-word; white-space: pre-wrap;">' +
+  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host\n' +
+  '</pre><div id="header-bqq3lsboese" style="display: none;"></div>' +
+  '</body></html>';
+
+describe('kept responses', () => {
+  it('answers 502 with the proxy-error reason and stores nothing for a proxy error page', async () => {
+    const { env, browser, bucket } = makeEnv([
+      snapshotAnswer({ content: DEAD_HOST_STUB, screenshot: PNG_BASE64, markdown: 'dial tcp' })
+    ]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(502);
+    expect(json).toEqual({
+      error: 'Browser Rendering /content returned a proxy/network error page',
+      reason: PROXY_ERROR_PAGE_REASON,
+      detail: 'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
+      url: TARGET_URL
+    });
+    expect(bucket.put).not.toHaveBeenCalled();
+    expect(browser.quickAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers 429 with the Retry-After delay when the page load is rate limited', async () => {
+    const { env, bucket } = makeEnv([errorAnswer(429, { 'Retry-After': '7' })]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(429);
+    expect(json).toEqual({ error: 'rate_limited', retry_after_ms: 7000, message: 'Browser Rendering rate limited' });
+    expect(bucket.put).not.toHaveBeenCalled();
+  });
+
+  it('defaults the rate-limit delay to 5000 ms with no Retry-After', async () => {
+    const { env } = makeEnv([errorAnswer(429)]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(429);
+    expect(json.retry_after_ms).toBe(5000);
+  });
+
+  it('answers 429 when the pdf load is rate limited', async () => {
+    const { env } = makeEnv([
+      snapshotAnswer({ content: PAGE_HTML, screenshot: PNG_BASE64, markdown: PAGE_MARKDOWN }),
+      errorAnswer(429, { 'Retry-After': '3' })
+    ]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(429);
+    expect(json).toEqual({ error: 'rate_limited', retry_after_ms: 3000, message: 'Browser Rendering rate limited on PDF' });
+  });
+
+  it.each([502, 403])('answers 502 with the content failure body when the html load answers %i', async (status) => {
+    const failure = errorAnswer(status);
+    const details = await failure.clone().text();
+    const { env } = makeEnv([failure]);
+
+    const { response, json } = await render(
+      { ...ALL_ON, include_screenshot: false, include_pdf: false, include_markdown: false },
+      env
+    );
+
+    expect(response.status).toBe(502);
+    expect(json).toEqual({ error: 'Browser Rendering /content failed', status, details });
+  });
+
+  it('answers 502 with the content failure body when the html retry after a failed snapshot fails', async () => {
+    const { env, browser } = makeEnv([errorAnswer(500), errorAnswer(503)]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(502);
+    expect(json.error).toBe('Browser Rendering /content failed');
+    expect(json.status).toBe(503);
+    expect(browser.quickAction.mock.calls.map(([action]) => action)).toEqual(['snapshot', 'content']);
+  });
+
+  it('answers 502 with status 403 and no html retry when the snapshot answers 403', async () => {
+    const failure = errorAnswer(403);
+    const details = await failure.clone().text();
+    const { env, browser } = makeEnv([failure]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(502);
+    expect(json).toEqual({ error: 'Browser Rendering /content failed', status: 403, details });
+    expect(browser.quickAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers 502 when the page load returns no html', async () => {
+    const { env } = makeEnv([snapshotAnswer({ screenshot: PNG_BASE64 })]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(502);
+    expect(json).toEqual({ error: 'Browser Rendering /content returned invalid response' });
+  });
+
+  it('answers 404 for anything but POST /render', async () => {
+    const { env } = makeEnv([]);
+    expect((await render(ALL_ON, env, { path: '/other' })).response.status).toBe(404);
+    expect((await render(ALL_ON, env, { method: 'GET' })).response.status).toBe(404);
+  });
+
+  it('answers 401 without a valid internal key', async () => {
+    const { env } = makeEnv([]);
+    expect((await render(ALL_ON, env, { key: null })).response.status).toBe(401);
+    expect((await render(ALL_ON, env, { key: 'wrong-key' })).response.status).toBe(401);
+  });
+
+  it('answers 400 for a body that is not JSON', async () => {
+    const { env } = makeEnv([]);
+    const { response, json } = await render('{not json', env);
+    expect(response.status).toBe(400);
+    expect(json).toEqual({ error: 'Invalid JSON' });
+  });
+
+  it('answers 400 when a required field is missing', async () => {
+    const { env, browser } = makeEnv([]);
+    const { response, json } = await render({ ...ALL_ON, url: undefined }, env);
+    expect(response.status).toBe(400);
+    expect(json).toEqual({ error: 'Missing required fields: request_id, url, browser_quota_kind' });
+    expect(browser.quickAction).not.toHaveBeenCalled();
+  });
+});
