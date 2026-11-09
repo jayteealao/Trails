@@ -1,9 +1,10 @@
 // Each Cloud Function bundles alone, so a few helpers are copied between them:
-// the creator shared-article id shape, the key compare and the key-rotation
-// switch. These tests fail when one copy changes and the others do not, so a
-// rule change reaches every function together. The link reader and the pocket
-// projection are not copied: they live once in @warg/article-writer, and these
-// tests fail when a function defines its own.
+// the key compare and the key-rotation switch. These tests fail when one copy
+// changes and the others do not, so a rule change reaches every function
+// together. The link reader and the pocket projection are not copied: they live
+// once in @warg/article-writer, and these tests fail when a function defines
+// its own. The id rules live once in @warg/shared; the link reader keeps its own
+// reader shape, which must stay equal to the shared reader rule.
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -61,26 +62,23 @@ function assertSameBodies(pairs) {
   }
 }
 
-test('the reader shared-id shape accepts every id a creator makes, and the creators share one shape', () => {
+test('the reader shared-id shape accepts every id the creator rule allows, and equals the shared reader rule', () => {
   const resolveRel = '../packages/article-writer/src/resolve.ts';
-  const reader = [regexLiteral(source(resolveRel), 'SHARED_ID_SHAPE', resolveRel)];
-
-  const creator = [
-    ['user-triggers/src/link.ts', 'SHARED_ID_PATTERN'],
-    ['dashboard-api/src/signed-url-core.ts', 'SAFE_ID_RE'],
-    ['dashboard-api/src/bootstrap-article.ts', 'SAFE_ID_RE'],
-    ['dashboard-api/src/enqueue-article.ts', 'SAFE_ID_RE'],
-    ['dashboard-api/src/mark-processing.ts', 'SAFE_ID_RE'],
-  ].map(([rel, name]) => regexLiteral(source(rel), name, rel));
-  for (const literal of creator) assert.equal(literal, creator[0]);
+  const sharedRel = '../packages/shared/src/archive-ids.ts';
+  const reader = regexLiteral(source(resolveRel), 'SHARED_ID_SHAPE', resolveRel);
+  const creator = regexLiteral(source(sharedRel), 'SAFE_ID_RE', sharedRel);
+  assert.equal(reader, regexLiteral(source(sharedRel), 'LEGACY_SAFE_ID_RE', sharedRel));
 
   // A reader must accept every id a creator makes: same characters, and a
   // lower minimum length (legacy ids are shorter than new ones).
-  const readerRe = new RegExp(reader[0].slice(1, -1));
+  const creatorRe = new RegExp(creator.slice(1, -1));
+  const readerRe = new RegExp(reader.slice(1, -1));
   for (const id of ['abcdefgh', 'aZ09_-bc', 'a'.repeat(40)]) {
-    assert.ok(new RegExp(creator[0].slice(1, -1)).test(id), id);
+    assert.ok(creatorRe.test(id), id);
     assert.ok(readerRe.test(id), id);
   }
+  assert.equal(creatorRe.test('a'.repeat(7)), false);
+  assert.equal(readerRe.test('a'.repeat(7)), true);
   assert.equal(readerRe.test('a'.repeat(41)), false);
   assert.equal(readerRe.test('abc/defg'), false);
 });
