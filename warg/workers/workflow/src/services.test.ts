@@ -11,8 +11,7 @@ import {
   ServiceCallError,
   type ServiceErrorClassification,
 } from './services.js';
-import { PROXY_ERROR_PAGE_REASON } from '@warg/shared';
-import { readClassificationTag } from './classification-tag.js';
+import { PROXY_ERROR_PAGE_REASON, readClassificationTag } from '@warg/shared';
 import type { RendererResponse } from './types.js';
 
 function makeJsonResponse(status: number, body: unknown): Response {
