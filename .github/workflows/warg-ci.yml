@@ -79,30 +79,32 @@ jobs:
         # pnpm workspace and is not included.
         run: pnpm -r --if-present run test
 
-      - name: cf deploy dry run (every worker)
+      - name: cf deploy dry run (every worker and the dashboard)
         # Builds and validates each worker from its cloudflare.config.ts
         # without uploading. --dry-run needs no Cloudflare credentials; the
         # monolith run also builds its container image with the runner's Docker.
         # Every worker folder with a cloudflare.config.ts is covered, so a new
-        # worker needs no edit here.
+        # worker needs no edit here; the dashboard Worker lives in
+        # pages/dashboard.
         timeout-minutes: 15
         run: |
           set -euo pipefail
-          for d in workers/*/; do
-            w="$(basename "$d")"
-            [ -f "workers/$w/cloudflare.config.ts" ] || continue
-            echo "::group::cf deploy --dry-run ($w)"
-            if ! (cd "workers/$w" && pnpm exec cf deploy --dry-run); then
-              echo "::error::cf deploy --dry-run failed for worker $w"
+          for d in workers/*/ pages/dashboard/; do
+            d="${d%/}"
+            [ -f "$d/cloudflare.config.ts" ] || continue
+            echo "::group::cf deploy --dry-run ($d)"
+            if ! (cd "$d" && pnpm exec cf deploy --dry-run); then
+              echo "::error::cf deploy --dry-run failed for $d"
               exit 1
             fi
             echo "::endgroup::"
           done
 
       - name: Worker configs agree (cloudflare.config.ts and wrangler.jsonc)
-        # cf deploy reads cloudflare.config.ts; wrangler dev and wrangler types
-        # read wrangler.jsonc. Fails when a binding, Durable Object class, cron
-        # or compatibility setting differs between the two.
+        # cf deploy reads cloudflare.config.ts (and, for the dashboard,
+        # wrangler.config.ts); wrangler dev and wrangler types read
+        # wrangler.jsonc. Fails when a binding, Durable Object class, cron,
+        # static assets or compatibility setting differs between the two.
         timeout-minutes: 5
         run: |
           node scripts/check-worker-configs.mjs
@@ -232,8 +234,9 @@ jobs:
   dashboard-e2e:
     # The dashboard's browser checks: the sign-in on every page and route, the
     # archive content policy, the archive preview, the infra view and the
-    # inbox, driven in Chromium against wrangler pages dev with test
-    # credentials, a stand-in logger and per-spec stubs (no live service).
+    # inbox, driven in Chromium against the dashboard Worker under a local
+    # `wrangler dev` (wrangler.jsonc) with test credentials, a stand-in
+    # logger and per-spec stubs (no live service, no Cloudflare account).
     runs-on: ubuntu-latest
     permissions:
       contents: read
