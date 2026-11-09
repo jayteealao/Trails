@@ -1,5 +1,6 @@
 import { Timestamp } from 'firebase-admin/firestore';
 import type { DocumentData } from 'firebase-admin/firestore';
+import { extractDomain } from '@warg/shared/archive-ids';
 import type {
   BackfillTracker,
   BatchEntry,
@@ -16,14 +17,6 @@ function asTimestamp(value: unknown): Timestamp | null {
   return typeof maybeTs.toMillis === 'function'
     ? (value as Timestamp)
     : null;
-}
-
-function extractDomain(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return 'unknown';
-  }
 }
 
 function normalizeBatch(raw: unknown): BatchEntry[] {

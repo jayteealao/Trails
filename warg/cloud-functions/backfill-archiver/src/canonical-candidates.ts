@@ -4,7 +4,7 @@ import type {
   QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
 import { readCanonicalId, readSharedArticles, resolveCanonicalItemId } from '@warg/article-writer';
-import { extractDomain } from './canonical.js';
+import { extractDomain } from '@warg/shared/archive-ids';
 
 // Groups the backfill page of user articles by the shared article each one links to.
 // It lives outside index.ts so the function entry exports only deployed functions.
