@@ -3,7 +3,6 @@ import type { ArtifactMeta, ArtifactKind } from '@warg/shared';
 import {
   COMPRESSIBLE_KINDS,
   shouldCompress,
-  getGcsPath,
   filterPersistableArtifacts,
   toUploadInfo
 } from './artifacts.js';
@@ -34,61 +33,6 @@ describe('shouldCompress', () => {
   it('returns false for non-compressible kinds', () => {
     expect(shouldCompress('screenshot.png')).toBe(false);
     expect(shouldCompress('readability.json')).toBe(false);
-  });
-});
-
-describe('getGcsPath', () => {
-  const requestId = 'req-abc';
-
-  it('returns correct path for singlefile.html', () => {
-    const result = getGcsPath(requestId, 'singlefile.html');
-    expect(result).toEqual({
-      folder: 'singlefile',
-      filename: 'output.html.gz',
-      path: 'archives/req-abc/singlefile/output.html.gz'
-    });
-  });
-
-  it('returns correct path for screenshot.png', () => {
-    const result = getGcsPath(requestId, 'screenshot.png');
-    expect(result).toEqual({
-      folder: 'screenshot',
-      filename: 'output.png',
-      path: 'archives/req-abc/screenshot/output.png'
-    });
-  });
-
-  it('returns correct path for readability.json', () => {
-    const result = getGcsPath(requestId, 'readability.json');
-    expect(result).toEqual({
-      folder: 'readability',
-      filename: 'output.json',
-      path: 'archives/req-abc/readability/output.json'
-    });
-  });
-
-  it('returns correct path for page.pdf', () => {
-    const result = getGcsPath(requestId, 'page.pdf');
-    expect(result).toEqual({
-      folder: 'pdf',
-      filename: 'output.pdf',
-      path: 'archives/req-abc/pdf/output.pdf'
-    });
-  });
-
-  it('returns correct path for rendered.html', () => {
-    const result = getGcsPath(requestId, 'rendered.html');
-    expect(result.path).toBe('archives/req-abc/rendered/output.html.gz');
-  });
-
-  it('returns correct path for rendered.md', () => {
-    const result = getGcsPath(requestId, 'rendered.md');
-    expect(result.path).toBe('archives/req-abc/rendered/output.md.gz');
-  });
-
-  it('returns correct path for readability.md', () => {
-    const result = getGcsPath(requestId, 'readability.md');
-    expect(result.path).toBe('archives/req-abc/readability/output.md.gz');
   });
 });
 

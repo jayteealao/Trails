@@ -1,4 +1,4 @@
-import { readInternalJsonRequest } from '@warg/shared';
+import { getGcsPath, readInternalJsonRequest } from '@warg/shared';
 import type { ArchiveManifest, ArtifactMeta, ReadabilityResult } from '@warg/shared';
 import type {
   PersistRequest,
@@ -15,7 +15,6 @@ import type {
 } from './types.js';
 import {
   shouldCompress,
-  getGcsPath,
   filterPersistableArtifacts,
   toUploadInfo
 } from './artifacts.js';

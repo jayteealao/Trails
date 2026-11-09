@@ -1,6 +1,6 @@
 import type { ArtifactMeta, ArtifactKind } from '@warg/shared';
+import { getGcsPath } from '@warg/shared';
 import type { ArtifactUploadInfo } from './types.js';
-import { ARTIFACT_PATH_MAP } from './types.js';
 
 /**
  * Artifact kinds that should be gzip-compressed before upload.
@@ -19,21 +19,6 @@ export const COMPRESSIBLE_KINDS = new Set<ArtifactKind>([
  */
 export function shouldCompress(kind: ArtifactKind): boolean {
   return COMPRESSIBLE_KINDS.has(kind);
-}
-
-/**
- * Get the GCS path for an artifact.
- */
-export function getGcsPath(requestId: string, kind: ArtifactKind): { folder: string; filename: string; path: string } {
-  const mapping = ARTIFACT_PATH_MAP[kind];
-  if (!mapping) {
-    throw new Error(`Unknown artifact kind: ${kind}`);
-  }
-  return {
-    folder: mapping.folder,
-    filename: mapping.filename,
-    path: `archives/${requestId}/${mapping.folder}/${mapping.filename}`
-  };
 }
 
 /**
