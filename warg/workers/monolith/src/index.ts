@@ -299,7 +299,8 @@ export async function runMonolithInSandbox(
   } finally {
     // Containers bill DO duration while alive: stop per job, on success AND
     // throw. A failed stop() must not mask the job's own outcome — the 5m
-    // sleepAfter backstop and the cron orphan sweep cover missed stops.
+    // sleepAfter backstop and the browser quota object's stale-lease stop cover
+    // missed stops.
     try {
       await sandbox.stop();
     } catch (stopErr) {
@@ -346,7 +347,8 @@ export default {
       const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/monolith', '/container/stop']);
       if (!pre.ok) return pre.response;
 
-      // POST /container/stop - stop a request's container (gateway orphan sweep)
+      // POST /container/stop - stop a request's container (the workflow's browser quota
+      // object calls it when a sandbox lease goes stale)
       if (pre.url.pathname === '/container/stop') {
         // The caller's request shape; its required field is checked below.
         const stopBody = pre.body as { request_id?: string };
