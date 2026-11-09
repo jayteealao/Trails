@@ -1,5 +1,12 @@
 import { getSandbox, Sandbox as BaseSandbox, ContainerUnavailableError } from '@cloudflare/sandbox';
-import { getR2Key, storeArtifact, timingSafeEqual, type ArtifactMeta } from '@warg/shared';
+import {
+  classifySandboxOutput,
+  getR2Key,
+  storeArtifact,
+  timingSafeEqual,
+  type ArtifactMeta,
+  type SandboxFailureCode
+} from '@warg/shared';
 import type { MonolithRequest, MonolithSuccessResponse } from './types.js';
 import {
   buildCurlCommand,
@@ -11,7 +18,6 @@ import {
   SANDBOX_OUTPUT_PATH
 } from './monolith-command.js';
 import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-presign.js';
-import { isRpc32MiBLimit } from './failure-classify.js';
 
 /**
  * Sandbox DO binding with a 5m `sleepAfter` backstop (the upstream default
@@ -69,37 +75,18 @@ function normalizeSandboxId(requestId: string): string {
   return `${base}-${suffix}`;
 }
 
+const SANDBOX_FAILURE_MESSAGES: Record<Exclude<SandboxFailureCode, 'MONOLITH_SANDBOX_500'>, string> = {
+  MONOLITH_RPC_32MIB_LIMIT: 'Monolith sandbox payload exceeded RPC size limit',
+  MONOLITH_TIMEOUT: 'Sandbox timed out while processing monolith output'
+};
+
 function classifySandboxFailure(stderr: string, stdout: string): MonolithServiceError {
-  const message = `${stderr}\n${stdout}`.toLowerCase();
-
-  if (isRpc32MiBLimit(message)) {
-    return new MonolithServiceError(
-      'Monolith sandbox payload exceeded RPC size limit',
-      'MONOLITH_RPC_32MIB_LIMIT',
-      500,
-      false
-    );
-  }
-
-  if (
-    message.includes('timeout') ||
-    message.includes('timed out') ||
-    message.includes('deadline exceeded')
-  ) {
-    return new MonolithServiceError(
-      'Sandbox timed out while processing monolith output',
-      'MONOLITH_TIMEOUT',
-      500,
-      true
-    );
-  }
-
-  return new MonolithServiceError(
-    `Sandbox execution failed: ${stderr || stdout || 'unknown sandbox error'}`,
-    'MONOLITH_SANDBOX_500',
-    500,
-    true
-  );
+  const { errorCode, retryable } = classifySandboxOutput(stderr, stdout);
+  const message =
+    errorCode === 'MONOLITH_SANDBOX_500'
+      ? `Sandbox execution failed: ${stderr || stdout || 'unknown sandbox error'}`
+      : SANDBOX_FAILURE_MESSAGES[errorCode];
+  return new MonolithServiceError(message, errorCode, 500, retryable);
 }
 
 function isRetryableSandboxError(error: unknown): boolean {
