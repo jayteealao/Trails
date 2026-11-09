@@ -218,7 +218,10 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         }
       );
     } catch (err) {
-      console.error(`[workflow] settle failed for ${requestId}:`, err);
+      console.error(
+        '[workflow] settle failed',
+        JSON.stringify({ request_id: requestId, error: err instanceof Error ? err.message : String(err) })
+      );
     }
   }
 

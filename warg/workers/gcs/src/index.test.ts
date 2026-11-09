@@ -548,6 +548,26 @@ describe('partial', () => {
     });
   });
 
+  it('caps the storage error text it reports and logs the failure as fields', async () => {
+    const bucket = bucketFor(manifest(THREE_KINDS));
+    stubNetwork({
+      put: (kind) => (kind === 'screenshot.png' ? new Response('x'.repeat(5000), { status: 403 }) : new Response(null))
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await run(persistRequest(validBody), bucket);
+
+    const failed = (result.body as { failed: Array<{ kind: string; error: string }> }).failed;
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.error.startsWith('GCS upload failed for screenshot.png: 403 - ')).toBe(true);
+    expect(failed[0]!.error.length).toBeLessThan(600);
+    const line = errorSpy.mock.calls.find((args) => String(args[0]).includes('upload failed'));
+    expect(line).toBeDefined();
+    const fields = JSON.parse(String(line![1])) as Record<string, unknown>;
+    expect(fields).toMatchObject({ request_id: 'req-1', kind: 'screenshot.png' });
+    errorSpy.mockRestore();
+  });
+
   it('reports an artifact missing from R2 and still uploads the others', async () => {
     const bucket = bucketFor(manifest(THREE_KINDS), ['page.pdf']);
     const calls = stubNetwork();

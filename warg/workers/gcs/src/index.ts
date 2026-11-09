@@ -21,6 +21,9 @@ import {
 import { buildFinalizeMetadata } from './metadata.js';
 import { callCloudFunction } from './cloud-function.js';
 
+/** The most of a storage error body an upload failure keeps. */
+const ERROR_TEXT_MAX_CHARS = 500;
+
 /**
  * Compress data using gzip via CompressionStream.
  */
@@ -105,7 +108,8 @@ async function uploadArtifact(
   });
 
   if (!response.ok) {
-    const text = await response.text();
+    // Storage error bodies can be long XML dumps; keep the start only.
+    const text = (await response.text()).slice(0, ERROR_TEXT_MAX_CHARS);
     throw new Error(`GCS upload failed for ${artifact.kind}: ${response.status} - ${text}`);
   }
 
@@ -305,7 +309,7 @@ export default {
           // Keep uploading the rest; the persist answers 502 below so the
           // caller retries, and the retry re-uploads to the same paths.
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`[gcs] Upload failed for ${request_id} ${artifact.kind}: ${message}`);
+          console.error('[gcs] upload failed', JSON.stringify({ request_id, kind: artifact.kind, error: message }));
           failedArtifacts.push({ kind: artifact.kind, error: message });
           continue;
         }
