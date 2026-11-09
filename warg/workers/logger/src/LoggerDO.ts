@@ -11,7 +11,7 @@ import type {
   RequestSettle,
   TerminalState
 } from '@warg/shared';
-import { isIncompleteDegradation, parseRequestSettle } from '@warg/shared';
+import { extractHostname, isIncompleteDegradation, parseRequestSettle } from '@warg/shared';
 import { initSchema, migrateSchema } from './schema.js';
 import { asNumber, asString, asBoolean, asRecord } from './value-helpers.js';
 
@@ -236,17 +236,6 @@ function updateDiagnostics(
   }
 
   return diagnostics;
-}
-
-/**
- * Extract domain from URL.
- */
-function extractDomain(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return 'unknown';
-  }
 }
 
 function isTerminalStage(stage: RequestStage | TerminalState): stage is TerminalState {
@@ -525,7 +514,7 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
         .bind(
           payload.requestId,
           payload.url,
-          extractDomain(payload.url),
+          extractHostname(payload.url),
           now,
           now,
           'queued'
