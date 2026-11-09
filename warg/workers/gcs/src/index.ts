@@ -1,4 +1,4 @@
-import { timingSafeEqual } from '@warg/shared';
+import { readInternalJsonRequest } from '@warg/shared';
 import type { ArchiveManifest, ArtifactMeta, ReadabilityResult } from '@warg/shared';
 import type {
   PersistRequest,
@@ -186,25 +186,10 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      const url = new URL(request.url);
-
-      if (request.method !== 'POST' || url.pathname !== '/persist') {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      // Verify internal API key
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      // Parse request body
-      let body: PersistRequest;
-      try {
-        body = (await request.json()) as PersistRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/persist']);
+      if (!pre.ok) return pre.response;
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as PersistRequest;
 
       const { request_id, manifest_key, dryRun } = body;
       if (!request_id || !manifest_key) {

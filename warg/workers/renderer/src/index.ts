@@ -1,4 +1,4 @@
-import { PROXY_ERROR_PAGE_REASON, proxyErrorPageText, storeArtifact, timingSafeEqual } from '@warg/shared';
+import { PROXY_ERROR_PAGE_REASON, proxyErrorPageText, readInternalJsonRequest, storeArtifact } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -90,25 +90,10 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      // Only accept POST /render
-      const url = new URL(request.url);
-      if (request.method !== 'POST' || url.pathname !== '/render') {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      // Verify internal API key
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      // Parse request body
-      let body: RenderRequest;
-      try {
-        body = (await request.json()) as RenderRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/render']);
+      if (!pre.ok) return pre.response;
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as RenderRequest;
 
       const { request_id, url: targetUrl, options_r2_key, browser_quota_kind } = body;
       if (!request_id || !targetUrl || !browser_quota_kind) {
