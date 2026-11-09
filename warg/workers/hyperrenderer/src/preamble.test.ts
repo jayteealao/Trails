@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker from './index.js';
 
+// The handler takes its own env shape (with its secrets), not the generated one.
+type HandlerEnv = Parameters<typeof worker.fetch>[1];
+
 const bucket = { get: vi.fn(), put: vi.fn(), head: vi.fn() };
 // The fake bucket carries only the methods the handler could reach; a request
 // that is turned away must not touch the bucket or call the browser API.
@@ -8,7 +11,7 @@ const env = {
   INTERNAL_API_KEY: 'test-key',
   HYPERBROWSER_API_KEY: 'hb-key',
   ARCHIVE_BUCKET: bucket
-} as unknown as Env;
+} as unknown as HandlerEnv;
 
 const PATH = '/render';
 
