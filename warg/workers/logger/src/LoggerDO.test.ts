@@ -1414,6 +1414,24 @@ describe('settleRequest', () => {
     expect(row?.last_error_code).toBe('NO_OUTPUTS_PRODUCED');
   });
 
+  it('records a failed settle as an info event that adds no error to the count', async () => {
+    const { requestId, stub } = await initSettleRequest('failed-count');
+    await stub.appendEvent(requestId, errorEvent('request.failed', 'NO_OUTPUTS_PRODUCED'));
+    const before = (await stub.getRequestView(requestId))?.derived.errorCount;
+
+    await stub.settleRequest(requestId, settle('failed', undefined, { errorCode: 'NO_OUTPUTS_PRODUCED' }));
+    await stub.settleRequest(
+      requestId,
+      settle('failed', '2000-01-01T00:00:00.000Z', { runId: 'run-old', errorCode: 'NO_OUTPUTS_PRODUCED' })
+    );
+
+    const view = await stub.getRequestView(requestId);
+    expect(view?.derived.errorCount).toBe(before);
+    const events = await settledEvents(stub, requestId);
+    expect(events).toHaveLength(2);
+    expect(events.every((event) => event.level === 'info')).toBe(true);
+  });
+
   it('settles an incomplete request and keeps the monolith error code it already holds', async () => {
     const { requestId, stub } = await initSettleRequest('incomplete');
     await stub.appendEvent(requestId, {

@@ -319,7 +319,6 @@ function applySettle(derived: DerivedSummary, settle: RequestSettle): void {
  */
 function applyEventToDerived(derived: DerivedSummary, event: LogEvent): void {
   if (event.type === 'request.settled') {
-    if (event.level === 'error') derived.errorCount++;
     derived.lastEventTs = event.ts;
     const settle = parseRequestSettle(event.data);
     if (settle) applySettle(derived, settle);
@@ -722,7 +721,9 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
         ts: new Date().toISOString(),
         source: 'workflow',
         type: 'request.settled',
-        level: settle.state === 'failed' ? 'error' : 'info',
+        // The failure itself is the request.failed event; the settle only records the
+        // state, so it is never an error event and adds nothing to the error count.
+        level: 'info',
         message: `Request settled: ${settle.state}`,
         data: { ...settle },
       };
