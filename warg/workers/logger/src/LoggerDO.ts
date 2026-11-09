@@ -8,8 +8,10 @@ import type {
   InitRequestPayload,
   RequestFieldsPatch,
   RequestStage,
+  RequestSettle,
   TerminalState
 } from '@warg/shared';
+import { isIncompleteDegradation, parseRequestSettle } from '@warg/shared';
 import { initSchema, migrateSchema } from './schema.js';
 import { asNumber, asString, asBoolean, asRecord } from './value-helpers.js';
 
@@ -57,6 +59,8 @@ interface ArtifactRow extends Record<string, SqlStorageValue> {
  * Once a request has finished, failed or ended incomplete, a progress event
  * (step.started, persist.*) that arrives again is still recorded but does not
  * change the stage; request.created or workflow.started reopens the request.
+ * request.settled is not mapped here: applyEventToDerived applies it, and a
+ * settled request keeps its settled stage until a newer reopen.
  */
 function deriveStage(
   eventType: string,
@@ -97,8 +101,7 @@ function shouldMarkIncompleteFromDiagnostics(
   diagnostics: RequestDiagnostics | undefined
 ): boolean {
   if (!diagnostics?.degraded) return false;
-  const degradedSteps = diagnostics.degradedSteps ?? [];
-  return degradedSteps.includes('monolith');
+  return isIncompleteDegradation(diagnostics.degradedSteps);
 }
 
 function isArtifactKind(value: string): value is ArtifactRecord['kind'] {
@@ -250,13 +253,96 @@ function isTerminalStage(stage: RequestStage | TerminalState): stage is Terminal
   return stage === 'done' || stage === 'failed' || stage === 'incomplete';
 }
 
+function timeOf(iso: string | undefined): number {
+  if (iso === undefined) return Number.NEGATIVE_INFINITY;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+}
+
+/** A settle applies only when it is newer than the last reopen and than the stored settle. */
+function isSettleNewer(derived: DerivedSummary, settle: RequestSettle): boolean {
+  const at = timeOf(settle.settledAt);
+  return at > timeOf(derived.openedAt) && at > timeOf(derived.settled?.settledAt);
+}
+
+/** True while the stored settle is not older than the last reopen: the settled state holds. */
+function isSettledHolding(derived: DerivedSummary): boolean {
+  return derived.settled !== undefined && timeOf(derived.settled.settledAt) >= timeOf(derived.openedAt);
+}
+
+type DiagnosticsErrorFields = Pick<
+  RequestDiagnostics,
+  'errorCode' | 'errorMessage' | 'errorSource' | 'retryable' | 'recommendedAction'
+>;
+
+function errorFieldsOf(diagnostics: RequestDiagnostics | undefined): DiagnosticsErrorFields {
+  return {
+    errorCode: diagnostics?.errorCode,
+    errorMessage: diagnostics?.errorMessage,
+    errorSource: diagnostics?.errorSource,
+    retryable: diagnostics?.retryable,
+    recommendedAction: diagnostics?.recommendedAction,
+  };
+}
+
+/**
+ * Apply the settle a workflow run sent: the settled state becomes the stage,
+ * the given error fields merge into diagnostics, and the result is stored as
+ * `derived.settled`. A settle that is not newer (see isSettleNewer) is ignored.
+ */
+function applySettle(derived: DerivedSummary, settle: RequestSettle): void {
+  if (!isSettleNewer(derived, settle)) return;
+
+  const diagnostics: RequestDiagnostics = derived.diagnostics
+    ? { ...derived.diagnostics }
+    : { retryCount: 0 };
+  if (settle.errorCode !== undefined) {
+    diagnostics.errorCode = settle.errorCode;
+    diagnostics.errorSource = 'workflow';
+  }
+  if (settle.errorMessage !== undefined) diagnostics.errorMessage = settle.errorMessage;
+  if (settle.retryable !== undefined) diagnostics.retryable = settle.retryable;
+  if (settle.recommendedAction !== undefined) diagnostics.recommendedAction = settle.recommendedAction;
+
+  derived.diagnostics = diagnostics;
+  derived.stage = settle.state;
+  derived.terminal = true;
+  derived.settled = {
+    state: settle.state,
+    runId: settle.runId,
+    settledAt: settle.settledAt,
+    ...(diagnostics.errorCode !== undefined ? { errorCode: diagnostics.errorCode } : {}),
+    ...(diagnostics.errorMessage !== undefined ? { errorMessage: diagnostics.errorMessage } : {}),
+    ...(diagnostics.retryable !== undefined ? { retryable: diagnostics.retryable } : {}),
+    ...(diagnostics.recommendedAction !== undefined
+      ? { recommendedAction: diagnostics.recommendedAction }
+      : {}),
+  };
+}
+
 /**
  * Apply a single event to a mutable DerivedSummary in-place.
  * Encapsulates the stage machine, terminal flags, errorCount, lastEventTs,
  * diagnostics update, and the degraded-monolith incomplete override.
+ * A request.settled event applies the settle; while a settle holds (no newer
+ * reopen), other events keep the settled stage and error fields.
  * Pure with respect to storage — no SQL side-effects.
  */
 function applyEventToDerived(derived: DerivedSummary, event: LogEvent): void {
+  if (event.type === 'request.settled') {
+    if (event.level === 'error') derived.errorCount++;
+    derived.lastEventTs = event.ts;
+    const settle = parseRequestSettle(event.data);
+    if (settle) applySettle(derived, settle);
+    return;
+  }
+
+  if (event.type === 'request.created' || event.type === 'workflow.started') {
+    if (timeOf(event.ts) > timeOf(derived.openedAt)) derived.openedAt = event.ts;
+  }
+  const settledHolding = isSettledHolding(derived);
+  const heldErrorFields = errorFieldsOf(derived.diagnostics);
+
   const newStage = deriveStage(event.type, event.data);
   const isProgressStage =
     newStage === 'rendering' || newStage === 'deriving' || newStage === 'persisting';
@@ -279,7 +365,23 @@ function applyEventToDerived(derived: DerivedSummary, event: LogEvent): void {
     derived.stage = 'incomplete';
     derived.terminal = true;
   }
+
+  if (settledHolding && derived.settled) {
+    derived.stage = derived.settled.state;
+    derived.terminal = true;
+    derived.diagnostics = { ...derived.diagnostics, ...heldErrorFields };
+  }
 }
+
+export type SettleResult =
+  | { found: false }
+  | {
+      found: true;
+      applied: boolean;
+      reason?: 'duplicate' | 'stale';
+      stage: DerivedSummary['stage'];
+      terminal: boolean;
+    };
 
 export class LoggerDO extends DurableObject<LoggerDoEnv> {
   private sql: SqlStorage;
@@ -305,51 +407,60 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
   }
 
   /**
-   * Update the D1 requests_index row for a request (best-effort).
+   * Write the D1 requests_index row for a request. Throws when D1 fails.
    * @param requestId   - The request to update.
    * @param lastEventTs - The ts of the event that drove the derived change.
    * @param derived     - Final derived summary to write.
    */
+  private async writeD1Index(
+    requestId: string,
+    lastEventTs: string,
+    derived: DerivedSummary
+  ): Promise<void> {
+    await this.env.INDEX_DB.prepare(
+      `UPDATE requests_index
+       SET updated_at = ?, last_event_ts = ?, stage = ?,
+           terminal_state = ?, error_count = ?,
+           last_error_code = ?, last_error_message = ?, last_error_source = ?,
+           retry_count = ?, render_ms = ?, derive_ms = ?, persist_ms = ?,
+           last_trace_id = ?, render_provider = ?, render_fallback_used = ?,
+           render_fallback_reason = ?, degraded = ?, degraded_steps = ?
+       WHERE request_id = ?`
+    )
+      .bind(
+        new Date().toISOString(),
+        lastEventTs,
+        derived.stage,
+        derived.terminal ? 1 : 0,
+        derived.errorCount,
+        derived.diagnostics?.errorCode ?? null,
+        derived.diagnostics?.errorMessage ?? null,
+        derived.diagnostics?.errorSource ?? null,
+        derived.diagnostics?.retryCount ?? 0,
+        derived.diagnostics?.renderMs ?? null,
+        derived.diagnostics?.deriveMs ?? null,
+        derived.diagnostics?.persistMs ?? null,
+        derived.diagnostics?.lastTraceId ?? null,
+        derived.diagnostics?.renderProvider ?? null,
+        derived.diagnostics?.renderFallbackUsed === true ? 1 : 0,
+        derived.diagnostics?.renderFallbackReason ?? null,
+        derived.diagnostics?.degraded === true ? 1 : 0,
+        derived.diagnostics?.degradedSteps?.length
+          ? JSON.stringify(derived.diagnostics.degradedSteps)
+          : null,
+        requestId
+      )
+      .run();
+  }
+
+  /** Write the D1 requests_index row for a request (best-effort: a D1 failure is logged). */
   private async updateD1Index(
     requestId: string,
     lastEventTs: string,
     derived: DerivedSummary
   ): Promise<void> {
     try {
-      await this.env.INDEX_DB.prepare(
-        `UPDATE requests_index
-         SET updated_at = ?, last_event_ts = ?, stage = ?,
-             terminal_state = ?, error_count = ?,
-             last_error_code = ?, last_error_message = ?, last_error_source = ?,
-             retry_count = ?, render_ms = ?, derive_ms = ?, persist_ms = ?,
-             last_trace_id = ?, render_provider = ?, render_fallback_used = ?,
-             render_fallback_reason = ?, degraded = ?, degraded_steps = ?
-         WHERE request_id = ?`
-      )
-        .bind(
-          new Date().toISOString(),
-          lastEventTs,
-          derived.stage,
-          derived.terminal ? 1 : 0,
-          derived.errorCount,
-          derived.diagnostics?.errorCode ?? null,
-          derived.diagnostics?.errorMessage ?? null,
-          derived.diagnostics?.errorSource ?? null,
-          derived.diagnostics?.retryCount ?? 0,
-          derived.diagnostics?.renderMs ?? null,
-          derived.diagnostics?.deriveMs ?? null,
-          derived.diagnostics?.persistMs ?? null,
-          derived.diagnostics?.lastTraceId ?? null,
-          derived.diagnostics?.renderProvider ?? null,
-          derived.diagnostics?.renderFallbackUsed === true ? 1 : 0,
-          derived.diagnostics?.renderFallbackReason ?? null,
-          derived.diagnostics?.degraded === true ? 1 : 0,
-          derived.diagnostics?.degradedSteps?.length
-            ? JSON.stringify(derived.diagnostics.degradedSteps)
-            : null,
-          requestId
-        )
-        .run();
+      await this.writeD1Index(requestId, lastEventTs, derived);
     } catch (err) {
       console.error(`D1 index update failed for ${requestId}:`, err instanceof Error ? err.message : err);
     }
@@ -589,6 +700,79 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
     }
 
     return { eventIds, derivedUpdated };
+  }
+
+  /**
+   * Record the terminal state a workflow run settled the request in.
+   *
+   * The same run and state again is a duplicate and stores nothing new; any
+   * other settle is stored as a request.settled event and applied when it is
+   * newer than the last reopen and the stored settle (else `reason: 'stale'`).
+   * In every found case the D1 row is written strictly (throws on a D1
+   * failure), so a retried settle repairs a D1 write that failed.
+   */
+  async settleRequest(requestId: string, settle: RequestSettle): Promise<SettleResult> {
+    this.ensureSchema();
+
+    const requestRow = this.sql
+      .exec<Pick<RequestRow, 'request_id' | 'derived_json'>>(
+        'SELECT request_id, derived_json FROM requests WHERE request_id = ? LIMIT 1',
+        requestId
+      )
+      .toArray()[0];
+    if (!requestRow) return { found: false };
+
+    const derived: DerivedSummary = JSON.parse(requestRow.derived_json);
+    let applied = false;
+    let reason: 'duplicate' | 'stale' | undefined;
+
+    if (derived.settled?.runId === settle.runId && derived.settled.state === settle.state) {
+      reason = 'duplicate';
+    } else {
+      const event: LogEvent = {
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'request.settled',
+        level: settle.state === 'failed' ? 'error' : 'info',
+        message: `Request settled: ${settle.state}`,
+        data: { ...settle },
+      };
+      applied = isSettleNewer(derived, settle);
+      if (!applied) reason = 'stale';
+
+      this.sql.exec(
+        `INSERT INTO events (request_id, ts, source, type, level, message, attempt, data_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        requestRow.request_id,
+        event.ts,
+        event.source,
+        event.type,
+        event.level,
+        event.message,
+        null,
+        JSON.stringify(event.data)
+      );
+      applyEventToDerived(derived, event);
+      this.sql.exec(
+        'UPDATE requests SET derived_json = ? WHERE request_id = ?',
+        JSON.stringify(derived),
+        requestRow.request_id
+      );
+    }
+
+    await this.writeD1Index(
+      requestRow.request_id,
+      derived.lastEventTs ?? new Date().toISOString(),
+      derived
+    );
+
+    return {
+      found: true,
+      applied,
+      ...(reason ? { reason } : {}),
+      stage: derived.stage,
+      terminal: derived.terminal,
+    };
   }
 
   /**
