@@ -74,7 +74,7 @@ const STUCK_TIMEOUT_MS = 45 * 60 * 1000;
 const DOMAIN_FAILURE_THRESHOLD = 2;
 const DOMAIN_BACKOFF_MS = 30 * 60 * 1000;
 const GLOBAL_PAUSE_MS = 20 * 60 * 1000;
-const LEASE_TTL_MS = 15 * 60 * 1000;
+const RUN_LEASE_TTL_MS = 15 * 60 * 1000;
 
 // After a full pass the change scan starts this long before the pass began, so
 // a change made during the pass, or stamped by a phone with a slow clock, is
@@ -208,7 +208,7 @@ async function acquireRunLease(
 
     tracker.run_lease = {
       owner,
-      expires_at: Timestamp.fromMillis(nowMs + LEASE_TTL_MS),
+      expires_at: Timestamp.fromMillis(nowMs + RUN_LEASE_TTL_MS),
     };
     tracker.last_run_at = Timestamp.fromMillis(now());
     // article-write-check: not-an-article (backfill tracker)
@@ -240,7 +240,7 @@ async function saveTrackerWithLease(
 
     tracker.run_lease = {
       owner,
-      expires_at: Timestamp.fromMillis(nowMs + LEASE_TTL_MS),
+      expires_at: Timestamp.fromMillis(nowMs + RUN_LEASE_TTL_MS),
     };
     tracker.last_run_at = Timestamp.fromMillis(now());
     // article-write-check: not-an-article (backfill tracker)
