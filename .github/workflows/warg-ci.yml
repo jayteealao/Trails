@@ -145,6 +145,14 @@ jobs:
         timeout-minutes: 5
         run: node --test scripts/__tests__/lease-ttl-source.test.mjs
 
+      - name: One home for the id, domain and storage-path helpers
+        # The article id rules, the URL domain helpers and each artifact's
+        # storage path live once in the shared package; this fails when a
+        # worker, cloud function or dashboard function defines its own copy
+        # or stops importing the shared one.
+        timeout-minutes: 5
+        run: node --test scripts/__tests__/shared-helpers-source.test.mjs
+
       - name: Cloud function bundles
         # Builds each function's deploy folder (one esbuild bundle plus a
         # generated package.json), then checks it as Cloud Build will use it:
