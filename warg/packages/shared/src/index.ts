@@ -66,6 +66,9 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
+export type { InternalJsonRequest } from './worker-request.js';
+export { INTERNAL_API_KEY_HEADER, readInternalJsonRequest } from './worker-request.js';
+
 export { LEASE_TTL_MS, isLeaseStale } from './lease.js';
 
 export {
