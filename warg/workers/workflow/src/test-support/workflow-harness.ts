@@ -233,7 +233,12 @@ export interface FakeLogger {
   events: LoggedEvent[];
   /** Bodies of PATCH /request/<id>, with the request id. */
   patches: Array<{ requestId: string; body: unknown }>;
+  /** Bodies of POST /request/<id>/settle, with the request id, one per attempt. */
+  settles: Array<{ requestId: string; body: Record<string, unknown> }>;
 }
+
+/** Answers one settle call; it may also throw, as a timed-out fetch does. */
+export type SettleHandler = (body: Record<string, unknown>) => Response | Promise<Response>;
 
 export interface FakeQuota {
   acquired: string[];
@@ -245,6 +250,10 @@ export interface FakeEnvOptions {
   handlers?: Partial<Record<ServiceBinding, ServiceHandler>>;
   /** Reuse a bucket, as a restarted instance sees the same R2 objects. */
   bucket?: FakeBucket;
+  /** Replaces the default settle answer (200, applied). */
+  settle?: SettleHandler;
+  /** Runs the mock pipeline (MOCK_PIPELINE 'true'). */
+  mockPipeline?: boolean;
 }
 
 export interface FakeEnv {
@@ -277,11 +286,19 @@ interface EventBody {
   data?: Record<string, unknown>;
 }
 
-function makeLoggerFetcher(logger: FakeLogger): FakeFetcher {
+const SETTLE_PATH = /^\/request\/([^/]+)\/settle$/;
+
+function makeLoggerFetcher(logger: FakeLogger, settle: SettleHandler | undefined): FakeFetcher {
   return {
     async fetch(input, init) {
       const { pathname } = new URL(input);
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const settleMatch = init?.method === 'POST' ? pathname.match(SETTLE_PATH) : null;
+      if (settleMatch) {
+        logger.settles.push({ requestId: decodeURIComponent(settleMatch[1] ?? ''), body });
+        if (settle) return await settle(body);
+        return new Response('{"found":true,"applied":true}', { status: 200 });
+      }
       if (init?.method === 'PATCH' && pathname.startsWith('/request/')) {
         logger.patches.push({ requestId: pathname.slice('/request/'.length), body });
       } else if (pathname === '/event') {
@@ -337,7 +354,7 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
     MONOLITH: [],
     GCS: [],
   };
-  const logger: FakeLogger = { events: [], patches: [] };
+  const logger: FakeLogger = { events: [], patches: [], settles: [] };
   const quota: FakeQuota = { acquired: [], released: [] };
 
   const services = Object.fromEntries(
@@ -346,9 +363,9 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
   const fake = {
     ...services,
     ARCHIVE_BUCKET: bucket,
-    LOGGER: makeLoggerFetcher(logger),
+    LOGGER: makeLoggerFetcher(logger, options.settle),
     BROWSER_QUOTA: makeQuotaNamespace(quota),
-    MOCK_PIPELINE: 'false',
+    MOCK_PIPELINE: options.mockPipeline ? 'true' : 'false',
     INTERNAL_API_KEY: 'test-key',
   };
   // The fakes implement only the binding methods the workflow calls; the Env
