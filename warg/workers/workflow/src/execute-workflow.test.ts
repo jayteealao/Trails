@@ -397,7 +397,7 @@ describe('settle to the logger', () => {
 
     expect(resultOf(outcome)).toEqual(baseline);
     expect(run.attempts.get('settle-logger')).toBe(3);
-    expect(consoleError.mock.calls.some((args) => String(args[0]).includes('settle failed'))).toBe(true);
+    expect(consoleError.mock.calls.some((args: unknown[]) => String(args[0]).includes('settle failed'))).toBe(true);
   });
 
   it('rethrows the archive failure, not the settle failure, when the settle times out', async () => {

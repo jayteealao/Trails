@@ -9,6 +9,7 @@ import type {
   ArtifactKind,
   ArtifactMeta,
   CheckpointStep,
+  RequestSettle,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
 import { getR2Key } from '@warg/shared';
@@ -36,6 +37,9 @@ import {
   logRequestDone,
   logRequestFailed,
   artifactWrittenEvent,
+  settleForFailure,
+  settleForResult,
+  settleRequest,
   stepCompletedEvent,
   updateManifestKey
 } from './logging.js';
@@ -137,8 +141,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   ): Promise<WorkflowResult> {
     const { request_id, options_r2_key } = event.payload;
 
+    let result: WorkflowResult;
     try {
-      return await this.executeWorkflow(event, step);
+      result = await this.executeWorkflow(event, step);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       const terminalDetails =
@@ -177,7 +182,43 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           terminalDetails
         );
       });
+      await this.settleLogger(step, request_id, (settledAt) =>
+        settleForFailure(
+          err instanceof Error ? err : String(err),
+          terminalDetails,
+          event.instanceId,
+          settledAt
+        )
+      );
       throw err;
+    }
+
+    await this.settleLogger(step, request_id, (settledAt) =>
+      settleForResult(result, event.instanceId, settledAt)
+    );
+    return result;
+  }
+
+  /**
+   * Tell the logger the state this run settled the request in, so the
+   * dashboard reads the state the workflow holds. One step, retried twice;
+   * a settle that still fails is logged and never changes the run's outcome.
+   */
+  private async settleLogger(
+    step: WorkflowStep,
+    requestId: string,
+    buildSettle: (settledAt: string) => RequestSettle
+  ): Promise<void> {
+    try {
+      await step.do(
+        'settle-logger',
+        { retries: { limit: 2, delay: '2 seconds', backoff: 'exponential' }, timeout: '30 seconds' },
+        async () => {
+          await settleRequest(this.env, requestId, buildSettle(new Date().toISOString()));
+        }
+      );
+    } catch (err) {
+      console.error(`[workflow] settle failed for ${requestId}:`, err);
     }
   }
 
