@@ -61,6 +61,34 @@ describe('settleRequest', () => {
     expect(JSON.parse(String(init.body))).toEqual(settle);
   });
 
+  it('warns when the logger ignored the settle as stale', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetch = vi.fn(async () =>
+      Response.json({ found: true, applied: false, reason: 'stale', stage: 'queued', terminal: false })
+    );
+
+    await settleRequest(envWith(fetch), 'req-1', settle);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = warn.mock.calls[0]!.map(String).join(' ');
+    expect(logged).toContain('settle not applied');
+    expect(logged).toContain('"request_id":"req-1"');
+    expect(logged).toContain('"stage":"queued"');
+    warn.mockRestore();
+  });
+
+  it('does not warn when a retried settle is a duplicate', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetch = vi.fn(async () =>
+      Response.json({ found: true, applied: false, reason: 'duplicate', stage: 'done', terminal: true })
+    );
+
+    await settleRequest(envWith(fetch), 'req-1', settle);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('rejects with the status when the logger answers 500', async () => {
     const fetch = vi.fn(async () => new Response('boom', { status: 500 }));
 

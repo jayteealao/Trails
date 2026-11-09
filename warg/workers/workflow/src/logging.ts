@@ -309,6 +309,19 @@ export async function settleRequest(
     const text = (await response.text()).slice(0, 300);
     throw new Error(`Logger settle answered ${response.status}: ${text}`);
   }
+  // A stale settle lost to a newer run: the logger keeps the newer state, which is
+  // right, but the log should show that this run's state was not applied.
+  const answer: unknown = await response.json().catch(() => undefined);
+  if (isStaleSettleAnswer(answer)) {
+    console.warn(
+      '[workflow] settle not applied: the logger holds a newer run',
+      JSON.stringify({ request_id: requestId, state: settle.state, stage: answer.stage })
+    );
+  }
+}
+
+function isStaleSettleAnswer(value: unknown): value is { reason: 'stale'; stage?: unknown } {
+  return typeof value === 'object' && value !== null && 'reason' in value && value.reason === 'stale';
 }
 
 /** The settle of a run that returned: incomplete when monolith degraded, else done. */
