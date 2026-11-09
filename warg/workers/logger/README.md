@@ -55,6 +55,8 @@ request. It is idempotent.
 | `GET /requests`, `GET /stats`, `POST /requests/batch` | served from D1 index |
 | `POST /maintenance/backfill-diagnostics` | recompute legacy diagnostics (dual-read) |
 
+`GET /stats` reads the index in two queries: the counts per stage, then the top domains and the newest failures.
+
 `GET /requests` takes these query parameters, all optional:
 
 | Parameter | Meaning |
