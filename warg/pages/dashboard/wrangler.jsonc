@@ -11,8 +11,10 @@
   // node_modules. Every request runs the Worker first, so the sign-in
   // middleware guards the pages as well as the API; the Worker hands what no
   // function serves to ASSETS. Pages served index.html for an unknown path
-  // (there is no 404.html), which single-page-application keeps;
-  // public/_redirects still applies.
+  // (there is no 404.html), which single-page-application keeps. That also
+  // serves index.html for the app routes (/inbox, /requests/<id> and so on),
+  // so there is no _redirects file: Workers assets rejects its rewrites to
+  // /index.html as redirect loops.
   "assets": {
     "directory": "public",
     "binding": "ASSETS",
