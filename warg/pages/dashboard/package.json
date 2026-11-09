@@ -11,6 +11,7 @@
     "test:e2e:settle": "playwright test -c playwright.settle.config.ts"
   },
   "devDependencies": {
-    "@playwright/test": "1.64.1"
+    "@playwright/test": "1.64.1",
+    "@warg/shared": "workspace:*"
   }
 }
