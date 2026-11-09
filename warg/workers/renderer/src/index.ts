@@ -7,36 +7,6 @@ import type {
   RendererOptions
 } from './types.js';
 
-const BR_BASE = 'https://api.cloudflare.com/client/v4/accounts';
-
-interface BrowserRenderingRequest {
-  url: string;
-  gotoOptions?: { waitUntil?: string; timeout?: number };
-}
-
-async function callBrowserRendering(
-  env: Env,
-  endpoint: 'content' | 'screenshot' | 'pdf' | 'markdown',
-  payload: BrowserRenderingRequest
-): Promise<Response> {
-  const url = `${BR_BASE}/${env.CF_ACCOUNT_ID}/browser-rendering/${endpoint}`;
-  return fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.BR_API_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-}
-
-function buildBrPayload(url: string): BrowserRenderingRequest {
-  return {
-    url,
-    gotoOptions: { waitUntil: 'load', timeout: 30000 }
-  };
-}
-
 const GOTO_OPTIONS = { waitUntil: 'load', timeout: 30000 } as const;
 
 /** The formats one page load returns: always the HTML, plus the requested screenshot and markdown. */
@@ -166,31 +136,32 @@ export default {
       const includePdf = body.include_pdf ?? options.includePdf ?? false;
       const includeMarkdown = body.include_markdown ?? false;
 
-      const brPayload = buildBrPayload(targetUrl);
-      const artifacts: ArtifactMeta[] = [];
-      const skipped: string[] = [];
       const browserApiStart = Date.now();
+      const formats = planFormats({ includeScreenshot, includeMarkdown });
+      const action = formats.length >= 2 ? 'snapshot' : 'content';
 
-      // 1. Fetch rendered HTML
-      const contentResp = await callBrowserRendering(env, 'content', brPayload);
-      const contentRateLimit = checkRateLimit(contentResp, '');
-      if (contentRateLimit) return contentRateLimit;
-      if (!contentResp.ok) {
-        const errorText = await contentResp.text();
+      // 1. One page load for the HTML and the requested screenshot and markdown
+      const pageResp = await loadPage(env, targetUrl, formats);
+      const pageRateLimit = checkRateLimit(pageResp, '');
+      if (pageRateLimit) return pageRateLimit;
+      if (!pageResp.ok) {
+        const errorText = await pageResp.text();
+        console.error('[renderer] page load failed', JSON.stringify({ request_id, action, status: pageResp.status }));
+        // The error text is a contract with the workflow's renderer fallback (workflow services.ts)
+        // and covers content and snapshot loads alike: change both sides together.
         return Response.json(
-          { error: 'Browser Rendering /content failed', status: contentResp.status, details: errorText },
+          { error: 'Browser Rendering /content failed', status: pageResp.status, details: errorText },
           { status: 502 }
         );
       }
-      // Browser Rendering /content returns JSON: { success: true, result: "html content", meta: {...} }
-      const contentJson = (await contentResp.json()) as { success: boolean; result: string };
-      if (!contentJson.success || !contentJson.result) {
+      const page = parseLoadedPage(await pageResp.json());
+      if (!page) {
         return Response.json(
           { error: 'Browser Rendering /content returned invalid response' },
           { status: 502 }
         );
       }
-      const proxyErrorText = proxyErrorPageText(contentJson.result);
+      const proxyErrorText = proxyErrorPageText(page.html);
       if (proxyErrorText !== undefined) {
         return Response.json(
           {
@@ -202,7 +173,9 @@ export default {
           { status: 502 }
         );
       }
-      const htmlData = new TextEncoder().encode(contentJson.result);
+
+      // 2. Store what the page load returned: the HTML first, then the screenshot and markdown
+      const htmlData = new TextEncoder().encode(page.html);
       const htmlMeta = await storeArtifact(
         env.ARCHIVE_BUCKET,
         request_id,
@@ -210,66 +183,62 @@ export default {
         htmlData.buffer as ArrayBuffer,
         'text/html'
       );
-      artifacts.push(htmlMeta);
 
-      // 2. Fetch screenshot if requested
+      let screenshotMeta: ArtifactMeta | undefined;
+      let screenshotSkip = 'screenshot: not requested';
       if (includeScreenshot) {
-        const ssResp = await callBrowserRendering(env, 'screenshot', brPayload);
-        const ssRateLimit = checkRateLimit(ssResp, 'screenshot');
-        if (ssRateLimit) return ssRateLimit;
-        if (ssResp.ok) {
-          const ssData = await ssResp.arrayBuffer();
-          const ssMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', ssData, 'image/png');
-          artifacts.push(ssMeta);
+        const screenshotData = page.screenshot ? decodeScreenshot(page.screenshot) : undefined;
+        if (screenshotData) {
+          screenshotMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', screenshotData, 'image/png');
         } else {
-          skipped.push(`screenshot: API returned ${ssResp.status}`);
+          screenshotSkip = page.screenshot
+            ? 'screenshot: snapshot screenshot is not valid base64'
+            : 'screenshot: snapshot returned no screenshot';
         }
-      } else {
-        skipped.push('screenshot: not requested');
       }
 
-      // 3. Fetch PDF if requested
+      let markdownMeta: ArtifactMeta | undefined;
+      let markdownSkip = 'markdown: not requested';
+      if (includeMarkdown) {
+        if (page.markdown) {
+          const mdData = new TextEncoder().encode(page.markdown);
+          markdownMeta = await storeArtifact(
+            env.ARCHIVE_BUCKET,
+            request_id,
+            'rendered.md',
+            mdData.buffer as ArrayBuffer,
+            'text/markdown'
+          );
+        } else {
+          markdownSkip = 'markdown: snapshot returned no markdown';
+        }
+      }
+
+      // 3. The PDF, when requested, takes its own load: a snapshot cannot return one
+      let pdfMeta: ArtifactMeta | undefined;
+      let pdfSkip = 'pdf: not requested';
       if (includePdf) {
-        const pdfResp = await callBrowserRendering(env, 'pdf', brPayload);
+        const pdfResp = await env.BROWSER.quickAction('pdf', { url: targetUrl, gotoOptions: GOTO_OPTIONS });
         const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
         if (pdfRateLimit) return pdfRateLimit;
         if (pdfResp.ok) {
           const pdfData = await pdfResp.arrayBuffer();
-          const pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
-          artifacts.push(pdfMeta);
+          pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
         } else {
-          skipped.push(`pdf: API returned ${pdfResp.status}`);
+          pdfSkip = `pdf: API returned ${pdfResp.status}`;
         }
-      } else {
-        skipped.push('pdf: not requested');
       }
 
-      // 4. Fetch markdown if requested
-      if (includeMarkdown) {
-        const mdResp = await callBrowserRendering(env, 'markdown', brPayload);
-        const mdRateLimit = checkRateLimit(mdResp, 'markdown');
-        if (mdRateLimit) return mdRateLimit;
-        if (mdResp.ok) {
-          // Browser Rendering /markdown returns JSON: { success: true, result: "markdown content" }
-          const mdJson = (await mdResp.json()) as { success: boolean; result: string };
-          if (mdJson.success && mdJson.result) {
-            const mdData = new TextEncoder().encode(mdJson.result);
-            const mdMeta = await storeArtifact(
-              env.ARCHIVE_BUCKET,
-              request_id,
-              'rendered.md',
-              mdData.buffer as ArrayBuffer,
-              'text/markdown'
-            );
-            artifacts.push(mdMeta);
-          } else {
-            skipped.push('markdown: API returned invalid response');
-          }
-        } else {
-          skipped.push(`markdown: API returned ${mdResp.status}`);
-        }
-      } else {
-        skipped.push('markdown: not requested');
+      // 4. The answer lists the artifacts and skip notes in a fixed order: html, screenshot, pdf, markdown
+      const artifacts: ArtifactMeta[] = [htmlMeta];
+      const skipped: string[] = [];
+      for (const [meta, skip] of [
+        [screenshotMeta, screenshotSkip],
+        [pdfMeta, pdfSkip],
+        [markdownMeta, markdownSkip]
+      ] as const) {
+        if (meta) artifacts.push(meta);
+        else skipped.push(skip);
       }
 
       const browserApiMs = Date.now() - browserApiStart;
