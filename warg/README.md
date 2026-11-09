@@ -135,6 +135,16 @@ which writes `dist-deploy/` with the commit label baked in; `pnpm -r test`
 runs the function test suites. Each function folder needs its `.env` (copy
 `.env.example`).
 
+Built workspace packages: the workers import `@warg/shared` from its
+TypeScript source, but the cloud functions and the dashboard functions import
+its `@warg/shared/archive-ids` subpath (and `@warg/article-writer`,
+`@warg/url-normalizer`) from built `dist/` output. `pnpm install` builds them
+through each package's `prepare` script, `build:deploy` rebuilds each one a
+function bundles, and the Pages deploy rebuilds `@warg/shared`. After editing
+one of these packages, run its `build` script (for example
+`pnpm --filter @warg/shared run build`) before running a function's tests
+locally.
+
 Function secrets and deploy configuration: before any deploy that includes the
 functions, the script checks that every Secret Manager secret the functions
 bind has an enabled latest version, and that `dashboard-api/.env` sets
