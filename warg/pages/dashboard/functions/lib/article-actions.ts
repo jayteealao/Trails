@@ -2,7 +2,7 @@ export interface ActionEnv {
   DASHBOARD_API_URL: string;
   DASHBOARD_API_KEY: string;
   GATEWAY: Fetcher;
-  PUBLIC_API_KEY: string;
+  INTERNAL_API_KEY: string;
 }
 
 export class ActionError extends Error {
@@ -183,9 +183,9 @@ export async function submitBegin(
   env: ActionEnv,
   payload: Record<string, unknown>
 ): Promise<{ requestId?: string; request_id?: string }> {
-  if (!env.PUBLIC_API_KEY) {
+  if (!env.INTERNAL_API_KEY) {
     throw new ActionError(
-      'Dashboard PUBLIC_API_KEY is not configured for gateway calls.',
+      'Dashboard INTERNAL_API_KEY is not configured for gateway calls.',
       500
     );
   }
@@ -194,7 +194,7 @@ export async function submitBegin(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-API-Key': env.PUBLIC_API_KEY,
+      'X-Internal-API-Key': env.INTERNAL_API_KEY,
     },
     body: JSON.stringify(payload),
   });
@@ -219,7 +219,7 @@ export async function submitBegin(
     );
     if (response.status === 401 || response.status === 403) {
       throw new ActionError(
-        'Gateway authentication failed. Check PUBLIC_API_KEY and gateway Access policy.',
+        'Gateway authentication failed. Check INTERNAL_API_KEY and gateway Access policy.',
         502
       );
     }

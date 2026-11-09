@@ -4,12 +4,9 @@ import type { Request, Response } from 'express';
 import type { ArchiveClassification, ArticleListItem, ArticleListResponse } from './types.js';
 import { classifyArchiveStatus, buildArchiveStatuses, buildArticleHealth } from './classify.js';
 import { getDashboardUserId } from './config.js';
-import {
-  extractDomain,
-  readSharedArticles,
-  resolveCanonicalItemId,
-  timestampToIso,
-} from './util.js';
+import { readSharedArticles, resolveCanonicalItemId } from '@warg/article-writer';
+import { extractDomain } from '@warg/shared/archive-ids';
+import { timestampToIso } from './util.js';
 
 /**
  * Merge a user article doc + optional canonical doc into an ArticleListItem.
@@ -126,6 +123,37 @@ function mergePage(
 }
 
 /**
+ * The most user articles a filtered or searched list, or a count over the
+ * articles, reads (newest added first); a hard cap that keeps memory bounded.
+ */
+export const MAX_FILTERED_ARTICLES = 2000;
+
+/**
+ * The dashboard user's most recently added articles (up to
+ * MAX_FILTERED_ARTICLES), each merged with its shared doc (merged duplicates
+ * followed once; no marker reads).
+ */
+export async function readMergedUserArticles(
+  db: Firestore,
+  userId: string
+): Promise<ArticleListItem[]> {
+  const snap = await db
+    .collection('users')
+    .doc(userId)
+    .collection('articles')
+    .orderBy('timeAdded', 'desc')
+    .limit(MAX_FILTERED_ARTICLES)
+    .get();
+  if (snap.empty) return [];
+
+  const linkIds = snap.docs.map((doc) =>
+    resolveCanonicalItemId(doc.id, doc.data() as Record<string, unknown>)
+  );
+  const shared = await readSharedArticles(db, linkIds);
+  return mergePage(snap.docs, linkIds, shared);
+}
+
+/**
  * GET /articles handler.
  * Query params: page, limit, cursor, filter (ArchiveClassification), search (URL/domain substring).
  *
@@ -201,26 +229,8 @@ export async function handleListArticles(
     return;
   }
 
-  // Fetch user articles ordered by timeAdded desc (hard cap to prevent OOM)
-  const MAX_ARTICLES = 2000;
-  const userArticlesSnap = await userArticles
-    .orderBy('timeAdded', 'desc')
-    .limit(MAX_ARTICLES)
-    .get();
-
-  if (userArticlesSnap.empty) {
-    res.json({ articles: [], total: 0, page, limit, hasMore: false, nextCursor: null });
-    return;
-  }
-
-  // Batch-fetch the linked shared docs (merged duplicates followed once); no marker reads here.
-  const linkIds = userArticlesSnap.docs.map((doc) =>
-    resolveCanonicalItemId(doc.id, doc.data() as Record<string, unknown>)
-  );
-  const shared = await readSharedArticles(db, linkIds);
-
   // Merge into ArticleListItems
-  let articles: ArticleListItem[] = mergePage(userArticlesSnap.docs, linkIds, shared);
+  let articles: ArticleListItem[] = await readMergedUserArticles(db, userId);
 
   // Apply filter
   if (filter) {

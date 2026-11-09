@@ -1,9 +1,13 @@
 import { getFirestore, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
+import {
+  markSharedArticleProcessing,
+  readSharedArticle,
+  resolveCanonicalItemId,
+  setUserArticleResolvedLink,
+} from '@warg/article-writer';
 import { getDashboardUserId } from './config.js';
-import { extractDomain, readSharedArticle, resolveCanonicalItemId } from './util.js';
-
-const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
+import { SAFE_ID_RE, extractDomain } from '@warg/shared/archive-ids';
 
 interface MarkProcessingBody {
   requestId?: unknown;
@@ -50,26 +54,12 @@ export async function handleMarkProcessing(
   const url = typeof userDoc['url'] === 'string' ? userDoc['url'] : '';
   const now = Timestamp.now();
 
-  await db.collection('articles').doc(canonicalItemId).set(
-    {
-      item_id: canonicalItemId,
-      url,
-      domain: extractDomain(url),
-      status: 'processing',
-      warg_request_id: requestId,
-      processing_started_at: now,
-      updated_at: now,
-    },
-    { merge: true }
+  await markSharedArticleProcessing(
+    db.collection('articles').doc(canonicalItemId),
+    { itemId: canonicalItemId, url, domain: extractDomain(url), requestId },
+    now
   );
-
-  await userRef.set(
-    {
-      resolvedId: canonicalItemId,
-      archival_triggered: true,
-    },
-    { merge: true }
-  );
+  await setUserArticleResolvedLink(userRef, { resolvedId: canonicalItemId, archivalTriggered: true });
 
   res.json({ itemId, canonicalItemId, requestId, updated: true });
 }

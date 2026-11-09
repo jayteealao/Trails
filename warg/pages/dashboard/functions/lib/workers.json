@@ -1,0 +1,13 @@
+{
+  "workers": [
+    "gateway",
+    "gcs",
+    "hyperrenderer",
+    "logger",
+    "monolith",
+    "readability",
+    "renderer",
+    "singlefile",
+    "workflow"
+  ]
+}

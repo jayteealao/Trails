@@ -1,5 +1,14 @@
-import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore, type Timestamp } from 'firebase-admin/firestore';
 import { normalizeUrl } from '@warg/url-normalizer';
+import {
+  countSharedArticleSaveInTransaction,
+  createSharedArticleInTransaction,
+  linkUserArticleInTransaction,
+  mergedTargetOf,
+  readCanonicalId,
+  type PocketInput,
+} from '@warg/article-writer';
+import { SAFE_ID_RE, extractDomain } from '@warg/shared/archive-ids';
 
 /**
  * The server-side link from a user's article to the shared article.
@@ -13,9 +22,6 @@ import { normalizeUrl } from '@warg/url-normalizer';
  * server code can reuse it.
  */
 
-/** Every shared-article id the server creates and sends as request_id matches this. */
-export const SHARED_ID_PATTERN = /^[a-zA-Z0-9_-]{8,40}$/;
-
 export const ARTICLE_MARKERS_COLLECTION = 'articleMarkers';
 export const TRIGGER_MARKER_SOURCE = 'trigger';
 
@@ -23,7 +29,7 @@ export const TRIGGER_MARKER_SOURCE = 'trigger';
 const CANDIDATE_LIMIT = 10;
 
 export function isValidSharedId(id: string): boolean {
-  return SHARED_ID_PATTERN.test(id);
+  return SAFE_ID_RE.test(id);
 }
 
 /** The marker body; the field list matches shared-types/MarkerSchema.md. */
@@ -34,18 +40,6 @@ export function markerBody(key: string, itemId: string, source: string): Record<
     createdAt: FieldValue.serverTimestamp(),
     source,
   };
-}
-
-/**
- * Extract domain from URL (hostname without www.)
- */
-export function extractDomain(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname.replace(/^www\./, '');
-  } catch {
-    return 'unknown';
-  }
 }
 
 export interface CandidateDoc {
@@ -59,11 +53,6 @@ function createdMillis(data: Record<string, unknown>): number {
     return (value as Timestamp).toMillis();
   }
   return Number.POSITIVE_INFINITY;
-}
-
-function mergedTarget(data: Record<string, unknown>): string | undefined {
-  const value = data['mergedInto'];
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
 }
 
 /**
@@ -81,9 +70,9 @@ export function chooseSharedCandidate(
     if (diff !== 0 && !Number.isNaN(diff)) return diff;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
-  const live = sorted.find((d) => mergedTarget(d.data) === undefined);
+  const live = sorted.find((d) => mergedTargetOf(d.id, d.data) === undefined);
   if (live) return { id: live.id };
-  return { followMergedInto: mergedTarget(sorted[0]!.data)! };
+  return { followMergedInto: mergedTargetOf(sorted[0]!.id, sorted[0]!.data)! };
 }
 
 /** Runs fn, and once more when it fails with ALREADY_EXISTS (gRPC code 6), which the SDK does not retry. */
@@ -106,7 +95,7 @@ export class SharedIdConflictError extends Error {
   }
 }
 
-/** The id the server would create does not match SHARED_ID_PATTERN. */
+/** The id the server would create does not match SAFE_ID_RE. */
 export class InvalidSharedIdError extends Error {
   constructor() {
     super('Invalid article id');
@@ -126,7 +115,7 @@ export interface LinkInput {
   userId: string;
   itemId: string;
   url: string;
-  pocket?: Record<string, unknown>;
+  pocket?: PocketInput;
 }
 
 export interface LinkOptions {
@@ -170,8 +159,8 @@ export async function linkUserArticle(
         throw new Error(`User article ${itemId} does not exist`);
       }
       const normalizedUrl = normalizeUrl(url);
-      const existingId = userSnap.get('canonicalId');
-      if (typeof existingId === 'string' && existingId.trim() !== '') {
+      const existingId = readCanonicalId(userSnap.data());
+      if (existingId !== undefined) {
         const sharedSnap = await tx.get(articles.doc(existingId));
         return {
           canonicalId: existingId,
@@ -190,7 +179,7 @@ export async function linkUserArticle(
         sharedId = choice.id;
       } else if (choice) {
         const target = await tx.get(articles.doc(choice.followMergedInto));
-        if (target.exists && mergedTarget(target.data() ?? {}) === undefined) {
+        if (target.exists && mergedTargetOf(target.id, target.data()) === undefined) {
           sharedId = target.id;
         }
       }
@@ -212,20 +201,12 @@ export async function linkUserArticle(
         } else if (options.createIfMissing === false) {
           throw new NoSharedArticleError();
         } else {
-          tx.create(ownRef, {
-            item_id: itemId,
+          createSharedArticleInTransaction(tx, ownRef, {
+            itemId,
             url,
             normalizedUrl,
             domain: extractDomain(url),
-            created_at: Timestamp.now(),
-            status: 'pending',
-            archives: {},
             pocket: input.pocket ?? {},
-            stats: {
-              last_accessed: '',
-              total_saves: 1,
-              total_views: 0,
-            },
           });
           sharedId = itemId;
           created = true;
@@ -234,18 +215,16 @@ export async function linkUserArticle(
 
       // 5. A save of an existing shared article counts once.
       if (!created) {
-        tx.update(articles.doc(sharedId), {
-          'stats.total_saves': FieldValue.increment(1),
-          'stats.last_saved_at': Timestamp.now(),
-        });
+        countSharedArticleSaveInTransaction(tx, articles.doc(sharedId));
       }
 
       // 6-7. The marker and the server-owned link, in the same transaction.
+      // article-write-check: not-an-article (article marker)
       tx.set(
         db.collection('users').doc(userId).collection(ARTICLE_MARKERS_COLLECTION).doc(sharedId),
         markerBody(sharedId, itemId, markerSource)
       );
-      tx.update(userRef, { canonicalId: sharedId, resolvedId: sharedId });
+      linkUserArticleInTransaction(tx, userRef, sharedId);
 
       return {
         canonicalId: sharedId,

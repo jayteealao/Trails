@@ -551,7 +551,9 @@ function showContentViewer(archiveKey, url) {
   if (htmlTypes.includes(archiveKey)) {
     contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}" sandbox="allow-same-origin"></iframe>`;
   } else if (archiveKey === 'pdf') {
-    contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}" sandbox="allow-same-origin allow-scripts"></iframe>`;
+    // The browser's PDF viewer does not load in a sandboxed frame; the server
+    // sandboxes every archive response that is not a PDF.
+    contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}"></iframe>`;
   } else if (archiveKey === 'screenshot') {
     contentHtml = `<img class="content-viewer-image" src="${escapeHtml(url)}" alt="Screenshot">`;
   } else if (textTypes.includes(archiveKey)) {
@@ -573,6 +575,16 @@ function showContentViewer(archiveKey, url) {
   `;
 
   document.body.appendChild(overlay);
+
+  if (archiveKey === 'screenshot') {
+    const image = overlay.querySelector('.content-viewer-image');
+    image?.addEventListener('error', () => {
+      const failure = document.createElement('pre');
+      failure.className = 'content-viewer-text';
+      failure.textContent = 'Failed to load content';
+      image.replaceWith(failure);
+    }, { once: true });
+  }
 
   // Close handlers
   const close = () => overlay.remove();

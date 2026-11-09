@@ -1,5 +1,12 @@
 import { getSandbox, Sandbox as BaseSandbox, ContainerUnavailableError } from '@cloudflare/sandbox';
-import { getR2Key, storeArtifact, timingSafeEqual, type ArtifactMeta } from '@warg/shared';
+import {
+  classifySandboxOutput,
+  getR2Key,
+  readInternalJsonRequest,
+  storeArtifact,
+  type ArtifactMeta,
+  type SandboxFailureCode
+} from '@warg/shared';
 import type { MonolithRequest, MonolithSuccessResponse } from './types.js';
 import {
   buildCurlCommand,
@@ -11,7 +18,6 @@ import {
   SANDBOX_OUTPUT_PATH
 } from './monolith-command.js';
 import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-presign.js';
-import { isRpc32MiBLimit } from './failure-classify.js';
 
 /**
  * Sandbox DO binding with a 5m `sleepAfter` backstop (the upstream default
@@ -69,37 +75,18 @@ function normalizeSandboxId(requestId: string): string {
   return `${base}-${suffix}`;
 }
 
+const SANDBOX_FAILURE_MESSAGES: Record<Exclude<SandboxFailureCode, 'MONOLITH_SANDBOX_500'>, string> = {
+  MONOLITH_RPC_32MIB_LIMIT: 'Monolith sandbox payload exceeded RPC size limit',
+  MONOLITH_TIMEOUT: 'Sandbox timed out while processing monolith output'
+};
+
 function classifySandboxFailure(stderr: string, stdout: string): MonolithServiceError {
-  const message = `${stderr}\n${stdout}`.toLowerCase();
-
-  if (isRpc32MiBLimit(message)) {
-    return new MonolithServiceError(
-      'Monolith sandbox payload exceeded RPC size limit',
-      'MONOLITH_RPC_32MIB_LIMIT',
-      500,
-      false
-    );
-  }
-
-  if (
-    message.includes('timeout') ||
-    message.includes('timed out') ||
-    message.includes('deadline exceeded')
-  ) {
-    return new MonolithServiceError(
-      'Sandbox timed out while processing monolith output',
-      'MONOLITH_TIMEOUT',
-      500,
-      true
-    );
-  }
-
-  return new MonolithServiceError(
-    `Sandbox execution failed: ${stderr || stdout || 'unknown sandbox error'}`,
-    'MONOLITH_SANDBOX_500',
-    500,
-    true
-  );
+  const { errorCode, retryable } = classifySandboxOutput(stderr, stdout);
+  const message =
+    errorCode === 'MONOLITH_SANDBOX_500'
+      ? `Sandbox execution failed: ${stderr || stdout || 'unknown sandbox error'}`
+      : SANDBOX_FAILURE_MESSAGES[errorCode];
+  return new MonolithServiceError(message, errorCode, 500, retryable);
 }
 
 function isRetryableSandboxError(error: unknown): boolean {
@@ -312,7 +299,8 @@ export async function runMonolithInSandbox(
   } finally {
     // Containers bill DO duration while alive: stop per job, on success AND
     // throw. A failed stop() must not mask the job's own outcome — the 5m
-    // sleepAfter backstop and the cron orphan sweep cover missed stops.
+    // sleepAfter backstop and the browser quota object's stale-lease stop cover
+    // missed stops.
     try {
       await sandbox.stop();
     } catch (stopErr) {
@@ -356,29 +344,14 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      const url = new URL(request.url);
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/monolith', '/container/stop']);
+      if (!pre.ok) return pre.response;
 
-      const isKnownRoute =
-        request.method === 'POST' &&
-        (url.pathname === '/monolith' || url.pathname === '/container/stop');
-      if (!isKnownRoute) {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      // Verify internal API key
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      // POST /container/stop - stop a request's container (gateway orphan sweep)
-      if (url.pathname === '/container/stop') {
-        let stopBody: { request_id?: string };
-        try {
-          stopBody = (await request.json()) as { request_id?: string };
-        } catch {
-          return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-        }
+      // POST /container/stop - stop a request's container (the workflow's browser quota
+      // object calls it when a sandbox lease goes stale)
+      if (pre.url.pathname === '/container/stop') {
+        // The caller's request shape; its required field is checked below.
+        const stopBody = pre.body as { request_id?: string };
         if (!stopBody.request_id) {
           return Response.json({ error: 'Missing required field: request_id' }, { status: 400 });
         }
@@ -405,13 +378,8 @@ export default {
         return Response.json({ ok: true });
       }
 
-      // Parse request body
-      let body: MonolithRequest;
-      try {
-        body = (await request.json()) as MonolithRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as MonolithRequest;
 
       const { request_id, rendered_html_key, base_url } = body;
       if (!request_id || !rendered_html_key || !base_url) {

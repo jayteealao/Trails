@@ -1,6 +1,6 @@
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
-import { Timestamp } from 'firebase-admin/firestore';
 import type { DocumentData } from 'firebase-admin/firestore';
+import { setSharedArticleDerivedStatus } from '@warg/article-writer';
 import { deriveStatus } from './article-status.js';
 
 /**
@@ -30,12 +30,6 @@ export const articleStatusDerive = onDocumentWritten(
 
     if (currentStatus === derived) return;
 
-    await after.ref.set(
-      {
-        status: derived,
-        status_updated_at: Timestamp.now(),
-      },
-      { merge: true }
-    );
+    await setSharedArticleDerivedStatus(after.ref, derived);
   }
 );

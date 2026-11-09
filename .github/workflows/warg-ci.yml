@@ -118,12 +118,40 @@ jobs:
           node scripts/check-keys-and-uid.mjs
           node --test scripts/__tests__/keys-and-uid.test.mjs
 
+      - name: No direct article write outside the writer module
+        # Fails when a cloud function calls set, update, create or delete on a
+        # Firestore document, transaction, batch or bulk writer (or add on a
+        # collection) itself: the articles document is written only through
+        # @warg/article-writer. A write to another document (a tracker, a
+        # marker) passes when its line or the line above carries
+        # `// article-write-check: not-an-article (<what it is>)`.
+        timeout-minutes: 5
+        run: |
+          node scripts/check-article-writes.mjs
+          node --test scripts/__tests__/article-writes.test.mjs
+
       - name: Copied function helpers agree
-        # Each function bundles alone, so the shared-id shapes, the link
-        # resolution, the key compare and the rotation switch are copied; this
-        # fails when one copy changes and the others do not.
+        # Each function bundles alone, so the shared-id shapes, the key compare
+        # and the rotation switch are copied; this fails when one copy changes
+        # and the others do not, and when a function adds its own link reader
+        # or pocket projection instead of importing the article module.
         timeout-minutes: 5
         run: node --test scripts/__tests__/function-copies.test.mjs
+
+      - name: One lease TTL for the quota object and the container sweep
+        # The lease TTL and its stale rule live once in the shared package;
+        # this fails when either worker defines its own lease TTL or stops
+        # importing the shared one.
+        timeout-minutes: 5
+        run: node --test scripts/__tests__/lease-ttl-source.test.mjs
+
+      - name: One home for the id, domain and storage-path helpers
+        # The article id rules, the URL domain helpers and each artifact's
+        # storage path live once in the shared package; this fails when a
+        # worker, cloud function or dashboard function defines its own copy
+        # or stops importing the shared one.
+        timeout-minutes: 5
+        run: node --test scripts/__tests__/shared-helpers-source.test.mjs
 
       - name: Cloud function bundles
         # Builds each function's deploy folder (one esbuild bundle plus a
@@ -201,12 +229,17 @@ jobs:
           --config=../firebase/firebase.json
           "pnpm --filter @warg/backfill-scripts run test:integration"
 
-  shared-types-drift:
-    # Runs unconditionally when warg-ci is triggered. The workflow-level
-    # paths filter already gates this to PRs that touch warg/firebase/shared-types.
+  dashboard-e2e:
+    # The dashboard's browser checks: the sign-in on every page and route, the
+    # archive content policy, the archive preview, the infra view and the
+    # inbox, driven in Chromium against wrangler pages dev with test
+    # credentials, a stand-in logger and per-spec stubs (no live service).
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    defaults:
+      run:
+        working-directory: warg
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -215,14 +248,37 @@ jobs:
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.28.0
+          run_install: false
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+          cache: 'pnpm'
+          cache-dependency-path: warg/pnpm-lock.yaml
 
-      - name: Run drift check
-        run: node --experimental-strip-types shared-types/check-drift.ts
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium for the browser checks
+        timeout-minutes: 10
+        run: pnpm --filter warg-dashboard exec playwright install --with-deps chromium
+
+      - name: Dashboard browser checks
+        timeout-minutes: 20
+        run: pnpm --filter warg-dashboard test:e2e
+
+      # The two checks below start the real logger (and, for the settle run, the
+      # workflow worker in mock mode) under wrangler dev over a fresh local D1.
+      # Their ports overlap, so they run one after the other, after the default
+      # checks have stopped their servers.
+      - name: Stats panel against the local logger
+        timeout-minutes: 10
+        run: pnpm --filter warg-dashboard test:e2e:logger
+
+      - name: An archive run settles its status on the dashboard
+        timeout-minutes: 10
+        run: pnpm --filter warg-dashboard test:e2e:settle
 
   workflow-lint:
     # Every action pinned to a commit SHA with its version comment, no

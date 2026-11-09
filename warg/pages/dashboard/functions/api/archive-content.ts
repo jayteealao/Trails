@@ -1,3 +1,5 @@
+import { SAFE_ID_RE } from '@warg/shared/archive-ids';
+
 interface Env {
   DASHBOARD_API_URL: string;
   DASHBOARD_API_KEY: string;
@@ -8,7 +10,6 @@ interface SignedUrlPayload {
   archive_source_key?: string;
 }
 
-const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
 const VALID_ARCHIVE_KEYS = new Set([
   'rendered',
   'singlefile',
@@ -21,6 +22,17 @@ const VALID_ARCHIVE_KEYS = new Set([
 
 const HTML_ARCHIVES = new Set(['rendered', 'singlefile', 'monolith']);
 const TEXT_ARCHIVES = new Set(['readability', 'markdown']);
+
+// Stored pages are untrusted: the sandbox policy stops their script from
+// running on the dashboard origin, wherever the response is opened.
+const ARCHIVE_SANDBOX_CSP = 'sandbox';
+
+// PDFs are exempt so the browser's PDF viewer can still show them inline;
+// the viewer does not load in a sandboxed document.
+function isPdfMediaType(contentType: string): boolean {
+  const mediaType = contentType.split(';')[0] ?? '';
+  return mediaType.trim().toLowerCase() === 'application/pdf';
+}
 
 function buildApiUrl(baseUrl: string, path: string, params: URLSearchParams): string {
   const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
@@ -143,7 +155,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     const body = await maybeDecompressGzip(upstreamData);
 
     const headers = new Headers();
-    headers.set('Content-Type', inferContentType(archiveKey, upstream.headers.get('Content-Type')));
+    const contentType = inferContentType(archiveKey, upstream.headers.get('Content-Type'));
+    headers.set('Content-Type', contentType);
+    if (!isPdfMediaType(contentType)) {
+      headers.set('Content-Security-Policy', ARCHIVE_SANDBOX_CSP);
+    }
     headers.set('Cache-Control', 'no-store');
     headers.set('X-Archive-Source-Key', signed.archive_source_key ?? archiveKey);
 

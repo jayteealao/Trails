@@ -6,11 +6,27 @@ import type {
   ArtifactRecord,
   RequestFieldsPatch,
   RequestDiagnostics,
-  RequestErrorCode
+  RequestErrorCode,
+  RequestSettle
 } from '@warg/shared';
-import { timingSafeEqual } from '@warg/shared';
+import {
+  defaultActionForCode,
+  defaultRetryableForCode,
+  inferLegacyErrorCode,
+  isRequestErrorCode,
+  parseRequestSettle,
+  timingSafeEqual
+} from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
-import { LoggerDO } from './LoggerDO.js';
+import { LoggerDO, type SettleResult } from './LoggerDO.js';
+import { buildRequestListQuery } from './request-list-query.js';
+import {
+  STATS_COUNTS_SQL,
+  STATS_LISTS_SQL,
+  buildStatsBody,
+  type StatsCountRow,
+  type StatsListRow,
+} from './stats-query.js';
 import { asString, asNumber, asBoolean, asRecord } from './value-helpers.js';
 
 export { LoggerDO };
@@ -83,37 +99,11 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  settleRequest(requestId: string, settle: RequestSettle): Promise<SettleResult>;
 }
 
-const VALID_ERROR_CODES = new Set<RequestErrorCode>([
-  'INVALID_INPUT_URL',
-  'WORKFLOW_TRIGGER_FAILED',
-  'NO_OUTPUTS_PRODUCED',
-  'RENDER_TIMEOUT',
-  'RENDER_SERVICE_ERROR',
-  'RENDER_NETWORK_CLOSED',
-  'RENDER_CONTEXT_DESTROYED',
-  'RENDER_PREREQ_MISSING',
-  'SINGLEFILE_TIMEOUT',
-  'SINGLEFILE_SERVICE_ERROR',
-  'SINGLEFILE_EDGE_CASE',
-  'READABILITY_TIMEOUT',
-  'READABILITY_SERVICE_ERROR',
-  'MONOLITH_TIMEOUT',
-  'MONOLITH_SERVICE_ERROR',
-  'MONOLITH_SANDBOX_500',
-  'MONOLITH_RPC_32MIB_LIMIT',
-  'MONOLITH_INPUT_TOO_LARGE',
-  'PERSIST_SERVICE_ERROR',
-  'ACCESS_BLOCKED',
-  'UNKNOWN_ERROR',
-]);
-
 function toRequestErrorCode(value: string | null): RequestErrorCode | undefined {
-  if (!value) return undefined;
-  return VALID_ERROR_CODES.has(value as RequestErrorCode)
-    ? (value as RequestErrorCode)
-    : undefined;
+  return value && isRequestErrorCode(value) ? value : undefined;
 }
 
 function toRenderProvider(
@@ -154,149 +144,6 @@ function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
     degraded: row.degraded === null ? undefined : row.degraded === 1,
     degradedSteps: parseStringArray(row.degraded_steps),
   };
-}
-
-function defaultRetryableForCode(code: RequestErrorCode): boolean {
-  return (
-    code !== 'ACCESS_BLOCKED' &&
-    code !== 'INVALID_INPUT_URL' &&
-    code !== 'MONOLITH_RPC_32MIB_LIMIT' &&
-    code !== 'MONOLITH_INPUT_TOO_LARGE'
-  );
-}
-
-function defaultActionForCode(code: RequestErrorCode): RequestDiagnostics['recommendedAction'] {
-  if (code === 'ACCESS_BLOCKED') return 'check_access';
-  if (code === 'INVALID_INPUT_URL') return 'inspect_url';
-  if (code === 'WORKFLOW_TRIGGER_FAILED') return 'retry_full';
-  if (
-    code === 'RENDER_NETWORK_CLOSED' ||
-    code === 'RENDER_CONTEXT_DESTROYED' ||
-    code === 'RENDER_PREREQ_MISSING' ||
-    code === 'NO_OUTPUTS_PRODUCED'
-  ) {
-    return 'retry_full';
-  }
-  if (code === 'SINGLEFILE_EDGE_CASE') return 'retry_step';
-  if (code === 'MONOLITH_RPC_32MIB_LIMIT' || code === 'MONOLITH_INPUT_TOO_LARGE') {
-    return 'investigate_service';
-  }
-  if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
-  return 'retry_step';
-}
-
-function inferLegacyErrorCode(message: string, source?: string): RequestErrorCode {
-  const lower = message.toLowerCase();
-  const sourceLower = (source ?? '').toLowerCase();
-
-  if (
-    lower.includes('invalid url') ||
-    lower.includes('url is required') ||
-    lower.includes('base_url contains invalid characters')
-  ) {
-    return 'INVALID_INPUT_URL';
-  }
-
-  if (
-    lower.includes('workflow trigger failed') ||
-    lower.includes('error starting workflow') ||
-    lower.includes('instance.already_exists')
-  ) {
-    return 'WORKFLOW_TRIGGER_FAILED';
-  }
-
-  if (lower.includes('no requested outputs were produced')) {
-    return 'NO_OUTPUTS_PRODUCED';
-  }
-
-  if (lower.includes('unauthorized') || lower.includes('forbidden') || lower.includes('access')) {
-    return 'ACCESS_BLOCKED';
-  }
-
-  if (lower.includes('missing rendered.html prerequisite')) {
-    return 'RENDER_PREREQ_MISSING';
-  }
-
-  if (
-    lower.includes('5006') ||
-    lower.includes('network closed') ||
-    lower.includes('connection closed') ||
-    lower.includes('browser has disconnected')
-  ) {
-    return 'RENDER_NETWORK_CLOSED';
-  }
-
-  if (
-    lower.includes('execution context was destroyed') ||
-    lower.includes('code":6000') ||
-    lower.includes('context destroyed')
-  ) {
-    return 'RENDER_CONTEXT_DESTROYED';
-  }
-
-  const isTimeout =
-    lower.includes('timeout') ||
-    lower.includes('timed out') ||
-    lower.includes('deadline exceeded') ||
-    lower.includes('abort');
-
-  const mentionsRender = lower.includes('/render') || lower.includes('render');
-  const mentionsSinglefile = lower.includes('/singlefile') || lower.includes('singlefile');
-  const mentionsReadability = lower.includes('/readability') || lower.includes('readability');
-  const mentionsMonolith =
-    lower.includes('/monolith') ||
-    lower.includes('monolith') ||
-    lower.includes('sandboxerror');
-  const mentionsPersist = lower.includes('/persist') || lower.includes('persist') || sourceLower === 'gcs';
-
-  if (isTimeout) {
-    if (mentionsMonolith) return 'MONOLITH_TIMEOUT';
-    if (mentionsSinglefile) return 'SINGLEFILE_TIMEOUT';
-    if (mentionsReadability) return 'READABILITY_TIMEOUT';
-    if (mentionsRender) return 'RENDER_TIMEOUT';
-  }
-
-  if (
-    lower.includes('service error') ||
-    lower.includes('http error') ||
-    lower.includes('internal error') ||
-    lower.includes('sandboxerror')
-  ) {
-    if (
-      lower.includes('message length too big') ||
-      lower.includes('max allowed message length') ||
-      lower.includes('33554432') ||
-      lower.includes('32mib')
-    ) {
-      return 'MONOLITH_RPC_32MIB_LIMIT';
-    }
-    if (lower.includes('monolith input too large')) {
-      return 'MONOLITH_INPUT_TOO_LARGE';
-    }
-    if (
-      mentionsMonolith &&
-      (lower.includes('sandboxerror') || lower.includes('http error! status: 500'))
-    ) {
-      return 'MONOLITH_SANDBOX_500';
-    }
-    if (mentionsMonolith) return 'MONOLITH_SERVICE_ERROR';
-    if (mentionsSinglefile) return 'SINGLEFILE_SERVICE_ERROR';
-    if (mentionsReadability) return 'READABILITY_SERVICE_ERROR';
-    if (mentionsPersist) return 'PERSIST_SERVICE_ERROR';
-    if (mentionsRender) return 'RENDER_SERVICE_ERROR';
-  }
-
-  if (
-    mentionsSinglefile &&
-    (lower.includes('trustedtypes') ||
-      lower.includes('trustedhtml') ||
-      lower.includes('not a valid selector') ||
-      lower.includes('singlefile edge-case failure'))
-  ) {
-    return 'SINGLEFILE_EDGE_CASE';
-  }
-
-  return 'UNKNOWN_ERROR';
 }
 
 function recomputeDiagnosticsFromEvents(events: LogEvent[]): RequestDiagnostics {
@@ -653,106 +500,15 @@ async function handleSseStream(
 }
 
 /**
- * GET /stats handler — aggregate metrics from D1 index.
+ * GET /stats handler — aggregate metrics from the D1 index, read in two
+ * queries: the counts per stage, then the top domains and the newest failures.
  */
 async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
-  const [
-    stageResult,
-    totalResult,
-    recentResult,
-    domainsResult,
-    failuresResult,
-    stuckResult,
-    orphanQueuedResult,
-    orphanQueuedOlder10mResult,
-    orphanQueuedOlder60mResult
-  ] = await Promise.all([
-    env.INDEX_DB.prepare(
-      'SELECT stage, COUNT(*) as count FROM requests_index GROUP BY stage'
-    ).all<{ stage: string | null; count: number }>(),
-    env.INDEX_DB.prepare(
-      'SELECT COUNT(*) as total FROM requests_index'
-    ).first<{ total: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT
-        SUM(CASE WHEN created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') THEN 1 ELSE 0 END) as last1h,
-        SUM(CASE WHEN created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-24 hours') THEN 1 ELSE 0 END) as last24h
-      FROM requests_index`
-    ).first<{ last1h: number; last24h: number }>(),
-    env.INDEX_DB.prepare(
-      'SELECT domain, COUNT(*) as count FROM requests_index GROUP BY domain ORDER BY count DESC LIMIT 10'
-    ).all<{ domain: string; count: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT request_id, url, created_at FROM requests_index
-       WHERE stage = 'failed' ORDER BY created_at DESC LIMIT 5`
-    ).all<{ request_id: string; url: string; created_at: string }>(),
-    env.INDEX_DB.prepare(
-      `SELECT COUNT(*) as count FROM requests_index
-       WHERE terminal_state = 0 AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`
-    ).first<{ count: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT COUNT(*) as count FROM requests_index
-       WHERE stage = 'queued'
-         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')`
-    ).first<{ count: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT COUNT(*) as count FROM requests_index
-       WHERE stage = 'queued'
-         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
-         AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')`
-    ).first<{ count: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT COUNT(*) as count FROM requests_index
-       WHERE stage = 'queued'
-         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
-         AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`
-    ).first<{ count: number }>(),
+  const [counts, lists] = await Promise.all([
+    env.INDEX_DB.prepare(STATS_COUNTS_SQL).all<StatsCountRow>(),
+    env.INDEX_DB.prepare(STATS_LISTS_SQL).all<StatsListRow>(),
   ]);
-
-  const total = totalResult?.total ?? 0;
-  const byStage: Record<string, number> = {};
-  let doneCount = 0;
-  let failedCount = 0;
-  let activeCount = 0;
-
-  for (const row of stageResult.results) {
-    const stage = row.stage ?? 'unknown';
-    byStage[stage] = row.count;
-    if (stage === 'done') doneCount = row.count;
-    else if (stage === 'failed') failedCount = row.count;
-    else activeCount += row.count;
-  }
-
-  const terminal = doneCount + failedCount;
-  const successRate = terminal > 0 ? doneCount / terminal : 0;
-  const failureRate = terminal > 0 ? failedCount / terminal : 0;
-
-  return Response.json({
-    total,
-    byStage,
-    successRate: Math.round(successRate * 1000) / 1000,
-    failureRate: Math.round(failureRate * 1000) / 1000,
-    activeCount,
-    stuckCount: stuckResult?.count ?? 0,
-    orphanQueue: {
-      total: orphanQueuedResult?.count ?? 0,
-      olderThan10m: orphanQueuedOlder10mResult?.count ?? 0,
-      olderThan60m: orphanQueuedOlder60mResult?.count ?? 0,
-    },
-    recentActivity: {
-      last1h: recentResult?.last1h ?? 0,
-      last24h: recentResult?.last24h ?? 0,
-    },
-    topDomains: domainsResult.results.map((r: { domain: string; count: number }) => ({
-      domain: r.domain,
-      count: r.count,
-    })),
-    recentFailures: failuresResult.results.map((r: { request_id: string; url: string; created_at: string }) => ({
-      requestId: r.request_id,
-      url: r.url,
-      createdAt: r.created_at,
-    })),
-  });
+  return Response.json(buildStatsBody(counts.results, lists.results));
 }
 
 /**
@@ -907,6 +663,12 @@ function parseRoute(
     return { path: '/request/:id/stream', requestId: streamMatch[1], params };
   }
 
+  // Match /request/:id/settle pattern (before /request/:id)
+  const settleMatch = path.match(/^\/request\/([^/]+)\/settle$/);
+  if (settleMatch) {
+    return { path: '/request/:id/settle', requestId: settleMatch[1], params };
+  }
+
   // Match /request/:id pattern
   const requestMatch = path.match(/^\/request\/([^/]+)$/);
   if (requestMatch) {
@@ -1020,6 +782,29 @@ export default {
         return Response.json({ ok: true });
       }
 
+      // POST /request/:id/settle - The workflow records the terminal state a
+      // run settled in. Targets the creation-hour bucket, then the legacy
+      // per-request DO (as PATCH does); 404 when neither holds the request.
+      if (method === 'POST' && path === '/request/:id/settle' && requestId) {
+        // A body that is not JSON is an invalid settle body too, not a server error.
+        const settle = parseRequestSettle(await request.json().catch(() => undefined));
+        if (!settle) {
+          return Response.json({ error: 'Invalid settle body' }, { status: 400 });
+        }
+        const key = await getBucketKeyFromD1(env, requestId);
+        let result: SettleResult = { found: false };
+        if (key) {
+          result = await getStubForKey(env, key).settleRequest(requestId, settle);
+        }
+        if (!result.found) {
+          result = await getLegacyStub(env, requestId).settleRequest(requestId, settle);
+        }
+        if (!result.found) {
+          return Response.json({ error: 'Request not found' }, { status: 404 });
+        }
+        return Response.json(result);
+      }
+
       // GET /request/:id - Get full request view (dual-read)
       if (method === 'GET' && path === '/request/:id' && requestId) {
         const cursor = params.get('cursor');
@@ -1129,46 +914,8 @@ export default {
 
       // GET /requests - List requests from D1 index
       if (method === 'GET' && path === '/requests') {
-        const domain = params.get('domain');
-        const status = params.get('status');
-        const q = params.get('q');
-        const from = params.get('from');
-        const to = params.get('to');
-        const limitVal = Math.min(Math.max(parseInt(params.get('limit') ?? '', 10) || 50, 1), 1000);
-        const offsetVal = Math.min(Math.max(parseInt(params.get('offset') ?? '', 10) || 0, 0), 100000);
-
-        let query = 'SELECT * FROM requests_index';
-        const conditions: string[] = [];
-        const bindings: (string | number)[] = [];
-
-        if (domain) {
-          conditions.push('domain = ?');
-          bindings.push(domain);
-        }
-        if (status) {
-          conditions.push('stage = ?');
-          bindings.push(status);
-        }
-        if (q) {
-          conditions.push("url LIKE '%' || ? || '%'");
-          bindings.push(q);
-        }
-        if (from) {
-          conditions.push('created_at >= ?');
-          bindings.push(from);
-        }
-        if (to) {
-          conditions.push('created_at <= ?');
-          bindings.push(to);
-        }
-        if (conditions.length > 0) {
-          query += ' WHERE ' + conditions.join(' AND ');
-        }
-
-        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-        bindings.push(limitVal, offsetVal);
-
-        const result = await env.INDEX_DB.prepare(query).bind(...bindings).all<RequestsIndexRow>();
+        const { sql, bindings } = buildRequestListQuery(params);
+        const result = await env.INDEX_DB.prepare(sql).bind(...bindings).all<RequestsIndexRow>();
 
         return Response.json({
           requests: result.results.map((row: RequestsIndexRow) => ({

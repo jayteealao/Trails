@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",
     "update-bundle": "curl -o lib/single-file-bundle.js https://raw.githubusercontent.com/gildas-lormeau/single-file-cli/master/lib/single-file-bundle.js"
@@ -15,6 +16,7 @@
   },
   "devDependencies": {
     "cf": "1.0.0-beta.17",
-    "wrangler": "4.148.0"
+    "wrangler": "4.148.0",
+    "vitest": "4.1.10"
   }
 }

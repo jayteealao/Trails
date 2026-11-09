@@ -1,189 +1,22 @@
-import type { EventType, LogEvent, LogLevel } from '@warg/shared';
-import { createEvent } from '@warg/shared';
-import type { RequestErrorCode, UserActionHint } from '@warg/shared';
+import type { EventType, LogEvent, LogLevel, RequestSettle } from '@warg/shared';
+import {
+  INTERNAL_API_KEY_HEADER,
+  classifyError,
+  createEvent,
+  isIncompleteDegradation,
+  isRequestErrorCode,
+  isUserActionHint,
+} from '@warg/shared';
+import type { ErrorClassification } from '@warg/shared';
+import type { WorkflowResult } from './types.js';
 
-interface ClassifiedError {
-  errorCode: RequestErrorCode;
-  retryable: boolean;
-  recommendedAction: UserActionHint;
-}
+type ClassifiedError = ErrorClassification;
 
 function fromErrorObject(error: string | Error): ClassifiedError | undefined {
   if (!(error instanceof Error)) return undefined;
   const value = (error as unknown as { classification?: ClassifiedError }).classification;
   if (!value) return undefined;
   return value;
-}
-
-function classifyMonolithError(errorMsgLower: string): ClassifiedError | undefined {
-  const mentionsMonolith =
-    errorMsgLower.includes('/monolith') ||
-    errorMsgLower.includes('monolith') ||
-    errorMsgLower.includes('sandboxerror');
-  if (!mentionsMonolith) return undefined;
-
-  if (
-    errorMsgLower.includes('message length too big') ||
-    errorMsgLower.includes('max allowed message length') ||
-    errorMsgLower.includes('33554432') ||
-    errorMsgLower.includes('32mib')
-  ) {
-    return {
-      errorCode: 'MONOLITH_RPC_32MIB_LIMIT',
-      retryable: false,
-      recommendedAction: 'investigate_service',
-    };
-  }
-
-  if (errorMsgLower.includes('monolith input too large')) {
-    return {
-      errorCode: 'MONOLITH_INPUT_TOO_LARGE',
-      retryable: false,
-      recommendedAction: 'investigate_service',
-    };
-  }
-
-  if (
-    errorMsgLower.includes('timeout') ||
-    errorMsgLower.includes('timed out') ||
-    errorMsgLower.includes('abort') ||
-    errorMsgLower.includes('deadline exceeded')
-  ) {
-    return {
-      errorCode: 'MONOLITH_TIMEOUT',
-      retryable: true,
-      recommendedAction: 'retry_step',
-    };
-  }
-
-  if (
-    errorMsgLower.includes('service error') ||
-    errorMsgLower.includes('sandboxerror') ||
-    errorMsgLower.includes('http error! status: 500') ||
-    errorMsgLower.includes('container terminated')
-  ) {
-    return {
-      errorCode: errorMsgLower.includes('sandboxerror') || errorMsgLower.includes('http error! status: 500')
-        ? 'MONOLITH_SANDBOX_500'
-        : 'MONOLITH_SERVICE_ERROR',
-      retryable: true,
-      recommendedAction: 'retry_step',
-    };
-  }
-
-  return undefined;
-}
-
-export function classifyError(stepName: string, errorMsg: string): ClassifiedError {
-  const msg = errorMsg.toLowerCase();
-  const monolithError = classifyMonolithError(msg);
-  if (monolithError) return monolithError;
-
-  if (msg.includes('no requested outputs were produced')) {
-    return {
-      errorCode: 'NO_OUTPUTS_PRODUCED',
-      retryable: true,
-      recommendedAction: 'retry_full',
-    };
-  }
-
-  if (msg.includes('missing rendered.html prerequisite')) {
-    return {
-      errorCode: 'RENDER_PREREQ_MISSING',
-      retryable: true,
-      recommendedAction: 'retry_full',
-    };
-  }
-
-  if (
-    msg.includes('5006') ||
-    msg.includes('network closed') ||
-    msg.includes('connection closed') ||
-    msg.includes('browser has disconnected')
-  ) {
-    return {
-      errorCode: 'RENDER_NETWORK_CLOSED',
-      retryable: true,
-      recommendedAction: 'retry_full',
-    };
-  }
-
-  if (
-    msg.includes('execution context was destroyed') ||
-    msg.includes('code":6000') ||
-    msg.includes('context destroyed')
-  ) {
-    return {
-      errorCode: 'RENDER_CONTEXT_DESTROYED',
-      retryable: true,
-      recommendedAction: 'retry_full',
-    };
-  }
-
-  if (
-    msg.includes('trustedtypes') ||
-    msg.includes('trustedhtml') ||
-    msg.includes('not a valid selector') ||
-    msg.includes('singlefile edge-case failure')
-  ) {
-    return {
-      errorCode: 'SINGLEFILE_EDGE_CASE',
-      retryable: true,
-      recommendedAction: 'retry_step',
-    };
-  }
-
-  if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('abort')) {
-    const timeoutByStep: Record<string, RequestErrorCode> = {
-      render: 'RENDER_TIMEOUT',
-      singlefile: 'SINGLEFILE_TIMEOUT',
-      readability: 'READABILITY_TIMEOUT',
-      monolith: 'MONOLITH_TIMEOUT',
-    };
-    return {
-      errorCode: timeoutByStep[stepName] ?? 'UNKNOWN_ERROR',
-      retryable: true,
-      recommendedAction: stepName === 'render' ? 'retry_full' : 'retry_step',
-    };
-  }
-
-  if (msg.includes('service error')) {
-    const serviceByStep: Record<string, RequestErrorCode> = {
-      render: 'RENDER_SERVICE_ERROR',
-      singlefile: 'SINGLEFILE_SERVICE_ERROR',
-      readability: 'READABILITY_SERVICE_ERROR',
-      monolith: 'MONOLITH_SERVICE_ERROR',
-      persist: 'PERSIST_SERVICE_ERROR',
-      derivatives: 'MONOLITH_SERVICE_ERROR',
-    };
-    return {
-      errorCode: serviceByStep[stepName] ?? 'UNKNOWN_ERROR',
-      retryable: true,
-      recommendedAction: stepName === 'persist' ? 'investigate_service' : 'retry_step',
-    };
-  }
-
-  if (msg.includes('unauthorized') || msg.includes('access') || msg.includes('forbidden')) {
-    return {
-      errorCode: 'ACCESS_BLOCKED',
-      retryable: false,
-      recommendedAction: 'check_access',
-    };
-  }
-
-  if (msg.includes('invalid url') || msg.includes('url is required')) {
-    return {
-      errorCode: 'INVALID_INPUT_URL',
-      retryable: false,
-      recommendedAction: 'inspect_url',
-    };
-  }
-
-  return {
-    errorCode: 'UNKNOWN_ERROR',
-    retryable: true,
-    recommendedAction: 'investigate_service',
-  };
 }
 
 /**
@@ -197,7 +30,7 @@ async function loggerPost(env: Env, path: string, body: unknown, label: string):
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Internal-API-Key': env.INTERNAL_API_KEY
+        [INTERNAL_API_KEY_HEADER]: env.INTERNAL_API_KEY
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
@@ -397,6 +230,30 @@ export function logRequestDone(
 }
 
 /**
+ * Classify a run's terminal failure: the error's own classification or its
+ * message, then a valid code, retryable flag or action from the terminal
+ * details (the details of a WorkflowTerminalError) override it.
+ */
+export function classifyTerminalFailure(
+  error: string | Error,
+  details?: Record<string, unknown>
+): ClassifiedError & { errorMessage: string } {
+  const errorMessage = error instanceof Error ? error.message : error;
+  const classified = fromErrorObject(error) ?? classifyError('request', errorMessage);
+  const errorCode = details?.['errorCode'];
+  const retryable = details?.['retryable'];
+  const recommendedAction = details?.['recommendedAction'];
+  return {
+    errorCode: isRequestErrorCode(errorCode) ? errorCode : classified.errorCode,
+    retryable: typeof retryable === 'boolean' ? retryable : classified.retryable,
+    recommendedAction: isUserActionHint(recommendedAction)
+      ? recommendedAction
+      : classified.recommendedAction,
+    errorMessage,
+  };
+}
+
+/**
  * Log a terminal request.failed event.
  * Accepts string or Error. If Error, includes truncated stack trace.
  */
@@ -408,7 +265,7 @@ export function logRequestFailed(
 ): Promise<void> {
   const errorMsg = error instanceof Error ? error.message : error;
   const stack = error instanceof Error ? error.stack?.slice(0, 1000) : undefined;
-  const classified = fromErrorObject(error) ?? classifyError('request', errorMsg);
+  const classified = classifyTerminalFailure(error);
   return logEvent(
     env,
     requestId,
@@ -427,6 +284,69 @@ export function logRequestFailed(
 }
 
 /**
+ * Send the terminal state a run settled in to the logger.
+ * Unlike the event helpers this throws on a non-2xx answer or a network
+ * error, so the step that calls it is retried.
+ */
+export async function settleRequest(
+  env: Env,
+  requestId: string,
+  settle: RequestSettle
+): Promise<void> {
+  const response = await env.LOGGER.fetch(
+    `https://logger/request/${encodeURIComponent(requestId)}/settle`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [INTERNAL_API_KEY_HEADER]: env.INTERNAL_API_KEY
+      },
+      body: JSON.stringify(settle),
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
+  if (!response.ok) {
+    const text = (await response.text()).slice(0, 300);
+    throw new Error(`Logger settle answered ${response.status}: ${text}`);
+  }
+  // A stale settle lost to a newer run: the logger keeps the newer state, which is
+  // right, but the log should show that this run's state was not applied.
+  const answer: unknown = await response.json().catch(() => undefined);
+  if (isStaleSettleAnswer(answer)) {
+    console.warn(
+      '[workflow] settle not applied: the logger holds a newer run',
+      JSON.stringify({ request_id: requestId, state: settle.state, stage: answer.stage })
+    );
+  }
+}
+
+function isStaleSettleAnswer(value: unknown): value is { reason: 'stale'; stage?: unknown } {
+  return typeof value === 'object' && value !== null && 'reason' in value && value.reason === 'stale';
+}
+
+/** The settle of a run that returned: incomplete when monolith degraded, else done. */
+export function settleForResult(
+  result: WorkflowResult,
+  runId: string,
+  settledAt: string
+): RequestSettle {
+  const incomplete =
+    result.degraded === true &&
+    isIncompleteDegradation(result.partialFailures?.map((failure) => failure.step));
+  return { state: incomplete ? 'incomplete' : 'done', runId, settledAt };
+}
+
+/** The settle of a run that threw: failed, with the code the failure log records. */
+export function settleForFailure(
+  error: string | Error,
+  details: Record<string, unknown> | undefined,
+  runId: string,
+  settledAt: string
+): RequestSettle {
+  return { state: 'failed', runId, settledAt, ...classifyTerminalFailure(error, details) };
+}
+
+/**
  * Update the manifest key in the logger.
  */
 export async function updateManifestKey(
@@ -441,7 +361,7 @@ export async function updateManifestKey(
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-Internal-API-Key': env.INTERNAL_API_KEY
+          [INTERNAL_API_KEY_HEADER]: env.INTERNAL_API_KEY
         },
         body: JSON.stringify({ manifestR2Key })
       }

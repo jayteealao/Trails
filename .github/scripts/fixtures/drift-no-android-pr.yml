@@ -1,0 +1,28 @@
+# Lint fixture: runs the schema drift check; the push paths list android/**
+# but the pull_request paths do not, so the workflow lint must report
+# drift-android-trigger once.
+name: fixture-drift-no-android-pr
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'warg/**'
+      - 'shared-types/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'android/**'
+      - 'warg/**'
+      - 'shared-types/**'
+jobs:
+  shared-types-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Run drift check
+        run: node --experimental-strip-types shared-types/check-drift.ts

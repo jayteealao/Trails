@@ -1,4 +1,4 @@
-import type { ArchiveOptions, ArtifactMeta, ArtifactKind } from '@warg/shared';
+import type { ArtifactMeta, ArtifactKind } from '@warg/shared';
 
 /**
  * Parameters passed to the workflow when starting it.
@@ -9,12 +9,6 @@ export interface WorkflowParams {
   options_r2_key: string;
 }
 
-/**
- * Extended archive options with workflow-specific fields.
- */
-export interface ArchiveOptionsExtended extends ArchiveOptions {
-  dryRun?: boolean;
-}
 
 /**
  * Response from the renderer service.

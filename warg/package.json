@@ -44,6 +44,7 @@
       "protobufjs": ">=7.6.4 <8",
       "path-to-regexp": ">=0.1.13",
       "express>path-to-regexp": "~0.1.13",
+      "wrangler>path-to-regexp": "6.3.0",
       "fast-xml-parser": ">=5.5.6",
       "basic-ftp": ">=5.3.1",
       "minimatch": ">=9.0.7",

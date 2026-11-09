@@ -1,8 +1,10 @@
-import { timingSafeEqual } from '@warg/shared';
+import { getGcsPath, readInternalJsonRequest } from '@warg/shared';
 import type { ArchiveManifest, ArtifactMeta, ReadabilityResult } from '@warg/shared';
 import type {
   PersistRequest,
   PersistResponse,
+  PersistFailedArtifact,
+  PersistPartialFailureResponse,
   CompressionStat,
   CreateUploadRequest,
   CreateUploadResponse,
@@ -13,12 +15,14 @@ import type {
 } from './types.js';
 import {
   shouldCompress,
-  getGcsPath,
   filterPersistableArtifacts,
   toUploadInfo
 } from './artifacts.js';
 import { buildFinalizeMetadata } from './metadata.js';
 import { callCloudFunction } from './cloud-function.js';
+
+/** The most of a storage error body an upload failure keeps. */
+const ERROR_TEXT_MAX_CHARS = 500;
 
 /**
  * Compress data using gzip via CompressionStream.
@@ -104,7 +108,8 @@ async function uploadArtifact(
   });
 
   if (!response.ok) {
-    const text = await response.text();
+    // Storage error bodies can be long XML dumps; keep the start only.
+    const text = (await response.text()).slice(0, ERROR_TEXT_MAX_CHARS);
     throw new Error(`GCS upload failed for ${artifact.kind}: ${response.status} - ${text}`);
   }
 
@@ -184,25 +189,10 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      const url = new URL(request.url);
-
-      if (request.method !== 'POST' || url.pathname !== '/persist') {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      // Verify internal API key
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      // Parse request body
-      let body: PersistRequest;
-      try {
-        body = (await request.json()) as PersistRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/persist']);
+      if (!pre.ok) return pre.response;
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as PersistRequest;
 
       const { request_id, manifest_key, dryRun } = body;
       if (!request_id || !manifest_key) {
@@ -296,6 +286,7 @@ export default {
       const uploadResults: UploadedArtifactResult[] = [];
       const compressionStats: CompressionStat[] = [];
       const skippedArtifacts: string[] = [];
+      const failedArtifacts: PersistFailedArtifact[] = [];
       const uploadStart = Date.now();
 
       for (const artifact of artifacts) {
@@ -306,12 +297,22 @@ export default {
           continue;
         }
 
-        const result = await uploadArtifact(
-          env.ARCHIVE_BUCKET,
-          artifact,
-          uploadEntry.signed_url,
-          uploadEntry.gcs_path
-        );
+        let result: UploadResult;
+        try {
+          result = await uploadArtifact(
+            env.ARCHIVE_BUCKET,
+            artifact,
+            uploadEntry.signed_url,
+            uploadEntry.gcs_path
+          );
+        } catch (err) {
+          // Keep uploading the rest; the persist answers 502 below so the
+          // caller retries, and the retry re-uploads to the same paths.
+          const message = err instanceof Error ? err.message : String(err);
+          console.error('[gcs] upload failed', JSON.stringify({ request_id, kind: artifact.kind, error: message }));
+          failedArtifacts.push({ kind: artifact.kind, error: message });
+          continue;
+        }
 
         // Per-artifact finalize — flips this one archive entry to success
         // immediately, surviving a later batch failure.
@@ -345,6 +346,19 @@ export default {
 
       const uploadDurationMs = Date.now() - uploadStart;
       console.log(`[gcs] Uploaded ${uploadedArtifacts.length} artifacts to GCS in ${uploadDurationMs}ms`);
+
+      if (failedArtifacts.length > 0) {
+        return Response.json(
+          {
+            error: 'Upload failed for some artifacts',
+            firestore_doc_id: createUploadRes.firestore_doc_id,
+            uploaded: uploadResults.length,
+            artifacts: uploadResults,
+            failed: failedArtifacts
+          } satisfies PersistPartialFailureResponse,
+          { status: 502 }
+        );
+      }
 
       // Step 4: Final finalize call — writes metadata + images (archives
       // already journaled per-artifact above). Empty `uploaded` is OK: only

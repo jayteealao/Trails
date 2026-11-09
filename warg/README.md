@@ -34,7 +34,23 @@ pnpm format:check
 
 ```bash
 pnpm --filter @warg/shared test
+pnpm -r --if-present run test        # every package's unit tests (what CI runs)
 ```
+
+The dashboard also has browser checks (Playwright, Chromium) of the sign-in,
+the archive content policy, the archive preview, the infra view and the inbox.
+They start `wrangler pages dev` with test credentials, a stand-in logger worker
+and per-spec stubs, so they need no live service. Install the browser once,
+then run them:
+
+```bash
+pnpm --filter warg-dashboard exec playwright install chromium
+pnpm --filter warg-dashboard test:e2e
+```
+
+They use the local ports 18797 (stand-in logger), 18798 (stubs) and 18799
+(dashboard); set `E2E_LOGGER_PORT`, `E2E_STUB_PORT` or `E2E_PAGES_PORT` when
+one is taken. CI runs them in a job of their own, apart from the unit tests.
 
 ### Run a worker locally
 
@@ -58,7 +74,18 @@ secrets each worker needs, and how each target is verified.
    firebase and, for the rules, gcloud sign-ins before the first upload. Start
    Docker before a deploy that includes `monolith` (its container image is
    built locally).
-3. Deploy from `warg/`:
+3. Before the first dashboard deploy, set its sign-in secret. Every dashboard
+   page and API call asks for it through the browser's sign-in prompt (HTTP
+   Basic); without it every page answers 500 `Dashboard auth is not
+   configured.` and `--with-pages` stops with exit 3 before anything deploys:
+
+   ```bash
+   pnpm exec wrangler pages secret put DASHBOARD_AUTH --project-name warg-dashboard
+   ```
+
+   The value is `user:password`. Use a generated password, for example the
+   output of `openssl rand -base64 24`.
+4. Deploy from `warg/`:
 
    ```bash
    pnpm deploy:all                   # workers, functions and the dashboard (never the rules; prints a rules: not deployed row)
@@ -69,6 +96,7 @@ secrets each worker needs, and how each target is verified.
    pnpm run deploy -- --with-rules   # workers, then the Firestore and Storage rules
    pnpm run deploy -- --functions-only --with-rules   # the functions, then the rules
    pnpm deploy:quick                 # skip typecheck and tests (the secret check still runs)
+   pnpm run deploy -- --with-pages --dry-run   # list the targets and the Pages project; deploys nothing
    ```
 
    When `firebase deploy` asks for the `--force` option (a new retry policy, for
@@ -77,6 +105,14 @@ secrets each worker needs, and how each target is verified.
 
    Plain `pnpm deploy` is pnpm's own built-in command and does not run the
    script; use `pnpm run deploy` or one of the `deploy:*` scripts.
+
+   The dashboard inbox reads its completed-today count from dashboard-api
+   (`GET /stats/completed-today`), and the inbox answers 500 when that call
+   fails. Deploy dashboard-api with or before the dashboard (`--all`, or
+   `--with-functions --with-pages`; the script deploys the functions before
+   the dashboard). A `--with-pages` run alone, or a run that holds dashboard-api
+   back at the link check, can ship a dashboard whose dashboard-api lacks the
+   route; deploy the functions next.
 
 4. Read the summary. The script prints one line per target on every exit:
    `deployed` (the platform shows this run's version id, update time or commit
@@ -98,6 +134,16 @@ firebase.json predeploy runs `pnpm run build:deploy` in the function folder,
 which writes `dist-deploy/` with the commit label baked in; `pnpm -r test`
 runs the function test suites. Each function folder needs its `.env` (copy
 `.env.example`).
+
+Built workspace packages: the workers import `@warg/shared` from its
+TypeScript source, but the cloud functions and the dashboard functions import
+its `@warg/shared/archive-ids` subpath (and `@warg/article-writer`,
+`@warg/url-normalizer`) from built `dist/` output. `pnpm install` builds them
+through each package's `prepare` script, `build:deploy` rebuilds each one a
+function bundles, and the Pages deploy rebuilds `@warg/shared`. After editing
+one of these packages, run its `build` script (for example
+`pnpm --filter @warg/shared run build`) before running a function's tests
+locally.
 
 Function secrets and deploy configuration: before any deploy that includes the
 functions, the script checks that every Secret Manager secret the functions
@@ -144,8 +190,24 @@ Checking the deploy script: `pnpm deploy:check` runs shellcheck and a stub
 harness that drives the script end to end without credentials (CI runs it too).
 
 The `deploy` scripts of the function packages and of `pages/dashboard` only
-print a pointer to `scripts/deploy.sh` and exit 1. `pages/dashboard-v2` is not
-deployed by the script and keeps its own `deploy` script.
+print a pointer to `scripts/deploy.sh` and exit 1.
+
+**Retiring the old React dashboard.** Its code is gone, but its own Cloudflare
+Pages project (the second dashboard project beside `warg-dashboard`) keeps
+serving its last deployment, with no sign-in and with its own copies of
+`DASHBOARD_API_KEY` and `BACKFILL_STATUS_KEY`, until it is deleted. From
+`warg/`, find its name in the project list, delete it, and list again to check
+that only `warg-dashboard` is left of the two:
+
+```bash
+pnpm exec wrangler pages project list
+pnpm exec wrangler pages project delete <name of the old dashboard project>
+pnpm exec wrangler pages project list
+```
+
+Then rotate `DASHBOARD_API_KEY` and `BACKFILL_STATUS_KEY` with the two steps of
+[Rotating the function keys](#rotating-the-function-keys-two-steps), so the
+copies the old project held stop working.
 
 Two configs per worker: `cloudflare.config.ts` is what `cf deploy` reads, and
 `wrangler.jsonc` still serves `wrangler dev` and `wrangler types`. Change a
@@ -168,8 +230,8 @@ one function only. Callers send it in the `X-Internal-API-Key` header.
 | Secret | Stored in | Sent by | Checked by |
 |---|---|---|---|
 | `ARCHIVE_GATEWAY_KEY` | Secret Manager and the `gcs` worker | storage worker (`workers/gcs`) | archive-gateway |
-| `DASHBOARD_API_KEY` | Secret Manager and both dashboards' Pages secrets | dashboard | dashboard-api |
-| `BACKFILL_STATUS_KEY` | Secret Manager and both dashboards' Pages secrets | dashboard | backfillStatus |
+| `DASHBOARD_API_KEY` | Secret Manager and the dashboard's Pages secrets | dashboard | dashboard-api |
+| `BACKFILL_STATUS_KEY` | Secret Manager and the dashboard's Pages secrets | dashboard | backfillStatus |
 | `GATEWAY_LOG_KEY` | Secret Manager | archive-gateway (event logs) | gateway worker `/internal/log` |
 
 `INTERNAL_API_KEY` in Secret Manager is the old shared function key. The
@@ -199,8 +261,6 @@ commit or a log: pipe generated values straight into the command.
    pnpm exec wrangler secret put ARCHIVE_GATEWAY_KEY --config workers/gcs/wrangler.jsonc
    pnpm exec wrangler pages secret put DASHBOARD_API_KEY --project-name warg-dashboard
    pnpm exec wrangler pages secret put BACKFILL_STATUS_KEY --project-name warg-dashboard
-   pnpm exec wrangler pages secret put DASHBOARD_API_KEY --project-name warg-dashboard-v2
-   pnpm exec wrangler pages secret put BACKFILL_STATUS_KEY --project-name warg-dashboard-v2
    ```
 
 3. **Deploy one.** Set `KEY_ROTATION_DUAL_ACCEPT=true` in the three `.env`
@@ -215,7 +275,6 @@ commit or a log: pipe generated values straight into the command.
 
    ```bash
    pnpm run deploy -- --with-pages
-   pnpm --dir pages/dashboard-v2 run deploy
    ```
 
 4. **Check every caller on its new key:** a test article upload through the
@@ -242,6 +301,31 @@ commit or a log: pipe generated values straight into the command.
 Step 6 must run before step 7. Deploy two unbinds `INTERNAL_API_KEY` from the
 functions; a function deploy fails while a bound secret has no enabled
 version.
+
+### The dashboard sign-in
+
+| Secret | Stored in | Sent by | Checked by |
+|---|---|---|---|
+| `DASHBOARD_AUTH` (`user:password`) | the dashboard's Pages secrets | the operator's browser (HTTP Basic) | the dashboard's Pages middleware (`pages/dashboard/functions/_middleware.ts`) |
+
+Every dashboard page and API call needs it. A request without the right
+credential gets 401 `Sign-in required.` with a Basic challenge, so the browser
+shows its sign-in prompt; a dashboard with no secret set answers 500
+`Dashboard auth is not configured.`; a signed-in write that another site
+starts gets 403 `Cross-site request refused.`.
+
+To rotate it, set a new generated value and deploy the dashboard; the browser
+asks for the new credential at the next request:
+
+```bash
+pnpm exec wrangler pages secret put DASHBOARD_AUTH --project-name warg-dashboard
+pnpm run deploy -- --with-pages
+```
+
+The middleware does not limit failed sign-ins. Keep the password long and
+random (`openssl rand -base64 24`), and, if the dashboard is reachable from the
+open internet, add a Cloudflare rate-limiting rule on its hostname for
+responses with status 401.
 
 ## Merging duplicate shared articles
 
@@ -414,8 +498,22 @@ previous page's `nextCursor` (`null` on the last page and on a filtered or
 searched list). A malformed cursor answers 400 `{"error":"Invalid cursor"}`. A
 `page` without a cursor skips the earlier pages with an offset, which Firestore
 bills per skipped document; a page past 10,000 skipped documents answers 400
-`{"error":"Page out of range; follow nextCursor instead"}`. Both dashboards send
+`{"error":"Page out of range; follow nextCursor instead"}`. The dashboard sends
 the cursor with the page number when they step to the next page.
+
+`GET /stats/completed-today` (dashboard-api, `X-Internal-API-Key` like every
+other route; a missing or wrong key answers 401) answers
+`{"completedToday": <n>, "since": "<UTC midnight, ISO>", "truncated": <bool>}`:
+the dashboard user's articles that became complete since the start of the
+current UTC day. An article becomes complete when the last of its four core
+archives (rendered, readability, markdown, singlefile) succeeds, so a core
+archive that is run again today counts its article again. The count reads the
+same 2,000 most recently added articles as a filtered list; `truncated` is true
+when the user has more, and an older article completed today is then missing
+from the count. One count is reused for a minute. The inbox shows this value
+as `counts.completedToday` under "Completed today"; before, the dashboard
+counted a rolling 24 hours over its 25 most recent completed articles, so the
+number can differ from the old one, most around UTC midnight.
 
 **Second-account check.** After deploy two (step 6 of
 [Rotating the function keys](#rotating-the-function-keys-two-steps)), with the

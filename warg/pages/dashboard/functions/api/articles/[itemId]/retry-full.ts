@@ -1,3 +1,4 @@
+import { SAFE_ID_RE } from '@warg/shared/archive-ids';
 import {
   type ActionEnv,
   bootstrapArticle,
@@ -8,7 +9,6 @@ import {
   submitBegin
 } from '../../../lib/article-actions.js';
 
-const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
 
 export const onRequestPost: PagesFunction<ActionEnv> = async (context) => {
   const itemId = context.params.itemId;

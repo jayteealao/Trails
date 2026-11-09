@@ -1,3 +1,5 @@
+import type { Pocket } from '@warg/article-writer';
+
 /**
  * Archive classification for dashboard display.
  */
@@ -73,13 +75,7 @@ export interface ArticleDetail extends ArticleListItem {
     title?: string;
     word_count?: number;
   };
-  pocket?: {
-    favorite?: string;
-    resolved_id?: string;
-    status?: string;
-    time_added?: number;
-    time_read?: number;
-  };
+  pocket?: Partial<Pocket>;
   images?: Array<{ src: string; height?: number; width?: number }>;
   firestore_status?: string;
   error?: string;
@@ -97,4 +93,20 @@ export interface ArticleListResponse {
   hasMore: boolean;
   /** Cursor for the next page of the unfiltered list; null on the last page and for a filtered list. */
   nextCursor: string | null;
+}
+
+/**
+ * Response of GET /stats/completed-today: the articles that became complete
+ * since `since`, the start of the current UTC day (ISO). An article becomes
+ * complete when its last core archive succeeds, so an article whose core
+ * archive is run again today counts again.
+ *
+ * The count covers the dashboard user's most recently added articles only (the
+ * cap of the filtered list); `truncated` is true when the user has more, so an
+ * older article that completed today may be missing from the count.
+ */
+export interface CompletedTodayResponse {
+  completedToday: number;
+  since: string;
+  truncated: boolean;
 }

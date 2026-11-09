@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldPath, Timestamp } from 'firebase-admin/firestore';
 import type {
   DocumentData,
   DocumentReference,
@@ -7,7 +7,15 @@ import type {
   Firestore,
   QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
-import { buildPocket } from './canonical.js';
+import {
+  buildBackfillUpsertPatch,
+  markSharedArticleBackfillBegun,
+  projectPocket,
+  recordSharedArticleBackfillFailure,
+  setUserArticleResolvedLink,
+  settleStuckSharedArticle,
+  upsertSharedArticleForBackfill,
+} from '@warg/article-writer';
 import {
   resolveCanonicalCandidates,
   type CanonicalCandidate,
@@ -66,7 +74,7 @@ const STUCK_TIMEOUT_MS = 45 * 60 * 1000;
 const DOMAIN_FAILURE_THRESHOLD = 2;
 const DOMAIN_BACKOFF_MS = 30 * 60 * 1000;
 const GLOBAL_PAUSE_MS = 20 * 60 * 1000;
-const LEASE_TTL_MS = 15 * 60 * 1000;
+const RUN_LEASE_TTL_MS = 15 * 60 * 1000;
 
 // After a full pass the change scan starts this long before the pass began, so
 // a change made during the pass, or stamped by a phone with a slow clock, is
@@ -146,7 +154,10 @@ function classifyGatewayFailure(message: string): FailureClass {
     lower.includes('forbidden') ||
     lower.includes('cf-access') ||
     lower.includes('x-api-key') ||
-    lower.includes('server misconfigured')
+    lower.includes('server misconfigured') ||
+    // The gateway refuses a request id that the operator (internal key) started: the operator's run
+    // owns the article, so the backfill must not re-submit it.
+    lower.includes('request_id_conflict')
   ) {
     return 'ACCESS_OR_AUTH';
   }
@@ -197,9 +208,10 @@ async function acquireRunLease(
 
     tracker.run_lease = {
       owner,
-      expires_at: Timestamp.fromMillis(nowMs + LEASE_TTL_MS),
+      expires_at: Timestamp.fromMillis(nowMs + RUN_LEASE_TTL_MS),
     };
     tracker.last_run_at = Timestamp.fromMillis(now());
+    // article-write-check: not-an-article (backfill tracker)
     tx.set(trackerRef, tracker);
 
     return { acquired: true, tracker };
@@ -228,9 +240,10 @@ async function saveTrackerWithLease(
 
     tracker.run_lease = {
       owner,
-      expires_at: Timestamp.fromMillis(nowMs + LEASE_TTL_MS),
+      expires_at: Timestamp.fromMillis(nowMs + RUN_LEASE_TTL_MS),
     };
     tracker.last_run_at = Timestamp.fromMillis(now());
+    // article-write-check: not-an-article (backfill tracker)
     tx.set(trackerRef, tracker);
   });
 }
@@ -250,6 +263,7 @@ async function releaseRunLease(
 
     tracker.run_lease = null;
     tracker.last_run_at = Timestamp.fromMillis(now());
+    // article-write-check: not-an-article (backfill tracker)
     tx.set(trackerRef, tracker);
   });
 }
@@ -330,23 +344,9 @@ async function markStuckAsFailed(
   nowMs: number
 ): Promise<void> {
   const now = Timestamp.fromMillis(nowMs);
-  const settlement = {
-    status: 'stuck',
-    error: 'Stuck: no completion after 30 minutes',
-    created_at: now.toDate().toISOString(),
-  };
   for (const id of ids) {
-    // Status is derived by articleStatusDerive; persist the settlement
-    // event under archives.workflow_settlement so the derivation has signal.
-    await db.collection('articles').doc(id).set(
-      {
-        archives: { workflow_settlement: settlement },
-        error: settlement.error,
-        failed_at: now,
-        updated_at: now,
-      },
-      { merge: true }
-    );
+    // Status is derived by articleStatusDerive; the settlement entry gives it the signal.
+    await settleStuckSharedArticle(db.collection('articles').doc(id), now);
   }
 }
 
@@ -563,42 +563,19 @@ async function upsertArticleBeforeBegin(
       ? (existingData['failure'] as Record<string, unknown>)
       : null;
   const hadFirstSeenFailure = Boolean(existingFailure?.['first_seen_at']);
-  const now = Timestamp.fromMillis(nowMs);
-
-  // status is derived by articleStatusDerive — don't write it here.
-  const patch: Record<string, unknown> = {
-    item_id: candidate.canonicalItemId,
-    url: candidate.url,
-    domain: candidate.domain,
-    retry_count: retryCount,
-    updated_at: now,
-  };
-
-  if (!existing.exists) {
-    patch['created_at'] = now;
-    patch['archives'] = {};
-    patch['pocket'] = buildPocket(candidate.primaryUserData, candidate.canonicalItemId);
-    patch['stats'] = {
-      last_accessed: '',
-      total_saves: 1,
-      total_views: 0,
-    };
-  } else {
-    const doc = existing.data();
-    if (!doc?.['created_at']) patch['created_at'] = now;
-    if (!doc?.['pocket']) {
-      patch['pocket'] = buildPocket(candidate.primaryUserData, candidate.canonicalItemId);
-    }
-    if (!doc?.['stats']) {
-      patch['stats'] = {
-        last_accessed: '',
-        total_saves: 1,
-        total_views: 0,
-      };
-    }
-  }
-
-  await articleRef.set(patch, { merge: true });
+  // status is derived by articleStatusDerive; the patch leaves it out.
+  const patch = buildBackfillUpsertPatch(
+    existingData,
+    {
+      itemId: candidate.canonicalItemId,
+      url: candidate.url,
+      domain: candidate.domain,
+      pocket: projectPocket(candidate.primaryUserData, candidate.canonicalItemId),
+      retryCount,
+    },
+    Timestamp.fromMillis(nowMs)
+  );
+  await upsertSharedArticleForBackfill(articleRef, patch);
   return { articleRef, hadFirstSeenFailure };
 }
 
@@ -607,13 +584,10 @@ async function linkSourceUserDocs(
   markTriggered: boolean
 ): Promise<void> {
   for (const ref of candidate.sourceUserRefs) {
-    const patch: Record<string, unknown> = {
+    await setUserArticleResolvedLink(ref, {
       resolvedId: candidate.canonicalItemId,
-    };
-    if (markTriggered) {
-      patch['archival_triggered'] = true;
-    }
-    await ref.set(patch, { merge: true });
+      archivalTriggered: markTriggered,
+    });
   }
 }
 
@@ -955,15 +929,11 @@ export async function runBackfill(deps: BackfillDeps): Promise<void> {
 
         // status is derived by articleStatusDerive; processing_started_at
         // is the signal the trigger uses to compute `processing`.
-        await articleRef.set(
-          {
-            warg_request_id: requestId,
-            processing_started_at: Timestamp.fromMillis(now()),
-            updated_at: Timestamp.fromMillis(now()),
-            error: FieldValue.delete(),
-          },
-          { merge: true }
-        );
+        await markSharedArticleBackfillBegun(articleRef, {
+          requestId,
+          processingStartedAt: Timestamp.fromMillis(now()),
+          updatedAt: Timestamp.fromMillis(now()),
+        });
 
         await linkSourceUserDocs(item.candidate, true);
         console.log(
@@ -994,33 +964,13 @@ export async function runBackfill(deps: BackfillDeps): Promise<void> {
         // class + a gateway_begin archive entry so the trigger can
         // distinguish ACCESS_OR_AUTH (no retry) / DATA_ISSUE (abandoned)
         // / WORKFLOW_TRIGGER / TRANSIENT_UPSTREAM.
-        const failedAt = Timestamp.fromMillis(now());
-        const failurePatch: Record<string, unknown> = {
-          class: failureClass,
-          last_seen_at: failedAt,
-          count: FieldValue.increment(1),
-          last_error_message: message,
-        };
-        if (!hadFirstSeenFailure) {
-          failurePatch['first_seen_at'] = failedAt;
-        }
-        await articleRef.set(
-          {
-            archives: {
-              gateway_begin: {
-                status: 'failed',
-                error: message,
-                created_at: failedAt.toDate().toISOString(),
-              },
-            },
-            failure: failurePatch,
-            error: message,
-            failed_at: failedAt,
-            retry_count: retryCount,
-            updated_at: failedAt,
-          },
-          { merge: true }
-        );
+        await recordSharedArticleBackfillFailure(articleRef, {
+          failureClass,
+          message,
+          failedAt: Timestamp.fromMillis(now()),
+          retryCount,
+          firstSeen: !hadFirstSeenFailure,
+        });
 
         await linkSourceUserDocs(item.candidate, false);
 

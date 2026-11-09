@@ -6,7 +6,8 @@ import type {
   ArtifactRecord,
   CanonicalRequestView,
   DerivedSummary,
-  RequestFieldsPatch
+  RequestFieldsPatch,
+  RequestSettle
 } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 
@@ -42,7 +43,18 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  settleRequest(requestId: string, settle: RequestSettle): Promise<SettleResult>;
 }
+
+type SettleResult =
+  | { found: false }
+  | {
+      found: true;
+      applied: boolean;
+      reason?: 'duplicate' | 'stale';
+      stage: DerivedSummary['stage'];
+      terminal: boolean;
+    };
 
 /**
  * Helper to get a DO stub by instance key (bucket key or legacy request id).
@@ -1160,6 +1172,362 @@ describe('LoggerDO', () => {
       }
     });
   });
+
+  describe('stage after a replayed event', () => {
+    const bucket = 'bucket:2026061113';
+
+    async function initReplayRequest(suffix: string): Promise<{ requestId: string; stub: LoggerStub }> {
+      const requestId = `replay-${Date.now()}-${suffix}`;
+      const stub = getStub(bucket);
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+      return { requestId, stub };
+    }
+
+    it('moves from deriving to persisting on the first persist.started', async () => {
+      const { requestId, stub } = await initReplayRequest('derive-persist');
+
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Derivatives step started', { step: 'derivatives' }));
+      expect((await stub.getRequestView(requestId))?.derived.stage).toBe('deriving');
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('persisting');
+      expect(view?.derived.terminal).toBe(false);
+    });
+
+    it('lets a normal run alternate between persisting and deriving', async () => {
+      const { requestId, stub } = await initReplayRequest('alternate');
+
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting render artifacts'));
+      expect((await stub.getRequestView(requestId))?.derived.stage).toBe('persisting');
+
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Readability step started', { step: 'readability' }));
+      expect((await stub.getRequestView(requestId))?.derived.stage).toBe('deriving');
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting derivatives'));
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('persisting');
+      expect(view?.derived.terminal).toBe(false);
+    });
+
+    it('reopens a finished request when a new request.created arrives', async () => {
+      const { requestId, stub } = await initReplayRequest('reopen-done');
+
+      await stub.appendEvent(requestId, infoEvent('request.done', 'Request completed'));
+      expect((await stub.getRequestView(requestId))?.derived.terminal).toBe(true);
+
+      await stub.appendEvent(requestId, {
+        ...infoEvent('request.created', 'Archive request created'),
+        source: 'gateway'
+      });
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('queued');
+      expect(view?.derived.terminal).toBe(false);
+    });
+
+    async function readIndexRow(requestId: string): Promise<{ stage: string; terminal_state: number } | null> {
+      return env.INDEX_DB.prepare('SELECT stage, terminal_state FROM requests_index WHERE request_id = ?')
+        .bind(requestId)
+        .first<{ stage: string; terminal_state: number }>();
+    }
+
+    it('keeps a done request done when persist events are appended again, and still logs them', async () => {
+      const { requestId, stub } = await initReplayRequest('done-persist');
+
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      await stub.appendEvent(requestId, infoEvent('persist.completed', 'Persisted', { duration_ms: 40 }));
+      await stub.appendEvent(requestId, infoEvent('request.done', 'Request completed'));
+      const eventsBefore = (await stub.getRequestView(requestId))?.events.length ?? 0;
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      await stub.appendEvent(requestId, infoEvent('persist.completed', 'Persisted', { duration_ms: 77 }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+      expect(view?.events).toHaveLength(eventsBefore + 2);
+      expect(view?.events.slice(-2).map((event) => event.type)).toEqual(['persist.started', 'persist.completed']);
+      expect(view?.derived.diagnostics?.persistMs).toBe(77);
+
+      const row = await readIndexRow(requestId);
+      expect(row?.stage).toBe('done');
+      expect(row?.terminal_state).toBe(1);
+    });
+
+    it('keeps a batch that replays persist events after request.done terminal', async () => {
+      const { requestId, stub } = await initReplayRequest('done-persist-batch');
+
+      const result = await stub.appendEvents(requestId, [
+        infoEvent('request.done', 'Request completed'),
+        infoEvent('persist.started', 'Persisting to GCS'),
+        infoEvent('persist.completed', 'Persisted', { duration_ms: 77 })
+      ]);
+
+      expect(result.eventIds).toHaveLength(3);
+      expect(result.derivedUpdated).toBe(true);
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+      expect(view?.events).toHaveLength(3);
+
+      const row = await readIndexRow(requestId);
+      expect(row?.stage).toBe('done');
+      expect(row?.terminal_state).toBe(1);
+    });
+
+    it('keeps a done request done when a step start is replayed', async () => {
+      const { requestId, stub } = await initReplayRequest('done-step');
+
+      await stub.appendEvent(requestId, infoEvent('request.done', 'Request completed'));
+      await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('done');
+      expect(view?.derived.terminal).toBe(true);
+    });
+
+    it('keeps a failed request failed when persist events are replayed', async () => {
+      const { requestId, stub } = await initReplayRequest('failed-persist');
+
+      await stub.appendEvent(requestId, {
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'request.failed',
+        level: 'error',
+        message: 'Request failed',
+        data: { errorCode: 'SINGLEFILE_TIMEOUT', error: 'SingleFile timed out' }
+      });
+      const before = await stub.getRequestView(requestId);
+      expect(before?.derived.diagnostics?.errorCode).toBe('SINGLEFILE_TIMEOUT');
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      await stub.appendEvent(requestId, infoEvent('persist.completed', 'Persisted', { duration_ms: 12 }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('failed');
+      expect(view?.derived.terminal).toBe(true);
+      expect(view?.derived.diagnostics?.errorCode).toBe(before?.derived.diagnostics?.errorCode);
+      expect(view?.derived.diagnostics?.errorMessage).toBe(before?.derived.diagnostics?.errorMessage);
+      expect(view?.events).toHaveLength((before?.events.length ?? 0) + 2);
+    });
+
+    it('keeps an incomplete request incomplete when persist events are replayed', async () => {
+      const { requestId, stub } = await initReplayRequest('incomplete-persist');
+
+      await stub.appendEvent(
+        requestId,
+        infoEvent('workflow.completed', 'Workflow completed with monolith degraded', {
+          degraded: true,
+          degradedSteps: ['monolith']
+        })
+      );
+      expect((await stub.getRequestView(requestId))?.derived.stage).toBe('incomplete');
+
+      await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+      await stub.appendEvent(requestId, infoEvent('persist.completed', 'Persisted', { duration_ms: 12 }));
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.stage).toBe('incomplete');
+      expect(view?.derived.terminal).toBe(true);
+    });
+  });
+});
+
+describe('settleRequest', () => {
+  const bucket = 'bucket:2026111001';
+
+  function settle(
+    state: RequestSettle['state'],
+    settledAt: string = new Date().toISOString(),
+    extra: Partial<RequestSettle> = {}
+  ): RequestSettle {
+    return { state, runId: 'run-1', settledAt, ...extra };
+  }
+
+  async function initSettleRequest(suffix: string): Promise<{ requestId: string; stub: LoggerStub }> {
+    const requestId = `settle-${Date.now()}-${suffix}`;
+    const stub = getStub(bucket);
+    await stub.initRequest({ requestId, url: 'https://example.com/settle' }, new Date().toISOString());
+    return { requestId, stub };
+  }
+
+  async function readIndexRow(
+    requestId: string
+  ): Promise<{ stage: string; terminal_state: number; last_error_code: string | null } | null> {
+    return env.INDEX_DB.prepare(
+      'SELECT stage, terminal_state, last_error_code FROM requests_index WHERE request_id = ?'
+    )
+      .bind(requestId)
+      .first<{ stage: string; terminal_state: number; last_error_code: string | null }>();
+  }
+
+  async function settledEvents(stub: LoggerStub, requestId: string): Promise<LogEvent[]> {
+    const view = await stub.getRequestView(requestId);
+    return (view?.events ?? []).filter((event) => event.type === 'request.settled');
+  }
+
+  function errorEvent(type: LogEvent['type'], errorCode: string, data: Record<string, unknown> = {}): LogEvent {
+    return {
+      ts: new Date().toISOString(),
+      source: 'workflow',
+      type,
+      level: 'error',
+      message: `${type} ${errorCode}`,
+      data: { errorCode, error: errorCode, ...data }
+    };
+  }
+
+  it('settles a request in progress as done in the object and the index', async () => {
+    const { requestId, stub } = await initSettleRequest('done');
+    await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+    await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+
+    const result = await stub.settleRequest(requestId, settle('done'));
+
+    expect(result).toEqual({ found: true, applied: true, stage: 'done', terminal: true });
+    const view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('done');
+    expect(view?.derived.terminal).toBe(true);
+    expect(await settledEvents(stub, requestId)).toHaveLength(1);
+    const row = await readIndexRow(requestId);
+    expect(row?.stage).toBe('done');
+    expect(row?.terminal_state).toBe(1);
+  });
+
+  it('settles a failed request with the error code the workflow recorded', async () => {
+    const { requestId, stub } = await initSettleRequest('failed');
+    await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+
+    await stub.settleRequest(
+      requestId,
+      settle('failed', undefined, { errorCode: 'NO_OUTPUTS_PRODUCED', retryable: true, recommendedAction: 'retry_full' })
+    );
+
+    const view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('failed');
+    expect(view?.derived.terminal).toBe(true);
+    expect(view?.derived.diagnostics?.errorCode).toBe('NO_OUTPUTS_PRODUCED');
+    const row = await readIndexRow(requestId);
+    expect(row?.stage).toBe('failed');
+    expect(row?.last_error_code).toBe('NO_OUTPUTS_PRODUCED');
+  });
+
+  it('records a failed settle as an info event that adds no error to the count', async () => {
+    const { requestId, stub } = await initSettleRequest('failed-count');
+    await stub.appendEvent(requestId, errorEvent('request.failed', 'NO_OUTPUTS_PRODUCED'));
+    const before = (await stub.getRequestView(requestId))?.derived.errorCount;
+
+    await stub.settleRequest(requestId, settle('failed', undefined, { errorCode: 'NO_OUTPUTS_PRODUCED' }));
+    await stub.settleRequest(
+      requestId,
+      settle('failed', '2000-01-01T00:00:00.000Z', { runId: 'run-old', errorCode: 'NO_OUTPUTS_PRODUCED' })
+    );
+
+    const view = await stub.getRequestView(requestId);
+    expect(view?.derived.errorCount).toBe(before);
+    const events = await settledEvents(stub, requestId);
+    expect(events).toHaveLength(2);
+    expect(events.every((event) => event.level === 'info')).toBe(true);
+  });
+
+  it('settles an incomplete request and keeps the monolith error code it already holds', async () => {
+    const { requestId, stub } = await initSettleRequest('incomplete');
+    await stub.appendEvent(requestId, {
+      ...errorEvent('step.failed', 'MONOLITH_INPUT_TOO_LARGE', { step: 'monolith' }),
+      source: 'monolith'
+    });
+    await stub.appendEvent(
+      requestId,
+      infoEvent('request.done', 'Request completed', { degraded: true, degradedSteps: ['monolith'] })
+    );
+
+    await stub.settleRequest(requestId, settle('incomplete'));
+
+    const view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('incomplete');
+    expect(view?.derived.terminal).toBe(true);
+    expect(view?.derived.diagnostics?.errorCode).toBe('MONOLITH_INPUT_TOO_LARGE');
+    expect(view?.derived.settled?.errorCode).toBe('MONOLITH_INPUT_TOO_LARGE');
+  });
+
+  it('keeps a settled failure when stray progress, error and terminal events arrive after it', async () => {
+    const { requestId, stub } = await initSettleRequest('stray');
+    await stub.settleRequest(requestId, settle('failed', undefined, { errorCode: 'NO_OUTPUTS_PRODUCED' }));
+    const before = (await stub.getRequestView(requestId))?.events.length ?? 0;
+
+    await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+    await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+    await stub.appendEvent(requestId, errorEvent('step.failed', 'RENDER_TIMEOUT', { step: 'render' }));
+    await stub.appendEvent(requestId, infoEvent('workflow.completed', 'Workflow completed'));
+    await stub.appendEvent(requestId, infoEvent('request.done', 'Request completed'));
+
+    const view = await stub.getRequestView(requestId);
+    expect(view?.events).toHaveLength(before + 5);
+    expect(view?.derived.stage).toBe('failed');
+    expect(view?.derived.terminal).toBe(true);
+    expect(view?.derived.diagnostics?.errorCode).toBe('NO_OUTPUTS_PRODUCED');
+    const row = await readIndexRow(requestId);
+    expect(row?.stage).toBe('failed');
+    expect(row?.last_error_code).toBe('NO_OUTPUTS_PRODUCED');
+  });
+
+  it('treats the same settle again as a duplicate and stores one settle event', async () => {
+    const { requestId, stub } = await initSettleRequest('duplicate');
+    const body = settle('done');
+
+    await stub.settleRequest(requestId, body);
+    const second = await stub.settleRequest(requestId, body);
+
+    expect(second).toEqual({ found: true, applied: false, reason: 'duplicate', stage: 'done', terminal: true });
+    expect(await settledEvents(stub, requestId)).toHaveLength(1);
+  });
+
+  it('rejects an older settle of another run as stale', async () => {
+    const { requestId, stub } = await initSettleRequest('stale');
+    await stub.settleRequest(requestId, settle('done', '2026-11-10T01:00:10.000Z'));
+
+    const result = await stub.settleRequest(
+      requestId,
+      settle('failed', '2026-11-10T01:00:05.000Z', { runId: 'run-0', errorCode: 'RENDER_TIMEOUT' })
+    );
+
+    expect(result).toEqual({ found: true, applied: false, reason: 'stale', stage: 'done', terminal: true });
+    expect((await stub.getRequestView(requestId))?.derived.stage).toBe('done');
+  });
+
+  it('reopens on a new run, rejects a late settle of the old run, and takes the new run settle', async () => {
+    const { requestId, stub } = await initSettleRequest('reopen');
+    const t1 = '2026-11-10T01:00:00.000Z';
+    const t2 = '2026-11-10T01:00:30.000Z';
+    const t3 = '2026-11-10T01:01:00.000Z';
+
+    await stub.settleRequest(requestId, settle('failed', t1, { errorCode: 'NO_OUTPUTS_PRODUCED' }));
+    await stub.appendEvent(requestId, {
+      ...infoEvent('request.created', 'Archive request created'),
+      ts: t2,
+      source: 'gateway'
+    });
+    let view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('queued');
+    expect(view?.derived.terminal).toBe(false);
+
+    const late = await stub.settleRequest(requestId, settle('done', '2026-11-10T01:00:00.001Z'));
+    expect(late).toMatchObject({ found: true, applied: false, reason: 'stale' });
+    expect((await stub.getRequestView(requestId))?.derived.stage).toBe('queued');
+
+    const next = await stub.settleRequest(requestId, settle('done', t3, { runId: 'run-2' }));
+    expect(next).toEqual({ found: true, applied: true, stage: 'done', terminal: true });
+    view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('done');
+    expect(view?.derived.terminal).toBe(true);
+  });
+
+  it('answers not found for an unknown request', async () => {
+    const stub = getStub(bucket);
+    expect(await stub.settleRequest(`settle-unknown-${Date.now()}`, settle('done'))).toEqual({ found: false });
+  });
 });
 
 /**
@@ -1192,6 +1560,90 @@ describe('Logger HTTP service routing (dual-read)', () => {
       body: JSON.stringify(body)
     });
   }
+
+  function servicePost(path: string, body: unknown, key: string = API_KEY): Promise<Response> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (key) headers['X-Internal-API-Key'] = key;
+    return SELF.fetch(`https://logger.internal${path}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+  }
+
+  function doneSettle(runId = 'run-http-1'): RequestSettle {
+    return { state: 'done', runId, settledAt: new Date().toISOString() };
+  }
+
+  async function initViaService(suffix: string): Promise<string> {
+    const requestId = `svc-settle-${Date.now()}-${suffix}`;
+    const res = await servicePost('/request/init', { requestId, url: 'https://example.com/settle-http' });
+    expect(res.status).toBe(201);
+    return requestId;
+  }
+
+  it('POST /request/:id/settle — settles a request and the view shows done', async () => {
+    const requestId = await initViaService('done');
+
+    const res = await servicePost(`/request/${requestId}/settle`, doneSettle());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ found: true, applied: true, stage: 'done' });
+
+    const view = await serviceGet(`/request/${requestId}`);
+    const body = await view.json() as { derived: DerivedSummary };
+    expect(body.derived.stage).toBe('done');
+  });
+
+  it('POST /request/:id/settle — the same settle again answers applied false', async () => {
+    const requestId = await initViaService('again');
+    const settle = doneSettle();
+
+    await servicePost(`/request/${requestId}/settle`, settle);
+    const res = await servicePost(`/request/${requestId}/settle`, settle);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ found: true, applied: false });
+  });
+
+  it('POST /request/:id/settle — an invalid body → 400', async () => {
+    const requestId = await initViaService('invalid');
+    const res = await servicePost(`/request/${requestId}/settle`, { state: 'queued' });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /request/:id/settle — a body that is not JSON → 400', async () => {
+    const requestId = await initViaService('not-json');
+    const res = await SELF.fetch(`https://logger.internal/request/${requestId}/settle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': API_KEY },
+      body: '{not json'
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid settle body' });
+  });
+
+  it('POST /request/:id/settle — unknown request id → 404', async () => {
+    const res = await servicePost(`/request/svc-settle-unknown-${Date.now()}/settle`, doneSettle());
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /request/:id/settle — no key → 401', async () => {
+    const requestId = await initViaService('nokey');
+    const res = await servicePost(`/request/${requestId}/settle`, doneSettle(), '');
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /request/:id/settle — a request only in the legacy per-request object is settled there', async () => {
+    const requestId = `svc-settle-legacy-${Date.now()}`;
+    const createdAt = '2026-06-08T09:00:00.000Z'; // bucket:2026060809 — holds no row for this request
+    const legacyStub = getStub(requestId);
+    await legacyStub.initRequest({ requestId, url: 'https://example.com/settle-legacy' }, createdAt);
+    await legacyStub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+
+    const res = await servicePost(`/request/${requestId}/settle`, doneSettle());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ found: true, applied: true, stage: 'done' });
+    expect((await legacyStub.getRequestView(requestId))?.derived.stage).toBe('done');
+  });
 
   it('GET /request/:id — bucket hit: D1 row resolves bucket key, bucket DO has data, returns view', async () => {
     const requestId = `svc-bucket-hit-${Date.now()}`;

@@ -1,10 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
+import { LEASE_TTL_MS, isLeaseStale } from '@warg/shared';
 import {
   evaluateAcquire,
   type LeaseKind,
   type QuotaLimits,
   type TokenBucket
 } from './quota-logic.js';
+import { stopStaleContainers, type StaleSandboxLease } from './container-sweep.js';
 
 /**
  * Lease record for an active browser/sandbox session.
@@ -29,6 +31,8 @@ interface StoredState {
   leases: Array<[string, Lease]>;
   launchTokens: number;
   lastRefillMs: number | undefined;
+  /** Dropped sandbox leases whose container stop has not run yet. Absent in state written before the sweep moved here. */
+  pendingStops?: StaleSandboxLease[];
 }
 
 /**
@@ -42,14 +46,22 @@ interface StoredState {
  * - Launch rate: a token bucket modelling the platform's 1 new-browser/sec
  *   fixed fill, with a small burst. Only `bindings_launch` consumes a token.
  *
- * Leases auto-expire after 5 minutes via alarm. State is persisted to DO
- * storage to survive hibernation.
+ * Leases auto-expire after the shared LEASE_TTL_MS via alarm. When a
+ * sandbox lease expires (its workflow likely crashed before release()), the
+ * object queues a stop of its container and, on the alarm, asks monolith
+ * (POST /container/stop) to stop it. Failures are logged, not retried;
+ * monolith's idle stop stays the backstop. State, including the queued stops,
+ * is persisted to DO storage to survive hibernation and eviction.
+ *
+ * Deploy order: workflow first, then gateway. Between the two deploys the old
+ * gateway sweep finds the leases route gone and stops nothing, so one sweeper
+ * is active at every point; monolith's stop is idempotent, so any overlap or a
+ * replayed queued stop is harmless.
  */
 export class BrowserQuotaDO extends DurableObject<Env> {
   private activeLeases: Map<string, Lease> | undefined;
   private bucket: TokenBucket | undefined;
-
-  private readonly LEASE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+  private pendingStops: StaleSandboxLease[] = [];
 
   private readonly limits: QuotaLimits = {
     maxConcurrent: 100, // platform now 120/account; headroom for other consumers
@@ -72,6 +84,7 @@ export class BrowserQuotaDO extends DurableObject<Env> {
         tokens: stored.launchTokens ?? this.limits.launchBurst,
         lastRefillMs: stored.lastRefillMs
       };
+      this.pendingStops = stored.pendingStops ?? [];
     } else {
       this.activeLeases = new Map();
       this.bucket = { tokens: this.limits.launchBurst, lastRefillMs: undefined };
@@ -87,7 +100,8 @@ export class BrowserQuotaDO extends DurableObject<Env> {
     const state: StoredState = {
       leases: Array.from(this.activeLeases.entries()),
       launchTokens: this.bucket.tokens,
-      lastRefillMs: this.bucket.lastRefillMs
+      lastRefillMs: this.bucket.lastRefillMs,
+      pendingStops: this.pendingStops
     };
     await this.ctx.storage.put('state', state);
   }
@@ -109,7 +123,7 @@ export class BrowserQuotaDO extends DurableObject<Env> {
    */
   async acquire(kind: LeaseKind, requestId: string): Promise<AcquireResult> {
     await this.loadState();
-    this.cleanupExpiredLeases();
+    const queuedStops = this.cleanupExpiredLeases();
 
     const now = Date.now();
     const decision = evaluateAcquire(
@@ -128,8 +142,12 @@ export class BrowserQuotaDO extends DurableObject<Env> {
     if (!decision.granted) {
       // Persist the refilled bucket so launch-rate accounting survives
       // hibernation even across denied attempts.
-      if (decision.bucketChanged) {
+      if (decision.bucketChanged || queuedStops > 0) {
         await this.saveState();
+      }
+      // Run the queued container stops on the alarm, so this RPC never waits on monolith.
+      if (queuedStops > 0) {
+        this.scheduleCleanup();
       }
       return { granted: false, retryAfterMs: decision.retryAfterMs };
     }
@@ -144,15 +162,10 @@ export class BrowserQuotaDO extends DurableObject<Env> {
   }
 
   /**
-   * List currently-held sandbox_exec leases. Read-only — no cleanup, no
-   * persistence. Backs the gateway's orphan-container sweep, which stops the
-   * container behind any lease that outlived the TTL (its workflow likely
-   * crashed before release()).
-   *
-   * The returned list is a point-in-time snapshot as of this RPC. Because the
-   * DO executes single-threaded the snapshot is internally consistent, but the
-   * gateway sweep must treat it as a best-effort hint: leases may be acquired
-   * or released between this call and any action the sweep takes.
+   * List currently-held sandbox_exec leases: a read-only view (no cleanup, no
+   * persistence) of held sandbox leases. No production code calls it; it is the
+   * read seam the quota tests use, and an operator can call it over RPC to
+   * inspect held leases.
    */
   async listSandboxLeases(): Promise<
     Array<{ leaseId: string; requestId: string; acquiredAt: number }>
@@ -191,28 +204,98 @@ export class BrowserQuotaDO extends DurableObject<Env> {
     this.cleanupExpiredLeases();
     await this.saveState();
 
-    if (this.activeLeases!.size > 0) {
+    if (this.pendingStops.length > 0) {
+      await this.stopPendingContainers();
+    }
+
+    if (this.activeLeases!.size > 0 || this.pendingStops.length > 0) {
       this.scheduleCleanup();
     }
   }
 
   /**
-   * Remove expired leases (older than LEASE_TTL_MS). Covers stuck browser and
-   * sandbox leases alike.
+   * Ask monolith to stop the containers of the queued stale sandbox leases.
+   * Works on a snapshot: an acquire may queue more while the stops are in
+   * flight, and only the snapshot's entries are removed afterwards. The queue
+   * is saved before the stops, so an eviction mid-sweep replays them on the
+   * next alarm (stop is idempotent in monolith).
    */
-  private cleanupExpiredLeases(): void {
-    const now = Date.now();
-    for (const [id, lease] of this.activeLeases!) {
-      if (now - lease.acquiredAt > this.LEASE_TTL_MS) {
-        this.activeLeases!.delete(id);
+  private async stopPendingContainers(): Promise<void> {
+    const snapshot = [...this.pendingStops];
+    // A stop targets the request's container, not the lease. When a retry of the
+    // same request already holds a newer sandbox lease, the container is the
+    // retry's, so the stale stop is skipped.
+    const toStop = snapshot.filter((stale) => !this.hasNewerSandboxLease(stale.requestId, stale.acquiredAt));
+    const skipped = snapshot.filter((stale) => !toStop.includes(stale));
+    if (skipped.length > 0) {
+      console.warn(
+        '[workflow] container stop skipped: the request holds a newer sandbox lease',
+        JSON.stringify({ requestIds: skipped.map((stale) => stale.requestId) })
+      );
+    }
+    const summary = await stopStaleContainers(
+      this.env.MONOLITH,
+      this.env.INTERNAL_API_KEY,
+      toStop,
+      'quota-alarm'
+    );
+    if (summary.failures.length > 0) {
+      console.error('[workflow] container sweep partial failures:', JSON.stringify(summary));
+    } else {
+      console.log('[workflow] container sweep done:', JSON.stringify(summary));
+    }
+
+    const handled = new Set(snapshot.map((lease) => lease.leaseId));
+    this.pendingStops = this.pendingStops.filter((lease) => !handled.has(lease.leaseId));
+    await this.saveState();
+  }
+
+  /** Whether the request holds a sandbox lease acquired after the given time. */
+  private hasNewerSandboxLease(requestId: string, acquiredAt: number): boolean {
+    for (const lease of this.activeLeases!.values()) {
+      if (lease.kind === 'sandbox_exec' && lease.requestId === requestId && lease.acquiredAt > acquiredAt) {
+        return true;
       }
     }
+    return false;
   }
 
   /**
-   * Schedule the cleanup alarm.
+   * Remove stale leases (age at least LEASE_TTL_MS, per the shared
+   * isLeaseStale rule). Covers stuck browser and sandbox leases alike; a stale
+   * sandbox lease also queues a stop of its container (a browser lease has no
+   * container). Returns how many stops it queued.
+   */
+  private cleanupExpiredLeases(): number {
+    const now = Date.now();
+    let queued = 0;
+    for (const [id, lease] of this.activeLeases!) {
+      if (isLeaseStale(lease.acquiredAt, now)) {
+        this.activeLeases!.delete(id);
+        // A stale lease means its holder never released it (for example a crashed run).
+        console.warn(
+          '[workflow] stale lease dropped',
+          JSON.stringify({ requestId: lease.requestId, kind: lease.kind, ageMs: now - lease.acquiredAt })
+        );
+        if (lease.kind === 'sandbox_exec') {
+          this.pendingStops.push({
+            leaseId: lease.leaseId,
+            requestId: lease.requestId,
+            acquiredAt: lease.acquiredAt
+          });
+          queued += 1;
+        }
+      }
+    }
+    return queued;
+  }
+
+  /**
+   * Schedule the cleanup alarm: now when container stops are queued, else one
+   * TTL from now.
    */
   private scheduleCleanup(): void {
-    this.ctx.storage.setAlarm(Date.now() + this.LEASE_TTL_MS);
+    const now = Date.now();
+    this.ctx.storage.setAlarm(this.pendingStops.length > 0 ? now : now + LEASE_TTL_MS);
   }
 }

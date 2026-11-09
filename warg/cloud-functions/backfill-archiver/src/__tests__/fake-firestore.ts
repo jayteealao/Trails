@@ -5,6 +5,8 @@ import type { Firestore } from 'firebase-admin/firestore';
 // as they are (a structured clone would drop toMillis), compares them by millis,
 // and logs every read so a test can count them: each document returned by a
 // get, getAll, transaction get or query is one read; a count is one aggregation.
+// It also logs every set and update, direct or in a transaction, with its data
+// normalised, so a test can pin the exact writes a run makes.
 
 export type ReadLogEntry =
   | { kind: 'doc'; path: string }
@@ -17,7 +19,36 @@ export type ReadLogEntry =
     }
   | { kind: 'count'; path: string; filters: Array<[string, string, unknown]> };
 
+export interface WriteLogEntry {
+  method: 'set' | 'update';
+  inTransaction: boolean;
+  path: string;
+  data: unknown;
+  merge: boolean;
+}
+
 const DOC_ID = '__name__';
+
+/**
+ * A Timestamp becomes '<ts:MILLIS>', FieldValue.delete() '<delete>', an
+ * increment '<increment:N>', any other sentinel '<fieldvalue>'; maps and arrays
+ * are normalised recursively.
+ */
+export function normalise(value: unknown): unknown {
+  if (value instanceof Timestamp) return `<ts:${value.toMillis()}>`;
+  if (value instanceof FieldValue) {
+    if (value.isEqual(FieldValue.delete())) return '<delete>';
+    for (const n of [1, -1]) {
+      if (value.isEqual(FieldValue.increment(n))) return `<increment:${n}>`;
+    }
+    return '<fieldvalue>';
+  }
+  if (Array.isArray(value)) return value.map(normalise);
+  if (isPlainObject(value)) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalise(v)]));
+  }
+  return value;
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
@@ -91,6 +122,8 @@ export interface FakeFirestore {
   db: Firestore;
   store: Map<string, Record<string, unknown>>;
   log: ReadLogEntry[];
+  /** Every set and update, in order; `put` is not logged. */
+  writes: WriteLogEntry[];
   /** Reads the stored document (no log entry). */
   read(path: string): Record<string, unknown> | undefined;
   /** Writes a document directly (no log entry). */
@@ -100,6 +133,7 @@ export interface FakeFirestore {
 export function makeFakeFirestore(): FakeFirestore {
   const store = new Map<string, Record<string, unknown>>();
   const log: ReadLogEntry[] = [];
+  const writes: WriteLogEntry[] = [];
 
   const snapshot = (path: string, data: Record<string, unknown> | undefined): any => ({
     id: path.split('/').pop(),
@@ -113,6 +147,16 @@ export function makeFakeFirestore(): FakeFirestore {
     store.set(path, applyWrite(store.get(path), data, options?.merge === true));
   };
 
+  const record = (
+    method: WriteLogEntry['method'],
+    inTransaction: boolean,
+    path: string,
+    data: Record<string, unknown>,
+    merge: boolean
+  ): void => {
+    writes.push({ method, inTransaction, path, data: normalise(data), merge });
+  };
+
   const docRef = (path: string): any => ({
     path,
     id: path.split('/').pop(),
@@ -121,9 +165,11 @@ export function makeFakeFirestore(): FakeFirestore {
       return snapshot(path, store.get(path));
     },
     set: async (data: Record<string, unknown>, options?: { merge?: boolean }) => {
+      record('set', false, path, data, options?.merge === true);
       write(path, data, options);
     },
     update: async (data: Record<string, unknown>) => {
+      record('update', false, path, data, false);
       if (!store.has(path)) throw new Error(`NOT_FOUND: ${path}`);
       write(path, data, { merge: true });
     },
@@ -224,9 +270,11 @@ export function makeFakeFirestore(): FakeFirestore {
       cb({
         get: (ref: any) => ref.get(),
         set: (ref: any, data: Record<string, unknown>, options?: { merge?: boolean }) => {
+          record('set', true, ref.path, data, options?.merge === true);
           write(ref.path, data, options);
         },
         update: (ref: any, data: Record<string, unknown>) => {
+          record('update', true, ref.path, data, false);
           write(ref.path, data, { merge: true });
         },
       }),
@@ -236,6 +284,7 @@ export function makeFakeFirestore(): FakeFirestore {
     db: db as Firestore,
     store,
     log,
+    writes,
     read: (path) => {
       const data = store.get(path);
       return data === undefined ? undefined : clone(data);

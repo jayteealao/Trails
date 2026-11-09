@@ -1,5 +1,6 @@
 import type { ArtifactKind } from './types.js';
 import type { RequestDiagnostics } from './dashboard.js';
+import type { SettledRecord } from './settle.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -17,6 +18,7 @@ export type EventType =
   | 'request.created'
   | 'request.done'
   | 'request.failed'
+  | 'request.settled'
   | 'workflow.started'
   | 'workflow.completed'
   | 'workflow.failed'
@@ -66,6 +68,10 @@ export interface DerivedSummary {
   lastEventTs: string | undefined;
   terminal: boolean;
   diagnostics?: RequestDiagnostics;
+  /** The state the workflow settled the request in; it holds until a new run reopens the request. */
+  settled?: SettledRecord;
+  /** The time of the last reopen (`request.created` or `workflow.started`). */
+  openedAt?: string;
 }
 
 /**

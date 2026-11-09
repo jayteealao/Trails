@@ -1,4 +1,10 @@
-import { isProxyErrorPage, PROXY_ERROR_PAGE_REASON, storeArtifact, timingSafeEqual } from '@warg/shared';
+import {
+  PROXY_ERROR_PAGE_REASON,
+  RENDERER_CONTENT_FAILED_ERROR,
+  proxyErrorPageText,
+  readInternalJsonRequest,
+  storeArtifact
+} from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -7,34 +13,67 @@ import type {
   RendererOptions
 } from './types.js';
 
-const BR_BASE = 'https://api.cloudflare.com/client/v4/accounts';
+const GOTO_OPTIONS = { waitUntil: 'load', timeout: 30000 } as const;
 
-interface BrowserRenderingRequest {
-  url: string;
-  gotoOptions?: { waitUntil?: string; timeout?: number };
+/** The formats one page load returns: always the HTML, plus the requested screenshot and markdown. */
+function planFormats(flags: { includeScreenshot: boolean; includeMarkdown: boolean }): BrowserRunSnapshotFormat[] {
+  return [
+    'content',
+    ...(flags.includeScreenshot ? (['screenshot'] as const) : []),
+    ...(flags.includeMarkdown ? (['markdown'] as const) : [])
+  ];
 }
 
-async function callBrowserRendering(
-  env: Env,
-  endpoint: 'content' | 'screenshot' | 'pdf' | 'markdown',
-  payload: BrowserRenderingRequest
-): Promise<Response> {
-  const url = `${BR_BASE}/${env.CF_ACCOUNT_ID}/browser-rendering/${endpoint}`;
-  return fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.BR_API_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+/**
+ * One page load for the HTML and every other requested format. A snapshot needs
+ * at least two formats, so an HTML-only render uses the content action instead.
+ */
+function loadPage(env: Env, url: string, formats: BrowserRunSnapshotFormat[]): Promise<Response> {
+  if (formats.length >= 2) {
+    return env.BROWSER.quickAction('snapshot', { url, formats, gotoOptions: GOTO_OPTIONS });
+  }
+  return env.BROWSER.quickAction('content', { url, gotoOptions: GOTO_OPTIONS });
 }
 
-function buildBrPayload(url: string): BrowserRenderingRequest {
-  return {
-    url,
-    gotoOptions: { waitUntil: 'load', timeout: 30000 }
-  };
+interface LoadedPage {
+  html: string;
+  screenshot?: string;
+  markdown?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Reads a content or snapshot success answer; undefined when it carries no HTML. */
+function parseLoadedPage(json: unknown): LoadedPage | undefined {
+  if (!isRecord(json) || json.success !== true) return undefined;
+  const { result } = json;
+  if (typeof result === 'string') return result ? { html: result } : undefined;
+  if (!isRecord(result)) return undefined;
+  const html = optionalString(result.content);
+  if (!html) return undefined;
+  return { html, screenshot: optionalString(result.screenshot), markdown: optionalString(result.markdown) };
+}
+
+/** Screenshot bytes from base64 text, with or without a data-URI prefix; undefined when the text is not base64. */
+function decodeScreenshot(screenshot: string, requestId: string): ArrayBuffer | undefined {
+  try {
+    const binary = atob(screenshot.replace(/^data:[^,]*;base64,/i, ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  } catch (err) {
+    console.warn(
+      '[renderer] snapshot screenshot is not valid base64',
+      JSON.stringify({ request_id: requestId, failure: err instanceof Error ? err.message : String(err) })
+    );
+    return undefined;
+  }
 }
 
 /**
@@ -60,25 +99,10 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      // Only accept POST /render
-      const url = new URL(request.url);
-      if (request.method !== 'POST' || url.pathname !== '/render') {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      // Verify internal API key
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      // Parse request body
-      let body: RenderRequest;
-      try {
-        body = (await request.json()) as RenderRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/render']);
+      if (!pre.ok) return pre.response;
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as RenderRequest;
 
       const { request_id, url: targetUrl, options_r2_key, browser_quota_kind } = body;
       if (!request_id || !targetUrl || !browser_quota_kind) {
@@ -106,41 +130,75 @@ export default {
       const includePdf = body.include_pdf ?? options.includePdf ?? false;
       const includeMarkdown = body.include_markdown ?? false;
 
-      const brPayload = buildBrPayload(targetUrl);
-      const artifacts: ArtifactMeta[] = [];
-      const skipped: string[] = [];
       const browserApiStart = Date.now();
+      const formats = planFormats({ includeScreenshot, includeMarkdown });
+      let action: 'snapshot' | 'content' = formats.length >= 2 ? 'snapshot' : 'content';
 
-      // 1. Fetch rendered HTML
-      const contentResp = await callBrowserRendering(env, 'content', brPayload);
-      const contentRateLimit = checkRateLimit(contentResp, '');
-      if (contentRateLimit) return contentRateLimit;
-      if (!contentResp.ok) {
-        const errorText = await contentResp.text();
+      // 1. One page load for the HTML and the requested screenshot and markdown
+      let pageResp: Response | undefined;
+      let snapshotFailure: string | undefined;
+      try {
+        pageResp = await loadPage(env, targetUrl, formats);
+      } catch (err) {
+        // A content load that throws has no HTML to keep: the outer handler answers 500.
+        if (action !== 'snapshot') throw err;
+        snapshotFailure = err instanceof Error ? err.message : String(err);
+      }
+      if (pageResp) {
+        const pageRateLimit = checkRateLimit(pageResp, '');
+        if (pageRateLimit) return pageRateLimit;
+        // A 403 is the target blocking access: answer it at once so the workflow's fallback sees it.
+        if (!pageResp.ok && action === 'snapshot' && pageResp.status !== 403) {
+          snapshotFailure = String(pageResp.status);
+          await pageResp.body?.cancel();
+          pageResp = undefined;
+        }
+      }
+      if (!pageResp) {
+        // A failed snapshot must not lose the HTML: load the HTML alone once, and skip the other formats.
+        console.warn(
+          '[renderer] snapshot load failed, retrying the HTML alone',
+          JSON.stringify({ request_id, formats, failure: snapshotFailure })
+        );
+        action = 'content';
+        pageResp = await loadPage(env, targetUrl, ['content']);
+        const retryRateLimit = checkRateLimit(pageResp, '');
+        if (retryRateLimit) return retryRateLimit;
+      }
+      if (!pageResp.ok) {
+        const errorText = await pageResp.text();
+        // A 403 is the target blocking access, an expected outcome the workflow handles.
+        const log = pageResp.status === 403 ? console.warn : console.error;
+        log('[renderer] page load failed', JSON.stringify({ request_id, action, status: pageResp.status }));
+        // The shared failure classifier reads this error text to classify the failure and pick
+        // the workflow's renderer fallback; it covers content and snapshot loads alike.
         return Response.json(
-          { error: 'Browser Rendering /content failed', status: contentResp.status, details: errorText },
+          { error: RENDERER_CONTENT_FAILED_ERROR, status: pageResp.status, details: errorText },
           { status: 502 }
         );
       }
-      // Browser Rendering /content returns JSON: { success: true, result: "html content", meta: {...} }
-      const contentJson = (await contentResp.json()) as { success: boolean; result: string };
-      if (!contentJson.success || !contentJson.result) {
+      const page = parseLoadedPage(await pageResp.json());
+      if (!page) {
         return Response.json(
           { error: 'Browser Rendering /content returned invalid response' },
           { status: 502 }
         );
       }
-      if (isProxyErrorPage(contentJson.result)) {
+      const proxyErrorText = proxyErrorPageText(page.html);
+      if (proxyErrorText !== undefined) {
         return Response.json(
           {
             error: 'Browser Rendering /content returned a proxy/network error page',
             reason: PROXY_ERROR_PAGE_REASON,
+            detail: proxyErrorText,
             url: targetUrl
           },
           { status: 502 }
         );
       }
-      const htmlData = new TextEncoder().encode(contentJson.result);
+
+      // 2. Store what the page load returned: the HTML first, then the screenshot and markdown
+      const htmlData = new TextEncoder().encode(page.html);
       const htmlMeta = await storeArtifact(
         env.ARCHIVE_BUCKET,
         request_id,
@@ -148,66 +206,76 @@ export default {
         htmlData.buffer as ArrayBuffer,
         'text/html'
       );
-      artifacts.push(htmlMeta);
 
-      // 2. Fetch screenshot if requested
+      let screenshotMeta: ArtifactMeta | undefined;
+      let screenshotSkip = 'screenshot: not requested';
       if (includeScreenshot) {
-        const ssResp = await callBrowserRendering(env, 'screenshot', brPayload);
-        const ssRateLimit = checkRateLimit(ssResp, 'screenshot');
-        if (ssRateLimit) return ssRateLimit;
-        if (ssResp.ok) {
-          const ssData = await ssResp.arrayBuffer();
-          const ssMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', ssData, 'image/png');
-          artifacts.push(ssMeta);
+        const screenshotData = page.screenshot ? decodeScreenshot(page.screenshot, request_id) : undefined;
+        if (screenshotData) {
+          screenshotMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'screenshot.png', screenshotData, 'image/png');
         } else {
-          skipped.push(`screenshot: API returned ${ssResp.status}`);
+          screenshotSkip = snapshotFailure
+            ? `screenshot: snapshot failed with ${snapshotFailure}`
+            : page.screenshot
+              ? 'screenshot: snapshot screenshot is not valid base64'
+              : 'screenshot: snapshot returned no screenshot';
         }
-      } else {
-        skipped.push('screenshot: not requested');
       }
 
-      // 3. Fetch PDF if requested
-      if (includePdf) {
-        const pdfResp = await callBrowserRendering(env, 'pdf', brPayload);
-        const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
-        if (pdfRateLimit) return pdfRateLimit;
-        if (pdfResp.ok) {
-          const pdfData = await pdfResp.arrayBuffer();
-          const pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
-          artifacts.push(pdfMeta);
-        } else {
-          skipped.push(`pdf: API returned ${pdfResp.status}`);
-        }
-      } else {
-        skipped.push('pdf: not requested');
-      }
-
-      // 4. Fetch markdown if requested
+      let markdownMeta: ArtifactMeta | undefined;
+      let markdownSkip = 'markdown: not requested';
       if (includeMarkdown) {
-        const mdResp = await callBrowserRendering(env, 'markdown', brPayload);
-        const mdRateLimit = checkRateLimit(mdResp, 'markdown');
-        if (mdRateLimit) return mdRateLimit;
-        if (mdResp.ok) {
-          // Browser Rendering /markdown returns JSON: { success: true, result: "markdown content" }
-          const mdJson = (await mdResp.json()) as { success: boolean; result: string };
-          if (mdJson.success && mdJson.result) {
-            const mdData = new TextEncoder().encode(mdJson.result);
-            const mdMeta = await storeArtifact(
-              env.ARCHIVE_BUCKET,
-              request_id,
-              'rendered.md',
-              mdData.buffer as ArrayBuffer,
-              'text/markdown'
-            );
-            artifacts.push(mdMeta);
-          } else {
-            skipped.push('markdown: API returned invalid response');
-          }
+        if (page.markdown) {
+          const mdData = new TextEncoder().encode(page.markdown);
+          markdownMeta = await storeArtifact(
+            env.ARCHIVE_BUCKET,
+            request_id,
+            'rendered.md',
+            mdData.buffer as ArrayBuffer,
+            'text/markdown'
+          );
         } else {
-          skipped.push(`markdown: API returned ${mdResp.status}`);
+          markdownSkip = snapshotFailure
+            ? `markdown: snapshot failed with ${snapshotFailure}`
+            : 'markdown: snapshot returned no markdown';
         }
-      } else {
-        skipped.push('markdown: not requested');
+      }
+
+      // 3. The PDF, when requested, takes its own load: a snapshot cannot return one
+      let pdfMeta: ArtifactMeta | undefined;
+      let pdfSkip = 'pdf: not requested';
+      if (includePdf) {
+        let pdfResp: Response | undefined;
+        try {
+          pdfResp = await env.BROWSER.quickAction('pdf', { url: targetUrl, gotoOptions: GOTO_OPTIONS });
+        } catch (err) {
+          // The PDF is optional: a thrown load becomes a skip note and keeps the stored artifacts.
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn('[renderer] pdf load failed', JSON.stringify({ request_id, failure: message }));
+          pdfSkip = `pdf: ${message}`;
+        }
+        if (pdfResp) {
+          const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
+          if (pdfRateLimit) return pdfRateLimit;
+          if (pdfResp.ok) {
+            const pdfData = await pdfResp.arrayBuffer();
+            pdfMeta = await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf');
+          } else {
+            pdfSkip = `pdf: API returned ${pdfResp.status}`;
+          }
+        }
+      }
+
+      // 4. The answer lists the artifacts and skip notes in a fixed order: html, screenshot, pdf, markdown
+      const artifacts: ArtifactMeta[] = [htmlMeta];
+      const skipped: string[] = [];
+      for (const [meta, skip] of [
+        [screenshotMeta, screenshotSkip],
+        [pdfMeta, pdfSkip],
+        [markdownMeta, markdownSkip]
+      ] as const) {
+        if (meta) artifacts.push(meta);
+        else skipped.push(skip);
       }
 
       const browserApiMs = Date.now() - browserApiStart;

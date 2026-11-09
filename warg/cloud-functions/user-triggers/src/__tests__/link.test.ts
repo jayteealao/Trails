@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Timestamp } from 'firebase-admin/firestore';
-import { chooseSharedCandidate, isValidSharedId, withAlreadyExistsRetry } from '../link.js';
+import { chooseSharedCandidate, isValidSharedId, linkUserArticle, withAlreadyExistsRetry } from '../link.js';
 import { onUserArticleSave } from '../index.js';
 import { RETRY_WINDOW_MS, withinRetryWindow } from '../handler.js';
+import { makeRecordingDb } from './recording-firestore.js';
 
 test('isValidSharedId accepts 8 to 40 safe characters only', () => {
   assert.equal(isValidSharedId('a'.repeat(7)), false);
@@ -114,4 +115,34 @@ test('withinRetryWindow retries a recent event only', () => {
   assert.equal(withinRetryWindow(now - RETRY_WINDOW_MS, now), false);
   assert.equal(withinRetryWindow(undefined, now), false);
   assert.equal(withinRetryWindow(Number.NaN, now), false);
+});
+
+test('chooseSharedCandidate counts a self-merged doc as live', () => {
+  assert.deepEqual(
+    chooseSharedCandidate([
+      { id: 'live0001', data: { created_at: at(1000) } },
+      { id: 'self0001', data: { created_at: at(500), mergedInto: 'self0001' } },
+    ]),
+    { id: 'self0001' }
+  );
+});
+
+test('chooseSharedCandidate counts a mergedInto outside the id shape as live', () => {
+  assert.deepEqual(chooseSharedCandidate([{ id: 'odd00001', data: { mergedInto: 'bad/id' } }]), { id: 'odd00001' });
+});
+
+test('linkUserArticle re-links a user article whose canonicalId is not a shared-article id', async () => {
+  const path = 'user0001/articles/item1234';
+  const { db, writes } = makeRecordingDb({
+    users: { [path]: { url: 'https://example.com/a', canonicalId: ' padded ' } },
+  });
+
+  const outcome = await linkUserArticle(db, { userId: 'user0001', itemId: 'item1234', url: 'https://example.com/a' });
+
+  assert.equal(outcome.alreadyLinked, false);
+  assert.equal(outcome.canonicalId, 'item1234');
+  assert.deepEqual(
+    writes.filter((w) => w.path === `users/${path}`),
+    [{ method: 'update', inTransaction: true, path: `users/${path}`, data: { canonicalId: 'item1234', resolvedId: 'item1234' }, merge: false }]
+  );
 });

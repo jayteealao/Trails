@@ -76,6 +76,11 @@ set -euo pipefail
 #                                     codebase no longer holds, without asking;
 #                                     printed as a warning in the summary.
 #                                     Never put it in a package.json script.
+#   --dry-run                         list the targets this run would deploy,
+#                                     the Pages project included, with result
+#                                     planned, then exit 0; runs no check,
+#                                     preflight or deploy; the dirty-tree
+#                                     refusal still applies
 #
 # Required secrets per worker (checked with `cf workers secrets list` for all
 # nine workers before the first worker deploys). required_secrets_for() below
@@ -93,6 +98,14 @@ set -euo pipefail
 # A failed listing (not signed in, token expired, worker not deployed yet)
 # or a missing secret stops the run before any worker is deployed; it is
 # never a warning.
+#
+# Required secrets of the Pages dashboard (production environment, read with
+# `cf pages get` for --with-pages and --all before the first worker deploys).
+# required_pages_secrets() below is the list the preflight reads:
+#   warg-dashboard: DASHBOARD_AUTH
+# The dashboard refuses every request without its sign-in secret, so a missing
+# one (or a failed read of the project) stops the run, with exit 3 for a
+# missing secret.
 #
 # Cloud Functions need a .env file in each cloud-functions/<fn>/ folder (copy
 # .env.example). It holds plain configuration only: a line that assigns one of
@@ -165,10 +178,11 @@ set -euo pipefail
 #              worker.
 #
 # Summary: an EXIT trap prints one line per planned target on every exit,
-#   TARGET  RESULT (deployed|failed|unverified|skipped)  DETAIL  LABEL
+#   TARGET  RESULT (deployed|failed|unverified|skipped|planned)  DETAIL  LABEL
 # where DETAIL is the version id, the update times or the reason; then the
 # warnings and the exit code. The first failure stops the run; targets not
-# reached read "skipped". --all without --with-rules adds one row
+# reached read "skipped"; "planned" appears only under --dry-run. --all
+# without --with-rules adds one row
 # `rules  skipped  not deployed (pass --with-rules)`.
 #
 # Exit codes: the failing command's own code; 2 for a usage error or a
@@ -216,6 +230,7 @@ RULES_ONLY=false
 SKIP_CHECKS=false
 ALLOW_DIRTY=false
 FORCE_FUNCTIONS=false
+DRY_RUN=false
 DIRTY=false
 ALLOW_MISSING=()
 ALL_FLAG=false
@@ -292,7 +307,7 @@ trap 'exit 143' TERM
 
 usage_error() {
   echo "ERROR: $1" >&2
-  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--force-functions] [--allow-missing-secrets <worker>]..." >&2
+  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--force-functions] [--dry-run] [--allow-missing-secrets <worker>]..." >&2
   FIRST_RC=2
   exit 2
 }
@@ -331,6 +346,7 @@ while [ $# -gt 0 ]; do
     --skip-checks) SKIP_CHECKS=true ;;
     --allow-dirty) ALLOW_DIRTY=true ;;
     --force-functions) FORCE_FUNCTIONS=true ;;
+    --dry-run) DRY_RUN=true ;;
     --allow-missing-secrets)
       [ $# -ge 2 ] || usage_error "--allow-missing-secrets needs a worker name"
       is_worker "$2" || usage_error "--allow-missing-secrets: unknown worker '$2' (one of: ${WORKERS[*]})"
@@ -431,6 +447,20 @@ if [ "$WITH_PAGES" = true ]; then
   register_target "pages:dashboard"
 fi
 
+# --dry-run stops here: the summary lists every target these flags would
+# deploy as "planned", before any check, preflight, sign-in or deploy.
+if [ "$DRY_RUN" = true ]; then
+  for i in "${!TARGETS[@]}"; do
+    if [ "${RESULT[$i]}" = skipped ] && [ "${DETAIL[$i]}" = "-" ]; then
+      RESULT[i]="planned"
+      [ "${TARGETS[$i]}" != "pages:dashboard" ] || DETAIL[i]="project $PAGES_PROJECT (pages/dashboard)"
+    fi
+  done
+  echo "=== Dry run: nothing deployed ==="
+  FIRST_RC=0
+  exit 0
+fi
+
 WORK_DIR="$(mktemp -d)"
 
 # json_eval <js expression over d>: parses stdin as JSON and prints the result
@@ -503,6 +533,37 @@ preflight_secrets() {
   done
   if [ -n "$missing" ]; then
     echo "Set each with: pnpm exec wrangler secret put <NAME> --config workers/$worker/wrangler.jsonc" >&2
+    fail_target "$target" failed 3 "missing secret(s):$missing"
+  fi
+}
+
+required_pages_secrets() {
+  echo "DASHBOARD_AUTH"
+}
+
+# The dashboard answers every request with a 500 when its sign-in secret is
+# missing, so the deploy stops before shipping it. A failed read of the
+# project hides an auth failure, so it stops too.
+preflight_pages_secrets() {
+  local target="pages:dashboard" listing rc=0
+  listing="$(cf pages get "$PAGES_PROJECT" 2>"$WORK_DIR/err")" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    cat "$WORK_DIR/err" >&2
+    fail_target "$target" failed "$rc" "Pages project read failed (exit $rc)"
+  fi
+  local names
+  names="$(printf '%s' "$listing" | json_eval 'Object.entries(((d.deployment_configs || {}).production || {}).env_vars || {}).filter(([, v]) => v && v.type === "secret_text").map(([k]) => k)' 2>"$WORK_DIR/err")" || {
+    cat "$WORK_DIR/err" >&2
+    fail_target "$target" failed 3 "Pages project read is not the expected JSON"
+  }
+  local secret missing=""
+  for secret in $(required_pages_secrets); do
+    if ! printf '%s\n' "$names" | grep -qx "$secret"; then
+      missing="$missing $secret"
+    fi
+  done
+  if [ -n "$missing" ]; then
+    echo "Set each with: pnpm exec wrangler pages secret put <NAME> --project-name $PAGES_PROJECT" >&2
     fail_target "$target" failed 3 "missing secret(s):$missing"
   fi
 }
@@ -1003,6 +1064,12 @@ deploy_pages() {
   local target="pages:dashboard" rc=0
   set_result "$target" running "-"
   echo "--- Pages dashboard"
+  # The dashboard functions bundle the built id helpers of @warg/shared; rebuild
+  # them so the deploy never ships a stale copy.
+  pnpm --filter @warg/shared run build || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    fail_target "$target" failed "$rc" "@warg/shared build exited $rc"
+  fi
   (cd pages/dashboard && wrangler pages deploy --branch "$PAGES_PRODUCTION_BRANCH" --commit-hash "$LABEL" --commit-message "$LABEL" --commit-dirty="$DIRTY") || rc=$?
   if [ "$rc" -ne 0 ]; then
     fail_target "$target" failed "$rc" "wrangler pages deploy exited $rc"
@@ -1072,6 +1139,11 @@ else
     preflight_secrets "$w"
   done
   echo "=== Secret preflight passed ==="
+fi
+if [ "$WITH_PAGES" = true ]; then
+  echo "=== Secret preflight (dashboard) ==="
+  preflight_pages_secrets
+  echo "=== Secret preflight passed (dashboard) ==="
 fi
 echo
 if [ "$WITH_FUNCTIONS" = true ]; then

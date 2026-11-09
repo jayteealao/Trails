@@ -35,18 +35,34 @@ export interface ArchiveManifest {
 }
 
 /**
+ * The archive steps a caller may request, in run order. The single runtime
+ * source for the step names: the `WorkflowStep` type is derived from it.
+ */
+export const WORKFLOW_STEPS = ['render', 'singlefile', 'readability', 'monolith'] as const;
+
+export type WorkflowStep = (typeof WORKFLOW_STEPS)[number];
+
+/**
+ * The archive option keys whose value is a boolean when present. `dryRun` runs the
+ * workflow without its side effects.
+ */
+export const ARCHIVE_OPTION_BOOLEAN_KEYS = [
+  'includeScreenshot',
+  'includePdf',
+  'includeMarkdown',
+  'resumeFromCheckpoint',
+  'dryRun',
+] as const;
+
+export type ArchiveOptionBooleanKey = (typeof ARCHIVE_OPTION_BOOLEAN_KEYS)[number];
+
+/**
  * Options for starting an archive request.
  */
-export type WorkflowStep = 'render' | 'singlefile' | 'readability' | 'monolith';
-
-export interface ArchiveOptions {
+export type ArchiveOptions = {
   url: string;
-  includeScreenshot?: boolean;
-  includePdf?: boolean;
-  includeMarkdown?: boolean;
   steps?: WorkflowStep[];
-  resumeFromCheckpoint?: boolean;
-}
+} & Partial<Record<ArchiveOptionBooleanKey, boolean>>;
 
 /**
  * Readability extraction result from @mozilla/readability.
