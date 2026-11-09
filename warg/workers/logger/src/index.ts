@@ -12,6 +12,13 @@ import { timingSafeEqual } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 import { LoggerDO } from './LoggerDO.js';
 import { buildRequestListQuery } from './request-list-query.js';
+import {
+  STATS_COUNTS_SQL,
+  STATS_LISTS_SQL,
+  buildStatsBody,
+  type StatsCountRow,
+  type StatsListRow,
+} from './stats-query.js';
 import { asString, asNumber, asBoolean, asRecord } from './value-helpers.js';
 
 export { LoggerDO };
@@ -654,106 +661,15 @@ async function handleSseStream(
 }
 
 /**
- * GET /stats handler — aggregate metrics from D1 index.
+ * GET /stats handler — aggregate metrics from the D1 index, read in two
+ * queries: the counts per stage, then the top domains and the newest failures.
  */
 async function handleGetStats(env: LoggerServiceEnv): Promise<Response> {
-  const [
-    stageResult,
-    totalResult,
-    recentResult,
-    domainsResult,
-    failuresResult,
-    stuckResult,
-    orphanQueuedResult,
-    orphanQueuedOlder10mResult,
-    orphanQueuedOlder60mResult
-  ] = await Promise.all([
-    env.INDEX_DB.prepare(
-      'SELECT stage, COUNT(*) as count FROM requests_index GROUP BY stage'
-    ).all<{ stage: string | null; count: number }>(),
-    env.INDEX_DB.prepare(
-      'SELECT COUNT(*) as total FROM requests_index'
-    ).first<{ total: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT
-        SUM(CASE WHEN created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour') THEN 1 ELSE 0 END) as last1h,
-        SUM(CASE WHEN created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-24 hours') THEN 1 ELSE 0 END) as last24h
-      FROM requests_index`
-    ).first<{ last1h: number; last24h: number }>(),
-    env.INDEX_DB.prepare(
-      'SELECT domain, COUNT(*) as count FROM requests_index GROUP BY domain ORDER BY count DESC LIMIT 10'
-    ).all<{ domain: string; count: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT request_id, url, created_at FROM requests_index
-       WHERE stage = 'failed' ORDER BY created_at DESC LIMIT 5`
-    ).all<{ request_id: string; url: string; created_at: string }>(),
-    env.INDEX_DB.prepare(
-      `SELECT COUNT(*) as count FROM requests_index
-       WHERE terminal_state = 0 AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`
-    ).first<{ count: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT COUNT(*) as count FROM requests_index
-       WHERE stage = 'queued'
-         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')`
-    ).first<{ count: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT COUNT(*) as count FROM requests_index
-       WHERE stage = 'queued'
-         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
-         AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-10 minutes')`
-    ).first<{ count: number }>(),
-    env.INDEX_DB.prepare(
-      `SELECT COUNT(*) as count FROM requests_index
-       WHERE stage = 'queued'
-         AND (last_event_ts IS NULL OR trim(last_event_ts) = '')
-         AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 hour')`
-    ).first<{ count: number }>(),
+  const [counts, lists] = await Promise.all([
+    env.INDEX_DB.prepare(STATS_COUNTS_SQL).all<StatsCountRow>(),
+    env.INDEX_DB.prepare(STATS_LISTS_SQL).all<StatsListRow>(),
   ]);
-
-  const total = totalResult?.total ?? 0;
-  const byStage: Record<string, number> = {};
-  let doneCount = 0;
-  let failedCount = 0;
-  let activeCount = 0;
-
-  for (const row of stageResult.results) {
-    const stage = row.stage ?? 'unknown';
-    byStage[stage] = row.count;
-    if (stage === 'done') doneCount = row.count;
-    else if (stage === 'failed') failedCount = row.count;
-    else activeCount += row.count;
-  }
-
-  const terminal = doneCount + failedCount;
-  const successRate = terminal > 0 ? doneCount / terminal : 0;
-  const failureRate = terminal > 0 ? failedCount / terminal : 0;
-
-  return Response.json({
-    total,
-    byStage,
-    successRate: Math.round(successRate * 1000) / 1000,
-    failureRate: Math.round(failureRate * 1000) / 1000,
-    activeCount,
-    stuckCount: stuckResult?.count ?? 0,
-    orphanQueue: {
-      total: orphanQueuedResult?.count ?? 0,
-      olderThan10m: orphanQueuedOlder10mResult?.count ?? 0,
-      olderThan60m: orphanQueuedOlder60mResult?.count ?? 0,
-    },
-    recentActivity: {
-      last1h: recentResult?.last1h ?? 0,
-      last24h: recentResult?.last24h ?? 0,
-    },
-    topDomains: domainsResult.results.map((r: { domain: string; count: number }) => ({
-      domain: r.domain,
-      count: r.count,
-    })),
-    recentFailures: failuresResult.results.map((r: { request_id: string; url: string; created_at: string }) => ({
-      requestId: r.request_id,
-      url: r.url,
-      createdAt: r.created_at,
-    })),
-  });
+  return Response.json(buildStatsBody(counts.results, lists.results));
 }
 
 /**
