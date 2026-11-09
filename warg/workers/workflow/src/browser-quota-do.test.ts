@@ -187,6 +187,20 @@ describe('BrowserQuotaDO container sweep', () => {
     expect(monolithFetch).not.toHaveBeenCalled();
   });
 
+  it('logs each stale lease it drops with its request and kind', async () => {
+    const { quota } = makeDo();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await quota.acquire('sandbox_exec', 'req-leaked');
+
+    vi.setSystemTime(T0 + 301_000);
+    await quota.alarm();
+
+    const logged = warnSpy.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+    expect(logged).toContain('stale lease dropped');
+    expect(logged).toContain('"requestId":"req-leaked"');
+    expect(logged).toContain('"kind":"sandbox_exec"');
+  });
+
   it('reports a failed stop and still stops the other containers', async () => {
     let call = 0;
     const { quota, monolithFetch } = makeDo({

@@ -272,6 +272,11 @@ export class BrowserQuotaDO extends DurableObject<Env> {
     for (const [id, lease] of this.activeLeases!) {
       if (isLeaseStale(lease.acquiredAt, now)) {
         this.activeLeases!.delete(id);
+        // A stale lease means its holder never released it (for example a crashed run).
+        console.warn(
+          '[workflow] stale lease dropped',
+          JSON.stringify({ requestId: lease.requestId, kind: lease.kind, ageMs: now - lease.acquiredAt })
+        );
         if (lease.kind === 'sandbox_exec') {
           this.pendingStops.push({
             leaseId: lease.leaseId,
