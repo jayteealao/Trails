@@ -5,7 +5,7 @@ import {
   finalizeSharedArticleArchives,
   type GatewayArchiveEntries
 } from '@warg/article-writer';
-import type { FinalizeRequest, FinalizeResponse } from './types.js';
+import type { FinalizeErrorResponse, FinalizeRequest, FinalizeResponse } from './types.js';
 import { KIND_TO_ARCHIVE_KEY } from './types.js';
 import { logEvent } from './logging.js';
 
@@ -105,10 +105,12 @@ export async function handleFinalize(
 
     // Firestore rejects an update of a missing document with NOT_FOUND (gRPC code 5).
     if (typeof err === 'object' && err !== null && 'code' in err && err.code === 5) {
-      res.status(404).json({ error: 'Article not found', firestore_doc_id: reqBody?.firestore_doc_id });
+      const notFound: FinalizeErrorResponse = { error: 'Article not found', firestore_doc_id: reqBody?.firestore_doc_id };
+      res.status(404).json(notFound);
       return;
     }
 
-    res.status(500).json({ error: 'Internal error', message });
+    const internal: FinalizeErrorResponse = { error: 'Internal error', message };
+    res.status(500).json(internal);
   }
 }

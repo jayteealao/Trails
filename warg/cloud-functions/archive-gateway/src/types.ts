@@ -141,11 +141,21 @@ export interface FinalizeRequest {
 /**
  * Response body for POST /finalize.
  */
+/** The 200 answer of POST /finalize. */
 export interface FinalizeResponse {
   success: boolean;
   firestore_doc_id: string;
   status: string;
 }
+
+/**
+ * The error answers of POST /finalize: 404 `{ error: 'Article not found', firestore_doc_id }`
+ * when the shared article does not exist (Firestore NOT_FOUND), and 500
+ * `{ error: 'Internal error', message }` for any other failure.
+ */
+export type FinalizeErrorResponse =
+  | { error: 'Article not found'; firestore_doc_id?: string }
+  | { error: 'Internal error'; message: string };
 
 
 /**
