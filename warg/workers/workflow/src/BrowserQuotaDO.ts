@@ -163,7 +163,9 @@ export class BrowserQuotaDO extends DurableObject<Env> {
 
   /**
    * List currently-held sandbox_exec leases: a read-only view (no cleanup, no
-   * persistence) of held sandbox leases; no worker calls it over a route.
+   * persistence) of held sandbox leases. No production code calls it; it is the
+   * read seam the quota tests use, and an operator can call it over RPC to
+   * inspect held leases.
    */
   async listSandboxLeases(): Promise<
     Array<{ leaseId: string; requestId: string; acquiredAt: number }>
