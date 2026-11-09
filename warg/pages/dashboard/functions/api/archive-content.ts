@@ -1,3 +1,5 @@
+import { SAFE_ID_RE } from '@warg/shared/archive-ids';
+
 interface Env {
   DASHBOARD_API_URL: string;
   DASHBOARD_API_KEY: string;
@@ -8,7 +10,6 @@ interface SignedUrlPayload {
   archive_source_key?: string;
 }
 
-const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
 const VALID_ARCHIVE_KEYS = new Set([
   'rendered',
   'singlefile',
