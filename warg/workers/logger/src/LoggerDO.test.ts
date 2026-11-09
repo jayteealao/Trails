@@ -6,7 +6,8 @@ import type {
   ArtifactRecord,
   CanonicalRequestView,
   DerivedSummary,
-  RequestFieldsPatch
+  RequestFieldsPatch,
+  RequestSettle
 } from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 
@@ -42,7 +43,18 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  settleRequest(requestId: string, settle: RequestSettle): Promise<SettleResult>;
 }
+
+type SettleResult =
+  | { found: false }
+  | {
+      found: true;
+      applied: boolean;
+      reason?: 'duplicate' | 'stale';
+      stage: DerivedSummary['stage'];
+      terminal: boolean;
+    };
 
 /**
  * Helper to get a DO stub by instance key (bucket key or legacy request id).
@@ -1320,6 +1332,183 @@ describe('LoggerDO', () => {
       expect(view?.derived.stage).toBe('incomplete');
       expect(view?.derived.terminal).toBe(true);
     });
+  });
+});
+
+describe('settleRequest', () => {
+  const bucket = 'bucket:2026111001';
+
+  function settle(
+    state: RequestSettle['state'],
+    settledAt: string = new Date().toISOString(),
+    extra: Partial<RequestSettle> = {}
+  ): RequestSettle {
+    return { state, runId: 'run-1', settledAt, ...extra };
+  }
+
+  async function initSettleRequest(suffix: string): Promise<{ requestId: string; stub: LoggerStub }> {
+    const requestId = `settle-${Date.now()}-${suffix}`;
+    const stub = getStub(bucket);
+    await stub.initRequest({ requestId, url: 'https://example.com/settle' }, new Date().toISOString());
+    return { requestId, stub };
+  }
+
+  async function readIndexRow(
+    requestId: string
+  ): Promise<{ stage: string; terminal_state: number; last_error_code: string | null } | null> {
+    return env.INDEX_DB.prepare(
+      'SELECT stage, terminal_state, last_error_code FROM requests_index WHERE request_id = ?'
+    )
+      .bind(requestId)
+      .first<{ stage: string; terminal_state: number; last_error_code: string | null }>();
+  }
+
+  async function settledEvents(stub: LoggerStub, requestId: string): Promise<LogEvent[]> {
+    const view = await stub.getRequestView(requestId);
+    return (view?.events ?? []).filter((event) => event.type === 'request.settled');
+  }
+
+  function errorEvent(type: LogEvent['type'], errorCode: string, data: Record<string, unknown> = {}): LogEvent {
+    return {
+      ts: new Date().toISOString(),
+      source: 'workflow',
+      type,
+      level: 'error',
+      message: `${type} ${errorCode}`,
+      data: { errorCode, error: errorCode, ...data }
+    };
+  }
+
+  it('settles a request in progress as done in the object and the index', async () => {
+    const { requestId, stub } = await initSettleRequest('done');
+    await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+    await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+
+    const result = await stub.settleRequest(requestId, settle('done'));
+
+    expect(result).toEqual({ found: true, applied: true, stage: 'done', terminal: true });
+    const view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('done');
+    expect(view?.derived.terminal).toBe(true);
+    expect(await settledEvents(stub, requestId)).toHaveLength(1);
+    const row = await readIndexRow(requestId);
+    expect(row?.stage).toBe('done');
+    expect(row?.terminal_state).toBe(1);
+  });
+
+  it('settles a failed request with the error code the workflow recorded', async () => {
+    const { requestId, stub } = await initSettleRequest('failed');
+    await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+
+    await stub.settleRequest(
+      requestId,
+      settle('failed', undefined, { errorCode: 'NO_OUTPUTS_PRODUCED', retryable: true, recommendedAction: 'retry_full' })
+    );
+
+    const view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('failed');
+    expect(view?.derived.terminal).toBe(true);
+    expect(view?.derived.diagnostics?.errorCode).toBe('NO_OUTPUTS_PRODUCED');
+    const row = await readIndexRow(requestId);
+    expect(row?.stage).toBe('failed');
+    expect(row?.last_error_code).toBe('NO_OUTPUTS_PRODUCED');
+  });
+
+  it('settles an incomplete request and keeps the monolith error code it already holds', async () => {
+    const { requestId, stub } = await initSettleRequest('incomplete');
+    await stub.appendEvent(requestId, {
+      ...errorEvent('step.failed', 'MONOLITH_INPUT_TOO_LARGE', { step: 'monolith' }),
+      source: 'monolith'
+    });
+    await stub.appendEvent(
+      requestId,
+      infoEvent('request.done', 'Request completed', { degraded: true, degradedSteps: ['monolith'] })
+    );
+
+    await stub.settleRequest(requestId, settle('incomplete'));
+
+    const view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('incomplete');
+    expect(view?.derived.terminal).toBe(true);
+    expect(view?.derived.diagnostics?.errorCode).toBe('MONOLITH_INPUT_TOO_LARGE');
+    expect(view?.derived.settled?.errorCode).toBe('MONOLITH_INPUT_TOO_LARGE');
+  });
+
+  it('keeps a settled failure when stray progress, error and terminal events arrive after it', async () => {
+    const { requestId, stub } = await initSettleRequest('stray');
+    await stub.settleRequest(requestId, settle('failed', undefined, { errorCode: 'NO_OUTPUTS_PRODUCED' }));
+    const before = (await stub.getRequestView(requestId))?.events.length ?? 0;
+
+    await stub.appendEvent(requestId, infoEvent('step.started', 'Renderer step started', { step: 'render' }));
+    await stub.appendEvent(requestId, infoEvent('persist.started', 'Persisting to GCS'));
+    await stub.appendEvent(requestId, errorEvent('step.failed', 'RENDER_TIMEOUT', { step: 'render' }));
+    await stub.appendEvent(requestId, infoEvent('workflow.completed', 'Workflow completed'));
+    await stub.appendEvent(requestId, infoEvent('request.done', 'Request completed'));
+
+    const view = await stub.getRequestView(requestId);
+    expect(view?.events).toHaveLength(before + 5);
+    expect(view?.derived.stage).toBe('failed');
+    expect(view?.derived.terminal).toBe(true);
+    expect(view?.derived.diagnostics?.errorCode).toBe('NO_OUTPUTS_PRODUCED');
+    const row = await readIndexRow(requestId);
+    expect(row?.stage).toBe('failed');
+    expect(row?.last_error_code).toBe('NO_OUTPUTS_PRODUCED');
+  });
+
+  it('treats the same settle again as a duplicate and stores one settle event', async () => {
+    const { requestId, stub } = await initSettleRequest('duplicate');
+    const body = settle('done');
+
+    await stub.settleRequest(requestId, body);
+    const second = await stub.settleRequest(requestId, body);
+
+    expect(second).toEqual({ found: true, applied: false, reason: 'duplicate', stage: 'done', terminal: true });
+    expect(await settledEvents(stub, requestId)).toHaveLength(1);
+  });
+
+  it('rejects an older settle of another run as stale', async () => {
+    const { requestId, stub } = await initSettleRequest('stale');
+    await stub.settleRequest(requestId, settle('done', '2026-11-10T01:00:10.000Z'));
+
+    const result = await stub.settleRequest(
+      requestId,
+      settle('failed', '2026-11-10T01:00:05.000Z', { runId: 'run-0', errorCode: 'RENDER_TIMEOUT' })
+    );
+
+    expect(result).toEqual({ found: true, applied: false, reason: 'stale', stage: 'done', terminal: true });
+    expect((await stub.getRequestView(requestId))?.derived.stage).toBe('done');
+  });
+
+  it('reopens on a new run, rejects a late settle of the old run, and takes the new run settle', async () => {
+    const { requestId, stub } = await initSettleRequest('reopen');
+    const t1 = '2026-11-10T01:00:00.000Z';
+    const t2 = '2026-11-10T01:00:30.000Z';
+    const t3 = '2026-11-10T01:01:00.000Z';
+
+    await stub.settleRequest(requestId, settle('failed', t1, { errorCode: 'NO_OUTPUTS_PRODUCED' }));
+    await stub.appendEvent(requestId, {
+      ...infoEvent('request.created', 'Archive request created'),
+      ts: t2,
+      source: 'gateway'
+    });
+    let view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('queued');
+    expect(view?.derived.terminal).toBe(false);
+
+    const late = await stub.settleRequest(requestId, settle('done', '2026-11-10T01:00:00.001Z'));
+    expect(late).toMatchObject({ found: true, applied: false, reason: 'stale' });
+    expect((await stub.getRequestView(requestId))?.derived.stage).toBe('queued');
+
+    const next = await stub.settleRequest(requestId, settle('done', t3, { runId: 'run-2' }));
+    expect(next).toEqual({ found: true, applied: true, stage: 'done', terminal: true });
+    view = await stub.getRequestView(requestId);
+    expect(view?.derived.stage).toBe('done');
+    expect(view?.derived.terminal).toBe(true);
+  });
+
+  it('answers not found for an unknown request', async () => {
+    const stub = getStub(bucket);
+    expect(await stub.settleRequest(`settle-unknown-${Date.now()}`, settle('done'))).toEqual({ found: false });
   });
 });
 
