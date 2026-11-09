@@ -37,6 +37,66 @@ function buildBrPayload(url: string): BrowserRenderingRequest {
   };
 }
 
+const GOTO_OPTIONS = { waitUntil: 'load', timeout: 30000 } as const;
+
+/** The formats one page load returns: always the HTML, plus the requested screenshot and markdown. */
+function planFormats(flags: { includeScreenshot: boolean; includeMarkdown: boolean }): BrowserRunSnapshotFormat[] {
+  return [
+    'content',
+    ...(flags.includeScreenshot ? (['screenshot'] as const) : []),
+    ...(flags.includeMarkdown ? (['markdown'] as const) : [])
+  ];
+}
+
+/**
+ * One page load for the HTML and every other requested format. A snapshot needs
+ * at least two formats, so an HTML-only render uses the content action instead.
+ */
+function loadPage(env: Env, url: string, formats: BrowserRunSnapshotFormat[]): Promise<Response> {
+  if (formats.length >= 2) {
+    return env.BROWSER.quickAction('snapshot', { url, formats, gotoOptions: GOTO_OPTIONS });
+  }
+  return env.BROWSER.quickAction('content', { url, gotoOptions: GOTO_OPTIONS });
+}
+
+interface LoadedPage {
+  html: string;
+  screenshot?: string;
+  markdown?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Reads a content or snapshot success answer; undefined when it carries no HTML. */
+function parseLoadedPage(json: unknown): LoadedPage | undefined {
+  if (!isRecord(json) || json.success !== true) return undefined;
+  const { result } = json;
+  if (typeof result === 'string') return result ? { html: result } : undefined;
+  if (!isRecord(result)) return undefined;
+  const html = optionalString(result.content);
+  if (!html) return undefined;
+  return { html, screenshot: optionalString(result.screenshot), markdown: optionalString(result.markdown) };
+}
+
+/** Screenshot bytes from base64 text, with or without a data-URI prefix; undefined when the text is not base64. */
+function decodeScreenshot(screenshot: string): ArrayBuffer | undefined {
+  try {
+    const binary = atob(screenshot.replace(/^data:[^,]*;base64,/i, ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  } catch (err) {
+    console.error('[renderer] snapshot screenshot is not valid base64:', err instanceof Error ? err.message : String(err));
+    return undefined;
+  }
+}
+
 /**
  * Check if a Browser Rendering response is rate-limited.
  * Returns a 429 Response if so, or null to continue.
