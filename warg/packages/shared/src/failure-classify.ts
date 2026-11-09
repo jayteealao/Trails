@@ -2,6 +2,12 @@ import { isRequestErrorCode, isUserActionHint } from './dashboard.js';
 import { isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from './render-content.js';
 import type { RequestErrorCode, UserActionHint } from './dashboard.js';
 
+/**
+ * The `error` text of the renderer's answer when Browser Run fails to load the page.
+ * The renderer writes it and the service classifier and the renderer fallback read it.
+ */
+export const RENDERER_CONTENT_FAILED_ERROR = 'Browser Rendering /content failed';
+
 /** How a failure is classified: its code, whether a retry can help, and what to do next. */
 export interface ErrorClassification {
   errorCode: RequestErrorCode;
@@ -530,7 +536,7 @@ function looksLikeRendererContentFailurePayload(payload: unknown): boolean {
   const error = record.error;
   if (typeof error !== 'string') return false;
 
-  return error.includes('Browser Rendering /content failed');
+  return error.includes(RENDERER_CONTENT_FAILED_ERROR);
 }
 
 function containsRendererNetworkClosed5006(details: unknown): boolean {

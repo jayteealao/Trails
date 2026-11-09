@@ -1,4 +1,10 @@
-import { PROXY_ERROR_PAGE_REASON, proxyErrorPageText, readInternalJsonRequest, storeArtifact } from '@warg/shared';
+import {
+  PROXY_ERROR_PAGE_REASON,
+  RENDERER_CONTENT_FAILED_ERROR,
+  proxyErrorPageText,
+  readInternalJsonRequest,
+  storeArtifact
+} from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import type {
   RenderRequest,
@@ -159,10 +165,10 @@ export default {
       if (!pageResp.ok) {
         const errorText = await pageResp.text();
         console.error('[renderer] page load failed', JSON.stringify({ request_id, action, status: pageResp.status }));
-        // The error text is a contract with the workflow's renderer fallback (workflow services.ts)
-        // and covers content and snapshot loads alike: change both sides together.
+        // The shared failure classifier reads this error text to classify the failure and pick
+        // the workflow's renderer fallback; it covers content and snapshot loads alike.
         return Response.json(
-          { error: 'Browser Rendering /content failed', status: pageResp.status, details: errorText },
+          { error: RENDERER_CONTENT_FAILED_ERROR, status: pageResp.status, details: errorText },
           { status: 502 }
         );
       }
