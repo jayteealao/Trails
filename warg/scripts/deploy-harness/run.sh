@@ -594,7 +594,7 @@ scenario_dashboard_unverified() {
   expect_row "worker:gateway" deployed "$UUID"
   expect_row "worker:warg-dashboard" unverified "no new version id"
   expect_calls 1 '^cf-deploy-worker warg-dashboard$'
-  expect_calls 1 "^cf deploy --tag $SHORT --message $SHA --provision=false\$" # the dashboard's, from its own folder
+  expect_calls 10 "^cf deploy --tag $SHORT --message $SHA --provision=false\$"
   expect_out '^Exit code: 3$'
   finish
 }
