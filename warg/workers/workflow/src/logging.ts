@@ -1,7 +1,15 @@
-import type { EventType, LogEvent, LogLevel } from '@warg/shared';
-import { createEvent, isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from '@warg/shared';
+import type { EventType, LogEvent, LogLevel, RequestSettle } from '@warg/shared';
+import {
+  createEvent,
+  isDeadHostErrorText,
+  isIncompleteDegradation,
+  isRequestErrorCode,
+  isUserActionHint,
+  PROXY_ERROR_PAGE_REASON,
+} from '@warg/shared';
 import type { RequestErrorCode } from '@warg/shared';
 import { readClassificationTag, type ErrorClassification } from './classification-tag.js';
+import type { WorkflowResult } from './types.js';
 
 type ClassifiedError = ErrorClassification;
 
@@ -413,6 +421,30 @@ export function logRequestDone(
 }
 
 /**
+ * Classify a run's terminal failure: the error's own classification or its
+ * message, then a valid code, retryable flag or action from the terminal
+ * details (the details of a WorkflowTerminalError) override it.
+ */
+export function classifyTerminalFailure(
+  error: string | Error,
+  details?: Record<string, unknown>
+): ClassifiedError & { errorMessage: string } {
+  const errorMessage = error instanceof Error ? error.message : error;
+  const classified = fromErrorObject(error) ?? classifyError('request', errorMessage);
+  const errorCode = details?.['errorCode'];
+  const retryable = details?.['retryable'];
+  const recommendedAction = details?.['recommendedAction'];
+  return {
+    errorCode: isRequestErrorCode(errorCode) ? errorCode : classified.errorCode,
+    retryable: typeof retryable === 'boolean' ? retryable : classified.retryable,
+    recommendedAction: isUserActionHint(recommendedAction)
+      ? recommendedAction
+      : classified.recommendedAction,
+    errorMessage,
+  };
+}
+
+/**
  * Log a terminal request.failed event.
  * Accepts string or Error. If Error, includes truncated stack trace.
  */
@@ -424,7 +456,7 @@ export function logRequestFailed(
 ): Promise<void> {
   const errorMsg = error instanceof Error ? error.message : error;
   const stack = error instanceof Error ? error.stack?.slice(0, 1000) : undefined;
-  const classified = fromErrorObject(error) ?? classifyError('request', errorMsg);
+  const classified = classifyTerminalFailure(error);
   return logEvent(
     env,
     requestId,
@@ -440,6 +472,56 @@ export function logRequestFailed(
     },
     'error'
   );
+}
+
+/**
+ * Send the terminal state a run settled in to the logger.
+ * Unlike the event helpers this throws on a non-2xx answer or a network
+ * error, so the step that calls it is retried.
+ */
+export async function settleRequest(
+  env: Env,
+  requestId: string,
+  settle: RequestSettle
+): Promise<void> {
+  const response = await env.LOGGER.fetch(
+    `https://logger/request/${encodeURIComponent(requestId)}/settle`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-API-Key': env.INTERNAL_API_KEY
+      },
+      body: JSON.stringify(settle),
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
+  if (!response.ok) {
+    const text = (await response.text()).slice(0, 300);
+    throw new Error(`Logger settle answered ${response.status}: ${text}`);
+  }
+}
+
+/** The settle of a run that returned: incomplete when monolith degraded, else done. */
+export function settleForResult(
+  result: WorkflowResult,
+  runId: string,
+  settledAt: string
+): RequestSettle {
+  const incomplete =
+    result.degraded === true &&
+    isIncompleteDegradation(result.partialFailures?.map((failure) => failure.step));
+  return { state: incomplete ? 'incomplete' : 'done', runId, settledAt };
+}
+
+/** The settle of a run that threw: failed, with the code the failure log records. */
+export function settleForFailure(
+  error: string | Error,
+  details: Record<string, unknown> | undefined,
+  runId: string,
+  settledAt: string
+): RequestSettle {
+  return { state: 'failed', runId, settledAt, ...classifyTerminalFailure(error, details) };
 }
 
 /**
