@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PROXY_ERROR_PAGE_REASON } from '@warg/shared';
 import worker from './index.js';
 
@@ -127,6 +127,80 @@ async function render(
   return { response, json };
 }
 
+// The renderer loads pages through the binding only: any network fetch fails the test.
+const networkFetch = vi.fn(async () => {
+  throw new Error('network fetch must not be called');
+});
+
+beforeEach(() => {
+  networkFetch.mockClear();
+  vi.stubGlobal('fetch', networkFetch);
+});
+
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+const GOTO = { waitUntil: 'load', timeout: 30000 };
+
+function storedKinds(bucket: ReturnType<typeof memoryBucket>): string[] {
+  return [...bucket.objects.keys()].map((key) => key.split('/').pop() ?? key);
+}
+
+describe('one page load per render', () => {
+  it('loads the page once for html, screenshot and markdown, once for the pdf, and stores four artifacts', async () => {
+    const { env, browser, bucket } = makeEnv([
+      snapshotAnswer({ content: PAGE_HTML, screenshot: PNG_BASE64, markdown: PAGE_MARKDOWN }),
+      pdfAnswer()
+    ]);
+
+    const { response, json } = await render(ALL_ON, env);
+
+    expect(response.status).toBe(200);
+    expect(browser.quickAction.mock.calls).toEqual([
+      ['snapshot', { url: TARGET_URL, formats: ['content', 'screenshot', 'markdown'], gotoOptions: GOTO }],
+      ['pdf', { url: TARGET_URL, gotoOptions: GOTO }]
+    ]);
+    expect(json.artifacts?.map((a) => a.kind)).toEqual(['rendered.html', 'screenshot.png', 'page.pdf', 'rendered.md']);
+    expect(json.meta?.skipped).toEqual([]);
+    expect(bucket.put).toHaveBeenCalledTimes(4);
+    expect(bucket.objects.get('archives/req-render/raw/screenshot.png')).toEqual(PNG_BYTES);
+    expect(new TextDecoder().decode(bucket.objects.get('archives/req-render/raw/rendered.html'))).toBe(PAGE_HTML);
+    expect(new TextDecoder().decode(bucket.objects.get('archives/req-render/raw/rendered.md'))).toBe(PAGE_MARKDOWN);
+    expect(new TextDecoder().decode(bucket.objects.get('archives/req-render/raw/page.pdf'))).toBe(PDF_TEXT);
+    expect(browser.fetch).not.toHaveBeenCalled();
+    expect(networkFetch).not.toHaveBeenCalled();
+  });
+
+  it('makes one snapshot load when the pdf is off', async () => {
+    const { env, browser, bucket } = makeEnv([
+      snapshotAnswer({ content: PAGE_HTML, screenshot: PNG_BASE64, markdown: PAGE_MARKDOWN })
+    ]);
+
+    const { response, json } = await render({ ...ALL_ON, include_pdf: false }, env);
+
+    expect(response.status).toBe(200);
+    expect(browser.quickAction).toHaveBeenCalledTimes(1);
+    expect(browser.quickAction.mock.calls[0]?.[0]).toBe('snapshot');
+    expect(json.artifacts?.map((a) => a.kind)).toEqual(['rendered.html', 'screenshot.png', 'rendered.md']);
+    expect(json.meta?.skipped).toEqual(['pdf: not requested']);
+    expect(storedKinds(bucket)).toEqual(['rendered.html', 'screenshot.png', 'rendered.md']);
+    expect(networkFetch).not.toHaveBeenCalled();
+  });
+
+  it('makes one content load when only the html is asked for', async () => {
+    const { env, browser } = makeEnv([contentAnswer(PAGE_HTML)]);
+
+    const { response, json } = await render(
+      { ...ALL_ON, include_screenshot: false, include_pdf: false, include_markdown: false },
+      env
+    );
+
+    expect(response.status).toBe(200);
+    expect(browser.quickAction.mock.calls).toEqual([['content', { url: TARGET_URL, gotoOptions: GOTO }]]);
+    expect(json.artifacts?.map((a) => a.kind)).toEqual(['rendered.html']);
+    expect(json.meta?.skipped).toEqual(['screenshot: not requested', 'pdf: not requested', 'markdown: not requested']);
+    expect(networkFetch).not.toHaveBeenCalled();
+  });
 });
