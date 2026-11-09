@@ -97,3 +97,12 @@ export {
 
 export type { ArtifactBucket } from './artifacts.js';
 export { storeArtifact } from './artifacts.js';
+
+export {
+  SAFE_ID_RE,
+  LEGACY_SAFE_ID_RE,
+  extractDomain,
+  extractHostname,
+  GCS_ARTIFACT_PATHS,
+  getGcsPath,
+} from './archive-ids.js';
