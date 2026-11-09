@@ -8,6 +8,7 @@ import {
   readCanonicalId,
   type PocketInput,
 } from '@warg/article-writer';
+import { SAFE_ID_RE, extractDomain } from '@warg/shared/archive-ids';
 
 /**
  * The server-side link from a user's article to the shared article.
@@ -21,9 +22,6 @@ import {
  * server code can reuse it.
  */
 
-/** Every shared-article id the server creates and sends as request_id matches this. */
-export const SHARED_ID_PATTERN = /^[a-zA-Z0-9_-]{8,40}$/;
-
 export const ARTICLE_MARKERS_COLLECTION = 'articleMarkers';
 export const TRIGGER_MARKER_SOURCE = 'trigger';
 
@@ -31,7 +29,7 @@ export const TRIGGER_MARKER_SOURCE = 'trigger';
 const CANDIDATE_LIMIT = 10;
 
 export function isValidSharedId(id: string): boolean {
-  return SHARED_ID_PATTERN.test(id);
+  return SAFE_ID_RE.test(id);
 }
 
 /** The marker body; the field list matches shared-types/MarkerSchema.md. */
@@ -42,18 +40,6 @@ export function markerBody(key: string, itemId: string, source: string): Record<
     createdAt: FieldValue.serverTimestamp(),
     source,
   };
-}
-
-/**
- * Extract domain from URL (hostname without www.)
- */
-export function extractDomain(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname.replace(/^www\./, '');
-  } catch {
-    return 'unknown';
-  }
 }
 
 export interface CandidateDoc {
@@ -109,7 +95,7 @@ export class SharedIdConflictError extends Error {
   }
 }
 
-/** The id the server would create does not match SHARED_ID_PATTERN. */
+/** The id the server would create does not match SAFE_ID_RE. */
 export class InvalidSharedIdError extends Error {
   constructor() {
     super('Invalid article id');
