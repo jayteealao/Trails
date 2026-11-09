@@ -1064,6 +1064,12 @@ deploy_pages() {
   local target="pages:dashboard" rc=0
   set_result "$target" running "-"
   echo "--- Pages dashboard"
+  # The dashboard functions bundle the built id helpers of @warg/shared; rebuild
+  # them so the deploy never ships a stale copy.
+  pnpm --filter @warg/shared run build || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    fail_target "$target" failed "$rc" "@warg/shared build exited $rc"
+  fi
   (cd pages/dashboard && wrangler pages deploy --branch "$PAGES_PRODUCTION_BRANCH" --commit-hash "$LABEL" --commit-message "$LABEL" --commit-dirty="$DIRTY") || rc=$?
   if [ "$rc" -ne 0 ]; then
     fail_target "$target" failed "$rc" "wrangler pages deploy exited $rc"

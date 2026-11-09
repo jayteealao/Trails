@@ -5,10 +5,12 @@
 // and a generated package.json. The function's declared dependencies (the
 // Firebase runtime packages, pinned exactly) stay external and are installed
 // by Cloud Build from the generated package.json; everything else, including
-// any workspace package, is bundled. The commit SHA is baked in as GIT_SHA
-// and logged once when the bundle loads.
+// any workspace package, is bundled. A workspace package that publishes built
+// output (a `build` script) is rebuilt first, so the bundle never carries a
+// stale copy of its dist/. The commit SHA is baked in as GIT_SHA and logged
+// once when the bundle loads.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -48,6 +50,38 @@ export function npmOverrides(rootPkg) {
   return Object.fromEntries(Object.entries(all).filter(([name]) => !name.includes('>')));
 }
 
+// The folders of the workspace devDependencies that have a build script.
+export function builtWorkspacePackages(dir, pkg) {
+  const folders = [];
+  for (const [name, spec] of Object.entries(pkg.devDependencies ?? {})) {
+    if (!String(spec).startsWith('workspace:')) continue;
+    const folder = join(dir, 'node_modules', name);
+    const manifestPath = join(folder, 'package.json');
+    if (!existsSync(manifestPath)) {
+      throw new Error(`${pkg.name}: workspace package ${name} is not installed (run pnpm install)`);
+    }
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    if (manifest.scripts?.build) folders.push({ name, folder });
+  }
+  return folders;
+}
+
+// Runs `<package manager> run build` in each folder; pnpm sets npm_execpath.
+function rebuildWorkspacePackages(packages, env = process.env) {
+  const execPath = env.npm_execpath;
+  for (const { name, folder } of packages) {
+    try {
+      if (execPath && /\.c?js$/.test(execPath)) {
+        execFileSync(process.execPath, [execPath, 'run', 'build'], { cwd: folder, stdio: 'inherit' });
+      } else {
+        execFileSync('pnpm', ['run', 'build'], { cwd: folder, stdio: 'inherit', shell: process.platform === 'win32' });
+      }
+    } catch (err) {
+      throw new Error(`cannot build workspace package ${name}: ${err.message}`, { cause: err });
+    }
+  }
+}
+
 export async function buildFunctionBundle({ dir = process.cwd(), sha, rootPkg } = {}) {
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
   const deps = pkg.dependencies ?? {};
@@ -56,6 +90,7 @@ export async function buildFunctionBundle({ dir = process.cwd(), sha, rootPkg } 
       throw new Error(`${pkg.name}: dependency ${name} must be pinned to an exact x.y.z version, found "${spec}"`);
     }
   }
+  rebuildWorkspacePackages(builtWorkspacePackages(dir, pkg));
   const label = sha ?? resolveSha(dir);
   const root = rootPkg ?? JSON.parse(readFileSync(join(workspaceRoot, 'package.json'), 'utf8'));
   const out = join(dir, 'dist-deploy');

@@ -80,6 +80,25 @@ describe('resolveSha', () => {
 });
 
 describe('buildFunctionBundle', () => {
+  test('rebuilds a workspace package with a build script before bundling', async () => {
+    const dir = fixtureFunction({ ...SOURCE, devDependencies: { '@warg/built': 'workspace:*', '@warg/plain': 'workspace:*' } });
+    const built = join(dir, 'node_modules', '@warg', 'built');
+    const plain = join(dir, 'node_modules', '@warg', 'plain');
+    mkdirSync(built, { recursive: true });
+    mkdirSync(plain, { recursive: true });
+    const script = 'node -e "require(\'fs\').writeFileSync(\'built.txt\', \'ok\')"';
+    writeFileSync(join(built, 'package.json'), JSON.stringify({ name: '@warg/built', scripts: { build: script } }));
+    writeFileSync(join(plain, 'package.json'), JSON.stringify({ name: '@warg/plain' }));
+    await buildFunctionBundle({ dir, sha: 'deadbeef', rootPkg: ROOT });
+    assert.equal(readFileSync(join(built, 'built.txt'), 'utf8'), 'ok');
+    assert.equal(existsSync(join(plain, 'built.txt')), false);
+  });
+
+  test('stops when a workspace devDependency is not installed', async () => {
+    const dir = fixtureFunction({ ...SOURCE, devDependencies: { '@warg/missing': 'workspace:*' } });
+    await assert.rejects(buildFunctionBundle({ dir, sha: 'deadbeef', rootPkg: ROOT }), /@warg\/missing is not installed/);
+  });
+
   test('writes the bundle with the SHA, its map and a manifest that passes the check', async () => {
     const dir = fixtureFunction();
     await buildFunctionBundle({ dir, sha: 'deadbeef', rootPkg: ROOT });
