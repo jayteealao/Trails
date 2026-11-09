@@ -2,8 +2,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { enqueueUserArticle } from '@warg/article-writer';
 import type { Request, Response } from 'express';
 import { getDashboardUserId } from './config.js';
-
-const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
+import { SAFE_ID_RE } from '@warg/shared/archive-ids';
 
 interface EnqueueBody {
   url?: unknown;

@@ -10,9 +10,7 @@ import {
   setUserArticleResolvedLink,
 } from '@warg/article-writer';
 import { getDashboardUserId } from './config.js';
-import { extractDomain } from '@warg/shared/archive-ids';
-
-const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
+import { SAFE_ID_RE, extractDomain } from '@warg/shared/archive-ids';
 
 /**
  * POST /articles/:itemId/bootstrap handler.
