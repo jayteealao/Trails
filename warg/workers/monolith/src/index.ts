@@ -2,8 +2,8 @@ import { getSandbox, Sandbox as BaseSandbox, ContainerUnavailableError } from '@
 import {
   classifySandboxOutput,
   getR2Key,
+  readInternalJsonRequest,
   storeArtifact,
-  timingSafeEqual,
   type ArtifactMeta,
   type SandboxFailureCode
 } from '@warg/shared';
@@ -343,29 +343,13 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      const url = new URL(request.url);
-
-      const isKnownRoute =
-        request.method === 'POST' &&
-        (url.pathname === '/monolith' || url.pathname === '/container/stop');
-      if (!isKnownRoute) {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      // Verify internal API key
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/monolith', '/container/stop']);
+      if (!pre.ok) return pre.response;
 
       // POST /container/stop - stop a request's container (gateway orphan sweep)
-      if (url.pathname === '/container/stop') {
-        let stopBody: { request_id?: string };
-        try {
-          stopBody = (await request.json()) as { request_id?: string };
-        } catch {
-          return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-        }
+      if (pre.url.pathname === '/container/stop') {
+        // The caller's request shape; its required field is checked below.
+        const stopBody = pre.body as { request_id?: string };
         if (!stopBody.request_id) {
           return Response.json({ error: 'Missing required field: request_id' }, { status: 400 });
         }
@@ -392,13 +376,8 @@ export default {
         return Response.json({ ok: true });
       }
 
-      // Parse request body
-      let body: MonolithRequest;
-      try {
-        body = (await request.json()) as MonolithRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as MonolithRequest;
 
       const { request_id, rendered_html_key, base_url } = body;
       if (!request_id || !rendered_html_key || !base_url) {
