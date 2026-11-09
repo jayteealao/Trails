@@ -77,6 +77,9 @@ export {
   classifyServiceTimeout,
   classifyServiceFailure,
   rendererFallbackReasonFromBody,
+  defaultRetryableForCode,
+  defaultActionForCode,
+  inferLegacyErrorCode,
 } from './failure-classify.js';
 
 export type { InternalJsonRequest } from './worker-request.js';

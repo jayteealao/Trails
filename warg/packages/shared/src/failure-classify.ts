@@ -602,3 +602,146 @@ export function rendererFallbackReasonFromBody(responseBody: string): RendererFa
     return undefined;
   }
 }
+
+// --- Legacy error-code inference for failure events without a code -----------
+
+/** Whether a failure with this code is worth a retry, for an event that does not say. */
+export function defaultRetryableForCode(code: RequestErrorCode): boolean {
+  return (
+    code !== 'ACCESS_BLOCKED' &&
+    code !== 'INVALID_INPUT_URL' &&
+    code !== 'MONOLITH_RPC_32MIB_LIMIT' &&
+    code !== 'MONOLITH_INPUT_TOO_LARGE'
+  );
+}
+
+/** The next action for a failure with this code, for an event that does not say. */
+export function defaultActionForCode(code: RequestErrorCode): UserActionHint {
+  if (code === 'ACCESS_BLOCKED') return 'check_access';
+  if (code === 'INVALID_INPUT_URL') return 'inspect_url';
+  if (code === 'WORKFLOW_TRIGGER_FAILED') return 'retry_full';
+  if (
+    code === 'RENDER_NETWORK_CLOSED' ||
+    code === 'RENDER_CONTEXT_DESTROYED' ||
+    code === 'RENDER_PREREQ_MISSING' ||
+    code === 'NO_OUTPUTS_PRODUCED'
+  ) {
+    return 'retry_full';
+  }
+  if (code === 'SINGLEFILE_EDGE_CASE') return 'retry_step';
+  if (code === 'MONOLITH_RPC_32MIB_LIMIT' || code === 'MONOLITH_INPUT_TOO_LARGE') {
+    return 'investigate_service';
+  }
+  if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
+  return 'retry_step';
+}
+
+/** The error code of a failure event written before events carried one, from its message and source. */
+export function inferLegacyErrorCode(message: string, source?: string): RequestErrorCode {
+  const lower = message.toLowerCase();
+  const sourceLower = (source ?? '').toLowerCase();
+
+  if (
+    lower.includes('invalid url') ||
+    lower.includes('url is required') ||
+    lower.includes('base_url contains invalid characters')
+  ) {
+    return 'INVALID_INPUT_URL';
+  }
+
+  if (
+    lower.includes('workflow trigger failed') ||
+    lower.includes('error starting workflow') ||
+    lower.includes('instance.already_exists')
+  ) {
+    return 'WORKFLOW_TRIGGER_FAILED';
+  }
+
+  if (lower.includes('no requested outputs were produced')) {
+    return 'NO_OUTPUTS_PRODUCED';
+  }
+
+  if (lower.includes('unauthorized') || lower.includes('forbidden') || lower.includes('access')) {
+    return 'ACCESS_BLOCKED';
+  }
+
+  if (lower.includes('missing rendered.html prerequisite')) {
+    return 'RENDER_PREREQ_MISSING';
+  }
+
+  if (
+    lower.includes('5006') ||
+    lower.includes('network closed') ||
+    lower.includes('connection closed') ||
+    lower.includes('browser has disconnected')
+  ) {
+    return 'RENDER_NETWORK_CLOSED';
+  }
+
+  if (
+    lower.includes('execution context was destroyed') ||
+    lower.includes('code":6000') ||
+    lower.includes('context destroyed')
+  ) {
+    return 'RENDER_CONTEXT_DESTROYED';
+  }
+
+  const isTimeout =
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('deadline exceeded') ||
+    lower.includes('abort');
+
+  const mentionsRender = lower.includes('/render') || lower.includes('render');
+  const mentionsSinglefile = lower.includes('/singlefile') || lower.includes('singlefile');
+  const mentionsReadability = lower.includes('/readability') || lower.includes('readability');
+  const mentionsMonolith =
+    lower.includes('/monolith') ||
+    lower.includes('monolith') ||
+    lower.includes('sandboxerror');
+  const mentionsPersist = lower.includes('/persist') || lower.includes('persist') || sourceLower === 'gcs';
+
+  if (isTimeout) {
+    if (mentionsMonolith) return 'MONOLITH_TIMEOUT';
+    if (mentionsSinglefile) return 'SINGLEFILE_TIMEOUT';
+    if (mentionsReadability) return 'READABILITY_TIMEOUT';
+    if (mentionsRender) return 'RENDER_TIMEOUT';
+  }
+
+  if (
+    lower.includes('service error') ||
+    lower.includes('http error') ||
+    lower.includes('internal error') ||
+    lower.includes('sandboxerror')
+  ) {
+    if (isRpc32MiBLimit(lower)) {
+      return 'MONOLITH_RPC_32MIB_LIMIT';
+    }
+    if (isMonolithInputTooLarge(lower)) {
+      return 'MONOLITH_INPUT_TOO_LARGE';
+    }
+    if (
+      mentionsMonolith &&
+      (lower.includes('sandboxerror') || lower.includes('http error! status: 500'))
+    ) {
+      return 'MONOLITH_SANDBOX_500';
+    }
+    if (mentionsMonolith) return 'MONOLITH_SERVICE_ERROR';
+    if (mentionsSinglefile) return 'SINGLEFILE_SERVICE_ERROR';
+    if (mentionsReadability) return 'READABILITY_SERVICE_ERROR';
+    if (mentionsPersist) return 'PERSIST_SERVICE_ERROR';
+    if (mentionsRender) return 'RENDER_SERVICE_ERROR';
+  }
+
+  if (
+    mentionsSinglefile &&
+    (lower.includes('trustedtypes') ||
+      lower.includes('trustedhtml') ||
+      lower.includes('not a valid selector') ||
+      lower.includes('singlefile edge-case failure'))
+  ) {
+    return 'SINGLEFILE_EDGE_CASE';
+  }
+
+  return 'UNKNOWN_ERROR';
+}
