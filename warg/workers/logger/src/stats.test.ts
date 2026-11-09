@@ -137,6 +137,31 @@ function expectedStats(now: number): unknown {
   };
 }
 
+interface QueryCounts {
+  prepare: number;
+  batch: number;
+  exec: number;
+}
+
+/** Wraps the D1 binding and counts each prepare, batch and exec call. */
+function countingDb(db: D1Database, counts: QueryCounts): D1Database {
+  return new Proxy(db, {
+    get(target, prop) {
+      const value: unknown = Reflect.get(target, prop);
+      if (typeof value !== 'function') return value;
+      const bound = value.bind(target);
+      if (prop === 'prepare' || prop === 'batch' || prop === 'exec') {
+        const counted = prop;
+        return (...args: unknown[]) => {
+          counts[counted] += 1;
+          return bound(...args);
+        };
+      }
+      return bound;
+    },
+  });
+}
+
 function getStats(db: D1Database): Promise<Response> {
   const request = new Request('https://logger.internal/stats', {
     headers: { 'X-Internal-API-Key': API_KEY },
@@ -157,6 +182,19 @@ describe('GET /stats', () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(JSON.stringify(expectedStats(now)));
+  });
+
+  it('reads the index in at most two queries', async () => {
+    const now = Date.now();
+    await insertRows(env.INDEX_DB, now, fixtureRows(now));
+    const counts: QueryCounts = { prepare: 0, batch: 0, exec: 0 };
+
+    const res = await getStats(countingDb(env.INDEX_DB, counts));
+
+    expect(await res.text()).toBe(JSON.stringify(expectedStats(now)));
+    expect(counts.prepare).toBeLessThanOrEqual(2);
+    expect(counts.batch).toBe(0);
+    expect(counts.exec).toBe(0);
   });
 
   it('returns zero counts and empty lists for an empty index', async () => {
