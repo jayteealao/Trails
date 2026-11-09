@@ -8,13 +8,6 @@ import { hasValidInternalApiKey } from './auth.js';
  * to the environment at run time.
  */
 export const PUBLIC_API_KEY = defineSecret('PUBLIC_API_KEY');
-/**
- * The old shared internal key. The status endpoint binds and accepts it only
- * while the key-rotation switch is on, so the dashboard keeps working while it
- * moves to its own key. With the switch off it is no longer bound, and its
- * versions can be destroyed.
- */
-export const INTERNAL_API_KEY = defineSecret('INTERNAL_API_KEY');
 /** The dashboard's own key for the backfill status endpoint: the only key it accepts once the rotation ends. */
 export const BACKFILL_STATUS_KEY = defineSecret('BACKFILL_STATUS_KEY');
 export const CF_ACCESS_CLIENT_ID = defineSecret('CF_ACCESS_CLIENT_ID');
@@ -51,9 +44,27 @@ export function dualAcceptOn(): boolean {
   return process.env['KEY_ROTATION_DUAL_ACCEPT'] === 'true';
 }
 
+let oldKey: ReturnType<typeof defineSecret> | undefined;
+
+/**
+ * The old shared internal key, or undefined while the key-rotation switch is
+ * off. The status endpoint declares, binds and accepts it only while the
+ * switch is on, so the dashboard keeps working while it moves to its own key.
+ * With the switch off the module does not declare it at all: firebase-tools
+ * checks every declared secret at deploy, and the old key's destroyed versions
+ * would block the deploy. Declared once per process, on first use with the
+ * switch on.
+ */
+export function oldInternalKey(): ReturnType<typeof defineSecret> | undefined {
+  if (!dualAcceptOn()) return undefined;
+  oldKey ??= defineSecret('INTERNAL_API_KEY');
+  return oldKey;
+}
+
 /** The secrets the status endpoint binds; the old shared key only while the rotation switch is on. */
 export function statusSecrets() {
-  return [BACKFILL_STATUS_KEY, ...(dualAcceptOn() ? [INTERNAL_API_KEY] : [])];
+  const old = oldInternalKey();
+  return [BACKFILL_STATUS_KEY, ...(old ? [old] : [])];
 }
 
 /**
@@ -64,7 +75,8 @@ export function statusSecrets() {
  */
 export function statusKeyMatches(provided: string | null | undefined): boolean {
   const ownMatch = hasValidInternalApiKey(provided, BACKFILL_STATUS_KEY.value());
-  const oldMatch = dualAcceptOn() && hasValidInternalApiKey(provided, INTERNAL_API_KEY.value());
+  const old = oldInternalKey();
+  const oldMatch = old !== undefined && hasValidInternalApiKey(provided, old.value());
   return ownMatch || oldMatch;
 }
 

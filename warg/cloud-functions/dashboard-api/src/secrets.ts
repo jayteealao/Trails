@@ -6,13 +6,6 @@ import { defineSecret } from 'firebase-functions/params';
  * secrets to the environment at run time.
  */
 
-/**
- * The old shared internal key. It is bound and accepted only while the
- * key-rotation switch is on, so the dashboard keeps working while it moves to
- * its own key. With the switch off the function no longer binds it, and its
- * versions can be destroyed.
- */
-export const INTERNAL_API_KEY = defineSecret('INTERNAL_API_KEY');
 /** The dashboard's own key: the only caller key this function accepts once the rotation ends. */
 export const DASHBOARD_API_KEY = defineSecret('DASHBOARD_API_KEY');
 
@@ -26,15 +19,32 @@ export function dualAcceptOn(): boolean {
   return process.env['KEY_ROTATION_DUAL_ACCEPT'] === 'true';
 }
 
+let oldKey: ReturnType<typeof defineSecret> | undefined;
+
+/**
+ * The old shared internal key, or undefined while the key-rotation switch is
+ * off. It is declared, bound and accepted only while the switch is on, so the
+ * dashboard keeps working while it moves to its own key. With the switch off
+ * the function does not declare it at all: firebase-tools checks every
+ * declared secret at deploy, and the old key's destroyed versions would block
+ * the deploy. Declared once per process, on first use with the switch on.
+ */
+export function oldInternalKey(): ReturnType<typeof defineSecret> | undefined {
+  if (!dualAcceptOn()) return undefined;
+  oldKey ??= defineSecret('INTERNAL_API_KEY');
+  return oldKey;
+}
+
 /** The secrets the function binds; the old shared key only while the rotation switch is on. */
 export function functionSecrets() {
-  return [DASHBOARD_API_KEY, ...(dualAcceptOn() ? [INTERNAL_API_KEY] : [])];
+  const old = oldInternalKey();
+  return [DASHBOARD_API_KEY, ...(old ? [old] : [])];
 }
 
 /** The caller keys accepted now: the dashboard's own key, and the old key while the switch is on ('' when off). */
 export function acceptedCallerKeys(): { own: string; old: string } {
   return {
     own: DASHBOARD_API_KEY.value(),
-    old: dualAcceptOn() ? INTERNAL_API_KEY.value() : '',
+    old: oldInternalKey()?.value() ?? '',
   };
 }
