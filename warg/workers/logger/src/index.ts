@@ -9,7 +9,14 @@ import type {
   RequestErrorCode,
   RequestSettle
 } from '@warg/shared';
-import { parseRequestSettle, timingSafeEqual } from '@warg/shared';
+import {
+  defaultActionForCode,
+  defaultRetryableForCode,
+  inferLegacyErrorCode,
+  isRequestErrorCode,
+  parseRequestSettle,
+  timingSafeEqual
+} from '@warg/shared';
 import { bucketKeyForTs } from './bucket-key.js';
 import { LoggerDO, type SettleResult } from './LoggerDO.js';
 import { buildRequestListQuery } from './request-list-query.js';
@@ -95,35 +102,8 @@ interface LoggerStub {
   settleRequest(requestId: string, settle: RequestSettle): Promise<SettleResult>;
 }
 
-const VALID_ERROR_CODES = new Set<RequestErrorCode>([
-  'INVALID_INPUT_URL',
-  'WORKFLOW_TRIGGER_FAILED',
-  'NO_OUTPUTS_PRODUCED',
-  'RENDER_TIMEOUT',
-  'RENDER_SERVICE_ERROR',
-  'RENDER_NETWORK_CLOSED',
-  'RENDER_CONTEXT_DESTROYED',
-  'RENDER_PREREQ_MISSING',
-  'SINGLEFILE_TIMEOUT',
-  'SINGLEFILE_SERVICE_ERROR',
-  'SINGLEFILE_EDGE_CASE',
-  'READABILITY_TIMEOUT',
-  'READABILITY_SERVICE_ERROR',
-  'MONOLITH_TIMEOUT',
-  'MONOLITH_SERVICE_ERROR',
-  'MONOLITH_SANDBOX_500',
-  'MONOLITH_RPC_32MIB_LIMIT',
-  'MONOLITH_INPUT_TOO_LARGE',
-  'PERSIST_SERVICE_ERROR',
-  'ACCESS_BLOCKED',
-  'UNKNOWN_ERROR',
-]);
-
 function toRequestErrorCode(value: string | null): RequestErrorCode | undefined {
-  if (!value) return undefined;
-  return VALID_ERROR_CODES.has(value as RequestErrorCode)
-    ? (value as RequestErrorCode)
-    : undefined;
+  return value && isRequestErrorCode(value) ? value : undefined;
 }
 
 function toRenderProvider(
@@ -164,149 +144,6 @@ function toDiagnostics(row: RequestsIndexRow): RequestDiagnostics {
     degraded: row.degraded === null ? undefined : row.degraded === 1,
     degradedSteps: parseStringArray(row.degraded_steps),
   };
-}
-
-function defaultRetryableForCode(code: RequestErrorCode): boolean {
-  return (
-    code !== 'ACCESS_BLOCKED' &&
-    code !== 'INVALID_INPUT_URL' &&
-    code !== 'MONOLITH_RPC_32MIB_LIMIT' &&
-    code !== 'MONOLITH_INPUT_TOO_LARGE'
-  );
-}
-
-function defaultActionForCode(code: RequestErrorCode): RequestDiagnostics['recommendedAction'] {
-  if (code === 'ACCESS_BLOCKED') return 'check_access';
-  if (code === 'INVALID_INPUT_URL') return 'inspect_url';
-  if (code === 'WORKFLOW_TRIGGER_FAILED') return 'retry_full';
-  if (
-    code === 'RENDER_NETWORK_CLOSED' ||
-    code === 'RENDER_CONTEXT_DESTROYED' ||
-    code === 'RENDER_PREREQ_MISSING' ||
-    code === 'NO_OUTPUTS_PRODUCED'
-  ) {
-    return 'retry_full';
-  }
-  if (code === 'SINGLEFILE_EDGE_CASE') return 'retry_step';
-  if (code === 'MONOLITH_RPC_32MIB_LIMIT' || code === 'MONOLITH_INPUT_TOO_LARGE') {
-    return 'investigate_service';
-  }
-  if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
-  return 'retry_step';
-}
-
-function inferLegacyErrorCode(message: string, source?: string): RequestErrorCode {
-  const lower = message.toLowerCase();
-  const sourceLower = (source ?? '').toLowerCase();
-
-  if (
-    lower.includes('invalid url') ||
-    lower.includes('url is required') ||
-    lower.includes('base_url contains invalid characters')
-  ) {
-    return 'INVALID_INPUT_URL';
-  }
-
-  if (
-    lower.includes('workflow trigger failed') ||
-    lower.includes('error starting workflow') ||
-    lower.includes('instance.already_exists')
-  ) {
-    return 'WORKFLOW_TRIGGER_FAILED';
-  }
-
-  if (lower.includes('no requested outputs were produced')) {
-    return 'NO_OUTPUTS_PRODUCED';
-  }
-
-  if (lower.includes('unauthorized') || lower.includes('forbidden') || lower.includes('access')) {
-    return 'ACCESS_BLOCKED';
-  }
-
-  if (lower.includes('missing rendered.html prerequisite')) {
-    return 'RENDER_PREREQ_MISSING';
-  }
-
-  if (
-    lower.includes('5006') ||
-    lower.includes('network closed') ||
-    lower.includes('connection closed') ||
-    lower.includes('browser has disconnected')
-  ) {
-    return 'RENDER_NETWORK_CLOSED';
-  }
-
-  if (
-    lower.includes('execution context was destroyed') ||
-    lower.includes('code":6000') ||
-    lower.includes('context destroyed')
-  ) {
-    return 'RENDER_CONTEXT_DESTROYED';
-  }
-
-  const isTimeout =
-    lower.includes('timeout') ||
-    lower.includes('timed out') ||
-    lower.includes('deadline exceeded') ||
-    lower.includes('abort');
-
-  const mentionsRender = lower.includes('/render') || lower.includes('render');
-  const mentionsSinglefile = lower.includes('/singlefile') || lower.includes('singlefile');
-  const mentionsReadability = lower.includes('/readability') || lower.includes('readability');
-  const mentionsMonolith =
-    lower.includes('/monolith') ||
-    lower.includes('monolith') ||
-    lower.includes('sandboxerror');
-  const mentionsPersist = lower.includes('/persist') || lower.includes('persist') || sourceLower === 'gcs';
-
-  if (isTimeout) {
-    if (mentionsMonolith) return 'MONOLITH_TIMEOUT';
-    if (mentionsSinglefile) return 'SINGLEFILE_TIMEOUT';
-    if (mentionsReadability) return 'READABILITY_TIMEOUT';
-    if (mentionsRender) return 'RENDER_TIMEOUT';
-  }
-
-  if (
-    lower.includes('service error') ||
-    lower.includes('http error') ||
-    lower.includes('internal error') ||
-    lower.includes('sandboxerror')
-  ) {
-    if (
-      lower.includes('message length too big') ||
-      lower.includes('max allowed message length') ||
-      lower.includes('33554432') ||
-      lower.includes('32mib')
-    ) {
-      return 'MONOLITH_RPC_32MIB_LIMIT';
-    }
-    if (lower.includes('monolith input too large')) {
-      return 'MONOLITH_INPUT_TOO_LARGE';
-    }
-    if (
-      mentionsMonolith &&
-      (lower.includes('sandboxerror') || lower.includes('http error! status: 500'))
-    ) {
-      return 'MONOLITH_SANDBOX_500';
-    }
-    if (mentionsMonolith) return 'MONOLITH_SERVICE_ERROR';
-    if (mentionsSinglefile) return 'SINGLEFILE_SERVICE_ERROR';
-    if (mentionsReadability) return 'READABILITY_SERVICE_ERROR';
-    if (mentionsPersist) return 'PERSIST_SERVICE_ERROR';
-    if (mentionsRender) return 'RENDER_SERVICE_ERROR';
-  }
-
-  if (
-    mentionsSinglefile &&
-    (lower.includes('trustedtypes') ||
-      lower.includes('trustedhtml') ||
-      lower.includes('not a valid selector') ||
-      lower.includes('singlefile edge-case failure'))
-  ) {
-    return 'SINGLEFILE_EDGE_CASE';
-  }
-
-  return 'UNKNOWN_ERROR';
 }
 
 function recomputeDiagnosticsFromEvents(events: LogEvent[]): RequestDiagnostics {
