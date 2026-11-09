@@ -13,7 +13,10 @@ dist-deploy/
 .env
 .env.*
 .dev.vars
+# Per-mode dev vars (cf dev --mode <mode>); the browser checks write .dev.vars.e2e*
+.dev.vars.*
 !.env.example
+!.dev.vars.example
 
 # Coverage
 coverage/

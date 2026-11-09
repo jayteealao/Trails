@@ -1,12 +1,13 @@
 // Links the workspace's wrangler into each worker's own node_modules: the
-// workers/* folders and the dashboard Worker (pages/dashboard).
+// workers/* folders, the dashboard Worker (pages/dashboard) and the browser
+// checks' stand-in logger (pages/dashboard/e2e/stub-logger).
 //
-// `cf deploy` (cf 1.0.0-beta.17, its project-discovery step) looks for the
-// Wrangler bundler only at `<worker dir>/node_modules/wrangler` and does not
-// walk up to the workspace root. This workspace installs with
-// `node-linker=hoisted`, so pnpm puts wrangler only in the root node_modules.
-// Runs as the root postinstall, so every install (local and CI) leaves each
-// worker buildable by cf.
+// `cf deploy` and `cf dev` (cf 1.0.0-beta.17, their project-discovery step)
+// look for the Wrangler bundler and dev server only at
+// `<worker dir>/node_modules/wrangler` and do not walk up to the workspace
+// root. This workspace installs with `node-linker=hoisted`, so pnpm puts
+// wrangler only in the root node_modules. Runs as the root postinstall, so
+// every install (local and CI) leaves each worker buildable and runnable by cf.
 // TODO: delete this script and the postinstall entry once cf resolves the
 // bundler through the Node module path, or the workspace moves off the
 // hoisted linker (see "Deploying" in warg/README.md).
@@ -25,6 +26,7 @@ const workersDir = join(root, 'workers');
 const workerDirs = [
   ...readdirSync(workersDir).map((worker) => join(workersDir, worker)),
   join(root, 'pages', 'dashboard'),
+  join(root, 'pages', 'dashboard', 'e2e', 'stub-logger'),
 ];
 for (const dir of workerDirs) {
   if (!existsSync(join(dir, 'cloudflare.config.ts'))) continue;

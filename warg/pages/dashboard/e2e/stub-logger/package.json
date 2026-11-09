@@ -1,0 +1,9 @@
+{
+  "name": "warg-e2e-stub-logger",
+  "private": true,
+  "type": "module",
+  "description": "The browser checks' stand-in for the logger. Not a workspace package: cf dev reads this manifest to pick its dev server, and scripts/link-worker-bundler.mjs links wrangler into node_modules here.",
+  "devDependencies": {
+    "wrangler": "4.148.0"
+  }
+}

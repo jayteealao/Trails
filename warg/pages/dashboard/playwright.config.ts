@@ -2,18 +2,19 @@ import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+import { dashboardServer, stubLoggerServer } from './e2e-logger/local-servers';
 
-// Browser checks run the real dashboard Worker under `wrangler dev` (local
-// only, from wrangler.jsonc), pointed at a stub dashboard-api that each spec
+// Browser checks run the real dashboard Worker under `cf dev` (local only,
+// from cloudflare.config.ts), pointed at a stub dashboard-api that each spec
 // starts on STUB_PORT.
-// The ports stay off the wrangler defaults so a local dev server is never
+// The ports stay off the dev-server defaults so a local dev server is never
 // mistaken for the one under test.
 const PAGES_PORT = Number(process.env.E2E_PAGES_PORT ?? '18799');
 const STUB_PORT = Number(process.env.E2E_STUB_PORT ?? '18798');
 const LOGGER_PORT = Number(process.env.E2E_LOGGER_PORT ?? '18797');
 
 // The browser checks run a stand-in for the logger service, joined to the
-// local dashboard through wrangler's local registry of running Workers. Each
+// local dashboard through the local dev registry of running Workers. Each
 // run gets a fresh registry folder, so a stale entry left by an earlier run
 // cannot break the connection. It is made once in the runner; the test
 // workers inherit the variable and make no folder of their own.
@@ -57,33 +58,18 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   // Started in order: the logger stand-in is up and registered before the
-  // dashboard starts and binds it as LOGGER.
+  // dashboard starts and binds it as LOGGER; GATEWAY is not running.
   webServer: [
-    {
-      command: `pnpm exec wrangler dev -c e2e/stub-logger.wrangler.toml --ip 127.0.0.1 --port ${LOGGER_PORT}`,
-      url: `http://127.0.0.1:${LOGGER_PORT}/stats`,
-      env: { WRANGLER_REGISTRY_PATH: REGISTRY },
-      timeout: 120_000,
-      reuseExistingServer: false,
-    },
-    {
-      // LOGGER and GATEWAY are the service bindings of wrangler.jsonc; LOGGER
-      // reaches the stand-in above through the registry, GATEWAY is not
-      // running.
-      command:
-        `pnpm exec wrangler dev --ip 127.0.0.1 --port ${PAGES_PORT}` +
-        ` --var DASHBOARD_API_URL:http://127.0.0.1:${STUB_PORT}/` +
-        ' --var DASHBOARD_API_KEY:e2e-key' +
-        ` --var DASHBOARD_AUTH:${E2E_AUTH_USER}:${E2E_AUTH_PASSWORD}` +
-        // The infra check points the infra function's Cloudflare API calls
-        // at the stub that its spec starts on STUB_PORT (test strings only).
-        ' --var CF_API_TOKEN:e2e-cf-token' +
-        ' --var CF_ACCOUNT_ID:e2e-account' +
-        ` --var CF_API_URL:http://127.0.0.1:${STUB_PORT}/client/v4`,
-      url: `http://127.0.0.1:${PAGES_PORT}/`,
-      env: { WRANGLER_REGISTRY_PATH: REGISTRY },
-      timeout: 120_000,
-      reuseExistingServer: false,
-    },
+    stubLoggerServer({ port: LOGGER_PORT, registry: REGISTRY }),
+    dashboardServer({
+      port: PAGES_PORT,
+      registry: REGISTRY,
+      mode: 'e2e',
+      // The dashboard API and the infra function's Cloudflare API calls go to
+      // the stub that each spec starts on STUB_PORT.
+      stubPort: STUB_PORT,
+      user: E2E_AUTH_USER,
+      password: E2E_AUTH_PASSWORD,
+    }),
   ],
 });
