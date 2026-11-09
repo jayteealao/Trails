@@ -1,7 +1,6 @@
-// Deploys read cloudflare.config.ts (cf deploy). This file serves
-// `wrangler dev` (the browser checks) and `wrangler types` only. Change a
-// binding in both files; scripts/check-worker-configs.mjs fails when they
-// differ.
+// Deploys and local dev read cloudflare.config.ts (cf deploy, cf dev). This
+// file serves `wrangler types` only. Change a binding in both files;
+// scripts/check-worker-configs.mjs fails when they differ.
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "warg-dashboard",

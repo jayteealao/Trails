@@ -371,7 +371,7 @@ Typical:
 - `pnpm --filter @shared test`
 
 Run one worker:
-- `pnpm --filter <worker-name> dev` (wrangler dev) if scripts exist, otherwise run wrangler directly in that worker folder.
+- `pnpm --filter <worker-name> dev` (`cf dev`; monolith still uses `wrangler dev`), or `pnpm exec cf dev` in that worker folder.
 
 ### Implementation rule of thumb
 If a change makes the code harder to read, harder to debug, or introduces “plumbing” without immediate benefit, don’t do it.
@@ -381,11 +381,11 @@ If a change makes the code harder to read, harder to debug, or introduces “plu
 - Wrangler and the cf CLI are workspace devDependencies. Do **not** assume a global `wrangler` or `cf` command exists.
 - Always run via pnpm from the repo root:
   - `pnpm exec wrangler <cmd>` (preferred)
-- After installs, if builds were blocked by pnpm, run `pnpm approve-builds` (ensure `workerd` + `esbuild` are allowed) before running `wrangler dev/deploy`.
+- After installs, if builds were blocked by pnpm, run `pnpm approve-builds` (ensure `workerd` + `esbuild` are allowed) before running `cf dev` or a deploy.
 - Common commands:
-  - Local dev: `pnpm exec wrangler dev`
-  - Deploy: `pnpm run deploy -- [flags]` from `warg/` (runs `scripts/deploy.sh`, the only deploy path; see "Deploying" in `warg/README.md`). Never run `wrangler deploy`, `wrangler pages deploy` or `cf deploy` directly: that skips the secret preflight, the version check and the commit label. Wrangler is for local dev and types only; it never touches the account.
+  - Local dev: `pnpm exec cf dev` in the worker folder (reads `cloudflare.config.ts` and `.dev.vars`; takes only `--mode`, `--host`, `--port`, `--local`). `wrangler dev` only where cf dev cannot do it yet: monolith (container Durable Object) and the browser checks' logger and workflow servers (need `--persist-to`).
+  - Deploy: `pnpm run deploy -- [flags]` from `warg/` (runs `scripts/deploy.sh`, the only deploy path; see "Deploying" in `warg/README.md`). Never run `wrangler deploy`, `wrangler pages deploy` or `cf deploy` directly: that skips the secret preflight, the version check and the commit label. Wrangler is for types, local state and the few dev servers cf dev cannot run yet; it never touches the account.
   - Login: `pnpm exec cf auth login`
   - Secrets: `pnpm exec cf workers secrets update <NAME> --worker <worker> --type secret_text --text <value>` (read the value with `read -rs`, never type it into the command line)
-  - Dashboard: `pages/dashboard` is the Worker `warg-dashboard` (static assets in `public/`, Pages-style handlers in `functions/`, router in `src/`), deployed by `deploy.sh --with-dashboard`; local dev and the browser checks run it with `wrangler dev`. A new function file goes in `src/routes.ts` too.
+  - Dashboard: `pages/dashboard` is the Worker `warg-dashboard` (static assets in `public/`, Pages-style handlers in `functions/`, router in `src/`), deployed by `deploy.sh --with-dashboard`; local dev and the browser checks run it with `cf dev`. A new function file goes in `src/routes.ts` too.
 - Keep `wrangler.toml` changes minimal and in-repo; avoid “quick fixes” that rely on global config/state.

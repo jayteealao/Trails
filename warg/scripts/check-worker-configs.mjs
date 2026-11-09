@@ -1,8 +1,9 @@
 // Checks that each worker's two configs agree.
 //
-// `cf deploy` reads <worker>/cloudflare.config.ts (plus wrangler.config.ts,
-// which names the static assets directory); `wrangler dev` and
-// `wrangler types` still read <worker>/wrangler.jsonc. The workers are
+// `cf deploy` and `cf dev` read <worker>/cloudflare.config.ts (plus
+// wrangler.config.ts, which names the static assets directory);
+// `wrangler types`, the logger's Workers-pool tests and the remaining
+// `wrangler dev` runs still read <worker>/wrangler.jsonc. The workers are
 // workers/* and the dashboard (pages/dashboard). A binding, Durable
 // Object class, cron trigger or compatibility setting changed in one file and
 // not the other either breaks local dev and the generated types, or ships a

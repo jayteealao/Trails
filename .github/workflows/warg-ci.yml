@@ -101,8 +101,9 @@ jobs:
           done
 
       - name: Worker configs agree (cloudflare.config.ts and wrangler.jsonc)
-        # cf deploy reads cloudflare.config.ts (and, for the dashboard,
-        # wrangler.config.ts); wrangler dev and wrangler types read
+        # cf deploy and cf dev read cloudflare.config.ts (and, for the
+        # dashboard, wrangler.config.ts); wrangler types, the logger's
+        # Workers-pool tests and the remaining wrangler dev runs read
         # wrangler.jsonc. Fails when a binding, Durable Object class, cron,
         # static assets or compatibility setting differs between the two.
         timeout-minutes: 5
@@ -235,8 +236,9 @@ jobs:
     # The dashboard's browser checks: the sign-in on every page and route, the
     # archive content policy, the archive preview, the infra view and the
     # inbox, driven in Chromium against the dashboard Worker under a local
-    # `wrangler dev` (wrangler.jsonc) with test credentials, a stand-in
-    # logger and per-spec stubs (no live service, no Cloudflare account).
+    # `cf dev` (cloudflare.config.ts) with test credentials, a stand-in
+    # logger (also cf dev) and per-spec stubs (no live service, no
+    # Cloudflare account).
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -272,7 +274,8 @@ jobs:
         run: pnpm --filter warg-dashboard test:e2e
 
       # The two checks below start the real logger (and, for the settle run, the
-      # workflow worker in mock mode) under wrangler dev over a fresh local D1.
+      # workflow worker in mock mode) under wrangler dev over a fresh local D1
+      # (cf dev has no --persist-to), and the dashboard under cf dev.
       # Their ports overlap, so they run one after the other, after the default
       # checks have stopped their servers.
       - name: Stats panel against the local logger
