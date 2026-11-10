@@ -22,6 +22,19 @@ check reads. The drift check test copies this tree and breaks one file per case.
 | `published_time` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | fixture: the app does not read the published time |
 | `site_name` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | fixture: the app does not read the site name |
 
+## Archive kinds
+
+| Archive key | Artifact kind | GCS path | Text | Persist order | App |
+| ----------- | ------------- | -------- | ---- | ------------- | --- |
+| `readability` | `readability.md` | `readability/output.md.gz` | yes | 1 (text) | yes |
+| `ai_markdown` | `ai-markdown.md` | `ai-markdown/output.md.gz` | yes | 1 (text) | yes |
+| `rendered` | `rendered.html` | `rendered/output.html.gz` | no | 2 (page) | yes |
+| `markdown` | `rendered.md` | `rendered/output.md.gz` | yes | 2 (page) | yes |
+| `screenshot` | `screenshot.png` | `screenshot/output.png` | no | 2 (page) | no: fixture, the app does not store it |
+| `pdf` | `page.pdf` | `pdf/output.pdf` | no | 2 (page) | no: fixture, the app does not store it |
+| `singlefile` | `singlefile.html` | `singlefile/output.html.gz` | no | 3 | yes |
+| `monolith` | `monolith.html` | `monolith/output.html.gz` | no | 4 | yes |
+
 ## User article fields read by the server
 
 The app writes these names on the user article through `UserArticleWire.kt`.

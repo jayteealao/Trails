@@ -11,3 +11,15 @@ export interface FinalizeRequest {
     lead_image: string | null;
   };
 }
+
+// Fixture: the archive key of each stored artifact kind.
+export const KIND_TO_ARCHIVE_KEY = {
+  'singlefile.html': 'singlefile',
+  'monolith.html': 'monolith',
+  'readability.md': 'readability',
+  'ai-markdown.md': 'ai_markdown',
+  'rendered.md': 'markdown',
+  'page.pdf': 'pdf',
+  'screenshot.png': 'screenshot',
+  'rendered.html': 'rendered',
+};
