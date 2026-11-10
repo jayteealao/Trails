@@ -30,7 +30,8 @@
         <!-- Debug only: makes a better text source arrive while the Reader is open.
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_ARRIVE
-             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_EMPTY --es itemId text-first-a1 -->
+             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_EMPTY
+             with the string extra itemId, for example text-first-a1 (an XML comment cannot hold a double hyphen). -->
         <receiver
             android:name="com.jayteealao.trails.debug.ReaderFixtureReceiver"
             android:exported="true">
