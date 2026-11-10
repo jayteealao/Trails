@@ -12,6 +12,7 @@ import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.ArchiveType
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.archive.LocalArchiveDao
+import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -125,8 +126,19 @@ class ArticleDetailViewModel @Inject constructor(
 
     // Actions
     fun getArticle(itemId: String) {
-        // Skip if already loaded and observer is still running
+        // The same article opens again: read the stored text once more, so a better source
+        // that arrived while it was open shows now. Keep a running observer.
         if (currentArticleId == itemId && _article.value?.itemId == itemId) {
+            viewModelScope.launch(ioDispatcher) {
+                try {
+                    publishArticle(itemId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e, "getArticle($itemId) — reopen read failed")
+                    _event.emit(ArticleDetailEvent.ShowError(e))
+                }
+            }
             // Re-attach observer only if the previous one completed or was cancelled
             if (archiveObserverJob?.isActive != true) {
                 loadArchives(itemId)
@@ -148,17 +160,10 @@ class ArticleDetailViewModel @Inject constructor(
 
         viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
-            Timber.d("getArticle($itemId) — fetching from Room")
             try {
-                var articleFetched = articleRepository.getArticleById(itemId)
-                Timber.d("getArticle($itemId) — found=${articleFetched != null}, hasText=${articleFetched?.text?.take(30)}, textSource=${articleFetched?.textSource}")
-                if (useFreediumFlow.value && articleFetched != null) {
-                    articleFetched = articleFetched.copy(
-                        url = urlModifier.modifyUrl(articleFetched.url ?: articleFetched.givenUrl!!)
-                    )
-                }
-                _article.value = articleFetched
-                _textSource.value = articleFetched?.textSource ?: ""
+                // Rank the local text archives first, so the one read below gets the best text.
+                offerBestText(itemId, localArchiveDao.getArchivesForArticle(itemId))
+                publishArticle(itemId)
 
                 // Start archive observation
                 loadArchives(itemId)
@@ -204,7 +209,6 @@ class ArticleDetailViewModel @Inject constructor(
             if (existingArchives.isNotEmpty()) {
                 Timber.d("loadArchives($itemId) — ${existingArchives.size} local archives, showing immediately")
                 _localArchives.value = existingArchives
-                autoPopulateText(itemId, existingArchives)
             }
 
             // Always observe for new/updated archives (syncArchives deduplicates)
@@ -213,9 +217,11 @@ class ArticleDetailViewModel @Inject constructor(
                     Timber.d("loadArchives($itemId) — local emit: ${archives.size} archives [${archives.map { it.archiveKey }}]")
                     _localArchives.value = archives
 
-                    val article = _article.value
-                    if (article != null && article.text.isNullOrBlank()) {
-                        autoPopulateText(itemId, archives)
+                    // A better source changes the stored text; the text on screen stays
+                    // until the next open, unless there was none.
+                    offerBestText(itemId, archives)
+                    if (_article.value?.text.isNullOrBlank()) {
+                        publishArticle(itemId)
                     }
                 }
             }
@@ -249,37 +255,33 @@ class ArticleDetailViewModel @Inject constructor(
         }
     }
 
-    private suspend fun autoPopulateText(itemId: String, archives: List<LocalArchive>) {
-        // Prefer readability over markdown
-        val textArchive = archives.firstOrNull { it.archiveKey == ArchiveType.READABILITY.archiveKey }
-            ?: archives.firstOrNull { it.archiveKey == ArchiveType.MARKDOWN.archiveKey }
-        if (textArchive == null) {
-            Timber.d("autoPopulateText($itemId) — no text archive available in [${archives.map { it.archiveKey }}]")
-            return
+    /** Reads the article from Room and puts it, with its text, on screen. */
+    private suspend fun publishArticle(itemId: String) {
+        var article = articleRepository.getArticleById(itemId)
+        Timber.d("publishArticle($itemId) — found=${article != null}, textSource=${article?.textSource}")
+        if (useFreediumFlow.value && article != null) {
+            article = article.copy(url = urlModifier.modifyUrl(article.url ?: article.givenUrl!!))
         }
+        _article.value = article
+        _textSource.value = article?.textSource ?: ""
+    }
 
-        val type = ArchiveType.fromArchiveKey(textArchive.archiveKey) ?: return
-        Timber.d("autoPopulateText($itemId) — reading ${type.archiveKey} from local file")
-        val text = archiveService.readArchiveText(itemId, type)
-        if (text == null) {
-            Timber.w("autoPopulateText($itemId) — readArchiveText returned null for ${type.archiveKey}")
-            return
-        }
-
-        Timber.d("autoPopulateText($itemId) — got ${text.length} chars from ${type.archiveKey}, saving to Room")
-        articleRepository.updateArticleText(itemId, text, type.archiveKey)
-        _textSource.value = type.archiveKey
-
-        // Refresh article from DB
-        val updated = articleRepository.getArticleById(itemId)
-        if (updated != null) {
-            _article.value = if (useFreediumFlow.value) {
-                updated.copy(url = urlModifier.modifyUrl(updated.url ?: updated.givenUrl!!))
-            } else {
-                updated
+    /**
+     * Offers the best-ranked readable text archive of [archives] as the stored text, per
+     * [TextSourceRank]. Returns whether the stored text changed.
+     */
+    private suspend fun offerBestText(itemId: String, archives: List<LocalArchive>): Boolean {
+        val keys = archives.map { it.archiveKey }
+        for (key in TextSourceRank.ORDER.filter { it in keys }) {
+            val type = ArchiveType.fromArchiveKey(key) ?: continue
+            val text = archiveService.readArchiveText(itemId, type)
+            if (text == null) {
+                Timber.w("offerBestText($itemId) — readArchiveText returned null for $key")
+                continue
             }
-            Timber.d("autoPopulateText($itemId) — article refreshed, text length=${updated.text?.length}")
+            return articleRepository.offerArticleText(itemId, text, key)
         }
+        return false
     }
 
     private fun loadArchiveContent(type: ArchiveType) {
@@ -290,18 +292,11 @@ class ArticleDetailViewModel @Inject constructor(
             Timber.d("loadArchiveContent($itemId, ${type.archiveKey}) — got ${content?.length ?: 0} chars")
             _selectedArchiveContent.value = content
 
-            // If this is a text-providing archive, also update article.text
-            if (type.providesText && content != null && type.archiveKey != _textSource.value) {
-                Timber.d("loadArchiveContent($itemId) — switching text source to ${type.archiveKey}")
-                articleRepository.updateArticleText(itemId, content, type.archiveKey)
-                _textSource.value = type.archiveKey
-                val updated = articleRepository.getArticleById(itemId)
-                if (updated != null) {
-                    _article.value = if (useFreediumFlow.value) {
-                        updated.copy(url = urlModifier.modifyUrl(updated.url ?: updated.givenUrl!!))
-                    } else {
-                        updated
-                    }
+            // A picked text tab goes through the same rank; the Reader text stays unless it was empty.
+            if (type.providesText && content != null) {
+                articleRepository.offerArticleText(itemId, content, type.archiveKey)
+                if (_article.value?.text.isNullOrBlank()) {
+                    publishArticle(itemId)
                 }
             }
         }

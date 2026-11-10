@@ -269,11 +269,6 @@ class ArticleDetailViewModelTest {
         downloadedAt = 0L,
     )
 
-    /** No text is ever written past the rank. */
-    private fun verifyNoUnrankedWrite() {
-        coVerify(exactly = 0) { articleRepository.updateArticleText(any(), any(), any()) }
-    }
-
     @Test
     fun open_offersReadabilityBeforeTheOneRead() = runTest(scheduler) {
         storeArticle("a4", null, "")
@@ -297,7 +292,6 @@ class ArticleDetailViewModelTest {
         coVerify(exactly = 0) { archiveService.readArchiveText("a4", ArchiveType.MARKDOWN) }
         assertEquals("readability content", viewModel.state.value.article?.text)
         assertEquals("readability", viewModel.state.value.textSource)
-        verifyNoUnrankedWrite()
         collectJob.cancel()
     }
 
@@ -316,7 +310,6 @@ class ArticleDetailViewModelTest {
 
         coVerify(atLeast = 1) { articleRepository.offerArticleText("a5", "markdown content", "markdown") }
         assertEquals("markdown content", viewModel.state.value.article?.text)
-        verifyNoUnrankedWrite()
         collectJob.cancel()
     }
 
@@ -350,7 +343,6 @@ class ArticleDetailViewModelTest {
         assertEquals("markdown text", viewModel.state.value.article?.text)
         assertEquals("markdown", viewModel.state.value.textSource)
         assertEquals("readability", stored?.textSource)
-        verifyNoUnrankedWrite()
     }
 
     @Test
@@ -362,7 +354,6 @@ class ArticleDetailViewModelTest {
 
         assertEquals("readability text", viewModel.state.value.article?.text)
         assertEquals("readability", viewModel.state.value.textSource)
-        verifyNoUnrankedWrite()
     }
 
     @Test
@@ -383,7 +374,6 @@ class ArticleDetailViewModelTest {
 
         assertEquals("markdown text", viewModel.state.value.article?.text)
         assertEquals("markdown", viewModel.state.value.textSource)
-        verifyNoUnrankedWrite()
         collectJob.cancel()
     }
 
@@ -409,7 +399,6 @@ class ArticleDetailViewModelTest {
         assertEquals("markdown content", viewModel.state.value.selectedArchiveContent)
         assertEquals("readability text", viewModel.state.value.article?.text)
         assertEquals("readability", stored?.textSource)
-        verifyNoUnrankedWrite()
         collectJob.cancel()
     }
 

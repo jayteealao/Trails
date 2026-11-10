@@ -91,8 +91,6 @@ interface ArticleRepository: Syncable {
 
     fun restoreFromFirestore()
 
-    suspend fun updateArticleText(itemId: String, text: String, source: String)
-
     /**
      * Stores [text] from the archive [source] as the article text only when it ranks above
      * the stored text, per [TextSourceRank.shouldReplace]. Returns whether it stored it.
@@ -302,10 +300,6 @@ class ArticleRepositoryImpl @Inject constructor(
                 FirestoreRestoreWorker.startUpRestoreWork()
             )
             .enqueue()
-    }
-
-    override suspend fun updateArticleText(itemId: String, text: String, source: String) {
-        articleDao.updateTextWithSource(itemId, text, source)
     }
 
     /** Serialises the read and the write of [offerArticleText], so two offers cannot interleave. */
