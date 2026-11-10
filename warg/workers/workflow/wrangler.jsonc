@@ -42,6 +42,9 @@
     { "binding": "GCS", "service": "gcs" }
   ],
 
+  // Workers AI: converts the cleaned Readability HTML to the AI Markdown artifact
+  "ai": { "binding": "AI" },
+
   // R2 bucket for artifacts
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
