@@ -23,6 +23,10 @@ const BACKFILL_KEYS = 'warg/cloud-functions/backfill-scripts/src/keys.ts';
 const TRIGGER_LINK = 'warg/cloud-functions/user-triggers/src/link.ts';
 const ARCHIVE_SERVICE = 'android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt';
 const USER_ARTICLE_WIRE = 'android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt';
+const APP_ARCHIVE_TYPES = 'android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveType.kt';
+const WRITER_FIELDS = 'warg/packages/article-writer/src/fields.ts';
+const DASHBOARD_TYPES = 'warg/cloud-functions/dashboard-api/src/types.ts';
+const SHARED_TYPES = 'warg/packages/shared/src/types.ts';
 
 type Replacement = readonly [relativePath: string, from: string, to: string];
 
@@ -229,4 +233,54 @@ test('(s) a user-article reader file that does not name its field fails', () => 
 test('(t) a user-article reader file that names its field passes', () => {
   const run = runOnFixture([[FIXTURE_DOC, '| `title` | fixture |', '| `title` | `archive-gateway/src/types.ts` (`FinalizeRequest`) |']]);
   assert.equal(run.status, 0, run.stderr);
+});
+
+test('(u) an archive key the app archive types do not name fails and names the file and the key', () => {
+  const run = runOnFixture([[APP_ARCHIVE_TYPES, '"ai_markdown"', '"ai-markdown"']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(APP_ARCHIVE_TYPES), run.stderr);
+  assert.ok(run.stderr.includes('ai_markdown'), run.stderr);
+});
+
+test('(v) an archive kind the archive gateway does not map fails and names the file and the key', () => {
+  const run = runOnFixture([[GATEWAY_TYPES, "  'ai-markdown.md': 'ai_markdown',\n", '']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(GATEWAY_TYPES), run.stderr);
+  assert.ok(run.stderr.includes('ai_markdown'), run.stderr);
+});
+
+test('(w) an archive key missing from the article writer fields fails and names the file', () => {
+  const run = runOnFixture([[WRITER_FIELDS, "  'ai_markdown',\n", '']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(WRITER_FIELDS), run.stderr);
+  assert.ok(run.stderr.includes('ai_markdown'), run.stderr);
+});
+
+test('(x) an archive key missing from the dashboard signed-URL keys fails and names the file', () => {
+  const run = runOnFixture([[DASHBOARD_TYPES, "  'ai_markdown',\n", '']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(DASHBOARD_TYPES), run.stderr);
+  assert.ok(run.stderr.includes('ai_markdown'), run.stderr);
+});
+
+test('(y) an artifact kind missing from the shared types fails and names the file and the kind', () => {
+  const run = runOnFixture([[SHARED_TYPES, "  | 'ai-markdown.md'\n", '']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes(SHARED_TYPES), run.stderr);
+  assert.ok(run.stderr.includes('ai-markdown.md'), run.stderr);
+});
+
+test('(z) an archive gateway pair that is not a row of the contract fails and names it', () => {
+  const run = runOnFixture([
+    [GATEWAY_TYPES, "  'rendered.html': 'rendered',\n", "  'rendered.html': 'rendered',\n  'extra.md': 'extra',\n"],
+  ]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('extra'), run.stderr);
+  assert.ok(run.stderr.includes('Archive kinds'), run.stderr);
+});
+
+test('(aa) without the archive kinds section the check fails and names the section', () => {
+  const run = runOnFixture([[FIXTURE_DOC, '## Archive kinds', '## Archive types']]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('Archive kinds'), run.stderr);
 });
