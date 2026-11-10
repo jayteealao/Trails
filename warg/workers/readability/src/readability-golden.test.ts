@@ -22,7 +22,10 @@ const bucket = {
 };
 // The fake bucket carries only the methods the handler reaches; the rest of
 // the R2 surface is never touched.
-const env = { INTERNAL_API_KEY: 'test-key', ARCHIVE_BUCKET: bucket } as unknown as Env;
+const env = {
+  INTERNAL_API_KEY: 'test-key',
+  ARCHIVE_BUCKET: bucket
+} as unknown as Env;
 const ctx = {} as ExecutionContext;
 
 describe('readability.md golden file', () => {
