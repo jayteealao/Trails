@@ -756,6 +756,33 @@ describe('LoggerDO', () => {
       expect(view?.artifacts[0]?.sha256).toBe('sha-rendered');
     });
 
+    it('materializes an AI Markdown artifact from its artifact.written event', async () => {
+      const requestId = `test-${Date.now()}-5ai`;
+      const stub = getStub('bucket:2026060913');
+
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+
+      await stub.appendEvent(requestId, {
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'artifact.written',
+        level: 'info',
+        message: 'Artifact written: ai-markdown.md',
+        data: {
+          kind: 'ai-markdown.md',
+          r2Key: `archives/${requestId}/derived/ai-markdown.md`,
+          bytes: 512,
+          contentType: 'text/markdown',
+          sha256: 'sha-ai-markdown',
+        },
+      });
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.artifacts).toHaveLength(1);
+      expect(view?.artifacts[0]?.kind).toBe('ai-markdown.md');
+      expect(view?.artifacts[0]?.r2Key).toBe(`archives/${requestId}/derived/ai-markdown.md`);
+    });
+
     it('ignores artifact.written events with incomplete metadata', async () => {
       const requestId = `test-${Date.now()}-5f`;
       const stub = getStub('bucket:2026060913');

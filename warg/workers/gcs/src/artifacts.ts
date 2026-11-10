@@ -11,7 +11,8 @@ export const COMPRESSIBLE_KINDS = new Set<ArtifactKind>([
   'monolith.html',
   'rendered.html',
   'rendered.md',
-  'readability.md'
+  'readability.md',
+  'ai-markdown.md'
 ]);
 
 /**

@@ -143,6 +143,7 @@ function isArtifactKind(value: string): value is ArtifactRecord['kind'] {
     value === 'readability.json' ||
     value === 'readability.md' ||
     value === 'monolith.html' ||
+    value === 'ai-markdown.md' ||
     value === 'manifest.json'
   );
 }
