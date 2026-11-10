@@ -447,7 +447,104 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       });
     }
 
-    // Step 6: Singlefile (run/persist-only/skip)
+    // Steps 6-9 run the text chain (Readability, then AI Markdown) before the
+    // heavy archives (SingleFile, then Monolith), each persisted as soon as it
+    // finishes, so the text reaches storage without waiting for a slow browser
+    // capture. Step names are the engine's cache key: keep every name as it is,
+    // so an instance that started under an earlier order still resumes.
+    const wantReadability = shouldRun('readability');
+    const wantMonolith = shouldRun('monolith');
+    const renderedHtmlKey = renderResult.renderedHtmlKey;
+    const missingPrereqError = 'Missing rendered.html prerequisite';
+
+    if ((wantReadability || wantMonolith) && !renderedHtmlKey) {
+      // Derivatives requested but no rendered HTML available
+      await step.do('log-skip-derivatives', async () => {
+        await logEvent(
+          this.env,
+          request_id,
+          'step.completed',
+          'Skipping derivatives: no rendered.html available',
+          {
+            skipped: true,
+            reason: 'render step not run and no existing artifact found',
+            resumed: resumeEnabled
+          },
+          'warn'
+        );
+      });
+    }
+
+    // Step 6: Readability (run/persist-only/skip)
+    const readabilityMode = resolveStepMode(checkpoint, 'readability', {
+      requested: wantReadability,
+      resumeEnabled,
+      requiredKinds: [...STEP_REQUIRED_ARTIFACTS.readability]
+    });
+
+    if (wantReadability && readabilityMode === 'skip') {
+      markRequestedStepSucceeded('readability');
+    } else if (readabilityMode === 'run' && !renderedHtmlKey) {
+      markCheckpointStepFailed(checkpoint, 'readability', missingPrereqError);
+      await logStepFailed(this.env, request_id, 'readability', missingPrereqError);
+      recordPartialFailure('readability', missingPrereqError);
+      await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+    } else if (readabilityMode === 'run') {
+      try {
+        markCheckpointStepStarted(checkpoint, 'readability', { resumed: resumeEnabled });
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+
+        const readability = await this.runReadabilityOnly(step, request_id, renderedHtmlKey, url);
+        recordArtifacts(
+          checkpoint,
+          'readability',
+          [readability.readabilityJson, readability.readabilityMd].filter(
+            (artifact): artifact is ArtifactMeta => Boolean(artifact)
+          )
+        );
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        markRequestedStepSucceeded('readability');
+        await persistStepArtifacts('readability', 'step_succeeded');
+      } catch (err) {
+        const readabilityError = err instanceof Error ? err : new Error(String(err));
+        markCheckpointStepFailed(checkpoint, 'readability', readabilityError.message);
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        await logStepFailed(this.env, request_id, 'readability', readabilityError);
+        recordPartialFailure('readability', readabilityError.message);
+      }
+    } else if (readabilityMode === 'persist_only' && renderedHtmlKey) {
+      markRequestedStepSucceeded('readability');
+      await persistStepArtifacts('readability', 'resume_persist_only');
+    }
+
+    // Step 7: AI Markdown from the cleaned Readability HTML. Its failure marks
+    // this step only: the request still completes with every other artifact.
+    const aiMarkdownMode = resolveStepMode(checkpoint, 'ai-markdown', {
+      requested: wantReadability && Boolean(getArtifact(checkpoint, 'readability.json')),
+      resumeEnabled,
+      requiredKinds: [...STEP_REQUIRED_ARTIFACTS['ai-markdown']]
+    });
+
+    if (aiMarkdownMode === 'run') {
+      try {
+        markCheckpointStepStarted(checkpoint, 'ai-markdown', { resumed: resumeEnabled });
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+
+        const aiMarkdown = await this.runAiMarkdown(step, request_id, url);
+        recordArtifacts(checkpoint, 'ai-markdown', [aiMarkdown]);
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        await persistStepArtifacts('ai-markdown', 'step_succeeded');
+      } catch (err) {
+        const aiMarkdownError = err instanceof Error ? err : new Error(String(err));
+        markCheckpointStepFailed(checkpoint, 'ai-markdown', aiMarkdownError.message);
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        await logStepFailed(this.env, request_id, 'ai-markdown', aiMarkdownError);
+      }
+    } else if (aiMarkdownMode === 'persist_only') {
+      await persistStepArtifacts('ai-markdown', 'resume_persist_only');
+    }
+
+    // Step 8: Singlefile (run/persist-only/skip)
     const singlefileMode = resolveStepMode(checkpoint, 'singlefile', {
       requested: shouldRun('singlefile'),
       resumeEnabled,
@@ -488,172 +585,53 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       markRequestedStepSucceeded('singlefile');
     }
 
-    // Step 7: Readability + Monolith (resume-aware, partial-success friendly)
-    const wantReadability = shouldRun('readability');
-    const wantMonolith = shouldRun('monolith');
-    const readabilityMode = resolveStepMode(checkpoint, 'readability', {
-      requested: wantReadability,
-      resumeEnabled,
-      requiredKinds: [...STEP_REQUIRED_ARTIFACTS.readability]
-    });
+    // Step 9: Monolith (run/persist-only/skip), behind the rendered HTML size gate
     const monolithMode = resolveStepMode(checkpoint, 'monolith', {
       requested: wantMonolith,
       resumeEnabled,
       requiredKinds: [...STEP_REQUIRED_ARTIFACTS.monolith]
     });
+    const renderedArtifact = getArtifact(checkpoint, 'rendered.html');
+    const sizeGateError = this.monolithSizeGateError(renderedArtifact?.bytes);
 
-    if (wantReadability && readabilityMode === 'skip') {
-      markRequestedStepSucceeded('readability');
-    }
     if (wantMonolith && monolithMode === 'skip') {
       markRequestedStepSucceeded('monolith');
-    }
-
-    if ((wantReadability || wantMonolith) && renderResult.renderedHtmlKey) {
-      if (readabilityMode === 'persist_only') {
-        markRequestedStepSucceeded('readability');
-        await persistStepArtifacts('readability', 'resume_persist_only');
-      }
-
-      if (monolithMode === 'persist_only') {
-        markRequestedStepSucceeded('monolith');
-        await persistStepArtifacts('monolith', 'resume_persist_only');
-      }
-
-      const runTasks: Array<{
-        stepName: CheckpointStep;
-        promise: Promise<ArtifactMeta[]>;
-      }> = [];
-
-      if (readabilityMode === 'run') {
-        markCheckpointStepStarted(checkpoint, 'readability', { resumed: resumeEnabled });
-        runTasks.push({
-          stepName: 'readability',
-          promise: this.runReadabilityOnly(step, request_id, renderResult.renderedHtmlKey, url).then((result) =>
-            [result.readabilityJson, result.readabilityMd].filter(
-              (artifact): artifact is ArtifactMeta => Boolean(artifact)
-            )
-          ),
-        });
-      }
-
-      if (monolithMode === 'run') {
-        const renderedArtifact = getArtifact(checkpoint, 'rendered.html');
-        const sizeGateError = this.monolithSizeGateError(renderedArtifact?.bytes);
-        if (sizeGateError) {
-          markCheckpointStepFailed(checkpoint, 'monolith', sizeGateError.message);
-          await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-          await logStepFailed(this.env, request_id, 'monolith', sizeGateError, {
-            renderedHtmlBytes: renderedArtifact?.bytes,
-            maxAllowedBytes: ArchiveWorkflow.MONOLITH_MAX_RENDERED_HTML_BYTES,
-          });
-          recordPartialFailure('monolith', sizeGateError.message);
-        } else {
-          markCheckpointStepStarted(checkpoint, 'monolith', { resumed: resumeEnabled });
-          runTasks.push({
-            stepName: 'monolith',
-            promise: this.runMonolithOnly(
-              step,
-              request_id,
-              renderResult.renderedHtmlKey,
-              url
-            ).then((result) => (result.monolith ? [result.monolith] : [])),
-          });
-        }
-      }
-
-      if (runTasks.length > 0) {
-        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-        const settled = await Promise.allSettled(runTasks.map((task) => task.promise));
-        const successfulSteps: CheckpointStep[] = [];
-
-        for (const [index, outcome] of settled.entries()) {
-          const task = runTasks[index]!;
-          if (outcome.status === 'fulfilled') {
-            recordArtifacts(checkpoint, task.stepName, outcome.value);
-            await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-            markRequestedStepSucceeded(task.stepName as WorkflowStepType);
-            successfulSteps.push(task.stepName);
-            continue;
-          }
-
-          const reason = outcome.reason instanceof Error
-            ? outcome.reason
-            : new Error(String(outcome.reason));
-          markCheckpointStepFailed(checkpoint, task.stepName, reason.message);
-          await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-          await logStepFailed(this.env, request_id, task.stepName, reason);
-          recordPartialFailure(task.stepName, reason.message);
-        }
-
-        for (const stepName of successfulSteps) {
-          await persistStepArtifacts(stepName, 'step_succeeded');
-        }
-      }
-    } else if ((wantReadability || wantMonolith) && !renderResult.renderedHtmlKey) {
-      // Derivatives requested but no rendered HTML available
-      await step.do('log-skip-derivatives', async () => {
-        await logEvent(
-          this.env,
-          request_id,
-          'step.completed',
-          'Skipping derivatives: no rendered.html available',
-          {
-            skipped: true,
-            reason: 'render step not run and no existing artifact found',
-            resumed: resumeEnabled
-          },
-          'warn'
-        );
+    } else if (monolithMode === 'run' && !renderedHtmlKey) {
+      markCheckpointStepFailed(checkpoint, 'monolith', missingPrereqError);
+      await logStepFailed(this.env, request_id, 'monolith', missingPrereqError);
+      recordPartialFailure('monolith', missingPrereqError);
+      await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+    } else if (monolithMode === 'run' && sizeGateError) {
+      markCheckpointStepFailed(checkpoint, 'monolith', sizeGateError.message);
+      await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+      await logStepFailed(this.env, request_id, 'monolith', sizeGateError, {
+        renderedHtmlBytes: renderedArtifact?.bytes,
+        maxAllowedBytes: ArchiveWorkflow.MONOLITH_MAX_RENDERED_HTML_BYTES,
       });
-
-      const missingPrereqError = 'Missing rendered.html prerequisite';
-      const missingSteps: CheckpointStep[] = [];
-      if (wantReadability && readabilityMode === 'run') {
-        markCheckpointStepFailed(checkpoint, 'readability', missingPrereqError);
-        await logStepFailed(this.env, request_id, 'readability', missingPrereqError);
-        recordPartialFailure('readability', missingPrereqError);
-        missingSteps.push('readability');
-      }
-      if (wantMonolith && monolithMode === 'run') {
-        markCheckpointStepFailed(checkpoint, 'monolith', missingPrereqError);
-        await logStepFailed(this.env, request_id, 'monolith', missingPrereqError);
-        recordPartialFailure('monolith', missingPrereqError);
-        missingSteps.push('monolith');
-      }
-      if (missingSteps.length > 0) {
-        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-      }
-    }
-
-    // Step 7b: AI Markdown from the cleaned Readability HTML. Its failure marks
-    // this step only: the request still completes with every other artifact.
-    const aiMarkdownMode = resolveStepMode(checkpoint, 'ai-markdown', {
-      requested: wantReadability && Boolean(getArtifact(checkpoint, 'readability.json')),
-      resumeEnabled,
-      requiredKinds: [...STEP_REQUIRED_ARTIFACTS['ai-markdown']]
-    });
-
-    if (aiMarkdownMode === 'run') {
+      recordPartialFailure('monolith', sizeGateError.message);
+    } else if (monolithMode === 'run') {
       try {
-        markCheckpointStepStarted(checkpoint, 'ai-markdown', { resumed: resumeEnabled });
+        markCheckpointStepStarted(checkpoint, 'monolith', { resumed: resumeEnabled });
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
 
-        const aiMarkdown = await this.runAiMarkdown(step, request_id, url);
-        recordArtifacts(checkpoint, 'ai-markdown', [aiMarkdown]);
+        const { monolith } = await this.runMonolithOnly(step, request_id, renderedHtmlKey, url);
+        recordArtifacts(checkpoint, 'monolith', monolith ? [monolith] : []);
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-        await persistStepArtifacts('ai-markdown', 'step_succeeded');
+        markRequestedStepSucceeded('monolith');
+        await persistStepArtifacts('monolith', 'step_succeeded');
       } catch (err) {
-        const aiMarkdownError = err instanceof Error ? err : new Error(String(err));
-        markCheckpointStepFailed(checkpoint, 'ai-markdown', aiMarkdownError.message);
+        const monolithError = err instanceof Error ? err : new Error(String(err));
+        markCheckpointStepFailed(checkpoint, 'monolith', monolithError.message);
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-        await logStepFailed(this.env, request_id, 'ai-markdown', aiMarkdownError);
+        await logStepFailed(this.env, request_id, 'monolith', monolithError);
+        recordPartialFailure('monolith', monolithError.message);
       }
-    } else if (aiMarkdownMode === 'persist_only') {
-      await persistStepArtifacts('ai-markdown', 'resume_persist_only');
+    } else if (monolithMode === 'persist_only' && renderedHtmlKey) {
+      markRequestedStepSucceeded('monolith');
+      await persistStepArtifacts('monolith', 'resume_persist_only');
     }
 
-    // Step 8: Persist any leftover unpersisted artifacts, then build final manifest
+    // Step 10: Persist any leftover unpersisted artifacts, then build final manifest
     await persistStepArtifacts('final', 'final_reconcile');
 
     const finalArtifacts = getAllArtifacts(checkpoint);
@@ -666,7 +644,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       getR2Key(request_id, 'manifest.json')
     );
 
-    // Step 9: Update manifest key in logger
+    // Step 11: Update manifest key in logger
     await step.do('update-manifest-key', async () => {
       await updateManifestKey(this.env, request_id, manifestKey);
     });
@@ -747,7 +725,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       };
     }
 
-    // Step 10: Log completion + terminal request.done
+    // Step 12: Log completion + terminal request.done
     await step.do('log-completed', async () => {
       await logEvent(
         this.env,
