@@ -27,6 +27,10 @@ import java.util.zip.GZIPOutputStream
  * [ACTION_SEED] stores the article [ITEM_ID] with renderer Markdown text and its local
  * Markdown archive. [ACTION_ARRIVE] then stores a local Readability archive, as a download
  * would, so the open Reader receives a better-ranked source.
+ *
+ * [ACTION_SEED_EMPTY] stores an article with no text and no local archive under the id in
+ * [EXTRA_ITEM_ID] (it must start with [TEXT_FIRST_PREFIX]), so its archives arrive by download
+ * from the local stub, for the check that a large archive does not hold back the text.
  */
 class ReaderFixtureReceiver : BroadcastReceiver() {
 
@@ -39,16 +43,21 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
-        if (action != ACTION_SEED && action != ACTION_ARRIVE) return
+        if (action != ACTION_SEED && action != ACTION_ARRIVE && action != ACTION_SEED_EMPTY) return
+        val emptyId = intent.getStringExtra(EXTRA_ITEM_ID)
+        if (action == ACTION_SEED_EMPTY && emptyId?.startsWith(TEXT_FIRST_PREFIX) != true) {
+            Timber.w("ReaderFixtureReceiver — $action needs an $EXTRA_ITEM_ID that starts with $TEXT_FIRST_PREFIX, got $emptyId")
+            return
+        }
         val app = context.applicationContext
         val entryPoint = EntryPointAccessors.fromApplication(app, ReaderFixtureEntryPoint::class.java)
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (action == ACTION_SEED) {
-                    seed(app, entryPoint)
-                } else {
-                    storeArchive(app, entryPoint.localArchiveDao(), ArchiveType.READABILITY, READABILITY_SAMPLE)
+                when (action) {
+                    ACTION_SEED -> seed(app, entryPoint)
+                    ACTION_SEED_EMPTY -> seedEmpty(entryPoint.articleDao(), emptyId!!)
+                    else -> storeArchive(app, entryPoint.localArchiveDao(), ArchiveType.READABILITY, READABILITY_SAMPLE)
                 }
                 Timber.d("ReaderFixtureReceiver — $action done")
             } catch (e: Exception) {
@@ -79,6 +88,22 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
         storeArchive(app, entryPoint.localArchiveDao(), ArchiveType.MARKDOWN, MARKDOWN_SAMPLE)
     }
 
+    private suspend fun seedEmpty(articleDao: ArticleDao, itemId: String) {
+        val now = System.currentTimeMillis()
+        val url = "https://example.com/$itemId"
+        articleDao.upsertArticle(
+            Article(
+                itemId = itemId,
+                title = TEXT_FIRST_TITLE,
+                givenTitle = TEXT_FIRST_TITLE,
+                url = url,
+                givenUrl = url,
+                timeAdded = now,
+                timeUpdated = now,
+            )
+        )
+    }
+
     private fun archiveFile(app: Context, type: ArchiveType): File =
         File(app.filesDir, "${LocalFolders.ARCHIVES_DIR}/$ITEM_ID/${type.localFilename}")
 
@@ -103,6 +128,10 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_SEED = "com.jayteealao.trails.debug.READER_SEED"
         const val ACTION_ARRIVE = "com.jayteealao.trails.debug.READER_ARRIVE"
+        const val ACTION_SEED_EMPTY = "com.jayteealao.trails.debug.READER_SEED_EMPTY"
+        const val EXTRA_ITEM_ID = "itemId"
+        const val TEXT_FIRST_PREFIX = "text-first"
+        private const val TEXT_FIRST_TITLE = "A text that arrives first"
         const val ITEM_ID = "reader-fixture"
         private const val TITLE = "Counting the street trees of a small city"
         private const val URL = "https://example.com/street-trees"
