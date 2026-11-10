@@ -1,0 +1,119 @@
+[
+  {
+    "cut": "write-manifest-render-9ad4da3de495886a.json",
+    "baseCommit": "860216a40f567342898ea4278852c1d307b7bc0b",
+    "cache": [
+      [
+        "read-options#1",
+        {
+          "url": "https://example.com/article"
+        }
+      ],
+      [
+        "log-started#1",
+        null
+      ],
+      [
+        "checkpoint-load-init#1",
+        {
+          "version": 1,
+          "requestId": "req-render-persist-0001",
+          "optionsR2Key": "archives/req-render-persist-0001/input/options.json",
+          "createdAt": "2026-11-10T20:59:44.510Z",
+          "updatedAt": "2026-11-10T20:59:44.510Z",
+          "resumeFromCheckpoint": true,
+          "steps": {
+            "render": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "singlefile": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "readability": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "monolith": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "ai-markdown": {
+              "status": "pending",
+              "attempts": 0
+            }
+          },
+          "artifacts": {}
+        }
+      ],
+      [
+        "checkpoint-persisted-snapshot#1",
+        {}
+      ],
+      [
+        "acquire-render-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-bindings_launch-1"
+        }
+      ],
+      [
+        "log-render-start#1",
+        null
+      ],
+      [
+        "render#1",
+        {
+          "result": {
+            "uses_browser_rendering": true,
+            "quota_kind_used": "rest_request",
+            "artifacts": [
+              {
+                "kind": "rendered.html",
+                "r2Key": "archives/req-render-persist-0001/raw/rendered.html",
+                "bytes": 2048,
+                "sha256": "sha-rendered.html",
+                "contentType": "text/html"
+              },
+              {
+                "kind": "rendered.md",
+                "r2Key": "archives/req-render-persist-0001/raw/rendered.md",
+                "bytes": 2048,
+                "sha256": "sha-rendered.md",
+                "contentType": "text/markdown"
+              }
+            ]
+          },
+          "fallbackUsed": false
+        }
+      ],
+      [
+        "log-render-artifacts#1",
+        null
+      ],
+      [
+        "release-render-quota#1",
+        null
+      ]
+    ],
+    "bucket": [
+      [
+        "archives/req-render-persist-0001/input/options.json",
+        "{\"url\":\"https://example.com/article\"}"
+      ],
+      [
+        "archives/req-render-persist-0001/state/checkpoint.json",
+        "{\n  \"version\": 1,\n  \"requestId\": \"req-render-persist-0001\",\n  \"optionsR2Key\": \"archives/req-render-persist-0001/input/options.json\",\n  \"createdAt\": \"2026-11-10T20:59:44.510Z\",\n  \"updatedAt\": \"2026-11-10T20:59:44.510Z\",\n  \"resumeFromCheckpoint\": true,\n  \"steps\": {\n    \"render\": {\n      \"status\": \"succeeded\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:59:44.510Z\",\n      \"completedAt\": \"2026-11-10T20:59:44.510Z\"\n    },\n    \"singlefile\": {\n      \"status\": \"pending\",\n      \"attempts\": 0\n    },\n    \"readability\": {\n      \"status\": \"pending\",\n      \"attempts\": 0\n    },\n    \"monolith\": {\n      \"status\": \"pending\",\n      \"attempts\": 0\n    },\n    \"ai-markdown\": {\n      \"status\": \"pending\",\n      \"attempts\": 0\n    }\n  },\n  \"artifacts\": {\n    \"rendered.html\": {\n      \"kind\": \"rendered.html\",\n      \"r2Key\": \"archives/req-render-persist-0001/raw/rendered.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.html\",\n      \"contentType\": \"text/html\",\n      \"producedBy\": \"render\",\n      \"persisted\": false\n    },\n    \"rendered.md\": {\n      \"kind\": \"rendered.md\",\n      \"r2Key\": \"archives/req-render-persist-0001/raw/rendered.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.md\",\n      \"contentType\": \"text/markdown\",\n      \"producedBy\": \"render\",\n      \"persisted\": false\n    }\n  }\n}"
+      ]
+    ],
+    "gcsKinds": [],
+    "serviceCalls": {
+      "RENDERER": 1,
+      "SINGLEFILE": 0,
+      "READABILITY": 0,
+      "MONOLITH": 0,
+      "AI": 0
+    }
+  }
+]
