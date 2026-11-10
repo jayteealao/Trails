@@ -63,6 +63,7 @@ export type ArtifactKind =
   | 'singlefile.html'
   | 'readability.json'
   | 'readability.md'
+  | 'ai-markdown.md'
   | 'monolith.html'
   | 'manifest.json';
 

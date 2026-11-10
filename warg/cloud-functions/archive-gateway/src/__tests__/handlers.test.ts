@@ -489,6 +489,7 @@ const ALL_KINDS: ArtifactKind[] = [
   'monolith.html',
   'readability.json',
   'readability.md',
+  'ai-markdown.md',
   'page.pdf',
   'screenshot.png',
   'rendered.html',
