@@ -276,7 +276,14 @@ describe('ArchiveWorkflow.run', () => {
       expect(resultOf(second.outcome).manifestKey).toBe(firstResult.manifestKey);
       expect(second.run.names).toEqual(first.run.names);
       expect(second.fake.calls.RENDERER).toHaveLength(0);
-      expect(persistedSteps(second.fake).sort()).toEqual(['ai-markdown', 'monolith', 'readability', 'singlefile']);
+      // Exactly the persists that came after the render persist in the first run run again.
+      const renderPersistEnd = first.run.names.findIndex((name) => name.startsWith('log-persist-complete-render-'));
+      const laterPersists = first.run.names
+        .slice(renderPersistEnd + 1)
+        .filter((name) => name.startsWith('persist-gcs-'))
+        .map((name) => name.slice('persist-gcs-'.length).replace(/-[0-9a-f]{16}_json$/, ''));
+      expect(persistedSteps(second.fake)).not.toContain('render');
+      expect(persistedSteps(second.fake).sort()).toEqual(laterPersists.sort());
     });
 
     it('skips render in a new instance whose stored checkpoint has it persisted', async () => {
