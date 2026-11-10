@@ -47,6 +47,7 @@ export const GCS_ARTIFACT_PATHS: Record<ArtifactKind, { folder: string; filename
   'monolith.html': { folder: 'monolith', filename: 'output.html.gz' },
   'readability.json': { folder: 'readability', filename: 'output.json' },
   'readability.md': { folder: 'readability', filename: 'output.md.gz' },
+  'ai-markdown.md': { folder: 'ai-markdown', filename: 'output.md.gz' },
   'page.pdf': { folder: 'pdf', filename: 'output.pdf' },
   'screenshot.png': { folder: 'screenshot', filename: 'output.png' },
   'rendered.html': { folder: 'rendered', filename: 'output.html.gz' },
