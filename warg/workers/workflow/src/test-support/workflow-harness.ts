@@ -310,22 +310,26 @@ function defaultHandlers(bucket: FakeBucket): Record<ServiceBinding, ServiceHand
       };
       return jsonResponse(response);
     },
-    // Answers from the manifest the workflow wrote, as the GCS worker does.
-    GCS: async (body) => {
-      const stored = await bucket.get(String(body.manifest_key));
-      if (!stored) return new Response('manifest not found', { status: 404 });
-      const manifest = (await stored.json()) as ArchiveManifest;
-      const response: GcsResponse = {
-        success: true,
-        firestore_doc_id: 'doc-1',
-        uploaded: manifest.artifacts.length,
-        artifacts: manifest.artifacts.map((artifact) => ({
-          kind: artifact.kind,
-          gcs_path: `gs://archive/${manifest.requestId}/${artifact.kind}`,
-        })),
-      };
-      return jsonResponse(response);
-    },
+    GCS: gcsAnswer(bucket),
+  };
+}
+
+/** The default GCS answer: answers from the manifest the workflow wrote, as the GCS worker does. */
+export function gcsAnswer(bucket: FakeBucket): ServiceHandler {
+  return async (body) => {
+    const stored = await bucket.get(String(body.manifest_key));
+    if (!stored) return new Response('manifest not found', { status: 404 });
+    const manifest = (await stored.json()) as ArchiveManifest;
+    const response: GcsResponse = {
+      success: true,
+      firestore_doc_id: 'doc-1',
+      uploaded: manifest.artifacts.length,
+      artifacts: manifest.artifacts.map((artifact) => ({
+        kind: artifact.kind,
+        gcs_path: `gs://archive/${manifest.requestId}/${artifact.kind}`,
+      })),
+    };
+    return jsonResponse(response);
   };
 }
 
