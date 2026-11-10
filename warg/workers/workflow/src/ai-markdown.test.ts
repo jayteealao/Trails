@@ -20,6 +20,7 @@ function stubAi(response: ConversionResponse): {
   };
   // sdlc-debt: the binding's overloaded toMarkdown cannot be implemented by one
   // function signature; the stub covers the single-document overload the module calls.
+  // Upgrade path: stub the array overload too if the module ever converts several documents.
   return { ai: { toMarkdown } as unknown as ToMarkdown, calls };
 }
 
