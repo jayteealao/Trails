@@ -8,6 +8,7 @@ import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.ArchiveType
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.archive.LocalArchiveDao
+import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
 import io.mockk.MockKAnnotations
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -234,83 +236,180 @@ class ArticleDetailViewModelTest {
         collectJob.cancel()
     }
 
-    // ----- AC: archive key constants — readability preferred over markdown -----
+    // ----- The stored text is ranked before the one read of an open (D-001, D-002) -----
+
+    /** The article row the fake repository holds; [ArticleRepository.offerArticleText] writes it by the rank. */
+    private var stored: Article? = null
+
+    private fun storeArticle(itemId: String, text: String?, source: String) {
+        stored = Article(
+            itemId = itemId,
+            url = "https://example.com/$itemId",
+            givenUrl = "https://example.com/$itemId",
+            text = text,
+            textSource = source,
+        )
+        coEvery { articleRepository.getArticleById(itemId) } answers { stored }
+        coEvery { articleRepository.offerArticleText(itemId, any(), any()) } answers {
+            val newText = secondArg<String>()
+            val newSource = thirdArg<String>()
+            val current = stored!!
+            val replace = TextSourceRank.shouldReplace(current.text, current.textSource, newSource, newText)
+            if (replace) stored = current.copy(text = newText, textSource = newSource)
+            replace
+        }
+    }
+
+    private fun localArchive(itemId: String, type: ArchiveType) = LocalArchive(
+        itemId = itemId,
+        archiveKey = type.archiveKey,
+        localPath = "/path/${type.localFilename}",
+        compressedSizeBytes = 100L,
+        originalSizeBytes = 500L,
+        downloadedAt = 0L,
+    )
+
+    /** No text is ever written past the rank. */
+    private fun verifyNoUnrankedWrite() {
+        coVerify(exactly = 0) { articleRepository.updateArticleText(any(), any(), any()) }
+    }
 
     @Test
-    fun autoPopulateText_prefersReadabilityOverMarkdown() = runTest(scheduler) {
-        val readabilityArchive = LocalArchive(
-            itemId = "a4",
-            archiveKey = ArchiveType.READABILITY.archiveKey,
-            localPath = "/path/readability.gz",
-            compressedSizeBytes = 100L,
-            originalSizeBytes = 500L,
-            downloadedAt = 0L,
-        )
-        val markdownArchive = LocalArchive(
-            itemId = "a4",
-            archiveKey = ArchiveType.MARKDOWN.archiveKey,
-            localPath = "/path/markdown.gz",
-            compressedSizeBytes = 80L,
-            originalSizeBytes = 400L,
-            downloadedAt = 0L,
-        )
-        // Archives list ordered markdown-first to confirm selection logic (not just list order)
-        val archives = listOf(markdownArchive, readabilityArchive)
-
-        val article = Article(
-            itemId = "a4",
-            url = "https://example.com",
-            givenUrl = "https://example.com",
-            text = null
-        )
-        coEvery { articleRepository.getArticleById("a4") } returns article
+    fun open_offersReadabilityBeforeTheOneRead() = runTest(scheduler) {
+        storeArticle("a4", null, "")
+        // Markdown first in the list, so the rank, not the list order, picks Readability.
+        val archives = listOf(localArchive("a4", ArchiveType.MARKDOWN), localArchive("a4", ArchiveType.READABILITY))
         coEvery { localArchiveDao.getArchivesForArticle("a4") } returns archives
         every { localArchiveDao.observeArchives("a4") } returns flowOf(archives)
         coEvery { archiveService.readArchiveText("a4", ArchiveType.READABILITY) } returns "readability content"
         coEvery { archiveService.readArchiveText("a4", ArchiveType.MARKDOWN) } returns "markdown content"
-        coEvery { articleRepository.updateArticleText(any(), any(), any()) } returns Unit
 
         val viewModel = buildViewModel()
         val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
         viewModel.getArticle("a4")
         advanceUntilIdle()
 
-        // readArchiveText should be called for READABILITY but not MARKDOWN
-        coVerify(atLeast = 1) { archiveService.readArchiveText("a4", ArchiveType.READABILITY) }
+        coVerifyOrder {
+            articleRepository.offerArticleText("a4", "readability content", "readability")
+            articleRepository.getArticleById("a4")
+        }
+        coVerify(exactly = 1) { articleRepository.getArticleById("a4") }
         coVerify(exactly = 0) { archiveService.readArchiveText("a4", ArchiveType.MARKDOWN) }
+        assertEquals("readability content", viewModel.state.value.article?.text)
+        assertEquals("readability", viewModel.state.value.textSource)
+        verifyNoUnrankedWrite()
         collectJob.cancel()
     }
 
     @Test
-    fun autoPopulateText_markdownFallback_whenNoReadability() = runTest(scheduler) {
-        val markdownArchive = LocalArchive(
-            itemId = "a5",
-            archiveKey = ArchiveType.MARKDOWN.archiveKey,
-            localPath = "/path/markdown.gz",
-            compressedSizeBytes = 80L,
-            originalSizeBytes = 400L,
-            downloadedAt = 0L,
-        )
-        val archives = listOf(markdownArchive)
-
-        val article = Article(
-            itemId = "a5",
-            url = "https://example.com",
-            givenUrl = "https://example.com",
-            text = null
-        )
-        coEvery { articleRepository.getArticleById("a5") } returns article
+    fun open_markdownOnly_offersMarkdown() = runTest(scheduler) {
+        storeArticle("a5", null, "")
+        val archives = listOf(localArchive("a5", ArchiveType.MARKDOWN))
         coEvery { localArchiveDao.getArchivesForArticle("a5") } returns archives
         every { localArchiveDao.observeArchives("a5") } returns flowOf(archives)
         coEvery { archiveService.readArchiveText("a5", ArchiveType.MARKDOWN) } returns "markdown content"
-        coEvery { articleRepository.updateArticleText(any(), any(), any()) } returns Unit
 
         val viewModel = buildViewModel()
         val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
         viewModel.getArticle("a5")
         advanceUntilIdle()
 
-        coVerify(atLeast = 1) { archiveService.readArchiveText("a5", ArchiveType.MARKDOWN) }
+        coVerify(atLeast = 1) { articleRepository.offerArticleText("a5", "markdown content", "markdown") }
+        assertEquals("markdown content", viewModel.state.value.article?.text)
+        verifyNoUnrankedWrite()
+        collectJob.cancel()
+    }
+
+    /** Opens a6 with stored Markdown text, then a Readability archive arrives (screen reader-better-arrived). */
+    private fun TestScope.openThenReadabilityArrives(): ArticleDetailViewModel {
+        storeArticle("a6", "markdown text", "markdown")
+        val markdown = localArchive("a6", ArchiveType.MARKDOWN)
+        val readability = localArchive("a6", ArchiveType.READABILITY)
+        val localFlow = MutableSharedFlow<List<LocalArchive>>(replay = 1)
+        coEvery { localArchiveDao.getArchivesForArticle("a6") } returns listOf(markdown)
+        every { localArchiveDao.observeArchives("a6") } returns localFlow
+        coEvery { archiveService.readArchiveText("a6", ArchiveType.MARKDOWN) } returns "markdown text"
+        coEvery { archiveService.readArchiveText("a6", ArchiveType.READABILITY) } returns "readability text"
+
+        val viewModel = buildViewModel()
+        viewModel.state.onEach { }.launchIn(backgroundScope)
+        viewModel.getArticle("a6")
+        advanceUntilIdle()
+
+        coEvery { localArchiveDao.getArchivesForArticle("a6") } returns listOf(markdown, readability)
+        localFlow.tryEmit(listOf(markdown, readability))
+        advanceUntilIdle()
+        return viewModel
+    }
+
+    @Test
+    fun betterSourceArrives_textOnScreenStaysTheSame() = runTest(scheduler) {
+        val viewModel = openThenReadabilityArrives()
+
+        coVerify(exactly = 1) { articleRepository.offerArticleText("a6", "readability text", "readability") }
+        assertEquals("markdown text", viewModel.state.value.article?.text)
+        assertEquals("markdown", viewModel.state.value.textSource)
+        assertEquals("readability", stored?.textSource)
+        verifyNoUnrankedWrite()
+    }
+
+    @Test
+    fun betterSourceArrived_nextOpenShowsTheBetterText() = runTest(scheduler) {
+        val viewModel = openThenReadabilityArrives()
+
+        viewModel.getArticle("a6")
+        advanceUntilIdle()
+
+        assertEquals("readability text", viewModel.state.value.article?.text)
+        assertEquals("readability", viewModel.state.value.textSource)
+        verifyNoUnrankedWrite()
+    }
+
+    @Test
+    fun firstTextArrives_showsWhenNoTextWasOnScreen() = runTest(scheduler) {
+        storeArticle("a7", null, "")
+        val localFlow = MutableSharedFlow<List<LocalArchive>>(replay = 1)
+        every { localArchiveDao.observeArchives("a7") } returns localFlow
+        coEvery { archiveService.readArchiveText("a7", ArchiveType.MARKDOWN) } returns "markdown text"
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        viewModel.getArticle("a7")
+        advanceUntilIdle()
+        assertNull(viewModel.state.value.article?.text)
+
+        localFlow.tryEmit(listOf(localArchive("a7", ArchiveType.MARKDOWN)))
+        advanceUntilIdle()
+
+        assertEquals("markdown text", viewModel.state.value.article?.text)
+        assertEquals("markdown", viewModel.state.value.textSource)
+        verifyNoUnrankedWrite()
+        collectJob.cancel()
+    }
+
+    @Test
+    fun manualPick_offersThroughTheRank_andLeavesTheReaderText() = runTest(scheduler) {
+        storeArticle("a8", "readability text", "readability")
+        val archives = listOf(localArchive("a8", ArchiveType.READABILITY), localArchive("a8", ArchiveType.MARKDOWN))
+        coEvery { localArchiveDao.getArchivesForArticle("a8") } returns archives
+        every { localArchiveDao.observeArchives("a8") } returns flowOf(archives)
+        coEvery { archiveService.readArchiveText("a8", ArchiveType.READABILITY) } returns "readability text"
+        coEvery { archiveService.readArchiveText("a8", ArchiveType.MARKDOWN) } returns "markdown content"
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        viewModel.getArticle("a8")
+        advanceUntilIdle()
+
+        val markdownTab = 2 + viewModel.getAvailableArchiveTypes().indexOf(ArchiveType.MARKDOWN)
+        viewModel.setSelectedTab(markdownTab)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { articleRepository.offerArticleText("a8", "markdown content", "markdown") }
+        assertEquals("markdown content", viewModel.state.value.selectedArchiveContent)
+        assertEquals("readability text", viewModel.state.value.article?.text)
+        assertEquals("readability", stored?.textSource)
+        verifyNoUnrankedWrite()
         collectJob.cancel()
     }
 
