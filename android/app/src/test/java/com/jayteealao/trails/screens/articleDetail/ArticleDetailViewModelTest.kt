@@ -3,6 +3,7 @@ package com.jayteealao.trails.screens.articleDetail
 import com.jayteealao.trails.common.UrlModifier
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
+import com.jayteealao.trails.data.archive.ArchiveDownload
 import com.jayteealao.trails.data.archive.ArchiveService
 import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.ArchiveType
@@ -25,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
@@ -79,6 +81,7 @@ class ArticleDetailViewModelTest {
         coEvery { localArchiveDao.getArchivesForArticle(any()) } returns emptyList()
         every { localArchiveDao.observeArchives(any()) } returns emptyFlow()
         every { archiveService.observeRemoteArchives(any()) } returns emptyFlow()
+        every { archiveService.observeDownloads(any()) } returns flowOf(emptyMap())
         coEvery { archiveService.applyWargMetadata(any()) } just Runs
     }
 
@@ -460,6 +463,68 @@ class ArticleDetailViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { archiveService.applyWargMetadata(any()) }
+        collectJob.cancel()
+    }
+
+    // ----- The syncing flag follows the text downloads, not the heavy ones -----
+
+    @Test
+    fun textDownloadEnds_syncingEndsWhileAHeavyDownloadRuns() = runTest(scheduler) {
+        coEvery { articleRepository.getArticleById("a12") } returns archivedArticle("a12")
+        val downloads = MutableStateFlow(
+            mapOf("readability" to ArchiveDownload.DOWNLOADING, "monolith" to ArchiveDownload.DOWNLOADING),
+        )
+        every { archiveService.observeDownloads("a12") } returns downloads
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        viewModel.getArticle("a12")
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.archiveSyncing)
+
+        downloads.value = mapOf("monolith" to ArchiveDownload.DOWNLOADING)
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.archiveSyncing)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun failedHeavyDownload_isNotSyncing() = runTest(scheduler) {
+        coEvery { articleRepository.getArticleById("a13") } returns archivedArticle("a13")
+        every { archiveService.observeDownloads("a13") } returns
+            MutableStateFlow(mapOf("monolith" to ArchiveDownload.FAILED))
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        viewModel.getArticle("a13")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.archiveSyncing)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun eachRemoteEmit_syncsAndAppliesMetadata_whileAHeavyDownloadRuns() = runTest(scheduler) {
+        coEvery { articleRepository.getArticleById("a14") } returns archivedArticle("a14")
+        every { archiveService.observeRemoteArchives("a14") } returns flowOf(
+            mapOf("monolith" to ArchiveStatus("success", "gs://x/monolith")),
+            mapOf(
+                "monolith" to ArchiveStatus("success", "gs://x/monolith"),
+                "readability" to ArchiveStatus("success", "gs://x/readability"),
+            ),
+        )
+        every { archiveService.observeDownloads("a14") } returns
+            MutableStateFlow(mapOf("monolith" to ArchiveDownload.DOWNLOADING))
+        coEvery { archiveService.syncArchives(any(), any()) } just Runs
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        viewModel.getArticle("a14")
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { archiveService.syncArchives("a14", any()) }
+        coVerify(exactly = 2) { archiveService.applyWargMetadata("a14") }
+        assertFalse(viewModel.state.value.archiveSyncing)
         collectJob.cancel()
     }
 }
