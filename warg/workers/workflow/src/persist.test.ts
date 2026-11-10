@@ -407,6 +407,80 @@ describe('persistArtifactsIncremental — replay-stable names', () => {
   });
 });
 
+describe('persistArtifactsIncremental — a failed heavy persist', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-10T10:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const readabilityJson = artifact('readability.json', 'application/json', 900);
+  const readabilityMd = artifact('readability.md', 'text/markdown', 600);
+  const textArtifacts = [readabilityJson, readabilityMd];
+
+  it('leaves the persisted text artifacts and their times as they were', async () => {
+    const bucket = makeBucket();
+    const { env, gcsFetch } = makeEnv(bucket);
+    const checkpoint = createCheckpoint(REQUEST_ID, getOptionsKey(REQUEST_ID), true);
+    recordArtifacts(checkpoint, 'readability', textArtifacts);
+    recordArtifacts(checkpoint, 'singlefile', [singlefileHtml]);
+
+    await persistArtifactsIncremental(
+      env,
+      makeReplayStep().step,
+      checkpoint,
+      REQUEST_ID,
+      URL,
+      'readability',
+      textArtifacts,
+      'step_succeeded'
+    );
+    const textBefore = {
+      json: structuredClone(checkpoint.artifacts['readability.json']),
+      md: structuredClone(checkpoint.artifacts['readability.md']),
+    };
+    expect(textBefore.json?.persistedAt).toBe('2026-11-10T10:00:00.000Z');
+
+    vi.setSystemTime(new Date(Date.now() + 60_000));
+    gcsFetch.mockResolvedValueOnce(new Response('upstream failure 502', { status: 502 }));
+
+    await expect(
+      persistArtifactsIncremental(
+        env,
+        makeNoCacheStep().step,
+        checkpoint,
+        REQUEST_ID,
+        URL,
+        'singlefile',
+        [singlefileHtml],
+        'step_succeeded'
+      )
+    ).rejects.toThrow();
+
+    for (const [kind, before] of [
+      ['readability.json', textBefore.json],
+      ['readability.md', textBefore.md],
+    ] as const) {
+      expect(checkpoint.artifacts[kind]).toMatchObject({
+        persisted: true,
+        persistedAt: before?.persistedAt,
+        gcsPath: gcsPathOf(kind),
+      });
+    }
+    expect(checkpoint.artifacts['singlefile.html']?.persisted).toBe(false);
+    expect(checkpoint.artifacts['singlefile.html']?.persistedAt).toBeUndefined();
+    expect(getUnpersistedArtifacts(checkpoint).map((a) => a.kind)).toEqual(['singlefile.html']);
+
+    const stored = JSON.parse(bucket.objects.get(getCheckpointKey(REQUEST_ID)) ?? '{}') as WorkflowCheckpoint;
+    expect(stored.artifacts['readability.json']?.persisted).toBe(true);
+    expect(stored.artifacts['readability.md']?.persisted).toBe(true);
+    expect(stored.artifacts['singlefile.html']?.persisted).toBe(false);
+  });
+});
+
 describe('persist after a deploy that renamed the persist steps', () => {
   const OPTIONS_KEY = getOptionsKey(REQUEST_ID);
 
