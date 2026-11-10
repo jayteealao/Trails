@@ -284,3 +284,13 @@ test('(aa) without the archive kinds section the check fails and names the secti
   assert.equal(run.status, 1, run.stderr);
   assert.ok(run.stderr.includes('Archive kinds'), run.stderr);
 });
+
+test('(ab) an archive kind row whose App column is neither yes nor a reasoned no fails and names the row', () => {
+  // The pdf row is the one right above singlefile; its App reason is dropped.
+  const run = runOnFixture([
+    [FIXTURE_DOC, '| no: fixture, the app does not store it |\n| `singlefile`', '| no |\n| `singlefile`'],
+  ]);
+  assert.equal(run.status, 1, run.stderr);
+  assert.ok(run.stderr.includes('`pdf`'), run.stderr);
+  assert.ok(run.stderr.includes('Archive kinds'), run.stderr);
+});

@@ -181,21 +181,22 @@ the row then).
 
 The archive key each stored artifact kind gets under `archives` of the shared
 article, where the archive is stored (`gs://<bucket>/archives/<id>/<path>`),
-whether it is a text source the app can read as the article text, and the order
-a run stores it in. The drift check fails when a key or a kind of this table is
-not a string literal in each list below, and when the archive gateway maps a
-kind that is not a row here.
+whether it is a text source the app can read as the article text, the order a
+run stores it in, and whether the app names the key (`yes`, or `no:` with the
+reason). The drift check fails when a key or a kind of this table is not a
+string literal in each list below (the app's list only for an App `yes` row),
+and when the archive gateway maps a kind that is not a row here.
 
-| Archive key | Artifact kind | GCS path | Text | Persist order |
-| ----------- | ------------- | -------- | ---- | ------------- |
-| `readability` | `readability.md` | `readability/output.md.gz` | yes | 1 (text) |
-| `ai_markdown` | `ai-markdown.md` | `ai-markdown/output.md.gz` | yes | 1 (text) |
-| `rendered` | `rendered.html` | `rendered/output.html.gz` | no | 2 (page) |
-| `markdown` | `rendered.md` | `rendered/output.md.gz` | yes | 2 (page) |
-| `screenshot` | `screenshot.png` | `screenshot/output.png` | no | 2 (page) |
-| `pdf` | `page.pdf` | `pdf/output.pdf` | no | 2 (page) |
-| `singlefile` | `singlefile.html` | `singlefile/output.html.gz` | no | 3 |
-| `monolith` | `monolith.html` | `monolith/output.html.gz` | no | 4 |
+| Archive key | Artifact kind | GCS path | Text | Persist order | App |
+| ----------- | ------------- | -------- | ---- | ------------- | --- |
+| `readability` | `readability.md` | `readability/output.md.gz` | yes | 1 (text) | yes |
+| `ai_markdown` | `ai-markdown.md` | `ai-markdown/output.md.gz` | yes | 1 (text) | yes |
+| `rendered` | `rendered.html` | `rendered/output.html.gz` | no | 2 (page) | yes |
+| `markdown` | `rendered.md` | `rendered/output.md.gz` | yes | 2 (page) | yes |
+| `screenshot` | `screenshot.png` | `screenshot/output.png` | no | 2 (page) | no: the app does not store it; it is only the image fallback |
+| `pdf` | `page.pdf` | `pdf/output.pdf` | no | 2 (page) | no: the app does not store it |
+| `singlefile` | `singlefile.html` | `singlefile/output.html.gz` | no | 3 | yes |
+| `monolith` | `monolith.html` | `monolith/output.html.gz` | no | 4 | yes |
 
 `readability.json` has no archive entry: it feeds `metadata`. `manifest.json`
 is not stored in GCS.
@@ -218,7 +219,9 @@ then `ai_markdown`, then `markdown`. The order is proved by
    in `warg/packages/article-writer/src/fields.ts` (with its eight
    `archives.<key>` rows in "Articles document fields" above),
    `ALL_ARCHIVE_KEYS` in `warg/cloud-functions/dashboard-api/src/types.ts`, and
-   `ArchiveType.kt` in `android/app/src/main/java/com/jayteealao/trails/data/archive/`.
+   `ArchiveType.kt` in `android/app/src/main/java/com/jayteealao/trails/data/archive/`
+   (an enum entry, or a key constant while the app has no tab for it), unless
+   the row's App column is `no:`.
 4. Change both stacks in one commit, and run
    `node --experimental-strip-types shared-types/check-drift.ts`.
 5. Deploy the archive gateway before the workers that store the new kind.

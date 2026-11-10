@@ -1,7 +1,7 @@
 /**
  * Cross-stack schema drift check.
  *
- * Verifies four contracts:
+ * Verifies five contracts:
  *  1. The canonical metadata field names of `shared-types/WargMetadata.md`
  *     ("## Firestore field names (snake_case)") appear, as property keys
  *     (`name:` or `name?:`), in each metadata producer, checked and named on
@@ -32,6 +32,15 @@
  *     `canonicalId` and no `articleMarkers` token, and each file of its
  *     "Read by" column exists and names its field as a whole token. An absent
  *     or empty section fails the check.
+ *  5. The archive kinds — every row of "## Archive kinds" in
+ *     `shared-types/WargMetadata.md`: its archive key is a whole string
+ *     literal in the archive gateway kind map, the article writer archive keys,
+ *     the dashboard signed-URL keys and, when its App column is `yes`, the app
+ *     archive types (ArchiveType.kt); its artifact kind is a whole string
+ *     literal in the shared artifact kinds and the archive gateway kind map.
+ *     Every `'kind': 'key'` pair of the gateway's `KIND_TO_ARCHIVE_KEY` must be
+ *     a row. An absent or empty section fails the check. The persist order the
+ *     section states is proved by the workflow tests, not here.
  *
  * Every match is of a whole name: a field never counts as present inside a
  * longer word (`title` in `subtitle`). It is still a text check, not a parser:
@@ -111,6 +120,22 @@ const TRAILS_ARTICLE_MODEL =
 const TRAILS_USER_ARTICLE_WIRE =
   'android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt';
 
+// Archive kinds: the lists that name each archive key or artifact kind.
+const ARCHIVE_GATEWAY_TYPES = 'warg/cloud-functions/archive-gateway/src/types.ts';
+const ARCHIVE_KEY_LISTS: readonly { path: string; role: string; appOnly: boolean }[] = [
+  { path: ARCHIVE_GATEWAY_TYPES, role: 'archive gateway kind map', appOnly: false },
+  { path: 'warg/packages/article-writer/src/fields.ts', role: 'article writer archive keys', appOnly: false },
+  { path: 'warg/cloud-functions/dashboard-api/src/types.ts', role: 'dashboard signed-URL keys', appOnly: false },
+  {
+    path: 'android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveType.kt',
+    role: 'app archive types',
+    appOnly: true,
+  },
+];
+const ARTIFACT_KIND_LISTS: readonly { path: string; role: string }[] = [
+  { path: 'warg/packages/shared/src/types.ts', role: 'shared artifact kinds' },
+  { path: ARCHIVE_GATEWAY_TYPES, role: 'archive gateway kind map' },
+];
 
 function readFile(relativePath: string): string {
   try {
@@ -146,6 +171,7 @@ function hasStringLiteral(src: string, name: string): boolean {
 const METADATA_FIELDS_HEADING = 'Firestore field names (snake_case)';
 const ACCEPTED_DIFFERENCES_HEADING = 'Accepted differences';
 const USER_ARTICLE_FIELDS_HEADING = 'User article fields read by the server';
+const ARCHIVE_KINDS_HEADING = 'Archive kinds';
 
 function extractCanonicalFields(md: string): string[] {
   // Pull names from the first table column of the metadata section only: lines
@@ -234,6 +260,38 @@ function extractUserArticleReaders(md: string): { field: string; paths: string[]
     rows.push({ field: match[1], paths });
   }
   return rows;
+}
+
+interface ArchiveKind {
+  key: string;
+  kind: string;
+  // The App column: `yes` when the app names the key, or `no: <reason>`.
+  app: string;
+}
+
+// Rows of "## Archive kinds": | `key` | `kind` | path | text | order | app |.
+// An absent or empty section is drift: the archive lists would go unchecked.
+function extractArchiveKinds(md: string): ArchiveKind[] {
+  const rows: ArchiveKind[] = [];
+  for (const line of sectionLines(md, ARCHIVE_KINDS_HEADING)) {
+    const match = line.match(/^\|\s*`([a-z_][a-z0-9_]*)`\s*\|\s*`([^`]+)`\s*\|(.*)\|\s*$/);
+    if (!match) continue;
+    const cells = match[3].split('|');
+    rows.push({ key: match[1], kind: match[2], app: (cells[3] ?? '').trim() });
+  }
+  if (rows.length === 0) {
+    console.error(`[drift] no archive kinds parsed from ${CANONICAL_DOC} "## ${ARCHIVE_KINDS_HEADING}" — section missing or table format changed?`);
+    process.exit(1);
+  }
+  return rows;
+}
+
+// The `'kind': 'key'` pairs of the `KIND_TO_ARCHIVE_KEY = { ... }` literal, or
+// undefined when the file has no such literal.
+function extractKindToArchiveKey(src: string): { kind: string; key: string }[] | undefined {
+  const literal = src.match(/KIND_TO_ARCHIVE_KEY\b[^=]*=\s*\{([^}]*)\}/);
+  if (!literal) return undefined;
+  return [...literal[1].matchAll(/['"]([^'"]+)['"]\s*:\s*['"]([^'"]+)['"]/g)].map((m) => ({ kind: m[1], key: m[2] }));
 }
 
 function readerPath(listed: string): string {
@@ -365,6 +423,54 @@ function checkUserArticleWire(doc: string): boolean {
   return drift;
 }
 
+// Returns true if a list of archive keys or artifact kinds disagrees with
+// "## Archive kinds".
+function checkArchiveKinds(doc: string): boolean {
+  const rows = extractArchiveKinds(doc);
+  console.log(`[drift] archive keys: ${rows.map((row) => row.key).join(', ')}`);
+  const section = `${CANONICAL_DOC} "## ${ARCHIVE_KINDS_HEADING}"`;
+  let drift = false;
+
+  for (const row of rows) {
+    if (row.app !== 'yes' && !/^no:\s*\S/.test(row.app)) {
+      console.error(`[drift] ${section} row \`${row.key}\` has App "${row.app}"; write yes, or no: <reason>.`);
+      drift = true;
+    }
+  }
+
+  for (const { path, role, appOnly } of ARCHIVE_KEY_LISTS) {
+    const keys = rows.filter((row) => !appOnly || row.app === 'yes').map((row) => row.key);
+    const missing = findMissing(readFile(path), keys, hasStringLiteral);
+    if (missing.length > 0) {
+      console.error(`[drift] ${path} (${role}) is missing archive key(s): ${missing.join(', ')}`);
+      drift = true;
+    }
+  }
+  for (const { path, role } of ARTIFACT_KIND_LISTS) {
+    const missing = findMissing(readFile(path), rows.map((row) => row.kind), hasStringLiteral);
+    if (missing.length > 0) {
+      console.error(`[drift] ${path} (${role}) is missing artifact kind(s): ${missing.join(', ')}`);
+      drift = true;
+    }
+  }
+
+  // The gateway map writes Firestore: each of its pairs must be a row.
+  const pairs = extractKindToArchiveKey(readFile(ARCHIVE_GATEWAY_TYPES));
+  if (pairs === undefined) {
+    console.error(`[drift] ${ARCHIVE_GATEWAY_TYPES} has no KIND_TO_ARCHIVE_KEY = { ... } literal to check.`);
+    return true;
+  }
+  for (const pair of pairs) {
+    if (!rows.some((row) => row.kind === pair.kind && row.key === pair.key)) {
+      console.error(
+        `[drift] ${ARCHIVE_GATEWAY_TYPES} maps '${pair.kind}' to archive key '${pair.key}', which is not a row of ${section}.`,
+      );
+      drift = true;
+    }
+  }
+  return drift;
+}
+
 // Returns true if a metadata file lacks a canonical field that no accepted
 // difference covers, or if an accepted difference is malformed or stale.
 function checkMetadataContract(canonical: readonly string[], doc: string): boolean {
@@ -438,12 +544,17 @@ function main(): void {
     drift = true;
   }
 
+  // The archive kinds: every list of archive keys and artifact kinds.
+  if (checkArchiveKinds(doc)) {
+    drift = true;
+  }
+
   if (drift) {
     console.error('[drift] FAIL — update shared-types/*.md or the affected source.');
     process.exit(1);
   }
 
-  console.log('[drift] OK — metadata, marker, server-owned link and user-article contracts intact.');
+  console.log('[drift] OK — metadata, marker, server-owned link, user-article and archive-kind contracts intact.');
 }
 
 main();
