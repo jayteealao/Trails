@@ -106,6 +106,13 @@ describe('ArchiveWorkflow.run', () => {
     expect(run.names.indexOf('render')).toBeLessThan(run.names.indexOf('monolith-attempt-1'));
     // AI Markdown reads the stored Readability JSON, so it comes after readability.
     expect(run.names.indexOf('readability')).toBeLessThan(run.names.indexOf('ai-markdown'));
+    // The text archives are persisted before SingleFile and Monolith start.
+    for (const textStep of ['readability', 'ai-markdown']) {
+      const persistIndex = run.names.findIndex((name) => name.startsWith(`persist-gcs-${textStep}-`));
+      expect(persistIndex, textStep).toBeGreaterThanOrEqual(0);
+      expect(persistIndex, textStep).toBeLessThan(run.names.indexOf('singlefile'));
+      expect(persistIndex, textStep).toBeLessThan(run.names.indexOf('monolith-attempt-1'));
+    }
 
     expect(run.names.filter((name) => name.startsWith('persist-gcs-'))).toHaveLength(5);
     expect(persistedSteps(fake).sort()).toEqual(['ai-markdown', 'monolith', 'readability', 'render', 'singlefile']);
