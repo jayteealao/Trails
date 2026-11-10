@@ -11,6 +11,7 @@ import type {
   ArtifactKind,
   ArtifactMeta,
   EventType,
+  ReadabilityResult,
 } from '@warg/shared';
 import { getOptionsKey, getR2Key } from '@warg/shared';
 import { ArchiveWorkflow } from '../index.js';
@@ -91,11 +92,11 @@ export function makeFakeStep(seed: Map<string, unknown> = new Map()): FakeStep {
   return { step: fake as unknown as WorkflowStep, names, attempts, sleeps, cache };
 }
 
-/** An R2 bucket fake: string bodies in a map. */
+/** An R2 bucket fake: bodies in a map, binary bodies decoded as UTF-8 text. */
 export interface FakeBucket {
   objects: Map<string, string>;
   get(key: string): Promise<{ json(): Promise<unknown>; text(): Promise<string> } | null>;
-  put(key: string, body: string): Promise<null>;
+  put(key: string, body: string | ArrayBuffer | ArrayBufferView): Promise<null>;
   head(key: string): Promise<{ size: number; httpEtag: string; httpMetadata: { contentType?: string } } | null>;
 }
 
@@ -112,7 +113,7 @@ export function makeFakeBucket(): FakeBucket {
       };
     },
     async put(key, body) {
-      objects.set(key, body);
+      objects.set(key, typeof body === 'string' ? body : new TextDecoder().decode(body));
       return null;
     },
     async head(key) {
@@ -148,8 +149,32 @@ const CONTENT_TYPES: Record<ArtifactKind, string> = {
   'readability.json': 'application/json',
   'readability.md': 'text/markdown',
   'monolith.html': 'text/html',
+  'ai-markdown.md': 'text/markdown',
   'manifest.json': 'application/json',
 };
+
+/** The cleaned HTML the default readability fake stores: one relative link, one relative image. */
+export const FIXTURE_READABILITY_HTML =
+  '<h1>Fixture title</h1><p>Read <a href="../next">the next post</a>.</p><img src="img/a.png" alt="A figure">';
+
+/** The readability.md body the default readability fake stores. */
+export const FIXTURE_READABILITY_MD = '# Fixture title\n\nRead the next post.\n';
+
+function fixtureReadabilityResult(): ReadabilityResult {
+  return {
+    title: 'Fixture title',
+    byline: null,
+    dir: null,
+    lang: 'en',
+    content: FIXTURE_READABILITY_HTML,
+    textContent: 'Fixture title Read the next post.',
+    length: 33,
+    excerpt: null,
+    siteName: null,
+    publishedTime: null,
+    leadImage: null,
+  };
+}
 
 /** A deterministic artifact: no clock or random input, so persist step names repeat. */
 export function fakeArtifact(requestId: string, kind: ArtifactKind): ArtifactMeta {
@@ -197,8 +222,11 @@ function defaultHandlers(bucket: FakeBucket): Record<ServiceBinding, ServiceHand
     HYPERRENDERER: render,
     SINGLEFILE: derivative('singlefile.html'),
     MONOLITH: derivative('monolith.html'),
-    READABILITY: (body) => {
+    // Stores the JSON and Markdown bodies, as the readability worker does.
+    READABILITY: async (body) => {
       const requestId = String(body.request_id);
+      await bucket.put(getR2Key(requestId, 'readability.json'), JSON.stringify(fixtureReadabilityResult()));
+      await bucket.put(getR2Key(requestId, 'readability.md'), FIXTURE_READABILITY_MD);
       const response: ReadabilityResponse = {
         json: fakeArtifact(requestId, 'readability.json'),
         md: fakeArtifact(requestId, 'readability.md'),
@@ -241,6 +269,46 @@ export interface FakeLogger {
 /** Answers one settle call; it may also throw, as a timed-out fetch does. */
 export type SettleHandler = (body: Record<string, unknown>) => Response | Promise<Response>;
 
+/** Answers one Workers AI conversion; it may throw, as a failed binding call does. */
+export type AiHandler = (html: string) => ConversionResponse | Promise<ConversionResponse>;
+
+/** One recorded Workers AI conversion call. */
+export interface AiCall {
+  name: string;
+  html: string;
+  type: string;
+  options?: ConversionRequestOptions;
+}
+
+/**
+ * The default conversion: a heading, then one Markdown link or image per
+ * `href`/`src` the HTML holds, so a test can read the URLs the binding received.
+ */
+export function echoLinksAsMarkdown(html: string): ConversionResponse {
+  const lines = ['# Fixture title', ''];
+  for (const [, name, value] of html.matchAll(/\s(href|src)="([^"]*)"/g)) {
+    lines.push(name === 'src' ? `![image](${value})` : `[link](${value})`);
+  }
+  return {
+    id: 'conversion-1',
+    name: 'article.html',
+    mimeType: 'text/html',
+    format: 'markdown',
+    tokens: lines.length,
+    data: `${lines.join('\n')}\n`,
+  };
+}
+
+function makeAiFake(handler: AiHandler, calls: AiCall[]) {
+  return {
+    async toMarkdown(document: MarkdownDocument, options?: ConversionRequestOptions): Promise<ConversionResponse> {
+      const html = await document.blob.text();
+      calls.push({ name: document.name, html, type: document.blob.type, options });
+      return await handler(html);
+    },
+  };
+}
+
 export interface FakeQuota {
   acquired: string[];
   released: string[];
@@ -255,6 +323,8 @@ export interface FakeEnvOptions {
   settle?: SettleHandler;
   /** Runs the mock pipeline (MOCK_PIPELINE 'true'). */
   mockPipeline?: boolean;
+  /** Replaces the default Workers AI conversion (echoLinksAsMarkdown). */
+  ai?: AiHandler;
 }
 
 export interface FakeEnv {
@@ -263,6 +333,8 @@ export interface FakeEnv {
   calls: Record<ServiceBinding, Array<Record<string, unknown>>>;
   logger: FakeLogger;
   quota: FakeQuota;
+  /** Every Workers AI toMarkdown call, in order. */
+  aiCalls: AiCall[];
 }
 
 interface FakeFetcher {
@@ -357,6 +429,7 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
   };
   const logger: FakeLogger = { events: [], patches: [], settles: [] };
   const quota: FakeQuota = { acquired: [], released: [] };
+  const aiCalls: AiCall[] = [];
 
   const services = Object.fromEntries(
     SERVICE_BINDINGS.map((binding) => [binding, makeServiceFetcher(handlers[binding], calls[binding])])
@@ -366,12 +439,13 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
     ARCHIVE_BUCKET: bucket,
     LOGGER: makeLoggerFetcher(logger, options.settle),
     BROWSER_QUOTA: makeQuotaNamespace(quota),
+    AI: makeAiFake(options.ai ?? echoLinksAsMarkdown, aiCalls),
     MOCK_PIPELINE: options.mockPipeline ? 'true' : 'false',
     INTERNAL_API_KEY: 'test-key',
   };
   // The fakes implement only the binding methods the workflow calls; the Env
-  // types (R2Bucket, Fetcher, DurableObjectNamespace) are far wider.
-  return { env: fake as unknown as Env, bucket, calls, logger, quota };
+  // types (R2Bucket, Fetcher, DurableObjectNamespace, Ai) are far wider.
+  return { env: fake as unknown as Env, bucket, calls, logger, quota, aiCalls };
 }
 
 /** A fixed start time, so nothing in an event depends on the clock. */

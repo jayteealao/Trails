@@ -27,6 +27,7 @@ const REQUEST_ID = 'req-exec-0001';
 const URL = 'https://example.com/article';
 
 const ALL_KINDS = [
+  'ai-markdown.md',
   'monolith.html',
   'page.pdf',
   'readability.json',
@@ -101,8 +102,8 @@ describe('ArchiveWorkflow.run', () => {
     expect(run.names.indexOf('render')).toBeLessThan(run.names.indexOf('readability'));
     expect(run.names.indexOf('render')).toBeLessThan(run.names.indexOf('monolith-attempt-1'));
 
-    expect(run.names.filter((name) => name.startsWith('persist-gcs-'))).toHaveLength(4);
-    expect(persistedSteps(fake).sort()).toEqual(['monolith', 'readability', 'render', 'singlefile']);
+    expect(run.names.filter((name) => name.startsWith('persist-gcs-'))).toHaveLength(5);
+    expect(persistedSteps(fake).sort()).toEqual(['ai-markdown', 'monolith', 'readability', 'render', 'singlefile']);
 
     const manifest = storedManifest(fake.bucket, result.manifestKey);
     expect(manifest.artifacts.map((artifact) => artifact.kind).sort()).toEqual(ALL_KINDS);
@@ -263,7 +264,7 @@ describe('ArchiveWorkflow.run', () => {
       expect(resultOf(second.outcome).manifestKey).toBe(firstResult.manifestKey);
       expect(second.run.names).toEqual(first.run.names);
       expect(second.fake.calls.RENDERER).toHaveLength(0);
-      expect(persistedSteps(second.fake).sort()).toEqual(['monolith', 'readability', 'singlefile']);
+      expect(persistedSteps(second.fake).sort()).toEqual(['ai-markdown', 'monolith', 'readability', 'singlefile']);
     });
 
     it('skips render in a new instance whose stored checkpoint has it persisted', async () => {
@@ -286,7 +287,7 @@ describe('ArchiveWorkflow.run', () => {
       expect(fake.calls.RENDERER).toHaveLength(0);
       expect(run.names).not.toContain('render');
       expect(run.names.filter((name) => name.startsWith('write-manifest-render-'))).toHaveLength(0);
-      expect(persistedSteps(fake).sort()).toEqual(['monolith', 'readability', 'singlefile']);
+      expect(persistedSteps(fake).sort()).toEqual(['ai-markdown', 'monolith', 'readability', 'singlefile']);
       expect(fake.calls.SINGLEFILE).toHaveLength(1);
       expect(fake.calls.READABILITY).toHaveLength(1);
       expect(fake.calls.MONOLITH).toHaveLength(1);
