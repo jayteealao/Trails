@@ -22,6 +22,7 @@ const ARTIFACT_KINDS = [
   'readability.json',
   'readability.md',
   'monolith.html',
+  'ai-markdown.md',
   'manifest.json'
 ];
 
@@ -174,6 +175,9 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: './wrangler.jsonc' },
+        // The Workers AI binding is remote-only; the suite stays offline. READABILITY
+        // is a failing stub here, so the AI Markdown step never runs.
+        remoteBindings: false,
         miniflare: {
           bindings: { INTERNAL_API_KEY, TEST_MIGRATIONS: migrations },
           d1Databases: { INDEX_DB: 'idx' },
