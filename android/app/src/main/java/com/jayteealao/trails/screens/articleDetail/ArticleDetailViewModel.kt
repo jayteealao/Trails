@@ -7,6 +7,7 @@ import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
+import com.jayteealao.trails.data.archive.ArchiveDownload
 import com.jayteealao.trails.data.archive.ArchiveService
 import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.ArchiveType
@@ -211,7 +212,16 @@ class ArticleDetailViewModel @Inject constructor(
                 _localArchives.value = existingArchives
             }
 
-            // Always observe for new/updated archives (syncArchives deduplicates)
+            // Syncing while a text archive downloads; a large archive never holds the Reader.
+            launch {
+                archiveService.observeDownloads(itemId).collect { states ->
+                    _archiveSyncing.value = states.any { (key, state) ->
+                        state == ArchiveDownload.DOWNLOADING && ArchiveType.fromArchiveKey(key)?.providesText == true
+                    }
+                }
+            }
+
+            // Always observe for new/updated archives (syncArchives skips an archive on disk or downloading)
             launch {
                 localArchiveDao.observeArchives(itemId).collect { archives ->
                     Timber.d("loadArchives($itemId) — local emit: ${archives.size} archives [${archives.map { it.archiveKey }}]")
@@ -233,14 +243,13 @@ class ArticleDetailViewModel @Inject constructor(
                     _remoteArchives.value = remoteMap
 
                     if (remoteMap.isNotEmpty()) {
-                        _archiveSyncing.value = true
                         try {
                             archiveService.syncArchives(itemId, remoteMap)
-                            Timber.d("loadArchives($itemId) — syncArchives completed")
+                            Timber.d("loadArchives($itemId) — downloads started")
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             Timber.e(e, "Failed to sync archives for $itemId")
-                        } finally {
-                            _archiveSyncing.value = false
                         }
                         try {
                             archiveService.applyWargMetadata(itemId)
