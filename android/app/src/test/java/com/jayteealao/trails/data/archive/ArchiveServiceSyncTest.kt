@@ -23,6 +23,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -51,7 +52,19 @@ class ArchiveServiceSyncTest {
 
     private fun file(key: String) = File(tmp.root, "${LocalFolders.ARCHIVES_DIR}/item1/$key.gz")
 
-    private fun TestScope.service(appScope: CoroutineScope = backgroundScope): ArchiveService {
+    /** Stand-in application scopes; cancelled after each test, so a download that never ends stops. */
+    private val appScopes = mutableListOf<CoroutineScope>()
+
+    @After
+    fun tearDown() {
+        appScopes.forEach { it.cancel() }
+    }
+
+    // Not runTest's backgroundScope: advanceUntilIdle() does not run background work.
+    private fun TestScope.appScope() =
+        CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler)).also { appScopes += it }
+
+    private fun TestScope.service(appScope: CoroutineScope = appScope()): ArchiveService {
         val application = mockk<Application>(relaxed = true)
         every { application.filesDir } returns tmp.root
         return spyk(
@@ -187,7 +200,7 @@ class ArchiveServiceSyncTest {
 
     @Test
     fun `stopping the app during a download marks nothing failed`() = runTest {
-        val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val appScope = appScope()
         val service = service(appScope)
         service.neverEnds("monolith")
 

@@ -11,6 +11,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.jayteealao.trails.BuildConfig
+import com.jayteealao.trails.common.di.ApplicationScope
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.local.LocalFolders
@@ -20,17 +21,20 @@ import com.jayteealao.trails.di.DEFAULT_DASHBOARD_API_URL
 import com.jayteealao.trails.network.ArchiveUrlService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -45,6 +49,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 data class ArchiveStatus(val status: String, val gcsPath: String?)
+
+/** State of an archive download on this device; a stored archive has none. */
+enum class ArchiveDownload { DOWNLOADING, FAILED }
 
 data class WargMetadata(
     val title: String?,
@@ -85,12 +92,19 @@ class ArchiveService @Inject constructor(
     private val articleDao: ArticleDao,
     private val application: Application,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
+    @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private val archivesDir: File
         get() = File(application.filesDir, LocalFolders.ARCHIVES_DIR)
 
-    /** Limit concurrent archive downloads to cap peak memory from parallel decompress. */
-    private val downloadSemaphore = Semaphore(3)
+    /** Permits of the text archives, apart from the heavy ones: a text download never waits for a heavy one. */
+    private val textPermits = Semaphore(2)
+
+    /** Permits of the heavy archives; the cap bounds peak memory from parallel decompress. */
+    private val heavyPermits = Semaphore(3)
+
+    /** Per article, the archives whose download is running or failed, by archive key. */
+    private val downloads = MutableStateFlow<Map<String, Map<String, ArchiveDownload>>>(emptyMap())
 
     // ── Shared-article id resolver ──────────────────────────────────────
     //
@@ -271,10 +285,16 @@ class ArchiveService @Inject constructor(
 
     // ── d) Download all available archives for an article ───────────────
 
+    /**
+     * Start a download for each archive of [itemId] that is ready on the server and
+     * not on disk. Each archive downloads and is stored on its own, text archives
+     * first; the call does not wait for any download, so a large archive never holds
+     * back the text. Watch the running and failed downloads with [observeDownloads].
+     */
     suspend fun syncArchives(
         itemId: String,
         remoteArchives: Map<String, ArchiveStatus>,
-    ) = supervisorScope {
+    ) {
         Timber.d("syncArchives($itemId) — evaluating ${remoteArchives.size} remote archives")
         remoteArchives.mapNotNull { (key, status) ->
             val type = ArchiveType.fromArchiveKey(key)
@@ -298,19 +318,54 @@ class ArchiveService @Inject constructor(
                 Timber.d("syncArchives($itemId) — ${type.archiveKey} in Room but file missing, re-downloading")
             }
 
-            Timber.d("syncArchives($itemId) — queuing download for ${type.archiveKey}")
-            async {
-                downloadSemaphore.withPermit {
-                    try {
-                        downloadAndStoreArchive(itemId, type)
-                    } catch (e: Exception) {
-                        Timber.e(e, "Failed to download ${type.archiveKey} for $itemId")
-                    }
-                }
-            }
-        }.forEach { it.await() }
-        Timber.d("syncArchives($itemId) — all downloads complete")
+            type
+        }.sortedByDescending { it.providesText }.forEach { type -> startDownload(itemId, type) }
     }
+
+    /**
+     * Mark [type] of [itemId] as downloading and launch its download, unless it is
+     * already downloading (so two syncs never fetch one archive twice). The job stores
+     * the archive and clears its mark, marks it failed when the download gives nothing
+     * or throws, and clears the mark when the app scope is cancelled.
+     */
+    private fun startDownload(itemId: String, type: ArchiveType) {
+        val key = type.archiveKey
+        var start = false
+        downloads.update { all ->
+            val current = all[itemId].orEmpty()
+            start = current[key] != ArchiveDownload.DOWNLOADING
+            if (start) all + (itemId to current + (key to ArchiveDownload.DOWNLOADING)) else all
+        }
+        if (!start) {
+            Timber.d("syncArchives($itemId) — skip $key (already downloading)")
+            return
+        }
+        Timber.d("syncArchives($itemId) — starting download for $key")
+        val permits = if (type.providesText) textPermits else heavyPermits
+        appScope.launch {
+            val stored = try {
+                permits.withPermit { downloadAndStoreArchive(itemId, type) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to download $key for $itemId")
+                null
+            }
+            setDownload(itemId, key, if (stored == null) ArchiveDownload.FAILED else null)
+        }.invokeOnCompletion { cause -> if (cause != null) setDownload(itemId, key, null) }
+    }
+
+    private fun setDownload(itemId: String, key: String, state: ArchiveDownload?) {
+        downloads.update { all ->
+            val current = all[itemId].orEmpty()
+            val next = if (state == null) current - key else current + (key to state)
+            if (next.isEmpty()) all - itemId else all + (itemId to next)
+        }
+    }
+
+    /** Downloads of [itemId] that are running or failed, by archive key. A stored archive is absent. */
+    fun observeDownloads(itemId: String): Flow<Map<String, ArchiveDownload>> =
+        downloads.map { it[itemId].orEmpty() }.distinctUntilChanged()
 
     // ── One-shot shared article read ────────────────────────────────────
 
