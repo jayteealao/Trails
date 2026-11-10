@@ -41,13 +41,15 @@ function runCheck(args: readonly string[]): Run {
 
 // Copies the complete fixture, applies every replacement (each `from` must be
 // present, and every occurrence is replaced), and runs the check on the copy.
+// A file to change is read with LF line endings, so the multi-line replacements
+// (written with LF here) also match on a CRLF checkout (core.autocrlf=true).
 function runOnFixture(replacements: readonly Replacement[]): Run {
   const dir = mkdtempSync(join(tmpdir(), 'drift-'));
   try {
     cpSync(COMPLETE, dir, { recursive: true });
     for (const [relativePath, from, to] of replacements) {
       const file = join(dir, relativePath);
-      const src = readFileSync(file, 'utf8');
+      const src = readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
       assert.ok(src.includes(from), `fixture ${relativePath} does not contain ${JSON.stringify(from)}`);
       writeFileSync(file, src.split(from).join(to));
     }
