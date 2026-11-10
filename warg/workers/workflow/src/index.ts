@@ -394,6 +394,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       artifacts: renderArtifactsFromCheckpoint,
       renderedHtmlKey: getArtifact(checkpoint, 'rendered.html')?.r2Key ?? ''
     };
+    // Set when the render archives are to be persisted; they are, after the text chain.
+    let renderPersistReason: 'step_succeeded' | 'resume_persist_only' | undefined;
 
     if (renderMode === 'run') {
       try {
@@ -416,10 +418,10 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         recordPartialFailure('render', renderError.message);
       }
 
-      await persistStepArtifacts('render', 'step_succeeded');
+      renderPersistReason = 'step_succeeded';
     } else if (renderMode === 'persist_only') {
       markRequestedStepSucceeded('render');
-      await persistStepArtifacts('render', 'resume_persist_only');
+      renderPersistReason = 'resume_persist_only';
       renderResult = {
         artifacts: this.toArtifactMeta(getStepArtifacts(checkpoint, 'render')),
         renderedHtmlKey: getArtifact(checkpoint, 'rendered.html')?.r2Key ?? '',
@@ -448,10 +450,12 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     }
 
     // Steps 6-9 run the text chain (Readability, then AI Markdown) before the
-    // heavy archives (SingleFile, then Monolith), each persisted as soon as it
-    // finishes, so the text reaches storage without waiting for a slow browser
-    // capture. Step names are the engine's cache key: keep every name as it is,
-    // so an instance that started under an earlier order still resumes.
+    // heavy archives (SingleFile, then Monolith). The text archives are each
+    // persisted as soon as they finish, then the render archives, then each
+    // heavy archive, so the text reaches storage before every other archive and
+    // without waiting for a slow browser capture. Step names are the engine's
+    // cache key: keep every name as it is, so an instance that started under an
+    // earlier order still resumes.
     const wantReadability = shouldRun('readability');
     const wantMonolith = shouldRun('monolith');
     const renderedHtmlKey = renderResult.renderedHtmlKey;
@@ -543,6 +547,10 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     } else if (aiMarkdownMode === 'persist_only') {
       await persistStepArtifacts('ai-markdown', 'resume_persist_only');
     }
+
+    // The render archives are persisted after the text, so the text reaches
+    // storage, and the article's archive list, before them.
+    if (renderPersistReason) await persistStepArtifacts('render', renderPersistReason);
 
     // Step 8: Singlefile (run/persist-only/skip)
     const singlefileMode = resolveStepMode(checkpoint, 'singlefile', {
