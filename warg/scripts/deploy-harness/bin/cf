@@ -9,7 +9,9 @@
 #   H_FOREIGN_ID=<w>               the new deployment holds an id this run did not make
 #   H_NO_PRINT=<w>                 `deploy` prints no version id
 #   H_DEPLOY_RC=<w>:<n>            `deploy` exits n
-#   H_PAGES_HASH=<hash>            commit_hash of the newest Pages deployment
+# `deploy` names the worker after its folder; pages/dashboard is the
+# dashboard Worker, warg-dashboard. deploy.sh never reads a Pages project, so
+# a `pages` command is unhandled.
 set -euo pipefail
 state="${HARNESS_STATE:?HARNESS_STATE is not set}"
 echo "cf $*" >>"$state/calls.log"
@@ -70,13 +72,9 @@ case "${1:-} ${2:-} ${3:-}" in
       echo "{\"id\":\"$id\",\"annotations\":{\"workers/triggered_by\":\"version_upload\"}}"
     fi
     ;;
-  "pages deployments list")
-    hash="${H_PAGES_HASH:-}"
-    [ -n "$hash" ] || hash="$(cat "$state/pages-hash" 2>/dev/null || echo 0000000000000000000000000000000000000000)"
-    echo "[{\"id\":\"$(uuid "pages-$hash")\",\"environment\":\"production\",\"deployment_trigger\":{\"type\":\"ad_hoc\",\"metadata\":{\"branch\":\"main\",\"commit_hash\":\"$hash\",\"commit_message\":\"$hash\",\"commit_dirty\":false}}}]"
-    ;;
   deploy*)
     w="$(basename "$PWD")"
+    [ "$w" != dashboard ] || w=warg-dashboard
     echo "cf-deploy-worker $w" >>"$state/calls.log"
     for item in ${H_DEPLOY_RC:-}; do
       if [ "${item%%:*}" = "$w" ]; then

@@ -16,7 +16,7 @@ export default defineConfig({
           HEALTH_ALERT_FROM: 'alerts@example.com',
           HEALTH_ALERT_TO: 'owner@example.com'
         },
-        serviceBindings: { LOGGER: unavailable, WORKFLOW: unavailable, MONOLITH: unavailable }
+        serviceBindings: { LOGGER: unavailable, WORKFLOW: unavailable }
       }
     })
   ],

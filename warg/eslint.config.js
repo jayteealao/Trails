@@ -12,7 +12,9 @@ export default tseslint.config(
       '**/.cloudflare/**',
       '**/dist-deploy/**',
       '**/.ai/**',
-      '**/worker-configuration.d.ts'
+      '**/worker-configuration.d.ts',
+      '**/test-results/**',
+      '**/playwright-report/**'
     ]
   },
   eslint.configs.recommended,

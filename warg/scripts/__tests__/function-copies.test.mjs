@@ -1,9 +1,12 @@
 // Each Cloud Function bundles alone, so a few helpers are copied between them:
-// the shared-article id shapes, the canonical link resolution, the key compare
-// and the key-rotation switch. These tests fail when one copy changes and the
-// others do not, so a rule change reaches every function together.
+// the key compare and the key-rotation switch. These tests fail when one copy
+// changes and the others do not, so a rule change reaches every function
+// together. The link reader and the pocket projection are not copied: they live
+// once in @warg/article-writer, and these tests fail when a function defines
+// its own. The id rules live once in @warg/shared; the link reader keeps its own
+// reader shape, which must stay equal to the shared reader rule.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -59,40 +62,81 @@ function assertSameBodies(pairs) {
   }
 }
 
-test('the readers share one shared-id shape and the creators share another', () => {
-  const reader = ['dashboard-api/src/util.ts', 'backfill-archiver/src/canonical.ts'].map((rel) =>
-    regexLiteral(source(rel), 'SHARED_ID_SHAPE', rel),
-  );
-  assert.equal(reader[0], reader[1]);
-
-  const creator = [
-    ['user-triggers/src/link.ts', 'SHARED_ID_PATTERN'],
-    ['dashboard-api/src/signed-url-core.ts', 'SAFE_ID_RE'],
-    ['dashboard-api/src/bootstrap-article.ts', 'SAFE_ID_RE'],
-    ['dashboard-api/src/enqueue-article.ts', 'SAFE_ID_RE'],
-    ['dashboard-api/src/mark-processing.ts', 'SAFE_ID_RE'],
-  ].map(([rel, name]) => regexLiteral(source(rel), name, rel));
-  for (const literal of creator) assert.equal(literal, creator[0]);
+test('the reader shared-id shape accepts every id the creator rule allows, and equals the shared reader rule', () => {
+  const resolveRel = '../packages/article-writer/src/resolve.ts';
+  const sharedRel = '../packages/shared/src/archive-ids.ts';
+  const reader = regexLiteral(source(resolveRel), 'SHARED_ID_SHAPE', resolveRel);
+  const creator = regexLiteral(source(sharedRel), 'SAFE_ID_RE', sharedRel);
+  assert.equal(reader, regexLiteral(source(sharedRel), 'LEGACY_SAFE_ID_RE', sharedRel));
 
   // A reader must accept every id a creator makes: same characters, and a
   // lower minimum length (legacy ids are shorter than new ones).
-  const readerRe = new RegExp(reader[0].slice(1, -1));
+  const creatorRe = new RegExp(creator.slice(1, -1));
+  const readerRe = new RegExp(reader.slice(1, -1));
   for (const id of ['abcdefgh', 'aZ09_-bc', 'a'.repeat(40)]) {
-    assert.ok(new RegExp(creator[0].slice(1, -1)).test(id), id);
+    assert.ok(creatorRe.test(id), id);
     assert.ok(readerRe.test(id), id);
   }
+  assert.equal(creatorRe.test('a'.repeat(7)), false);
+  assert.equal(readerRe.test('a'.repeat(7)), true);
   assert.equal(readerRe.test('a'.repeat(41)), false);
   assert.equal(readerRe.test('abc/defg'), false);
 });
 
-test('the canonical link resolution is the same in the dashboard and the backfill', () => {
-  assertSameBodies([
-    ['dashboard-api/src/util.ts', 'resolveCanonicalItemId'],
-    ['backfill-archiver/src/canonical.ts', 'resolveCanonicalFromUserDoc'],
-  ]);
-  for (const rel of ['dashboard-api/src/util.ts', 'backfill-archiver/src/canonical.ts', 'user-triggers/src/link.ts']) {
-    assert.match(source(rel), /'mergedInto'/, `${rel} no longer reads mergedInto`);
+// The link reader and the pocket projection are defined once, in
+// @warg/article-writer; a cloud function that adds its own copy fails the test.
+const COPY_DECLARATION =
+  /\bconst SHARED_ID_SHAPE\b|\bfunction (?:resolveCanonical(?!Candidates)\w*|readCanonicalId|mergedTarget\w*|followMergedIntoOnce|readSharedArticle\w*|buildPocket|pocketFromSave|asPocketTime|projectPocket)\s*[(<]/;
+const SURVIVORS = ['resolveCanonicalItemId', 'readCanonicalId', 'mergedTargetOf', 'readSharedArticle', 'readSharedArticles', 'projectPocket'];
+
+/** Every non-test TypeScript source of the cloud functions, as `<function>/src/<path>`. */
+function functionSources() {
+  const out = [];
+  for (const fn of readdirSync(functionsDir)) {
+    const src = resolve(functionsDir, fn, 'src');
+    if (!existsSync(src)) continue;
+    for (const rel of readdirSync(src, { recursive: true })) {
+      const path = `${fn}/src/${String(rel).replaceAll('\\', '/')}`;
+      if (!path.endsWith('.ts') || path.endsWith('.test.ts') || path.includes('/__tests__/')) continue;
+      out.push(path);
+    }
   }
+  return out.sort();
+}
+
+/** The names a file imports from `from`, by its import declarations. */
+function importedNames(text, from) {
+  const names = new Set();
+  for (const match of text.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    if (!from(match[2])) continue;
+    for (const part of match[1].split(',')) {
+      const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0];
+      if (name) names.add(name);
+    }
+  }
+  return names;
+}
+
+test('no cloud function defines its own link reader or pocket projection', () => {
+  const copies = functionSources().filter((rel) => COPY_DECLARATION.test(readFileSync(resolve(functionsDir, rel), 'utf8')));
+  assert.deepEqual(copies, []);
+});
+
+test('every caller of the link reader or the pocket projection imports it from the article module', () => {
+  for (const rel of functionSources()) {
+    const text = readFileSync(resolve(functionsDir, rel), 'utf8');
+    const fromModule = importedNames(text, (spec) => spec === '@warg/article-writer');
+    for (const name of SURVIVORS) {
+      if (!new RegExp(`\\b${name}\\s*\\(`).test(text)) continue;
+      assert.ok(fromModule.has(name),`${rel} calls ${name} without importing it from @warg/article-writer`);
+    }
+  }
+});
+
+test('the article module exports the link reader and the pocket projection', () => {
+  const index = readFileSync(resolve(functionsDir, '../packages/article-writer/src/index.ts'), 'utf8');
+  assert.match(index, /export \* from '\.\/resolve\.js';/);
+  assert.match(index, /export \* from '\.\/pocket\.js';/);
 });
 
 test('the key compare and the rotation helpers are the same in every function', () => {

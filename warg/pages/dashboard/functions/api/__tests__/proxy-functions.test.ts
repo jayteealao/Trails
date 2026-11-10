@@ -143,7 +143,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init?: any) => {
@@ -186,7 +185,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, _init?: any) => {
@@ -232,7 +230,8 @@ describe('begin proxy', () => {
     const [gatewayUrl, gatewayInit] = mockCall(mockGateway.fetch);
     expect(gatewayUrl).toBe('https://gateway/begin');
     expect(gatewayInit.method).toBe('POST');
-    expect((gatewayInit.headers as Record<string, string>)['X-API-Key']).toBe('pub-key');
+    expect((gatewayInit.headers as Record<string, string>)['X-Internal-API-Key']).toBe('internal-key');
+    expect((gatewayInit.headers as Record<string, string>)['X-API-Key']).toBeUndefined();
     expect(JSON.parse(String(gatewayInit.body))).toEqual({
       url: 'https://example.com',
       request_id: 'abc12345',
@@ -246,7 +245,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
@@ -305,7 +303,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
@@ -363,7 +360,6 @@ describe('begin proxy', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'pub-key',
     } as any;
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
@@ -516,6 +512,9 @@ describe('inbox proxy', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
       const url = String(input);
       const parsed = new URL(url);
+      if (parsed.pathname.endsWith('/stats/completed-today')) {
+        return jsonResponse({ completedToday: 1, since: '2026-11-08T00:00:00.000Z' });
+      }
       const filter = parsed.searchParams.get('filter');
       if (filter === 'failed') return jsonResponse({ articles: [{ item_id: 'a1' }] });
       if (filter === 'incomplete') return jsonResponse({ articles: [{ item_id: 'a2' }] });
@@ -542,6 +541,87 @@ describe('inbox proxy', () => {
     expect(data.inProgress.processingArticles).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalled();
   });
+
+  // Three articles completed moments ago: a rolling 24 h count over them
+  // would give 3, so a different answer proves the count is passed through.
+  const SINCE = '2026-11-08T00:00:00.000Z';
+
+  function setupInbox(completedToday: () => Response) {
+    const env = {
+      LOGGER: createMockFetcher(async () => jsonResponse({ requests: [] })),
+      DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+      DASHBOARD_API_KEY: 'dash-key',
+      INTERNAL_API_KEY: 'internal-key',
+    };
+    const now = new Date().toISOString();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      const parsed = new URL(String(input));
+      if (parsed.pathname.endsWith('/stats/completed-today')) return completedToday();
+      if (parsed.searchParams.get('filter') === 'complete') {
+        return jsonResponse({
+          articles: [
+            { item_id: 'c1', created_at: now },
+            { item_id: 'c2', created_at: now },
+            { item_id: 'c3', created_at: now },
+          ],
+        });
+      }
+      return jsonResponse({ articles: [] });
+    });
+    return { env, fetchMock };
+  }
+
+  async function runInbox(env: ReturnType<typeof setupInbox>['env']) {
+    const { onRequestGet } = await import('../inbox.js');
+    const request = createRequest('https://dashboard.example.com/api/inbox');
+    // sdlc-debt: a partial Pages context, cast like the other cases of this file; a typed context builder would remove it.
+    return onRequestGet({ env, request, params: {} } as any);
+  }
+
+  it('passes the completed-today count from the dashboard api through unchanged', async () => {
+    const { env, fetchMock } = setupInbox(() => jsonResponse({ completedToday: 7, since: SINCE }));
+
+    const response = await runInbox(env);
+    const data = (await response.json()) as { counts: { completedToday: number } };
+
+    expect(response.status).toBe(200);
+    expect(data.counts.completedToday).toBe(7);
+
+    const calls = fetchMock.mock.calls.filter(
+      ([input]) => new URL(String(input)).pathname === '/stats/completed-today'
+    );
+    expect(calls).toHaveLength(1);
+    const [input, init] = calls[0] ?? [];
+    expect(new URL(String(input)).origin).toBe('https://dashboard-api.example.com');
+    expect(new Headers(init?.headers).get('X-Internal-API-Key')).toBe('dash-key');
+  });
+
+  it('shows a zero count from the dashboard api even when recent rows exist', async () => {
+    const { env } = setupInbox(() => jsonResponse({ completedToday: 0, since: SINCE }));
+
+    const response = await runInbox(env);
+    const data = (await response.json()) as { counts: { completedToday: number } };
+
+    expect(response.status).toBe(200);
+    expect(data.counts.completedToday).toBe(0);
+  });
+
+  it('fails the inbox when the completed-today call fails', async () => {
+    const { env } = setupInbox(() => errorResponse('boom', 500));
+
+    const response = await runInbox(env);
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'boom' });
+  });
+
+  it('fails the inbox when the completed-today answer has no count', async () => {
+    const { env } = setupInbox(() => jsonResponse({ since: SINCE }));
+
+    const response = await runInbox(env);
+
+    expect(response.status).toBe(500);
+  });
 });
 
 // --- Article retry endpoints ---
@@ -558,7 +638,6 @@ describe('article retry endpoints', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'public-key',
     } as any;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -590,6 +669,7 @@ describe('article retry endpoints', () => {
     const [, init] = mockCall(mockGateway.fetch);
     const payload = JSON.parse(init.body);
     expect(payload.steps).toEqual(expect.arrayContaining(['render', 'readability']));
+    expect(init.headers['X-Internal-API-Key']).toBe('internal-key');
   });
 
   it('retry-step forwards chosen step', async () => {
@@ -599,7 +679,6 @@ describe('article retry endpoints', () => {
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: 'public-key',
     } as any;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -626,16 +705,17 @@ describe('article retry endpoints', () => {
 
     expect(response.status).toBe(200);
     expect(body.steps).toEqual(['monolith']);
+    const [, init] = mockCall(mockGateway.fetch);
+    expect(init.headers['X-Internal-API-Key']).toBe('internal-key');
   });
 
-  it('retry-full returns clear config error when PUBLIC_API_KEY is missing', async () => {
+  it('retry-full returns clear config error when INTERNAL_API_KEY is missing', async () => {
     const mockGateway = createMockFetcher(async () => jsonResponse({ requestId: 'abc123' }));
     const env = {
       GATEWAY: mockGateway,
       DASHBOARD_API_URL: 'https://dashboard-api.example.com',
       DASHBOARD_API_KEY: 'dash-key',
-      INTERNAL_API_KEY: 'internal-key',
-      PUBLIC_API_KEY: '',
+      INTERNAL_API_KEY: '',
     } as any;
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -659,7 +739,7 @@ describe('article retry endpoints', () => {
     const body = (await response.json()) as { error?: string };
 
     expect(response.status).toBe(500);
-    expect(String(body.error || '')).toContain('PUBLIC_API_KEY');
+    expect(String(body.error || '')).toContain('INTERNAL_API_KEY');
     expect(mockGateway.fetch).not.toHaveBeenCalled();
   });
 });
@@ -751,6 +831,72 @@ describe('archive-content proxy', () => {
     expect(headers['X-Internal-API-Key']).toBe('dash-key');
     expect(Object.values(headers)).not.toContain('internal-key');
   });
+
+  describe('sandbox content security policy', () => {
+    const SCRIPTED_HTML = '<!doctype html><p>stored</p><script>window.__ran = true;</script>';
+
+    async function serveArchive(query: string, upstreamType: string): Promise<Response> {
+      const env = {
+        DASHBOARD_API_URL: 'https://dashboard-api.example.com',
+        DASHBOARD_API_KEY: 'dash-key',
+      } as any;
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+        const url = String(input);
+        if (url.startsWith('https://dashboard-api.example.com/signed-url')) {
+          return jsonResponse({ url: 'https://signed.example.com/archive' });
+        }
+        return new Response(SCRIPTED_HTML, {
+          status: 200,
+          headers: { 'Content-Type': upstreamType },
+        });
+      });
+      const { onRequestGet } = await import('../archive-content.js');
+      const request = createRequest(
+        `https://dashboard.example.com/api/archive-content?itemId=abc12345&${query}`
+      );
+      return onRequestGet({ env, request, params: {} } as any);
+    }
+
+    it('sandboxes a stored HTML archive without allowing scripts', async () => {
+      const response = await serveArchive('archiveKey=rendered', 'text/html; charset=utf-8');
+      expect(response.status).toBe(200);
+      const csp = response.headers.get('Content-Security-Policy') ?? '';
+      expect(csp).toContain('sandbox');
+      expect(csp).not.toContain('allow-scripts');
+    });
+
+    it.each(['singlefile', 'monolith', 'readability', 'markdown', 'screenshot'])(
+      'sandboxes the %s archive served under its inferred type',
+      async (archiveKey) => {
+        const response = await serveArchive(`archiveKey=${archiveKey}`, 'application/octet-stream');
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+      }
+    );
+
+    it('keeps the sandbox on a download', async () => {
+      const response = await serveArchive('archiveKey=rendered&download=1', 'text/html');
+      expect(response.headers.get('Content-Disposition')).toContain('attachment');
+      expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+    });
+
+    it('leaves a PDF unsandboxed so it opens inline', async () => {
+      const response = await serveArchive('archiveKey=pdf', 'application/octet-stream');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('application/pdf');
+      expect(response.headers.get('Content-Security-Policy')).toBeNull();
+    });
+
+    it('recognises a PDF media type with parameters and mixed case', async () => {
+      const response = await serveArchive('archiveKey=pdf', 'Application/PDF; qs=0.9');
+      expect(response.headers.get('Content-Security-Policy')).toBeNull();
+    });
+
+    it('sandboxes HTML served under the pdf key', async () => {
+      const response = await serveArchive('archiveKey=pdf', 'text/html');
+      expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+    });
+  });
 });
 
 // --- Dashboard list proxy (dashboard-api) ---
@@ -813,8 +959,10 @@ describe('inbox key split', () => {
       DASHBOARD_API_KEY: 'dash-key',
       INTERNAL_API_KEY: 'internal-key',
     } as any;
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-      jsonResponse({ articles: [] })
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) =>
+      new URL(String(input)).pathname.endsWith('/stats/completed-today')
+        ? jsonResponse({ completedToday: 0, since: '2026-11-08T00:00:00.000Z' })
+        : jsonResponse({ articles: [] })
     );
 
     const { onRequestGet } = await import('../inbox.js');

@@ -1,4 +1,4 @@
-import { accessBlockedResponse, isChallengePage, isProxyErrorPage, storeArtifact, timingSafeEqual } from '@warg/shared';
+import { accessBlockedResponse, isChallengePage, isProxyErrorPage, readInternalJsonRequest, storeArtifact } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import { capturePdfViaCdp } from './cdp-pdf.js';
 import {
@@ -171,22 +171,10 @@ function isValidUrl(input: string): boolean {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
-      const requestUrl = new URL(request.url);
-      if (request.method !== 'POST' || requestUrl.pathname !== '/render') {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      let body: RenderRequest;
-      try {
-        body = (await request.json()) as RenderRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/render']);
+      if (!pre.ok) return pre.response;
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as RenderRequest;
 
       const { request_id, url: targetUrl, options_r2_key, browser_quota_kind } = body;
       if (!request_id || !targetUrl || !browser_quota_kind) {

@@ -11,13 +11,45 @@
  * contain nothing but a single `<pre>`, AND that block's short text must read
  * as a network error. Prose that merely quotes an error string still has other
  * markup around it and is accepted.
+ *
+ * Detection only runs on documents up to `PROXY_ERROR_PAGE_MAX_LENGTH`
+ * characters; anything longer is a real page. Contentless void tags and empty
+ * elements beside the `<pre>` are ignored, so they cannot hide a stub.
  */
 
-const NETWORK_ERROR_PATTERNS: readonly RegExp[] = [
-  /dial tcp\b/i,
+/**
+ * Network-error signatures that mean the target host cannot be reached at all:
+ * its name does not resolve, or nothing accepts the connection. Retrying the
+ * same browser against such a host fails the same way, so a render failure
+ * carrying one of these is not worth another attempt. Timeouts, resets and
+ * closed connections are deliberately absent: those can clear on a retry.
+ * A bare `dial tcp` prefix is absent too: it opens every Go dial error,
+ * transient ones included, and the dead-host cause follows it.
+ */
+export const DEAD_HOST_ERROR_PATTERNS: readonly RegExp[] = [
   /no such host\b/i,
-  /\bERR_[A-Z][A-Z_]{2,}/,
   /connection refused\b/i,
+  /no route to host\b/i,
+  /network is unreachable\b/i,
+  /\bERR_(?:NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|CONNECTION_REFUSED|ADDRESS_UNREACHABLE)\b/,
+];
+
+/** Words that keep a network error retryable whatever else it says: a dial that timed out can succeed next time. */
+const TRANSIENT_ERROR_PATTERN = /timed?[ _-]?out\b|deadline exceeded/i;
+
+/**
+ * True when an error text says the target host cannot be reached at all, so another
+ * attempt fails the same way. A text that also reports a timeout stays retryable.
+ */
+export function isDeadHostErrorText(text: string): boolean {
+  if (TRANSIENT_ERROR_PATTERN.test(text)) return false;
+  return DEAD_HOST_ERROR_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+const NETWORK_ERROR_PATTERNS: readonly RegExp[] = [
+  ...DEAD_HOST_ERROR_PATTERNS,
+  /dial tcp\b/i,
+  /\bERR_[A-Z][A-Z_]{2,}/,
   /connection reset\b/i,
   /connection closed\b/i,
   /timed out\b/i,
@@ -34,6 +66,17 @@ const NETWORK_ERROR_PATTERNS: readonly RegExp[] = [
  * document in its own right.
  */
 const MAX_ERROR_TEXT_LENGTH = 512;
+
+/**
+ * Longest input, in characters (`string.length`), that is examined as a
+ * possible proxy error page.
+ *
+ * A proxy error page is a few hundred characters: the observed stub is 275
+ * bytes and its message is capped at `MAX_ERROR_TEXT_LENGTH`. A document longer
+ * than this is a real page, never a stub, so it is accepted without being
+ * scanned — the detector's cost stays bounded however large the render is.
+ */
+export const PROXY_ERROR_PAGE_MAX_LENGTH = 64 * 1024;
 
 const ENTITIES: Record<string, string> = {
   '&amp;': '&',
@@ -68,6 +111,18 @@ function dropEmptyElements(html: string): string {
   return current;
 }
 
+/**
+ * Drops contentless void tags (`<br>`, `<wbr>`, `<meta>`, `<link>`,
+ * `<base>`, `<img>`), plain or self-closing. A headless browser's plain-text
+ * render and markup injected around it can put such tags beside the `<pre>`;
+ * having no closing tag, they survive the empty-element strip and would
+ * otherwise defeat the "nothing but a `<pre>`" structural test. `[^<>]*`
+ * stops at the next `<`, so a run of unclosed tags is never rescanned.
+ */
+function dropVoidElements(html: string): string {
+  return html.replace(/<(?:br|wbr|meta|link|base|img)\b[^<>]*\/?>/gi, '');
+}
+
 /** Inner HTML of `<body>`, or the whole document with the shell elements dropped. */
 function extractBodyInner(html: string): string {
   const body = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html);
@@ -86,36 +141,35 @@ function extractBodyInner(html: string): string {
 export const PROXY_ERROR_PAGE_REASON = 'proxy_error_page';
 
 /**
- * True when `html` is not a rendered document but a proxy/network error page —
- * or is empty. Callers must fail the render step rather than archive the body.
- *
- * Empty or whitespace-only input reports true because it is likewise not a
- * document worth archiving; callers that distinguish the two cases should
- * check emptiness before calling.
+ * The error text of a proxy/network error page, or undefined when `html` is a
+ * rendered document. Empty or whitespace-only input is not a document either and
+ * gives ''. Input longer than `PROXY_ERROR_PAGE_MAX_LENGTH` gives undefined
+ * without being read.
  */
-/**
- * Longest page the proxy-error check scans. The observed error page is 275
- * bytes, and the cap keeps the lazy regexes below from scanning a hostile page
- * many times over.
- */
-const MAX_PROXY_ERROR_HTML_LENGTH = 16_384;
-
-export function isProxyErrorPage(html: string): boolean {
-  if (!html || html.trim().length === 0) return true;
-  if (html.length > MAX_PROXY_ERROR_HTML_LENGTH) return false;
+export function proxyErrorPageText(html: string): string | undefined {
+  if (html.length > PROXY_ERROR_PAGE_MAX_LENGTH) return undefined;
+  if (!html || html.trim().length === 0) return '';
 
   const withoutNoise = extractBodyInner(html)
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
 
-  const stripped = dropEmptyElements(withoutNoise).trim();
+  const stripped = dropEmptyElements(dropVoidElements(withoutNoise)).trim();
 
   const pre = /^<pre\b[^>]*>([\s\S]*?)<\/pre>$/i.exec(stripped);
-  if (!pre) return false;
+  if (!pre) return undefined;
 
   const text = decodeEntities(pre[1] ?? '').trim();
-  if (text.length > MAX_ERROR_TEXT_LENGTH) return false;
-  return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text));
+  if (text.length > MAX_ERROR_TEXT_LENGTH) return undefined;
+  return NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text)) ? text : undefined;
+}
+
+/**
+ * True when `html` is not a rendered document but a proxy/network error page —
+ * or is empty. Callers must fail the render step rather than archive the body.
+ */
+export function isProxyErrorPage(html: string): boolean {
+  return proxyErrorPageText(html) !== undefined;
 }
 
 /** Markers a bot-wall vendor puts in the markup of its challenge page. */

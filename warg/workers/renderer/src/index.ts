@@ -3,10 +3,11 @@ import {
   decodeBase64ToArrayBuffer,
   findReusableArtifact,
   isChallengePage,
-  isProxyErrorPage,
   PROXY_ERROR_PAGE_REASON,
-  storeArtifact,
-  timingSafeEqual
+  proxyErrorPageText,
+  readInternalJsonRequest,
+  RENDERER_CONTENT_FAILED_ERROR,
+  storeArtifact
 } from '@warg/shared';
 import type { ArtifactKind, ArtifactMeta } from '@warg/shared';
 import type {
@@ -55,11 +56,14 @@ function parseLoadedPage(json: unknown): LoadedPage | undefined {
 }
 
 /** Screenshot bytes from base64 text, with or without a data-URI prefix; undefined when the text is not base64. */
-function decodeScreenshot(screenshot: string): ArrayBuffer | undefined {
+function decodeScreenshot(screenshot: string, requestId: string): ArrayBuffer | undefined {
   try {
     return decodeBase64ToArrayBuffer(screenshot.replace(/^data:[^,]*;base64,/i, ''));
   } catch (err) {
-    console.error('[renderer] snapshot screenshot is not valid base64:', err instanceof Error ? err.message : String(err));
+    console.warn(
+      '[renderer] snapshot screenshot is not valid base64',
+      JSON.stringify({ request_id: requestId, failure: err instanceof Error ? err.message : String(err) })
+    );
     return undefined;
   }
 }
@@ -145,25 +149,10 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      // Only accept POST /render
-      const url = new URL(request.url);
-      if (request.method !== 'POST' || url.pathname !== '/render') {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      // Verify internal API key
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      // Parse request body
-      let body: RenderRequest;
-      try {
-        body = (await request.json()) as RenderRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/render']);
+      if (!pre.ok) return pre.response;
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as RenderRequest;
 
       const { request_id, url: targetUrl, options_r2_key, browser_quota_kind } = body;
       if (!request_id || !targetUrl || !browser_quota_kind) {
@@ -211,39 +200,48 @@ export default {
       // 1. One page load for whatever of the HTML, screenshot and Markdown is missing
       if (needsPageLoad) {
         let action: 'snapshot' | 'content' = formats.length >= 2 ? 'snapshot' : 'content';
-        let pageResp = await loadPage(env, targetUrl, formats);
-        let pageRateLimit = checkRateLimit(pageResp, '');
-        if (pageRateLimit) return pageRateLimit;
-        if (!pageResp.ok && action === 'snapshot' && pageResp.status !== 403) {
+        let pageResp: Response | undefined;
+        let snapshotFailure: string | undefined;
+        try {
+          pageResp = await loadPage(env, targetUrl, formats);
+        } catch (err) {
+          // A content load that throws has no HTML to keep: the outer handler answers 500.
+          if (action !== 'snapshot') throw err;
+          snapshotFailure = err instanceof Error ? err.message : String(err);
+        }
+        if (pageResp) {
+          const pageRateLimit = checkRateLimit(pageResp, '');
+          if (pageRateLimit) return pageRateLimit;
+          // A 403 is the target blocking access: answer it at once so the workflow's fallback sees it.
+          if (!pageResp.ok && action === 'snapshot' && pageResp.status !== 403) {
+            snapshotFailure = String(pageResp.status);
+            await pageResp.body?.cancel();
+            pageResp = undefined;
+          }
+        }
+        if (!pageResp) {
           // A failed snapshot must not lose the HTML: load the HTML alone once, and skip the other formats.
-          console.error(
+          console.warn(
             '[renderer] snapshot load failed, retrying the HTML alone',
-            JSON.stringify({ request_id, action: 'snapshot', formats, status: pageResp.status })
+            JSON.stringify({ request_id, formats, failure: snapshotFailure })
           );
-          const snapshotStatus = pageResp.status;
-          await pageResp.body?.cancel();
-          if (missingScreenshot) misses.set('screenshot.png', `screenshot: snapshot failed with ${snapshotStatus}`);
-          if (missingMarkdown) misses.set('rendered.md', `markdown: snapshot failed with ${snapshotStatus}`);
+          if (missingScreenshot) misses.set('screenshot.png', `screenshot: snapshot failed with ${snapshotFailure}`);
+          if (missingMarkdown) misses.set('rendered.md', `markdown: snapshot failed with ${snapshotFailure}`);
           action = 'content';
           pageResp = await loadPage(env, targetUrl, ['content']);
-          pageRateLimit = checkRateLimit(pageResp, '');
-          if (pageRateLimit) return pageRateLimit;
+          const retryRateLimit = checkRateLimit(pageResp, '');
+          if (retryRateLimit) return retryRateLimit;
         }
         if (!pageResp.ok) {
           const errorText = await pageResp.text();
-          console.error(
-            '[renderer] page load failed',
-            JSON.stringify({ request_id, action, status: pageResp.status })
-          );
+          // A 403 is the target blocking access, an expected outcome the workflow handles.
+          const log = pageResp.status === 403 ? console.warn : console.error;
+          log('[renderer] page load failed', JSON.stringify({ request_id, action, status: pageResp.status }));
           // Stays 502: a 401/403 from this worker would read as a blocked target page.
-          // The error text is a contract with the workflow's fallback (workflow services.ts) and covers
-          // content and snapshot loads alike: change both sides together.
+          // The shared failure classifier reads this error text to classify the failure and pick
+          // the workflow's renderer fallback; it covers content and snapshot loads alike.
           return Response.json(
-            {
-              error: 'Browser Rendering /content failed',
-              status: pageResp.status,
-              details: errorText
-            },
+            { error: RENDERER_CONTENT_FAILED_ERROR, status: pageResp.status, details: errorText },
             { status: 502 }
           );
         }
@@ -254,11 +252,13 @@ export default {
             { status: 502 }
           );
         }
-        if (isProxyErrorPage(page.html)) {
+        const proxyErrorText = proxyErrorPageText(page.html);
+        if (proxyErrorText !== undefined) {
           return Response.json(
             {
               error: 'Browser Rendering /content returned a proxy/network error page',
               reason: PROXY_ERROR_PAGE_REASON,
+              detail: proxyErrorText,
               url: targetUrl
             },
             { status: 502 }
@@ -278,7 +278,7 @@ export default {
           );
         }
         if (missingScreenshot) {
-          const screenshotData = page.screenshot ? decodeScreenshot(page.screenshot) : undefined;
+          const screenshotData = page.screenshot ? decodeScreenshot(page.screenshot, request_id) : undefined;
           if (screenshotData) {
             outcomes.set(
               'screenshot.png',
@@ -305,17 +305,27 @@ export default {
 
       // 3. PDF, when requested and missing, takes its own load
       if (includePdf && !reused.has('page.pdf')) {
-        const pdfResp = await env.BROWSER.quickAction('pdf', { url: targetUrl, gotoOptions: GOTO_OPTIONS });
-        const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
-        if (pdfRateLimit) return pdfRateLimit;
-        if (pdfResp.ok) {
-          const pdfData = await pdfResp.arrayBuffer();
-          outcomes.set(
-            'page.pdf',
-            await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf', reuseScope)
-          );
-        } else {
-          misses.set('page.pdf', `pdf: API returned ${pdfResp.status}`);
+        let pdfResp: Response | undefined;
+        try {
+          pdfResp = await env.BROWSER.quickAction('pdf', { url: targetUrl, gotoOptions: GOTO_OPTIONS });
+        } catch (err) {
+          // The PDF is optional: a thrown load becomes a skip note and keeps the stored artifacts.
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn('[renderer] pdf load failed', JSON.stringify({ request_id, failure: message }));
+          misses.set('page.pdf', `pdf: ${message}`);
+        }
+        if (pdfResp) {
+          const pdfRateLimit = checkRateLimit(pdfResp, 'PDF');
+          if (pdfRateLimit) return pdfRateLimit;
+          if (pdfResp.ok) {
+            const pdfData = await pdfResp.arrayBuffer();
+            outcomes.set(
+              'page.pdf',
+              await storeArtifact(env.ARCHIVE_BUCKET, request_id, 'page.pdf', pdfData, 'application/pdf', reuseScope)
+            );
+          } else {
+            misses.set('page.pdf', `pdf: API returned ${pdfResp.status}`);
+          }
         }
       }
 

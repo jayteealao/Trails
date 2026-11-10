@@ -7,7 +7,9 @@ to, writes the marker for it, and records the link on the user's article in the
 server-owned `canonicalId` field (see [Server-owned link fields](#server-owned-link-fields)).
 The app never writes markers.
 
-Enforced by `shared-types/check-drift.ts`, which runs in CI.
+Enforced by `shared-types/check-drift.ts`, which runs in CI through
+`.github/workflows/shared-types-drift.yml` on changes under `android/`, `warg/`
+and `shared-types/`, so an app-only change runs it too.
 
 ## Path
 
@@ -93,6 +95,11 @@ Ship order).
   `users/{uid}/articles/{itemId}` and then reads `articles/{canonicalId}`
   (or `articles/{itemId}` while the field is absent).
   [`android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt`](../android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt)
+- **Trails (Android) backup** — the app writes the user article
+  `users/{uid}/articles/{itemId}` through its wire type, which never carries
+  `canonicalId`: the field stays the server's, and a merge write leaves it as
+  the server set it.
+  [`android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt`](../android/app/src/main/java/com/jayteealao/trails/services/firestore/UserArticleWire.kt)
 
 ## Adding or changing a field
 

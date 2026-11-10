@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "cf dev",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",
-    "update-bundle": "curl -o lib/single-file-bundle.js https://raw.githubusercontent.com/gildas-lormeau/single-file-cli/master/lib/single-file-bundle.js",
-    "test": "vitest run"
+    "update-bundle": "curl -o lib/single-file-bundle.js https://raw.githubusercontent.com/gildas-lormeau/single-file-cli/master/lib/single-file-bundle.js"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "1.1.0",

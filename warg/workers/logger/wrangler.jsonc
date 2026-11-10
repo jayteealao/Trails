@@ -1,6 +1,8 @@
 // Deploys read cloudflare.config.ts (cf deploy); its `exports` lifecycle
 // declaration replaces the `migrations` array below. This file serves
-// `wrangler dev` and `wrangler types` only. Change a binding in both files.
+// `wrangler types`, the Workers-pool unit tests (vitest.config.ts) and the
+// browser checks' `wrangler dev` (it needs --persist-to, which cf dev
+// lacks). Change a binding in both files.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "logger",

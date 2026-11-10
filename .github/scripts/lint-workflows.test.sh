@@ -38,17 +38,28 @@ printf '{"devDependencies":{"firebase-tools":"15.34.0"}}' > "$good_pkg"
 nokey_pkg="$tmp/nokey-package.json"
 printf '{"devDependencies":{}}' > "$nokey_pkg"
 
-mkdir "$tmp/tag-pinned" "$tmp/input-in-run" "$tmp/fb-mismatch" "$tmp/fb-deploy"
+mkdir "$tmp/tag-pinned" "$tmp/input-in-run" "$tmp/fb-mismatch" "$tmp/fb-deploy" "$tmp/no-article-guard" "$tmp/no-warg-paths" \
+  "$tmp/drift-no-android-pr" "$tmp/drift-no-android-push" "$tmp/drift-job-if"
 cp "$here/fixtures/tag-pinned.yml" "$tmp/tag-pinned/"
 cp "$here/fixtures/input-in-run.yml" "$tmp/input-in-run/"
 cp "$here/fixtures/firebase-rules-mismatch.yml" "$tmp/fb-mismatch/firebase-rules.yml"
 cp "$here/fixtures/firebase-rules-deploy.yml" "$tmp/fb-deploy/firebase-rules.yml"
+cp "$here/fixtures/warg-ci-no-article-guard.yml" "$tmp/no-article-guard/warg-ci.yml"
+cp "$here/fixtures/warg-ci-no-warg-paths.yml" "$tmp/no-warg-paths/warg-ci.yml"
+for fx in drift-no-android-pr drift-no-android-push drift-job-if; do
+  cp "$here/fixtures/$fx.yml" "$tmp/$fx/"
+done
 
 expect_lint_failure "tag-pinned fixture" "$tmp/tag-pinned" "$good_pkg" uses-pin
 expect_lint_failure "input-in-run fixture" "$tmp/input-in-run" "$good_pkg" input-in-run 1
 expect_lint_failure "firebase-tools mismatch fixture" "$tmp/fb-mismatch" "$good_pkg" firebase-tools-pin
 expect_lint_failure "firebase-tools missing key" "$tmp/fb-mismatch" "$nokey_pkg" firebase-tools-pin
 expect_lint_failure "rules deploy in CI fixture" "$tmp/fb-deploy" "$good_pkg" rules-deploy-in-ci 1
+expect_lint_failure "warg-ci without the article write check" "$tmp/no-article-guard" "$good_pkg" article-write-guard 1
+expect_lint_failure "warg-ci pull_request paths without warg/**" "$tmp/no-warg-paths" "$good_pkg" article-write-guard 1
+expect_lint_failure "drift check pull_request paths without android/**" "$tmp/drift-no-android-pr" "$good_pkg" drift-android-trigger 1
+expect_lint_failure "drift check push paths without android/**" "$tmp/drift-no-android-push" "$good_pkg" drift-android-trigger 1
+expect_lint_failure "drift check job with a job-level if" "$tmp/drift-job-if" "$good_pkg" drift-android-trigger 1
 
 rc=0
 out=$(bash "$lint" "$repo/.github/workflows" "$repo/warg/package.json" 2>&1) || rc=$?
@@ -56,6 +67,13 @@ if [ "$rc" -eq 0 ]; then
   pass "real workflows: $out"
 else
   fail "real workflows: expected exit 0, got $rc"; printf '%s\n' "$out"
+fi
+
+# the trigger rule binds only a workflow that runs the check, so one must
+if grep -lE 'shared-types/check-drift\.ts' "$repo"/.github/workflows/*.yml >/dev/null; then
+  pass "real workflows run the drift check"
+else
+  fail "real workflows run the drift check: no workflow runs shared-types/check-drift.ts"
 fi
 
 for v in 1.11.0 1.0.0-beta 0.0.0-ci-gate 1.11.0+build.5; do

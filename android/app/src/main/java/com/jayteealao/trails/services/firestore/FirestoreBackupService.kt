@@ -256,10 +256,12 @@ class FirestoreBackupService @Inject constructor(
     /**
      * Map a restored article doc through [RemoteDeletion]: the article with its deletion
      * read from `deletedAt` or the legacy `deleted_at`, and the heal write fields (null
-     * when the doc needs none).
+     * when the doc needs none). The fields are read through [UserArticleWire], by their
+     * stored names, not by [Article]'s property names.
      */
     private fun DocumentSnapshot.toRestored(): Pair<Article, Map<String, Any>?>? {
-        val article = toObject(Article::class.java) ?: return null
+        val fields = data ?: return null
+        val article = UserArticleWire.fromFirestore(fields).toArticle()
         val resolution = RemoteDeletion.resolve(
             deletedAt = getLong(RemoteDeletion.FIELD),
             legacyDeletedAt = getLong(RemoteDeletion.LEGACY_FIELD),
@@ -359,12 +361,12 @@ class FirestoreBackupService @Inject constructor(
                 while (hasMore) {
                     val query = if (lastDocument != null) {
                         getUserArticlesCollection(user.uid)
-                            .orderBy("timeAdded")
+                            .orderBy(UserArticleWire.TIME_ADDED)
                             .startAfter(lastDocument)
                             .limit(RESTORE_PAGE_LIMIT.toLong())
                     } else {
                         getUserArticlesCollection(user.uid)
-                            .orderBy("timeAdded")
+                            .orderBy(UserArticleWire.TIME_ADDED)
                             .limit(RESTORE_PAGE_LIMIT.toLong())
                     }
 
@@ -837,45 +839,14 @@ class FirestoreBackupService @Inject constructor(
 }
 
 /**
- * The field map the backup writes for an article: one entry per [Article]
- * property, keyed by the property name, except `resolvedId`. The server owns
- * `resolvedId` on the user's article doc, so a merge write that omits it leaves
- * the server value untouched. Restore still reads it back through `toObject`.
- * A field added to [Article] must be added here too; a unit test checks parity.
- * `backedUpAt` is the version this write sends: the stamp the device records when the
- * commit succeeds. Older builds read it back on restore.
+ * The field map the backup writes for an article. The field names live in
+ * [UserArticleWire], not in [Article]'s property names, so a rename in the local
+ * database does not rename a stored field. `resolvedId` is left out: the server owns it
+ * on the user's article doc, so a merge write that omits it leaves the server value
+ * untouched. `backedUpAt` is the version this write sends: the stamp the device records
+ * when the commit succeeds. Older builds read it back on restore.
  */
-internal fun Article.toBackupFields(): Map<String, Any?> = mapOf(
-    "itemId" to itemId,
-    "title" to title,
-    "givenTitle" to givenTitle,
-    "url" to url,
-    "givenUrl" to givenUrl,
-    "normalizedUrl" to normalizedUrl,
-    "excerpt" to excerpt,
-    "wordCount" to wordCount,
-    "favorite" to favorite,
-    "status" to status,
-    "wordCountMessage" to wordCountMessage,
-    "image" to image,
-    "hasImage" to hasImage,
-    "hasVideo" to hasVideo,
-    "hasAudio" to hasAudio,
-    "sortId" to sortId,
-    "timeAdded" to timeAdded,
-    "timeUpdated" to timeUpdated,
-    "timeRead" to timeRead,
-    "timeFavorited" to timeFavorited,
-    "timeToRead" to timeToRead,
-    "listenDurationEstimate" to listenDurationEstimate,
-    "text" to text,
-    "articleId" to articleId,
-    "resolved" to resolved,
-    "deletedAt" to deletedAt,
-    "archivedAt" to archivedAt,
-    "textSource" to textSource,
-    "backedUpAt" to timeUpdated,
-)
+internal fun Article.toBackupFields(): Map<String, Any?> = toUserArticleWire().toFirestore()
 
 /** The three row reads of one article in [FirestoreBackupService.batchRestoreArticleRows]. */
 private class RowReads(

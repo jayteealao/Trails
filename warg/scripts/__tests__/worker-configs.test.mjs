@@ -413,3 +413,31 @@ test('the renderer neither declares nor reads BR_API_TOKEN or CF_ACCOUNT_ID', ()
   }
   assert.deepEqual(hits, []);
 });
+
+const DASHBOARD = join(WARG, 'pages', 'dashboard');
+
+test('dashboard: wrangler.jsonc, cloudflare.config.ts and wrangler.config.ts agree', async () => {
+  assert.deepEqual(await checkWorker(DASHBOARD), []);
+});
+
+test('a static assets setting that differs is reported', async () => {
+  const wrangler = parseJsonc(readFileSync(join(DASHBOARD, 'wrangler.jsonc'), 'utf8'));
+  const cf = await loadCfConfig(DASHBOARD);
+  const tooling = await loadCfConfig(DASHBOARD, 'wrangler.config.ts');
+  const check = (w, c, t) => {
+    const a = fromWrangler(w);
+    const b = fromCf(c, t);
+    return [...a.errors, ...b.errors, ...compareShapes(a.shape, b.shape)].join('\n');
+  };
+  assert.equal(check(wrangler, cf, tooling), '');
+  assert.match(
+    check({ ...wrangler, assets: { ...wrangler.assets, run_worker_first: false } }, cf, tooling),
+    /assets:/
+  );
+  assert.match(check(wrangler, cf, { assetsDirectory: '.' }), /assets:.*directory=\./);
+  assert.match(check(wrangler, cf, {}), /assets:.*directory=-/);
+  assert.match(
+    check(wrangler, { worker: { ...cf.worker, assets: { runWorkerFirst: true } } }, tooling),
+    /notFoundHandling=none/
+  );
+});

@@ -3,12 +3,8 @@ import type {
   DocumentReference,
   QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
-import {
-  SHARED_ID_SHAPE,
-  extractDomain,
-  followMergedIntoOnce,
-  resolveCanonicalFromUserDoc,
-} from './canonical.js';
+import { readCanonicalId, readSharedArticles, resolveCanonicalItemId } from '@warg/article-writer';
+import { extractDomain } from '@warg/shared/archive-ids';
 
 // Groups the backfill page of user articles by the shared article each one links to.
 // It lives outside index.ts so the function entry exports only deployed functions.
@@ -43,17 +39,20 @@ export async function resolveCanonicalCandidates(
     const url = typeof urlRaw === 'string' ? urlRaw.trim() : '';
     if (!url) continue;
 
-    const canonicalId: unknown = userData['canonicalId'];
     resolved.push({
       userDoc,
       url,
-      id: resolveCanonicalFromUserDoc(userDoc.id, userData),
-      fromServerLink: typeof canonicalId === 'string' && SHARED_ID_SHAPE.test(canonicalId),
+      id: resolveCanonicalItemId(userDoc.id, userData),
+      fromServerLink: readCanonicalId(userData) !== undefined,
     });
   }
 
   // A link that names a merged duplicate is grouped under the merge winner.
-  const winners = await followMergedIntoOnce(db, [...new Set(resolved.map((r) => r.id))]);
+  const shared = await readSharedArticles(db, resolved.map((r) => r.id));
+  const winners = new Map<string, string>();
+  for (const s of shared.values()) {
+    if (s.id !== s.linkId) winners.set(s.linkId, s.id);
+  }
   const byCanonical = new Map<string, CanonicalCandidate>();
 
   for (const { userDoc, url, id, fromServerLink } of resolved) {

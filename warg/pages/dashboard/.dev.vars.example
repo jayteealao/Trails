@@ -1,13 +1,19 @@
 # Copy this file to .dev.vars and fill in your values
-# For local development with wrangler pages dev
+# For local development of the dashboard Worker (pnpm --filter warg-dashboard dev).
+# BACKFILL_STATUS_URL and DASHBOARD_API_URL come from wrangler.jsonc; LOGGER
+# and GATEWAY are service bindings, reached through the local dev registry
+# when those workers run under cf dev too. The browser checks write their own
+# .dev.vars.e2e* files and do not read this one's copy.
 
-LOGGER_URL=https://logger.warg.workers.dev
-DASHBOARD_API_URL=https://us-central1-trails-e428e.cloudfunctions.net/dashboardApi
+# The sign-in credential, user:password
+DASHBOARD_AUTH=your-user:your-password
+
+# Logger and gateway calls (Quick Archive: POST /api/begin)
 INTERNAL_API_KEY=your-internal-api-key-here
 
-# For Quick Archive (POST /api/begin)
-GATEWAY_URL=https://gateway.warg.workers.dev
-PUBLIC_API_KEY=your-public-api-key-here
+# dashboard-api and backfillStatus
+DASHBOARD_API_KEY=your-dashboard-api-key-here
+BACKFILL_STATUS_KEY=your-backfill-status-key-here
 
 # For Infrastructure page (Cloudflare API metrics)
 CF_API_TOKEN=your-cf-api-token-here

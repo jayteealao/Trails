@@ -11,6 +11,7 @@ import { handleAppSignedUrl } from './app-signed-url.js';
 import { handleEnqueueArticle } from './enqueue-article.js';
 import { handleBootstrapArticle } from './bootstrap-article.js';
 import { handleMarkProcessing } from './mark-processing.js';
+import { handleCompletedToday } from './completed-today.js';
 
 // Initialize Firebase Admin
 if (getApps().length === 0) {
@@ -27,6 +28,7 @@ if (getApps().length === 0) {
  *   POST /articles/:itemId/bootstrap       → ensure canonical article bootstrap fields
  *   POST /articles/:itemId/mark-processing → set canonical processing state + request id
  *   GET /signed-url         → signed GCS download URL (Milestone 3)
+ *   GET /stats/completed-today → count of articles completed since UTC midnight
  *   GET /app/signed-url     → per-user signed GCS download URL (Firebase ID token auth)
  */
 export const dashboardApi = onRequest(
@@ -91,6 +93,17 @@ export const dashboardApi = onRequest(
         // GET /signed-url?itemId=X&archiveKey=Y
         if (req.method === 'GET' && segments[0] === 'signed-url') {
           await handleSignedUrl(req, res);
+          return;
+        }
+
+        // GET /stats/completed-today
+        if (
+          req.method === 'GET' &&
+          segments.length === 2 &&
+          segments[0] === 'stats' &&
+          segments[1] === 'completed-today'
+        ) {
+          await handleCompletedToday(req, res);
           return;
         }
 

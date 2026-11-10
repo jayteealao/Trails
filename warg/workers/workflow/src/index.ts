@@ -5,29 +5,27 @@ import {
 } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
 import type {
+  ArchiveOptions,
   ArtifactKind,
   ArtifactMeta,
-  ArchiveManifest,
   CheckpointStep,
-  WorkflowCheckpoint,
+  RequestSettle,
   WorkflowStartedData,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { WORKFLOW_STEPS, getR2Key, getStepManifestKey, timingSafeEqual } from '@warg/shared';
+import { WORKFLOW_STEPS, getR2Key } from '@warg/shared';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
   WorkflowParams,
-  ArchiveOptionsExtended,
   RenderStepResult,
   WorkflowResult
 } from './types.js';
 import {
-  callRendererWith403Fallback,
-  callSinglefile,
+  callRendererForStep,
+  callSinglefileForStep,
   callReadability,
   callMonolith,
-  callGcs,
   ServiceCallError
 } from './services.js';
 import {
@@ -40,10 +38,14 @@ import {
   logRequestDone,
   logRequestFailed,
   artifactWrittenEvent,
+  settleForFailure,
+  settleForResult,
+  settleRequest,
   stepCompletedEvent,
   updateManifestKey
 } from './logging.js';
 import { runMockPipeline } from './mock.js';
+import { persistArtifactsIncremental, snapshotPersistedArtifacts, writeManifest } from './persist.js';
 import {
   createCheckpoint,
   discoverArtifactsFromR2,
@@ -52,7 +54,6 @@ import {
   getStepArtifacts,
   getUnpersistedArtifacts,
   loadCheckpoint,
-  markArtifactsPersisted,
   markStepFailed as markCheckpointStepFailed,
   markStepStarted as markCheckpointStepStarted,
   markWorkflowFailure,
@@ -141,8 +142,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
   ): Promise<WorkflowResult> {
     const { request_id, options_r2_key } = event.payload;
 
+    let result: WorkflowResult;
     try {
-      return await this.executeWorkflow(event, step);
+      result = await this.executeWorkflow(event, step);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       const terminalDetails =
@@ -181,7 +183,46 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           terminalDetails
         );
       });
+      await this.settleLogger(step, request_id, (settledAt) =>
+        settleForFailure(
+          err instanceof Error ? err : String(err),
+          terminalDetails,
+          event.instanceId,
+          settledAt
+        )
+      );
       throw err;
+    }
+
+    await this.settleLogger(step, request_id, (settledAt) =>
+      settleForResult(result, event.instanceId, settledAt)
+    );
+    return result;
+  }
+
+  /**
+   * Tell the logger the state this run settled the request in, so the
+   * dashboard reads the state the workflow holds. One step, retried twice;
+   * a settle that still fails is logged and never changes the run's outcome.
+   */
+  private async settleLogger(
+    step: WorkflowStep,
+    requestId: string,
+    buildSettle: (settledAt: string) => RequestSettle
+  ): Promise<void> {
+    try {
+      await step.do(
+        'settle-logger',
+        { retries: { limit: 2, delay: '2 seconds', backoff: 'exponential' }, timeout: '30 seconds' },
+        async () => {
+          await settleRequest(this.env, requestId, buildSettle(new Date().toISOString()));
+        }
+      );
+    } catch (err) {
+      console.error(
+        '[workflow] settle failed',
+        JSON.stringify({ request_id: requestId, error: err instanceof Error ? err.message : String(err) })
+      );
     }
   }
 
@@ -206,7 +247,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         );
         throw new NonRetryableError(`Options not found: ${options_r2_key}`);
       }
-      return obj.json<ArchiveOptionsExtended>();
+      return obj.json<ArchiveOptions>();
     });
 
     const normalizedOptions = this.normalizeOptions(options);
@@ -256,6 +297,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       await saveCheckpoint(this.env.ARCHIVE_BUCKET, state);
       return state;
     });
+    // Before any later save overwrites the stored checkpoint.
+    const persistedBefore = await snapshotPersistedArtifacts(this.env, step, request_id, options_r2_key);
 
     let lastPersistResult: WorkflowResult['gcsResult'];
     const partialFailures: Array<{ step: CheckpointStep | 'persist'; error: string }> = [];
@@ -293,14 +336,16 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       if (artifacts.length === 0) return;
 
       try {
-        const persistResult = await this.persistArtifactsIncremental(
+        const persistResult = await persistArtifactsIncremental(
+          this.env,
           step,
           checkpoint,
           request_id,
           url,
           stepName,
           artifacts,
-          reason
+          reason,
+          persistedBefore
         );
         if (persistResult) lastPersistResult = persistResult;
       } catch (persistErr) {
@@ -583,7 +628,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     await persistStepArtifacts('final', 'final_reconcile');
 
     const finalArtifacts = getAllArtifacts(checkpoint);
-    const manifestKey = await this.writeManifest(
+    const manifestKey = await writeManifest(
+      this.env,
       step,
       request_id,
       url,
@@ -693,8 +739,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     };
   }
 
-  private normalizeOptions(options: ArchiveOptionsExtended): ArchiveOptionsExtended {
-    const normalized: ArchiveOptionsExtended = {
+  private normalizeOptions(options: ArchiveOptions): ArchiveOptions {
+    const normalized: ArchiveOptions = {
       ...options,
       resumeFromCheckpoint: options.resumeFromCheckpoint ?? true,
     };
@@ -713,7 +759,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     return normalized;
   }
 
-  private requiredRenderArtifacts(options: ArchiveOptionsExtended): ArtifactKind[] {
+  private requiredRenderArtifacts(options: ArchiveOptions): ArtifactKind[] {
     const required: ArtifactKind[] = ['rendered.html'];
     if (options.includeMarkdown ?? true) {
       required.push('rendered.md');
@@ -871,71 +917,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     }
   }
 
-  private async persistArtifactsIncremental(
-    step: WorkflowStep,
-    checkpoint: WorkflowCheckpoint,
-    requestId: string,
-    url: string,
-    stepName: CheckpointStep | 'final',
-    artifacts: ArtifactMeta[],
-    reason: 'step_succeeded' | 'resume_persist_only' | 'final_reconcile'
-  ): Promise<WorkflowResult['gcsResult'] | undefined> {
-    if (artifacts.length === 0) {
-      return undefined;
-    }
-
-    const suffix = `${Date.now()}`;
-    const manifestKey = await this.writeManifest(
-      step,
-      requestId,
-      url,
-      artifacts,
-      getStepManifestKey(requestId, stepName, suffix)
-    );
-
-    const result = await this.persistToGcs(step, requestId, manifestKey, {
-      checkpointStep: stepName,
-      reason,
-      resumed: true,
-      artifactCount: artifacts.length,
-    });
-
-    markArtifactsPersisted(
-      checkpoint,
-      result.artifacts.map((artifact) => ({
-        kind: artifact.kind,
-        gcsPath: artifact.gcs_path,
-      }))
-    );
-    await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-    return result;
-  }
-
-  private async writeManifest(
-    step: WorkflowStep,
-    requestId: string,
-    url: string,
-    artifacts: ArtifactMeta[],
-    manifestKey: string
-  ): Promise<string> {
-    return await step.do(`write-manifest-${manifestKey.split('/').pop() ?? 'manifest'}`, async () => {
-      const now = new Date().toISOString();
-      const manifest: ArchiveManifest = {
-        requestId,
-        url,
-        createdAt: now,
-        completedAt: now,
-        artifacts
-      };
-      await this.env.ARCHIVE_BUCKET.put(
-        manifestKey,
-        JSON.stringify(manifest, null, 2),
-        { httpMetadata: { contentType: 'application/json' } }
-      );
-      return manifestKey;
-    });
-  }
-
   /**
    * Render the URL with browser quota management.
    */
@@ -943,7 +924,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     step: WorkflowStep,
     requestId: string,
     url: string,
-    options: ArchiveOptionsExtended,
+    options: ArchiveOptions,
     reuseScope: string
   ): Promise<RenderStepResult> {
     // Acquire quota (sleep-reschedule between denied attempts)
@@ -981,17 +962,21 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           timeout: '5 minutes'
         },
         async (ctx) => {
-          return await callRendererWith403Fallback(this.env, {
-            request_id: requestId,
-            url,
-            browser_quota_kind: 'bindings_launch',
-            include_screenshot: options.includeScreenshot,
-            include_pdf: options.includePdf,
-            include_markdown: options.includeMarkdown ?? true,
-            // Every attempt of this step shares the run id, so a retry reuses what an earlier attempt stored.
-            reuse_scope: reuseScope,
-            first_attempt: ctx.attempt === 1
-          });
+          return await callRendererForStep(
+            this.env,
+            {
+              request_id: requestId,
+              url,
+              browser_quota_kind: 'bindings_launch',
+              include_screenshot: options.includeScreenshot,
+              include_pdf: options.includePdf,
+              include_markdown: options.includeMarkdown ?? true,
+              // Every attempt of this step shares the run id, so a retry reuses what an earlier attempt stored.
+              reuse_scope: reuseScope,
+              first_attempt: ctx.attempt === 1
+            },
+            (m) => new NonRetryableError(m)
+          );
         }
       );
       const renderResult = renderOutcome.result;
@@ -1101,11 +1086,11 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           timeout: '3 minutes'
         },
         async () => {
-          return await callSinglefile(this.env, {
-            request_id: requestId,
-            url,
-            options_r2_key: optionsR2Key
-          });
+          return await callSinglefileForStep(
+            this.env,
+            { request_id: requestId, url, options_r2_key: optionsR2Key },
+            (m) => new NonRetryableError(m)
+          );
         }
       );
 
@@ -1133,106 +1118,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         await stub.release(leaseId);
       });
     }
-  }
-
-  /**
-   * Run parallel derivative extractions (readability + monolith).
-   * These don't require browser rendering.
-   */
-  private async runParallelDerivatives(
-    step: WorkflowStep,
-    requestId: string,
-    renderedHtmlKey: string,
-    url: string
-  ): Promise<{
-    readabilityJson?: ArtifactMeta;
-    readabilityMd?: ArtifactMeta;
-    monolith?: ArtifactMeta;
-  }> {
-    const monolithBaseUrl = this.toMonolithBaseUrl(url);
-
-    // Log start + capture timing
-    const derivStartedAt = Date.now();
-    await step.do('log-derivatives-start', async () => {
-      await logStepStarted(this.env, requestId, 'derivatives');
-    });
-
-    // Run readability and monolith in parallel
-    let readabilityResult: Awaited<ReturnType<typeof callReadability>>;
-    let monolithResult: Awaited<ReturnType<typeof callMonolith>>;
-    try {
-      [readabilityResult, monolithResult] = await Promise.all([
-        step.do(
-          'readability',
-          {
-            retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
-            timeout: '2 minutes'
-          },
-          async () => {
-            return await callReadability(this.env, {
-              request_id: requestId,
-              rendered_html_key: renderedHtmlKey,
-              url
-            });
-          }
-        ),
-        this.monolithWithQuota(
-          step,
-          requestId,
-          renderedHtmlKey,
-          monolithBaseUrl
-        )
-      ]);
-    } catch (err) {
-      await logStepFailed(
-        this.env,
-        requestId,
-        'derivatives',
-        err instanceof Error ? err : String(err)
-      );
-      throw err;
-    }
-
-    // Log artifacts + duration + enriched meta
-    await step.do('log-derivative-artifacts', async () => {
-      await logArtifactWritten(
-        this.env,
-        requestId,
-        readabilityResult.json.kind,
-        readabilityResult.json.r2Key,
-        readabilityResult.json.bytes,
-        readabilityResult.json.contentType,
-        readabilityResult.json.sha256
-      );
-      await logArtifactWritten(
-        this.env,
-        requestId,
-        readabilityResult.md.kind,
-        readabilityResult.md.r2Key,
-        readabilityResult.md.bytes,
-        readabilityResult.md.contentType,
-        readabilityResult.md.sha256
-      );
-      await logArtifactWritten(
-        this.env,
-        requestId,
-        monolithResult.artifact.kind,
-        monolithResult.artifact.r2Key,
-        monolithResult.artifact.bytes,
-        monolithResult.artifact.contentType,
-        monolithResult.artifact.sha256
-      );
-      await logStepCompletedWithDuration(this.env, requestId, 'derivatives', derivStartedAt, {
-        ...(readabilityResult.meta ? { readabilityMeta: readabilityResult.meta } : {}),
-        ...(monolithResult.meta ? { monolithMeta: monolithResult.meta } : {})
-      });
-    });
-
-    return {
-      readabilityJson: readabilityResult.json,
-      readabilityMd: readabilityResult.md,
-      monolith: monolithResult.artifact
-    };
   }
 
   /**
@@ -1319,63 +1204,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     return { monolith: monolithResult.artifact };
   }
 
-  /**
-   * Persist artifacts to GCS.
-   */
-  private async persistToGcs(
-    step: WorkflowStep,
-    requestId: string,
-    manifestKey: string,
-    context?: Record<string, unknown>
-  ) {
-    const persistToken = (manifestKey.split('/').pop() ?? `${Date.now()}`)
-      .replace(/[^a-zA-Z0-9_-]/g, '_');
-
-    // Log start + capture timing
-    const persistStartedAt = Date.now();
-    await step.do(`log-persist-start-${persistToken}`, async () => {
-      await logEvent(this.env, requestId, 'persist.started', 'Starting GCS persistence', {
-        manifestKey,
-        ...(context ?? {}),
-      });
-    });
-
-    // Call GCS service
-    const result = await step.do(
-      `persist-gcs-${persistToken}`,
-      {
-        retries: { limit: 5, delay: '10 seconds', backoff: 'exponential' },
-        timeout: '10 minutes'
-      },
-      async () => {
-        return await callGcs(this.env, {
-          request_id: requestId,
-          manifest_key: manifestKey
-        });
-      }
-    );
-
-    // Log completion + duration + enriched meta
-    await step.do(`log-persist-complete-${persistToken}`, async () => {
-      const durationMs = Date.now() - persistStartedAt;
-      await logEvent(
-        this.env,
-        requestId,
-        'persist.completed',
-        'GCS persistence completed',
-        {
-          firestore_doc_id: result.firestore_doc_id,
-          duration_ms: durationMs,
-          manifestKey,
-          ...(context ?? {}),
-          ...(result.meta ? { meta: result.meta } : {})
-        }
-      );
-    });
-
-    return result;
-  }
-
   private toMonolithBaseUrl(rawUrl: string): string {
     // eslint-disable-next-line no-control-regex -- stripping control chars from URLs is the point
     const sanitized = rawUrl.replace(/[\u0000-\u001F\u007F]/g, '').trim();
@@ -1454,27 +1282,6 @@ export default {
         }
       } catch (err) {
         console.error('[workflow] Error starting workflow:', err);
-        const errMsg = err instanceof Error ? err.message : String(err);
-        return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
-      }
-    }
-
-    // GET /browser-quota/sandbox-leases - active sandbox_exec leases, read-only.
-    // Consumed by the gateway's orphan-container sweep. Unlike /start and
-    // /status (service-binding-only callers), this is guarded by the internal
-    // API key since it exposes quota state.
-    if (request.method === 'GET' && url.pathname === '/browser-quota/sandbox-leases') {
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      try {
-        const stub = env.BROWSER_QUOTA.get(env.BROWSER_QUOTA.idFromName('global'));
-        const leases = await stub.listSandboxLeases();
-        return Response.json({ leases });
-      } catch (err) {
-        console.error('[workflow] Error listing sandbox leases:', err);
         const errMsg = err instanceof Error ? err.message : String(err);
         return Response.json({ error: 'Internal error', message: errMsg }, { status: 500 });
       }

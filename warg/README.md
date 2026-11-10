@@ -34,16 +34,57 @@ pnpm format:check
 
 ```bash
 pnpm --filter @warg/shared test
-pnpm -r --if-present run test               # every package; the gateway and workflow also run workerd tests
+pnpm -r --if-present run test               # every package's unit tests (what CI runs); the gateway and workflow also run workerd tests
 pnpm --filter @warg/gateway test:runtime    # only the gateway runtime tests (workerd)
 pnpm --filter @warg/workflow test:runtime   # only the workflow runtime tests (workerd)
 ```
+
+The dashboard also has browser checks (Playwright, Chromium) of the sign-in,
+the archive content policy, the archive preview, the infra view and the inbox.
+They start the dashboard Worker under a local `cf dev`
+(`pages/dashboard/cloudflare.config.ts`) with test credentials, a stand-in
+logger worker (`pages/dashboard/e2e/stub-logger`, also under `cf dev`) and
+per-spec stubs, so they need no live service and no Cloudflare account. The
+test credentials go in a gitignored `.dev.vars.e2e` (or `.dev.vars.e2e-logger`,
+`.dev.vars.e2e-settle`) that the Playwright config writes before each run;
+your own `.dev.vars` is not read. Install the browser once, then run them:
+
+```bash
+pnpm --filter warg-dashboard exec playwright install chromium
+pnpm --filter warg-dashboard test:e2e
+```
+
+They use the local ports 18797 (stand-in logger), 18798 (stubs) and 18799
+(dashboard); set `E2E_LOGGER_PORT`, `E2E_STUB_PORT` or `E2E_PAGES_PORT` when
+one is taken. CI runs them in a job of their own, apart from the unit tests.
+
+`test:e2e:logger` and `test:e2e:settle` run the dashboard against the real
+logger (and, for the settle check, the workflow worker in mock mode). Those two
+workers start under `wrangler dev`, not `cf dev`: each run gets its own fresh
+D1 and R2 folder through `--persist-to`, which `cf dev` (cf 1.0.0-beta.17) has
+no option for.
 
 ### Run a worker locally
 
 ```bash
 pnpm --filter @warg/gateway dev
+pnpm --filter warg-dashboard dev    # the dashboard Worker on http://127.0.0.1:8788
 ```
+
+The `dev` scripts run `cf dev`, which reads the worker's `cloudflare.config.ts`
+(cf hands it to wrangler's dev server) and its `.dev.vars`. It accepts only
+`--mode`, `--host`, `--port` and `--local`; a mode `<m>` reads `.dev.vars.<m>`
+in place of `.dev.vars`. Monolith's `dev` stays on `wrangler dev`: cf dev
+rejects its container-backed Durable Object.
+
+The dashboard is the Worker `warg-dashboard` in `pages/dashboard/`: static
+files in `public/` (served by its assets binding), the Pages-style handlers in
+`functions/` (unchanged `onRequest(context)` functions), and `src/`, the
+Worker entry and the router that runs them. Every request runs the Worker
+first, so the sign-in middleware (`functions/_middleware.ts`) guards each page
+and API route. A new function file must be added to the table in
+`src/routes.ts`; `src/__tests__/router.test.ts` fails until it is. Put local
+dev values in `pages/dashboard/.dev.vars` (copy `.dev.vars.example`).
 
 ## Deploying
 
@@ -55,26 +96,44 @@ Node 22). `warg/.nvmrc` names 24.22.2; with fnm, run `fnm use` in `warg/`.
 
 1. Commit your work. The script refuses a tree with uncommitted or untracked
    files unless you pass `--allow-dirty`, and then every label ends in `-dirty`.
-2. Sign in once, one sign-in per target: `cf auth login` (workers),
-   `wrangler login` or `CLOUDFLARE_API_TOKEN` (the dashboard; wrangler does not
-   reuse the cf credentials), `firebase login`, `FIREBASE_TOKEN` or
+2. Sign in once, one sign-in per target: `cf auth login` (the workers and the
+   dashboard Worker), `firebase login`, `FIREBASE_TOKEN` or
    `gcloud auth application-default login` (Cloud Functions) and
    `gcloud auth login` (the function verification, the secret and invoker
-   checks and the rules step through gcloud). The script checks the wrangler,
-   firebase and, for the rules, gcloud sign-ins before the first upload. Start
+   checks and the rules step through gcloud). The script checks the firebase
+   and, for the rules, gcloud sign-ins before the first upload. Start
    Docker before a deploy that includes `monolith` (its container image is
    built locally).
-3. Deploy from `warg/`:
+3. Set the dashboard Worker's secrets. Every dashboard page and API call asks
+   for `DASHBOARD_AUTH` through the browser's sign-in prompt (HTTP Basic);
+   without it every page answers 500 `Dashboard auth is not configured.`. The
+   API routes also send `INTERNAL_API_KEY` (logger and gateway),
+   `DASHBOARD_API_KEY` (dashboard-api), `BACKFILL_STATUS_KEY`
+   (backfillStatus), and `CF_API_TOKEN` and `CF_ACCOUNT_ID` (the infra view).
+   `--with-dashboard` stops with exit 3 before anything deploys while one is
+   missing. A secret can only be set on a Worker that exists, so the very first
+   dashboard deploy passes `--allow-missing-secrets warg-dashboard` (the Worker
+   then answers 500 to everyone until `DASHBOARD_AUTH` is set). Set each one
+   without putting the value in your shell history:
+
+   ```bash
+   read -rs VALUE && pnpm exec cf workers secrets update DASHBOARD_AUTH --worker warg-dashboard --type secret_text --text "$VALUE"; unset VALUE
+   ```
+
+   `DASHBOARD_AUTH` is `user:password`; use a generated password, for example
+   the output of `openssl rand -base64 24`.
+4. Deploy from `warg/`:
 
    ```bash
    pnpm deploy:all                   # workers, functions and the dashboard (never the rules; prints a rules: not deployed row)
    pnpm run deploy -- --all --with-rules   # the same, then the Firestore and Storage rules
    pnpm run deploy                   # workers only
-   pnpm run deploy -- --with-pages   # workers and the dashboard
+   pnpm run deploy -- --with-dashboard   # workers, then the dashboard Worker (pnpm deploy:dashboard)
    pnpm run deploy -- --functions-only   # the four Cloud Functions only
    pnpm run deploy -- --with-rules   # workers, then the Firestore and Storage rules
    pnpm run deploy -- --functions-only --with-rules   # the functions, then the rules
    pnpm deploy:quick                 # skip typecheck and tests (the secret check still runs)
+   pnpm run deploy -- --with-dashboard --dry-run   # list the targets, the dashboard Worker included; deploys nothing
    ```
 
    When `firebase deploy` asks for the `--force` option (a new retry policy, for
@@ -84,12 +143,25 @@ Node 22). `warg/.nvmrc` names 24.22.2; with fnm, run `fnm use` in `warg/`.
    Plain `pnpm deploy` is pnpm's own built-in command and does not run the
    script; use `pnpm run deploy` or one of the `deploy:*` scripts.
 
+   The dashboard inbox reads its completed-today count from dashboard-api
+   (`GET /stats/completed-today`), and the inbox answers 500 when that call
+   fails. Deploy dashboard-api with or before the dashboard (`--all`, or
+   `--with-functions --with-dashboard`; the script deploys the dashboard last,
+   after the workers it binds and the functions). A `--with-dashboard` run
+   alone, or a run that holds dashboard-api
+   back at the link check, can ship a dashboard whose dashboard-api lacks the
+   route; deploy the functions next.
+
 4. Read the summary. The script prints one line per target on every exit:
    `deployed` (the platform shows this run's version id, update time or commit
    hash), `failed`, `unverified` (the command succeeded but the platform did not
    change) or `skipped` (not reached). The run stops at the first failure and
    exits with that command's code; 2 means a usage error or a refused dirty
    tree, 3 a failed verification or a missing secret.
+
+   `--with-pages` (and `pnpm deploy:pages`) is the old name of
+   `--with-dashboard` from when the dashboard was a Pages project; it does the
+   same.
 
 First deploy of a new worker: each worker declares its required secrets in
 `cloudflare.config.ts` and `wrangler.jsonc`, and cf refuses to deploy a worker
@@ -112,6 +184,16 @@ firebase.json predeploy runs `pnpm run build:deploy` in the function folder,
 which writes `dist-deploy/` with the commit label baked in; `pnpm -r test`
 runs the function test suites. Each function folder needs its `.env` (copy
 `.env.example`).
+
+Built workspace packages: the workers import `@warg/shared` from its
+TypeScript source, but the cloud functions and the dashboard functions import
+its `@warg/shared/archive-ids` subpath (and `@warg/article-writer`,
+`@warg/url-normalizer`) from built `dist/` output. `pnpm install` builds them
+through each package's `prepare` script, `build:deploy` rebuilds each one a
+function bundles, and the dashboard deploy rebuilds `@warg/shared`. After editing
+one of these packages, run its `build` script (for example
+`pnpm --filter @warg/shared run build`) before running a function's tests
+locally.
 
 Function secrets and deploy configuration: before any deploy that includes the
 functions, the script checks that every Secret Manager secret the functions
@@ -158,13 +240,25 @@ Checking the deploy script: `pnpm deploy:check` runs shellcheck and a stub
 harness that drives the script end to end without credentials (CI runs it too).
 
 The `deploy` scripts of the function packages and of `pages/dashboard` only
-print a pointer to `scripts/deploy.sh` and exit 1. `pages/dashboard-v2` is not
-deployed by the script and keeps its own `deploy` script.
+print a pointer to `scripts/deploy.sh` and exit 1.
 
-Two configs per worker: `cloudflare.config.ts` is what `cf deploy` reads, and
-`wrangler.jsonc` still serves `wrangler dev` and `wrangler types`. Change a
-binding in both; `node scripts/check-worker-configs.mjs` (run in CI) fails when
-they disagree.
+**Retiring the old dashboard Pages projects.** The dashboard now deploys as
+the Worker `warg-dashboard`; the Pages project `warg-dashboard` (served on
+`warg-dashboard.pages.dev`) keeps serving its last deployment until it is
+deleted, and so does the project of the old React dashboard if it still
+exists, with no sign-in and its own copies of `DASHBOARD_API_KEY` and
+`BACKFILL_STATUS_KEY`. Once the Worker serves the dashboard, delete each from
+`warg/` and list again to check that none is left:
+
+```bash
+pnpm exec cf pages list
+pnpm exec cf pages delete <project name>
+pnpm exec cf pages list
+```
+
+Then rotate `DASHBOARD_API_KEY` and `BACKFILL_STATUS_KEY` with the two steps of
+[Rotating the function keys](#rotating-the-function-keys-two-steps), so the
+copies the old project held stop working.
 
 The compatibility date of all nine workers lives in
 `workers/compatibility-date.mjs`. Each `cloudflare.config.ts` imports it and
@@ -174,9 +268,19 @@ renderer may not go below 2026-03-24, the first date with `quickAction()` on
 the browser binding. Raise the date on purpose: read the compatibility flags
 the new date turns on, then run each worker's tests and `wrangler dev`.
 
-Each worker's `node_modules/wrangler` is a link that the root `postinstall`
-(`scripts/link-worker-bundler.mjs`) creates, because `cf deploy` looks for the
-bundler only inside the worker folder. After an install with
+Two configs per worker: `cloudflare.config.ts` is what `cf deploy` and
+`cf dev` read, and `wrangler.jsonc` still serves `wrangler types`, the logger's
+Workers-pool unit tests, and the `wrangler dev` runs that cf dev cannot do yet
+(monolith, and the logger and workflow servers of the browser checks). The
+dashboard Worker adds `wrangler.config.ts`, which tells `cf deploy` that its
+static files are `public/`. Change a binding in both; `node
+scripts/check-worker-configs.mjs` (run in CI, over `workers/*` and
+`pages/dashboard`) fails when they disagree.
+
+Each worker's `node_modules/wrangler` (the dashboard's too) is a link that the root `postinstall`
+(`scripts/link-worker-bundler.mjs`) creates, because `cf deploy` and `cf dev`
+look for wrangler only inside the worker folder; the browser checks' stand-in
+logger gets one too. After an install with
 `--ignore-scripts`, run `node scripts/link-worker-bundler.mjs` before
 deploying. Remove the script and the `postinstall` entry once cf finds the
 bundler through the normal Node module lookup, or the workspace stops using the
@@ -342,8 +446,8 @@ one function only. Callers send it in the `X-Internal-API-Key` header.
 | Secret | Stored in | Sent by | Checked by |
 |---|---|---|---|
 | `ARCHIVE_GATEWAY_KEY` | Secret Manager and the `gcs` worker | storage worker (`workers/gcs`) | archive-gateway |
-| `DASHBOARD_API_KEY` | Secret Manager and both dashboards' Pages secrets | dashboard | dashboard-api |
-| `BACKFILL_STATUS_KEY` | Secret Manager and both dashboards' Pages secrets | dashboard | backfillStatus |
+| `DASHBOARD_API_KEY` | Secret Manager and the dashboard Worker's secrets | dashboard | dashboard-api |
+| `BACKFILL_STATUS_KEY` | Secret Manager and the dashboard Worker's secrets | dashboard | backfillStatus |
 | `GATEWAY_LOG_KEY` | Secret Manager | archive-gateway (event logs) | gateway worker `/internal/log` |
 
 `INTERNAL_API_KEY` in Secret Manager is the old shared function key. The
@@ -370,11 +474,9 @@ commit or a log: pipe generated values straight into the command.
 2. **Set the matching caller secrets** to the same values:
 
    ```bash
-   pnpm exec wrangler secret put ARCHIVE_GATEWAY_KEY --config workers/gcs/wrangler.jsonc
-   pnpm exec wrangler pages secret put DASHBOARD_API_KEY --project-name warg-dashboard
-   pnpm exec wrangler pages secret put BACKFILL_STATUS_KEY --project-name warg-dashboard
-   pnpm exec wrangler pages secret put DASHBOARD_API_KEY --project-name warg-dashboard-v2
-   pnpm exec wrangler pages secret put BACKFILL_STATUS_KEY --project-name warg-dashboard-v2
+   pnpm exec cf workers secrets update ARCHIVE_GATEWAY_KEY --worker gcs --type secret_text --text "$(gcloud secrets versions access latest --secret ARCHIVE_GATEWAY_KEY --project trails-e428e)"
+   pnpm exec cf workers secrets update DASHBOARD_API_KEY --worker warg-dashboard --type secret_text --text "$(gcloud secrets versions access latest --secret DASHBOARD_API_KEY --project trails-e428e)"
+   pnpm exec cf workers secrets update BACKFILL_STATUS_KEY --worker warg-dashboard --type secret_text --text "$(gcloud secrets versions access latest --secret BACKFILL_STATUS_KEY --project trails-e428e)"
    ```
 
 3. **Deploy one.** Set `KEY_ROTATION_DUAL_ACCEPT=true` in the three `.env`
@@ -388,8 +490,7 @@ commit or a log: pipe generated values straight into the command.
    deploy the callers:
 
    ```bash
-   pnpm run deploy -- --with-pages
-   pnpm --dir pages/dashboard-v2 run deploy
+   pnpm run deploy -- --with-dashboard
    ```
 
 4. **Check every caller on its new key:** a test article upload through the
@@ -416,6 +517,31 @@ commit or a log: pipe generated values straight into the command.
 Step 6 must run before step 7. Deploy two unbinds `INTERNAL_API_KEY` from the
 functions; a function deploy fails while a bound secret has no enabled
 version.
+
+### The dashboard sign-in
+
+| Secret | Stored in | Sent by | Checked by |
+|---|---|---|---|
+| `DASHBOARD_AUTH` (`user:password`) | the dashboard Worker's secrets | the operator's browser (HTTP Basic) | the dashboard's sign-in middleware (`pages/dashboard/functions/_middleware.ts`), which the Worker runs before every page and API route |
+
+Every dashboard page and API call needs it. A request without the right
+credential gets 401 `Sign-in required.` with a Basic challenge, so the browser
+shows its sign-in prompt; a dashboard with no secret set answers 500
+`Dashboard auth is not configured.`; a signed-in write that another site
+starts gets 403 `Cross-site request refused.`.
+
+To rotate it, set a new generated value; setting a secret creates a new
+version of the Worker, so it takes effect at once and the browser asks for the
+new credential at the next request:
+
+```bash
+read -rs VALUE && pnpm exec cf workers secrets update DASHBOARD_AUTH --worker warg-dashboard --type secret_text --text "$VALUE"; unset VALUE
+```
+
+The middleware does not limit failed sign-ins. Keep the password long and
+random (`openssl rand -base64 24`), and, if the dashboard is reachable from the
+open internet, add a Cloudflare rate-limiting rule on its hostname for
+responses with status 401.
 
 ## Merging duplicate shared articles
 
@@ -588,8 +714,22 @@ previous page's `nextCursor` (`null` on the last page and on a filtered or
 searched list). A malformed cursor answers 400 `{"error":"Invalid cursor"}`. A
 `page` without a cursor skips the earlier pages with an offset, which Firestore
 bills per skipped document; a page past 10,000 skipped documents answers 400
-`{"error":"Page out of range; follow nextCursor instead"}`. Both dashboards send
+`{"error":"Page out of range; follow nextCursor instead"}`. The dashboard sends
 the cursor with the page number when they step to the next page.
+
+`GET /stats/completed-today` (dashboard-api, `X-Internal-API-Key` like every
+other route; a missing or wrong key answers 401) answers
+`{"completedToday": <n>, "since": "<UTC midnight, ISO>", "truncated": <bool>}`:
+the dashboard user's articles that became complete since the start of the
+current UTC day. An article becomes complete when the last of its four core
+archives (rendered, readability, markdown, singlefile) succeeds, so a core
+archive that is run again today counts its article again. The count reads the
+same 2,000 most recently added articles as a filtered list; `truncated` is true
+when the user has more, and an older article completed today is then missing
+from the count. One count is reused for a minute. The inbox shows this value
+as `counts.completedToday` under "Completed today"; before, the dashboard
+counted a rolling 24 hours over its 25 most recent completed articles, so the
+number can differ from the old one, most around UTC midnight.
 
 **Second-account check.** After deploy two (step 6 of
 [Rotating the function keys](#rotating-the-function-keys-two-steps)), with the

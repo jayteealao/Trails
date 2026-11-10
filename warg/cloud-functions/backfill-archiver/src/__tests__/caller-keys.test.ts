@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Request, Response } from 'express';
-import { statusKeyMatches, statusSecrets } from '../secrets.js';
+import { oldInternalKey, statusKeyMatches, statusSecrets } from '../secrets.js';
 import { backfillArchiver, backfillStatus } from '../index.js';
 
 // Dummy values only. Each caller has its own key; the old shared key is
@@ -120,6 +120,20 @@ test('the old key is bound only while the switch is on', async (t) => {
   }));
   await t.test('unset', withEnv({}, () => {
     assert.deepEqual(names(), ['BACKFILL_STATUS_KEY']);
+  }));
+});
+
+test('the old key accessor gives the one old key only while the switch is on', async (t) => {
+  await t.test('on', withEnv({ KEY_ROTATION_DUAL_ACCEPT: 'true' }, () => {
+    const old = oldInternalKey();
+    assert.equal(old?.name, 'INTERNAL_API_KEY');
+    assert.equal(oldInternalKey(), old);
+  }));
+  await t.test('off', withEnv({ KEY_ROTATION_DUAL_ACCEPT: 'false' }, () => {
+    assert.equal(oldInternalKey(), undefined);
+  }));
+  await t.test('unset', withEnv({}, () => {
+    assert.equal(oldInternalKey(), undefined);
   }));
 });
 

@@ -2,11 +2,13 @@ export type {
   ArtifactKind,
   ArtifactMeta,
   ArchiveManifest,
+  ArchiveOptionBooleanKey,
   ArchiveOptions,
   WorkflowStep,
   ReadabilityResult
 } from './types.js';
-export { WORKFLOW_STEPS } from './types.js';
+
+export { ARCHIVE_OPTION_BOOLEAN_KEYS, WORKFLOW_STEPS } from './types.js';
 
 export type {
   CheckpointStep,
@@ -45,6 +47,16 @@ export type {
 export { R2_KEY_ERROR_NAMES, credentialFailure, isCredentialErrorCode } from './dashboard.js';
 export type { CredentialErrorCode } from './dashboard.js';
 
+export {
+  REQUEST_ERROR_CODES,
+  USER_ACTION_HINTS,
+  isRequestErrorCode,
+  isUserActionHint,
+} from './dashboard.js';
+
+export type { RequestSettle, SettledRecord } from './settle.js';
+export { parseRequestSettle, isIncompleteDegradation } from './settle.js';
+
 export { createEvent } from './logging.js';
 
 export {
@@ -56,10 +68,34 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
-export { decodeBase64ToArrayBuffer } from './base64.js';
+export type { ErrorClassification, RendererFallbackReason, SandboxFailureCode } from './failure-classify.js';
+export {
+  RENDERER_CONTENT_FAILED_ERROR,
+  withClassificationTag,
+  readClassificationTag,
+  isRpc32MiBLimit,
+  isR2CredentialRejection,
+  isMonolithInputTooLarge,
+  classifySandboxOutput,
+  classifyError,
+  classifyServiceTimeout,
+  classifyServiceFailure,
+  rendererFallbackReasonFromBody,
+  defaultRetryableForCode,
+  defaultActionForCode,
+  inferLegacyErrorCode,
+} from './failure-classify.js';
+
+export type { InternalJsonRequest } from './worker-request.js';
+export { INTERNAL_API_KEY_HEADER, readInternalJsonRequest } from './worker-request.js';
+
+export { LEASE_TTL_MS, isLeaseStale } from './lease.js';
 
 export {
+  isDeadHostErrorText,
   isProxyErrorPage,
+  proxyErrorPageText,
+  PROXY_ERROR_PAGE_MAX_LENGTH,
   PROXY_ERROR_PAGE_REASON,
   isChallengePage,
   ACCESS_BLOCKED_REASON,
@@ -67,8 +103,19 @@ export {
   BROWSER_TOKEN_INVALID_REASON,
 } from './render-content.js';
 
+export { decodeBase64ToArrayBuffer } from './base64.js';
+
 export type { ArtifactBucket, ArtifactHeadBucket } from './artifacts.js';
 export { storeArtifact, findReusableArtifact } from './artifacts.js';
 
 export type { KindHealthArtifact, KindHealthRow, WorkflowStartedData } from './kind-health.js';
 export { HEALTH_KIND_ARTIFACTS } from './kind-health.js';
+
+export {
+  SAFE_ID_RE,
+  LEGACY_SAFE_ID_RE,
+  extractDomain,
+  extractHostname,
+  GCS_ARTIFACT_PATHS,
+  getGcsPath,
+} from './archive-ids.js';

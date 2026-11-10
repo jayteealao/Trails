@@ -2,39 +2,23 @@ import type { Request, Response } from 'express';
 import type { GetSignedUrlConfig } from '@google-cloud/storage';
 import { Storage } from '@google-cloud/storage';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import {
+  buildArchiveUploadJournalPatch,
+  journalSharedArticleUploads,
+  type GatewayArchiveEntries,
+  type GatewayArchiveEntry
+} from '@warg/article-writer';
+import { extractHostname, getGcsPath } from '@warg/shared/archive-ids';
 import type {
   CreateUploadRequest,
   CreateUploadResponse,
-  UploadEntry,
-  ArticleDocument,
-  ArtifactKind,
-  ArchiveEntry
+  UploadEntry
 } from './types.js';
-import { GCS_PATH_CONFIG, KIND_TO_ARCHIVE_KEY } from './types.js';
+import { KIND_TO_ARCHIVE_KEY } from './types.js';
 import { logEvent } from './logging.js';
 
 const GCS_BUCKET = process.env['GCS_BUCKET'] ?? 'htbase-archives-standard';
 const SIGNED_URL_EXPIRY_MINUTES = 15;
-
-/**
- * Get the GCS path for an artifact.
- */
-function getGcsPath(requestId: string, kind: ArtifactKind): string {
-  const config = GCS_PATH_CONFIG[kind];
-  return `archives/${requestId}/${config.folder}/${config.filename}`;
-}
-
-/**
- * Extract domain from URL.
- */
-function extractDomain(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname;
-  } catch {
-    return 'unknown';
-  }
-}
 
 /**
  * Handler for POST /create-upload.
@@ -81,7 +65,7 @@ export async function handleCreateUpload(
     // Check if document exists
     const existingDoc = await docRef.get();
     const existingArchives = existingDoc.exists
-      ? ((existingDoc.data()?.['archives'] as Record<string, ArchiveEntry> | undefined) ?? {})
+      ? ((existingDoc.data()?.['archives'] as Record<string, GatewayArchiveEntry> | undefined) ?? {})
       : {};
 
     // Journal-then-act (Plan 3a, plans/article-status-recovery.md):
@@ -90,7 +74,7 @@ export async function handleCreateUpload(
     // GCS object (path is canonical from request_id+kind) and promote the
     // archive entry from `uploading` to `success`.
     const startedAt = new Date().toISOString();
-    const archives: Record<string, ArchiveEntry> = {};
+    const archives: GatewayArchiveEntries = {};
     for (const artifact of artifacts) {
       const archiveKey = KIND_TO_ARCHIVE_KEY[artifact.kind];
       if (!archiveKey) continue;
@@ -104,25 +88,19 @@ export async function handleCreateUpload(
       archives[archiveKey] = {
         ...(existing ?? {}),
         status: 'uploading',
-        gcs_path: `gs://${GCS_BUCKET}/${getGcsPath(request_id, artifact.kind)}`,
+        gcs_path: `gs://${GCS_BUCKET}/${getGcsPath(request_id, artifact.kind).path}`,
         gcs_bucket: GCS_BUCKET,
         started_at: startedAt,
       };
     }
 
-    const docData: Partial<ArticleDocument> = {
-      item_id: request_id,
-      url,
-      domain: extractDomain(url),
-      updated_at: now,
-      archives
-    };
-
-    if (!existingDoc.exists) {
-      docData.created_at = now;
-    }
-
-    await docRef.set(docData, { merge: true });
+    await journalSharedArticleUploads(
+      docRef,
+      buildArchiveUploadJournalPatch(
+        { itemId: request_id, url, domain: extractHostname(url), archives, isNew: !existingDoc.exists },
+        now
+      )
+    );
     console.log(`[create-upload] Firestore document created/updated: ${request_id}`);
 
     // Generate signed URLs for each artifact
@@ -130,7 +108,7 @@ export async function handleCreateUpload(
     const expiresAt = new Date(Date.now() + SIGNED_URL_EXPIRY_MINUTES * 60 * 1000);
 
     for (const artifact of artifacts) {
-      const gcsPath = getGcsPath(request_id, artifact.kind);
+      const gcsPath = getGcsPath(request_id, artifact.kind).path;
       const file = bucket.file(gcsPath);
 
       const signedUrlOptions: GetSignedUrlConfig = {

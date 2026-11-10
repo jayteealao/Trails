@@ -1,0 +1,40 @@
+// Deploys and local dev read cloudflare.config.ts (cf deploy, cf dev). This
+// file serves `wrangler types` only. Change a binding in both files;
+// scripts/check-worker-configs.mjs fails when they differ.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "warg-dashboard",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-01-01",
+  // The static files live in public/ alone, away from the source and
+  // node_modules. Every request runs the Worker first, so the sign-in
+  // middleware guards the pages as well as the API; the Worker hands what no
+  // function serves to ASSETS. Pages served index.html for an unknown path
+  // (there is no 404.html), which single-page-application keeps. That also
+  // serves index.html for the app routes (/inbox, /requests/<id> and so on),
+  // so there is no _redirects file: Workers assets rejects its rewrites to
+  // /index.html as redirect loops.
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  "vars": {
+    "BACKFILL_STATUS_URL": "https://us-central1-trails-e428e.cloudfunctions.net/backfillStatus",
+    "DASHBOARD_API_URL": "https://us-central1-trails-e428e.cloudfunctions.net/dashboardApi"
+  },
+  // Deploy order: the dashboard deploys AFTER logger and gateway so its
+  // service-binding targets exist (scripts/deploy.sh).
+  "services": [
+    { "binding": "LOGGER", "service": "logger" },
+    { "binding": "GATEWAY", "service": "gateway" }
+  ],
+  // Secrets (set with `cf workers secrets update`, see warg/README.md):
+  // - DASHBOARD_AUTH: the sign-in credential, `user:password`
+  // - INTERNAL_API_KEY: the logger and gateway calls
+  // - DASHBOARD_API_KEY: the dashboard-api cloud function
+  // - BACKFILL_STATUS_KEY: the backfillStatus cloud function
+  // - CF_API_TOKEN, CF_ACCOUNT_ID: the infra view's Cloudflare API reads
+  "observability": { "enabled": true }
+}

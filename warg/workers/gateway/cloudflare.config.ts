@@ -39,9 +39,6 @@ export default defineConfig({
 			WORKFLOW: bindings.worker({
 				worker: "workflow",
 			}),
-			MONOLITH: bindings.worker({
-				worker: "monolith",
-			}),
 			HEALTH_EMAIL: bindings.sendEmail({}),
 		},
 	},

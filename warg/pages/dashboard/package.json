@@ -2,9 +2,20 @@
   "name": "warg-dashboard",
   "private": true,
   "scripts": {
-    "dev": "wrangler pages dev . --port 8788",
-    "deploy": "node -e \"console.error('Deploy the dashboard with scripts/deploy.sh: from warg/, run pnpm deploy:pages');process.exit(1)\"",
-    "typecheck": "tsc --noEmit -p functions/tsconfig.json",
-    "test": "vitest run"
+    "dev": "cf dev --port 8788",
+    "deploy": "node -e \"console.error('Deploy the dashboard with scripts/deploy.sh: from warg/, run pnpm deploy:dashboard');process.exit(1)\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:logger": "playwright test -c playwright.logger.config.ts",
+    "test:e2e:settle": "playwright test -c playwright.settle.config.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260711.1",
+    "@playwright/test": "1.64.1",
+    "@warg/shared": "workspace:*",
+    "cf": "1.0.0-beta.17",
+    "vitest": "4.1.10",
+    "wrangler": "4.148.0"
   }
 }

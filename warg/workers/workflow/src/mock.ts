@@ -1,7 +1,7 @@
 import type { WorkflowStep } from 'cloudflare:workers';
-import type { ArtifactMeta, ArchiveManifest, ArtifactKind } from '@warg/shared';
+import type { ArchiveOptions, ArtifactMeta, ArchiveManifest, ArtifactKind } from '@warg/shared';
 import { getR2Key } from '@warg/shared';
-import type { ArchiveOptionsExtended, WorkflowResult } from './types.js';
+import type { WorkflowResult } from './types.js';
 import { logEvent, logArtifactWritten, updateManifestKey } from './logging.js';
 
 /**
@@ -32,7 +32,7 @@ function createMockArtifact(
 function generateMockArtifacts(
   requestId: string,
   url: string,
-  options: ArchiveOptionsExtended
+  options: ArchiveOptions
 ): Array<{ meta: ArtifactMeta; content: string }> {
   const timestamp = new Date().toISOString();
   const artifacts: Array<{ meta: ArtifactMeta; content: string }> = [];
@@ -120,7 +120,7 @@ export async function runMockPipeline(
   step: WorkflowStep,
   requestId: string,
   url: string,
-  options: ArchiveOptionsExtended
+  options: ArchiveOptions
 ): Promise<WorkflowResult> {
   // Generate mock artifacts
   const mockArtifacts = generateMockArtifacts(requestId, url, options);

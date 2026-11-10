@@ -1,10 +1,18 @@
 import puppeteer from '@cloudflare/puppeteer';
-import { accessBlockedResponse, isChallengePage, storeArtifact, timingSafeEqual } from '@warg/shared';
+import {
+  accessBlockedResponse,
+  isChallengePage,
+  PROXY_ERROR_PAGE_REASON,
+  proxyErrorPageText,
+  readInternalJsonRequest,
+  storeArtifact
+} from '@warg/shared';
 import { SINGLEFILE_SCRIPT, SINGLEFILE_HOOK } from './singlefile-bundle.js';
 import type {
   SinglefileRequest,
   SinglefileSuccessResponse,
   SinglefileRateLimitedResponse,
+  SinglefileProxyErrorResponse,
   SinglefileOptions,
   SinglefileNativeOptions
 } from './types.js';
@@ -177,25 +185,10 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     try {
-      const url = new URL(request.url);
-
-      if (request.method !== 'POST' || url.pathname !== '/singlefile') {
-        return Response.json({ error: 'Not found' }, { status: 404 });
-      }
-
-      // Verify internal API key
-      const apiKey = request.headers.get('X-Internal-API-Key');
-      if (!apiKey || !timingSafeEqual(apiKey, env.INTERNAL_API_KEY)) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-
-      // Parse request body
-      let body: SinglefileRequest;
-      try {
-        body = (await request.json()) as SinglefileRequest;
-      } catch {
-        return Response.json({ error: 'Invalid JSON' }, { status: 400 });
-      }
+      const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/singlefile']);
+      if (!pre.ok) return pre.response;
+      // The caller's request shape; its required fields are checked below.
+      const body = pre.body as SinglefileRequest;
 
       const { request_id, url: targetUrl, options_r2_key } = body;
       if (!request_id || !targetUrl) {
@@ -359,6 +352,21 @@ export default {
             { error: 'SingleFile capture failed: content too short', length: content?.length },
             { status: 502 }
           );
+        }
+
+        // A dead host can come back as the proxy's plain-text error page; never
+        // archive it as the article. Captures past the detector's length limit
+        // are real pages and are accepted without being scanned.
+        const proxyErrorText = proxyErrorPageText(content);
+        if (proxyErrorText !== undefined) {
+          console.warn('[singlefile] Rejected proxy/network error page', { url: targetUrl, length: content.length });
+          const proxyError: SinglefileProxyErrorResponse = {
+            error: 'SingleFile capture returned a proxy/network error page',
+            reason: PROXY_ERROR_PAGE_REASON,
+            detail: proxyErrorText,
+            url: targetUrl
+          };
+          return Response.json(proxyError, { status: 502 });
         }
 
         console.log('[singlefile] Capture complete, content length:', content.length);

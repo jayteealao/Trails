@@ -1,16 +1,20 @@
-// Proxy for GET /api/infra -> Cloudflare GraphQL + Workflows REST APIs
+// Proxy for GET /api/infra -> Cloudflare GraphQL + Workflows REST APIs.
+// The worker list comes from functions/lib/workers.json, which a unit test
+// keeps equal to the worker directories of warg/workers.
+
+import inventory from '../lib/workers.json';
 
 interface Env {
   CF_API_TOKEN: string;
   CF_ACCOUNT_ID: string;
+  // Optional base of the Cloudflare API; unset in production. The local
+  // browser checks point it at a stub server.
+  CF_API_URL?: string;
 }
 
-const CF_GQL_URL = 'https://api.cloudflare.com/client/v4/graphql';
+const CF_API_DEFAULT = 'https://api.cloudflare.com/client/v4';
 
-const WORKER_NAMES = [
-  'gateway', 'logger', 'workflow', 'renderer',
-  'singlefile', 'readability', 'monolith', 'gcs',
-];
+const WORKER_NAMES: readonly string[] = inventory.workers;
 
 const WORKFLOW_NAME = 'archive-workflow';
 const D1_DATABASE_ID = 'ff077e87-293b-4434-ad9e-ab669c9cbabb';
@@ -37,8 +41,8 @@ interface GqlResponse {
   errors?: Array<{ message: string }>;
 }
 
-async function queryGraphQL(token: string, query: string, variables: Record<string, unknown>): Promise<GqlResponse> {
-  const res = await fetch(CF_GQL_URL, {
+async function queryGraphQL(base: string, token: string, query: string, variables: Record<string, unknown>): Promise<GqlResponse> {
+  const res = await fetch(`${base}/graphql`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -68,7 +72,7 @@ interface WorkerRow {
   quantiles: { cpuTimeP50: number; cpuTimeP99: number };
 }
 
-async function fetchWorkerMetrics(token: string, accountId: string): Promise<WorkerMetric[]> {
+async function fetchWorkerMetrics(base: string, token: string, accountId: string): Promise<WorkerMetric[]> {
   const query = `query WorkersMetrics($accountTag: string!, $datetimeStart: Time!, $datetimeEnd: Time!) {
     viewer {
       accounts(filter: {accountTag: $accountTag}) {
@@ -96,7 +100,7 @@ async function fetchWorkerMetrics(token: string, accountId: string): Promise<Wor
     }
   }`;
 
-  const data = await queryGraphQL(token, query, {
+  const data = await queryGraphQL(base, token, query, {
     accountTag: accountId,
     datetimeStart: iso24hAgo(),
     datetimeEnd: isoNow(),
@@ -152,7 +156,7 @@ interface D1Row {
   sum: { readQueries: number; writeQueries: number; rowsRead: number; rowsWritten: number };
 }
 
-async function fetchD1Metrics(token: string, accountId: string): Promise<D1Metrics> {
+async function fetchD1Metrics(base: string, token: string, accountId: string): Promise<D1Metrics> {
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -178,7 +182,7 @@ async function fetchD1Metrics(token: string, accountId: string): Promise<D1Metri
     }
   }`;
 
-  const data = await queryGraphQL(token, query, {
+  const data = await queryGraphQL(base, token, query, {
     accountTag: accountId,
     databaseId: D1_DATABASE_ID,
     dateStart: dateStr(yesterday),
@@ -220,7 +224,7 @@ interface R2Row {
   max: { objectCount: number; payloadSize: number };
 }
 
-async function fetchR2Metrics(token: string, accountId: string): Promise<R2Metrics> {
+async function fetchR2Metrics(base: string, token: string, accountId: string): Promise<R2Metrics> {
   const query = `query R2Metrics($accountTag: string!, $bucketName: string!, $datetimeStart: Time!, $datetimeEnd: Time!) {
     viewer {
       accounts(filter: {accountTag: $accountTag}) {
@@ -242,7 +246,7 @@ async function fetchR2Metrics(token: string, accountId: string): Promise<R2Metri
     }
   }`;
 
-  const data = await queryGraphQL(token, query, {
+  const data = await queryGraphQL(base, token, query, {
     accountTag: accountId,
     bucketName: R2_BUCKET_NAME,
     datetimeStart: iso24hAgo(),
@@ -285,7 +289,7 @@ interface DOInvocationsRow {
   sum: { requests: number };
 }
 
-async function fetchDOMetrics(token: string, accountId: string): Promise<DOMetrics> {
+async function fetchDOMetrics(base: string, token: string, accountId: string): Promise<DOMetrics> {
   const now = new Date();
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -312,7 +316,7 @@ async function fetchDOMetrics(token: string, accountId: string): Promise<DOMetri
     }
   }`;
 
-  const data = await queryGraphQL(token, query, {
+  const data = await queryGraphQL(base, token, query, {
     accountTag: accountId,
     dateStart: dateStr(yesterday),
   });
@@ -356,8 +360,8 @@ interface WorkflowsApiResponse {
   result?: WorkflowInstance[];
 }
 
-async function fetchWorkflowMetrics(token: string, accountId: string): Promise<WorkflowsResult> {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workflows/${WORKFLOW_NAME}/instances?per_page=100`;
+async function fetchWorkflowMetrics(base: string, token: string, accountId: string): Promise<WorkflowsResult> {
+  const url = `${base}/accounts/${accountId}/workflows/${WORKFLOW_NAME}/instances?per_page=100`;
 
   const res = await fetch(url, {
     headers: {
@@ -393,14 +397,16 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     );
   }
 
+  const base = (env.CF_API_URL || CF_API_DEFAULT).replace(/\/+$/, '');
+
   try {
     // Fetch all metrics in parallel
     const [workers, d1, r2, durableObjects, workflows] = await Promise.all([
-      fetchWorkerMetrics(env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
-      fetchD1Metrics(env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
-      fetchR2Metrics(env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
-      fetchDOMetrics(env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
-      fetchWorkflowMetrics(env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
+      fetchWorkerMetrics(base, env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
+      fetchD1Metrics(base, env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
+      fetchR2Metrics(base, env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
+      fetchDOMetrics(base, env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
+      fetchWorkflowMetrics(base, env.CF_API_TOKEN, env.CF_ACCOUNT_ID),
     ]);
 
     return new Response(JSON.stringify({

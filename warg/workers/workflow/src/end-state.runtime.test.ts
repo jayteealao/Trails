@@ -2,9 +2,8 @@ import { applyD1Migrations, introspectWorkflowInstance } from 'cloudflare:test';
 import type { WorkflowInstanceIntrospector, WorkflowInstanceModifier } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { getR2Key } from '@warg/shared';
-import type { ArtifactKind, ArtifactMeta } from '@warg/shared';
+import type { ArchiveOptions, ArtifactKind, ArtifactMeta } from '@warg/shared';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import type { ArchiveOptionsExtended } from './types.js';
 
 const URL_UNDER_TEST = 'https://example.com/article';
 
@@ -28,7 +27,7 @@ interface RequestStatus {
   events: Array<{ type: string; data?: Record<string, unknown> }>;
 }
 
-type RunOptions = Omit<ArchiveOptionsExtended, 'url'>;
+type RunOptions = Omit<ArchiveOptions, 'url'>;
 
 let nextRequest = 0;
 

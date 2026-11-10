@@ -22,7 +22,7 @@ import com.jayteealao.trails.data.local.database.Article
  * - neither key: unchanged, no heal.
  */
 internal object RemoteDeletion {
-    const val FIELD = "deletedAt"
+    const val FIELD = UserArticleWire.DELETED_AT
     const val LEGACY_FIELD = "deleted_at"
 
     data class Resolution(val deletedAt: Long?, val timeUpdated: Long, val heal: Heal)
@@ -69,7 +69,7 @@ internal object RemoteDeletion {
         Heal.DropLegacy -> mapOf(LEGACY_FIELD to FieldValue.delete())
         is Heal.PromoteLegacy -> mapOf(
             FIELD to heal.deletedAt,
-            "timeUpdated" to heal.timeUpdated,
+            UserArticleWire.TIME_UPDATED to heal.timeUpdated,
             LEGACY_FIELD to FieldValue.delete(),
         )
     }

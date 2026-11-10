@@ -1,11 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
-import {
-  generateRequestId,
-  isValidArchiveUrl,
-  isPrivateHost,
-  isValidRequestId,
-  withRequestId
-} from './util.js';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { ARCHIVE_OPTION_BOOLEAN_KEYS } from '@warg/shared';
+import { generateRequestId, isValidArchiveUrl, isPrivateHost, isValidRequestId, withRequestId } from './util.js';
+import { GATEWAY_ERROR_CODES, INTERNAL_ERROR_MESSAGE, errorIdFor, errorResponse } from './errors.js';
+import { isPlainObject, validateArchiveOptions, MAX_OPTIONS_BYTES, PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS } from './archive-options.js';
+import { REQUEST_OWNER_METADATA_KEY, resolveRequestIdOwner, storedRequestIdOwner, LEGACY_REQUEST_OWNER, type CallerKind } from './request-owner.js';
+import { PUBLIC_STATUS_STREAM_MAX_MS, capEventStream } from './event-stream.js';
 import { createEvent } from '@warg/shared';
 
 describe('generateRequestId', () => {
@@ -270,5 +269,346 @@ describe('createEvent', () => {
   it('always sets source to gateway', () => {
     const event = createEvent('gateway', 'request.done', 'info', 'done');
     expect(event.source).toBe('gateway');
+  });
+});
+
+describe('errorResponse', () => {
+  it('returns { error, code, id } with the given status', async () => {
+    const response = errorResponse(400, GATEWAY_ERROR_CODES.INVALID_JSON, 'Invalid JSON', 'req-1');
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Invalid JSON', code: 'INVALID_JSON', id: 'req-1' });
+  });
+
+  it('sets X-Request-Id to the body id', async () => {
+    const response = errorResponse(404, GATEWAY_ERROR_CODES.NOT_FOUND, 'Not found', 'abc12345');
+    const body = (await response.json()) as { id: string };
+    expect(response.headers.get('X-Request-Id')).toBe(body.id);
+  });
+
+  it('adds extra fields but never lets them override error, code or id', async () => {
+    const response = errorResponse(502, GATEWAY_ERROR_CODES.WORKFLOW_TRIGGER_FAILED, 'Workflow trigger failed', 'req-2', {
+      workflowStatus: 500,
+      error: 'override',
+      code: 'OVERRIDE',
+      id: 'other'
+    });
+    expect(await response.json()).toEqual({
+      workflowStatus: 500,
+      error: 'Workflow trigger failed',
+      code: 'WORKFLOW_TRIGGER_FAILED',
+      id: 'req-2'
+    });
+  });
+
+  it('is served as application/json', () => {
+    const response = errorResponse(500, GATEWAY_ERROR_CODES.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE, 'req-3');
+    expect(response.headers.get('Content-Type')).toContain('application/json');
+  });
+});
+
+describe('errorIdFor', () => {
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  it('returns a valid request id as-is', () => {
+    expect(errorIdFor('abc12345')).toBe('abc12345');
+  });
+
+  it.each([undefined, '', 'bad id!'])('returns a fresh UUID v4 for %j', (candidate) => {
+    const id = errorIdFor(candidate);
+    expect(id).toMatch(UUID_V4);
+    expect(id).not.toBe(candidate);
+  });
+});
+
+describe('GATEWAY_ERROR_CODES', () => {
+  it('has every value equal to its key', () => {
+    for (const [key, value] of Object.entries(GATEWAY_ERROR_CODES)) {
+      expect(value).toBe(key);
+    }
+  });
+});
+
+describe('isPlainObject', () => {
+  it('is true for an object literal', () => {
+    expect(isPlainObject({})).toBe(true);
+  });
+
+  it.each([[null], [[]], ['x'], [1]])('is false for %j', (value) => {
+    expect(isPlainObject(value)).toBe(false);
+  });
+});
+
+describe('validateArchiveOptions', () => {
+  const url = 'https://example.com/article';
+
+  it.each([
+    {},
+    { url },
+    { url, steps: [] },
+    { url, steps: ['render', 'monolith'] }
+  ])('accepts %j', (fields) => {
+    const result = validateArchiveOptions(fields);
+    expect(result).toEqual({ ok: true, options: fields, droppedKeys: [] });
+  });
+
+  it.each(ARCHIVE_OPTION_BOOLEAN_KEYS.flatMap((key) => [true, false].map((value) => ({ key, value }))))(
+    'accepts $key = $value',
+    ({ key, value }) => {
+      const result = validateArchiveOptions({ url, [key]: value });
+      expect(result).toEqual({ ok: true, options: { url, [key]: value }, droppedKeys: [] });
+    }
+  );
+
+  it.each([
+    { fields: { url: 123 }, field: 'url' },
+    { fields: { url, includePdf: 'yes' }, field: 'includePdf' },
+    { fields: { url, includeScreenshot: 1 }, field: 'includeScreenshot' },
+    { fields: { url, dryRun: 'true' }, field: 'dryRun' },
+    { fields: { url, steps: 'render' }, field: 'steps' },
+    { fields: { url, steps: ['bogus'] }, field: 'steps' },
+    { fields: { url, steps: [1] }, field: 'steps' },
+    { fields: { url, steps: {} }, field: 'steps' }
+  ])('rejects $fields with a message naming $field', ({ fields, field }) => {
+    const result = validateArchiveOptions(fields);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain(field);
+  });
+
+  it('accepts options exactly at MAX_OPTIONS_BYTES and rejects one byte over', () => {
+    // '{"url":""}' is 10 bytes, so the url fills the rest of the limit.
+    const atLimit = 'https://e.com/' + 'a'.repeat(MAX_OPTIONS_BYTES - 10 - 'https://e.com/'.length);
+    expect(new TextEncoder().encode(JSON.stringify({ url: atLimit })).byteLength).toBe(MAX_OPTIONS_BYTES);
+    expect(validateArchiveOptions({ url: atLimit }).ok).toBe(true);
+
+    const overLimit = validateArchiveOptions({ url: atLimit + 'a' });
+    expect(overLimit.ok).toBe(false);
+    if (!overLimit.ok) expect(overLimit.message).toContain(String(MAX_OPTIONS_BYTES));
+  });
+
+  it('drops unknown keys, names them, and leaves them out of the options', () => {
+    const result = validateArchiveOptions({ url, foo: 1, options: {} });
+    expect(result).toEqual({ ok: true, options: { url }, droppedKeys: ['foo', 'options'] });
+  });
+
+  it('gives the same result for the same input every time', () => {
+    const fields = { url, includePdf: true, steps: ['readability'], extra: 'x' };
+    expect(validateArchiveOptions(fields)).toEqual(validateArchiveOptions(fields));
+  });
+});
+
+describe('GATEWAY_ERROR_CODES.INVALID_OPTIONS', () => {
+  it('equals its key', () => {
+    expect(GATEWAY_ERROR_CODES.INVALID_OPTIONS).toBe('INVALID_OPTIONS');
+  });
+});
+
+describe('GATEWAY_ERROR_CODES.OPTION_NOT_ALLOWED', () => {
+  it('equals its key', () => {
+    expect(GATEWAY_ERROR_CODES.OPTION_NOT_ALLOWED).toBe('OPTION_NOT_ALLOWED');
+  });
+});
+
+describe('PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS', () => {
+  it('names dryRun and steps, both known option keys', () => {
+    expect([...PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS]).toEqual(['dryRun', 'steps']);
+    for (const key of PUBLIC_ONLY_FORBIDDEN_OPTION_KEYS) {
+      expect(validateArchiveOptions({ [key]: key === 'dryRun' ? true : [] }).ok).toBe(true);
+    }
+  });
+});
+
+describe('capEventStream', () => {
+  const encoder = new TextEncoder();
+  const END_EVENT = 'event: timeout\ndata: {"reason":"stream_time_limit","limitMs":60000}\n\n';
+
+  /** An upstream SSE body the test drives, with a spy on its cancel. */
+  function upstream() {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+      cancel
+    });
+    return {
+      stream,
+      cancel,
+      send: (text: string) => controller.enqueue(encoder.encode(text)),
+      end: () => controller.close()
+    };
+  }
+
+  /** Read a stream in the background; `text` and `done` show what arrived so far. */
+  function drain(stream: ReadableStream<Uint8Array>) {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    const state = { text: '', done: false };
+    void (async () => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) {
+          state.done = true;
+          return;
+        }
+        state.text += decoder.decode(value, { stream: true });
+      }
+    })();
+    return state;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('is below the two minutes the logger holds a stream', () => {
+    expect(PUBLIC_STATUS_STREAM_MAX_MS).toBe(60_000);
+    expect(PUBLIC_STATUS_STREAM_MAX_MS).toBeLessThan(2 * 60 * 1000);
+  });
+
+  it('forwards upstream chunks unchanged', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('event: init\ndata: {"a":1}\n\n');
+    up.send('event: log\ndata: {"b":2}\n\n');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(out.text).toBe('event: init\ndata: {"a":1}\n\nevent: log\ndata: {"b":2}\n\n');
+    expect(out.done).toBe(false);
+  });
+
+  it('ends an open stream with the timeout event at the cap, not one ms earlier', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('event: init\ndata: {}\n\n');
+
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS - 1);
+    expect(out.text).toBe('event: init\ndata: {}\n\n');
+    expect(out.done).toBe(false);
+    expect(up.cancel).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(out.text).toBe('event: init\ndata: {}\n\n' + END_EVENT);
+    expect(out.done).toBe(true);
+    expect(up.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes when the upstream ends first and writes nothing at the cap', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('event: done\ndata: {}\n\n');
+    up.end();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(out.done).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS * 2);
+    expect(out.text).toBe('event: done\ndata: {}\n\n');
+    expect(up.cancel).not.toHaveBeenCalled();
+  });
+
+  it('drops a frame cut in the middle at the cap instead of delivering half of it', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('event: init\ndata: {}\n\ndata: {"a"');
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS);
+
+    expect(out.text).toBe('event: init\ndata: {}\n\n' + END_EVENT);
+    expect(out.done).toBe(true);
+  });
+
+  it('delivers a frame split across chunks once it is whole', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('data: {"a"');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(out.text).toBe('');
+
+    up.send(':1}\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(out.text).toBe('');
+
+    up.send('\n');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(out.text).toBe('data: {"a":1}\n\n');
+  });
+
+  it('forwards a held tail when the upstream ends', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    up.send('data: {}\n\ndata: tail');
+    up.end();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(out.text).toBe('data: {}\n\ndata: tail');
+    expect(out.done).toBe(true);
+  });
+
+  it('forwards a partial frame too long to hold and ends it before the timeout event', async () => {
+    const up = upstream();
+    const out = drain(capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS));
+    const long = 'data: ' + 'x'.repeat(64 * 1024);
+    up.send(long);
+    await vi.advanceTimersByTimeAsync(PUBLIC_STATUS_STREAM_MAX_MS);
+
+    expect(out.text).toBe(long + '\n\n' + END_EVENT);
+  });
+
+  it('cancelling the capped stream cancels the upstream and clears the timer', async () => {
+    const up = upstream();
+    const capped = capEventStream(up.stream, PUBLIC_STATUS_STREAM_MAX_MS);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(1);
+
+    await capped.cancel('client gone');
+    expect(up.cancel).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('resolveRequestIdOwner', () => {
+  it.each<[string | undefined, CallerKind, boolean, CallerKind | undefined]>([
+    [undefined, 'public', true, 'public'],
+    [undefined, 'internal', true, 'internal'],
+    ['public', 'public', true, 'public'],
+    ['internal', 'internal', true, 'internal'],
+    ['public', 'internal', true, 'public'],
+    ['internal', 'public', false, undefined],
+    ['someone-else', 'public', false, undefined]
+  ])('stored owner %j, caller %j -> ok %j, owner %j', (stored, caller, ok, owner) => {
+    const result = resolveRequestIdOwner(stored, caller);
+    expect(result.ok).toBe(ok);
+    if (result.ok) {
+      expect(result.owner).toBe(owner);
+    }
+  });
+});
+
+describe('storedRequestIdOwner', () => {
+  it('is undefined when no options object exists', () => {
+    expect(storedRequestIdOwner(null)).toBeUndefined();
+  });
+
+  it('reads the recorded owner', () => {
+    expect(storedRequestIdOwner({ customMetadata: { owner: 'internal' } })).toBe('internal');
+  });
+
+  it('gives an object stored without an owner to the public key', () => {
+    expect(storedRequestIdOwner({ customMetadata: {} })).toBe(LEGACY_REQUEST_OWNER);
+    expect(storedRequestIdOwner({})).toBe('public');
+  });
+});
+
+describe('request id ownership constants', () => {
+  it('has the REQUEST_ID_CONFLICT code', () => {
+    expect(GATEWAY_ERROR_CODES.REQUEST_ID_CONFLICT).toBe('REQUEST_ID_CONFLICT');
+  });
+
+  it('stores the owner under the owner metadata key', () => {
+    expect(REQUEST_OWNER_METADATA_KEY).toBe('owner');
   });
 });

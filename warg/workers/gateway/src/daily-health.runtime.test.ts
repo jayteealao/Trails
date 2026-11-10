@@ -206,7 +206,7 @@ describe('daily archive health check', () => {
       const { testEnv, send } = harness(healthyRows(Date.now()));
       const res = await post(testEnv, { thresholds: { minRatio: 2 } }, INTERNAL_API_KEY);
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: 'invalid threshold: minRatio' });
+      expect(await res.json()).toMatchObject({ error: 'invalid threshold: minRatio', code: 'INVALID_OPTIONS' });
       expect(send).not.toHaveBeenCalled();
     });
 

@@ -12,9 +12,15 @@
     "./fixtures": {
       "types": "./src/challenge-page.fixtures.ts",
       "import": "./src/challenge-page.fixtures.ts"
+    },
+    "./archive-ids": {
+      "types": "./dist/archive-ids.d.ts",
+      "import": "./dist/archive-ids.js"
     }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

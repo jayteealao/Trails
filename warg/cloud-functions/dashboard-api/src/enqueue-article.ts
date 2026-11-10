@@ -1,8 +1,8 @@
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { enqueueUserArticle } from '@warg/article-writer';
 import type { Request, Response } from 'express';
 import { getDashboardUserId } from './config.js';
-
-const SAFE_ID_RE = /^[a-zA-Z0-9_-]{8,40}$/;
+import { SAFE_ID_RE } from '@warg/shared/archive-ids';
 
 interface EnqueueBody {
   url?: unknown;
@@ -35,7 +35,8 @@ function isValidArchiveUrl(url: string): boolean {
  */
 export async function handleEnqueueArticle(
   req: Request,
-  res: Response
+  res: Response,
+  deps: { db?: Firestore; userId?: string } = {}
 ): Promise<void> {
   const body = (req.body ?? {}) as EnqueueBody;
   const url = typeof body.url === 'string' ? body.url.trim() : '';
@@ -58,8 +59,8 @@ export async function handleEnqueueArticle(
     return;
   }
 
-  const db = getFirestore();
-  const userId = getDashboardUserId();
+  const db = deps.db ?? getFirestore();
+  const userId = deps.userId ?? getDashboardUserId();
   const userArticlesRef = db.collection('users').doc(userId).collection('articles');
   const itemId = providedItemId ?? userArticlesRef.doc().id;
   const userRef = userArticlesRef.doc(itemId);
@@ -70,17 +71,12 @@ export async function handleEnqueueArticle(
     return;
   }
 
-  const now = Timestamp.now();
-  await userRef.create({
+  await enqueueUserArticle(userRef, {
     url,
     favorite: coerceString(body.favorite),
     status: coerceString(body.status),
-    timeAdded: now,
     timeRead: coerceNumber(body.timeRead, 0),
     resolvedId: itemId,
-    archival_triggered: false,
-    queued_at: now,
-    queued_by: 'dashboard',
   });
 
   res.status(201).json({ itemId, queued: true, existed: false });

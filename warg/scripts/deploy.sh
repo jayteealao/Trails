@@ -4,20 +4,25 @@ set -euo pipefail
 # ============================================================================
 # Warg Deploy Script — the only supported deploy path for Warg.
 #
-# Deploys the nine Cloudflare Workers (cf deploy), the Cloud Functions
-# (firebase deploy) and the Pages dashboard (wrangler pages deploy) in
-# dependency order, and marks a target deployed only after the live platform
-# shows the change.
+# Deploys the nine Cloudflare Workers and the dashboard Worker (cf deploy)
+# and the Cloud Functions (firebase deploy) in dependency order, and marks a
+# target deployed only after the live platform shows the change.
 #
 # Usage (from warg/):
 #   pnpm run deploy -- [flags]       # or: bash scripts/deploy.sh [flags]
 #   pnpm deploy:all                  # same as: pnpm run deploy -- --all
-#   pnpm deploy:pages                # same as: pnpm run deploy -- --with-pages
+#   pnpm deploy:dashboard            # same as: pnpm run deploy -- --with-dashboard
 #   pnpm deploy:quick                # same as: pnpm run deploy -- --skip-checks
 #   Note: plain `pnpm deploy` is pnpm's own built-in command, not this script.
 #
 # Flags:
-#   --with-pages                      also deploy the Pages dashboard
+#   --with-dashboard                  also deploy the dashboard Worker
+#                                     (warg-dashboard, from pages/dashboard),
+#                                     last, after the workers it binds
+#                                     (logger, gateway)
+#   --with-pages                      the old name of --with-dashboard (the
+#                                     dashboard was a Pages project); same
+#                                     effect
 #   --with-functions                  also deploy the four Cloud Functions
 #   --with-rules                      deploy the Firestore and Storage rules
 #                                     after the functions; verified by the
@@ -36,7 +41,7 @@ set -euo pipefail
 #                                     no worker secret preflight); used to
 #                                     put the functions first when rotating
 #                                     the function keys. Not combinable with
-#                                     --with-pages, --all or
+#                                     --with-dashboard, --all or
 #                                     --allow-missing-secrets; combinable
 #                                     with --with-rules.
 #   --rules-only                      deploy the Firestore and Storage rules
@@ -48,8 +53,9 @@ set -euo pipefail
 #                                     run, and the run is refused unless the
 #                                     newest production link re-derive dry
 #                                     run plans no marker removal (Link
-#                                     check). Not combinable with --with-pages,
-#                                     --with-functions, --functions-only,
+#                                     check). Not combinable with
+#                                     --with-dashboard, --with-functions,
+#                                     --functions-only,
 #                                     --all or --allow-missing-secrets.
 #   --rederive-report <path>          the link re-derive dry-run report that
 #                                     both link checks read, the dashboard
@@ -63,7 +69,8 @@ set -euo pipefail
 #   --skip-checks                     skip typecheck and tests (the secret
 #                                     preflight still runs)
 #   --allow-missing-secrets <worker>  skip the secret preflight for that one
-#                                     worker (first deploy of a new worker);
+#                                     worker (first deploy of a new worker,
+#                                     warg-dashboard included);
 #                                     repeatable; printed as a warning in the
 #                                     summary. Never put it in a package.json
 #                                     script. It skips only this script's
@@ -81,14 +88,20 @@ set -euo pipefail
 #                                     codebase no longer holds, without asking;
 #                                     printed as a warning in the summary.
 #                                     Never put it in a package.json script.
+#   --dry-run                         list the targets this run would deploy,
+#                                     the dashboard Worker included, with
+#                                     result planned, then exit 0; runs no check,
+#                                     preflight or deploy; the dirty-tree
+#                                     refusal still applies
 #
 # Required secrets per worker (checked with `cf workers secrets list` for all
-# nine workers before the first worker deploys). required_secrets_for() below
-# is the list the preflight reads; the deploy harness fails when this copy
-# differs from it. Each worker also declares the same names in its
-# cloudflare.config.ts and wrangler.jsonc, so cf and wrangler refuse to deploy
-# a worker that is missing one; the harness and scripts/check-worker-configs.mjs
-# fail when a declared copy differs:
+# nine workers, and the dashboard Worker when it deploys, before the first
+# worker deploys). required_secrets_for() below is the list the preflight
+# reads; the deploy harness fails when this copy differs from it. Each of the
+# nine workers also declares the same names in its cloudflare.config.ts and
+# wrangler.jsonc, so cf and wrangler refuse to deploy a worker that is missing
+# one; the harness and scripts/check-worker-configs.mjs fail when a declared
+# copy differs:
 #   logger:        INTERNAL_API_KEY
 #   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY, HEALTH_ALERT_FROM, HEALTH_ALERT_TO
 #   workflow:      INTERNAL_API_KEY
@@ -98,9 +111,13 @@ set -euo pipefail
 #   readability:   INTERNAL_API_KEY
 #   monolith:      INTERNAL_API_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 #   gcs:           INTERNAL_API_KEY, ARCHIVE_GATEWAY_KEY, CLOUD_FN_BASE_URL
+#   warg-dashboard: DASHBOARD_AUTH, INTERNAL_API_KEY, DASHBOARD_API_KEY, BACKFILL_STATUS_KEY, CF_API_TOKEN, CF_ACCOUNT_ID
 # A failed listing (not signed in, token expired, worker not deployed yet)
 # or a missing secret stops the run before any worker is deployed; it is
-# never a warning.
+# never a warning. The dashboard refuses every request without DASHBOARD_AUTH
+# (the sign-in credential); the other five are the keys its API routes send.
+# Set a missing one with:
+#   cf workers secrets update <NAME> --worker <worker> --type secret_text --text <value>
 #
 # Monolith versions: a run that deploys workers stops with exit 3 on
 # worker:monolith, before any deploy, unless the sandbox image tag in
@@ -146,12 +163,13 @@ set -euo pipefail
 # --skip-rederive-check skips both checks (each warned).
 #
 # Labels: the label is the commit SHA (`git rev-parse HEAD`), plus -dirty
-# with --allow-dirty. Workers get `--tag <12-char sha>[-dirty]` and
-# `--message <label>`; functions bake GIT_SHA=<label> into the bundle; the
-# dashboard gets `--commit-hash <label>`.
+# with --allow-dirty. Workers, the dashboard Worker included, get
+# `--tag <12-char sha>[-dirty]` and `--message <label>`; functions bake
+# GIT_SHA=<label> into the bundle.
 #
 # Verification per target:
-#   worker     `cf workers deployments list` must show a new deployment whose
+#   worker     (the dashboard Worker too)
+#              `cf workers deployments list` must show a new deployment whose
 #              version id was not listed before the deploy and is the id this
 #              run's `cf deploy` printed (or, when it printed none, a version
 #              tagged with this run's tag). Polled every 5 s for up to 60 s.
@@ -174,15 +192,13 @@ set -euo pipefail
 #              --non-interactive`; then the SHA-256 of each released ruleset
 #              (Firestore and every storage bucket, read through the Firebase
 #              Rules API) must equal the build copy, else exit 3.
-#   dashboard  `cf pages deployments list` must show the label as the
-#              commit_hash of the newest production deployment. Polled like a
-#              worker.
 #
 # Summary: an EXIT trap prints one line per planned target on every exit,
-#   TARGET  RESULT (deployed|failed|unverified|skipped)  DETAIL  LABEL
+#   TARGET  RESULT (deployed|failed|unverified|skipped|planned)  DETAIL  LABEL
 # where DETAIL is the version id, the update times or the reason; then the
 # warnings and the exit code. The first failure stops the run; targets not
-# reached read "skipped". --all without --with-rules adds one row
+# reached read "skipped"; "planned" appears only under --dry-run. --all
+# without --with-rules adds one row
 # `rules  skipped  not deployed (pass --with-rules)`.
 #
 # Exit codes: the failing command's own code; 2 for a usage error or a
@@ -195,11 +211,10 @@ set -euo pipefail
 # (`firebase login`, FIREBASE_TOKEN or `gcloud auth application-default
 # login`) and gcloud signed in (`gcloud auth login`, the function
 # verification); for --with-rules firebase-tools signed in, gcloud signed in
-# and curl (the Rules API reads); for --with-pages wrangler signed in (`wrangler login` or
-# CLOUDFLARE_API_TOKEN; wrangler does not reuse the cf credentials). The
-# wrangler and firebase sign-ins are checked before the first upload. Docker
-# running for the monolith container. cf, wrangler and firebase-tools resolve
-# from warg/node_modules/.bin (the workspace pins).
+# and curl (the Rules API reads). The dashboard Worker uses the cf
+# sign-in like the other workers. The firebase sign-in is checked before the
+# first upload. Docker running for the monolith container. cf and
+# firebase-tools resolve from warg/node_modules/.bin (the workspace pins).
 # ============================================================================
 
 WARG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -215,15 +230,17 @@ fi
 export PATH
 
 WORKERS=(logger renderer hyperrenderer singlefile readability monolith gcs workflow gateway)
+# The dashboard Worker, from pages/dashboard; deployed with --with-dashboard
+# or --all, after every worker (it binds logger and gateway).
+DASHBOARD_WORKER=warg-dashboard
+DASHBOARD_DIR=pages/dashboard
 CLOUD_FUNCTIONS=(archive-gateway user-triggers backfill-archiver dashboard-api)
 FIREBASE_PROJECT=trails-e428e
 FUNCTION_REGION=us-central1
-PAGES_PROJECT=warg-dashboard
-PAGES_PRODUCTION_BRANCH=master
 POLL_INTERVAL="${DEPLOY_POLL_INTERVAL:-5}"
 POLL_TIMEOUT="${DEPLOY_POLL_TIMEOUT:-60}"
 
-WITH_PAGES=false
+WITH_DASHBOARD=false
 WITH_FUNCTIONS=false
 WITH_RULES=false
 FUNCTIONS_ONLY=false
@@ -231,7 +248,7 @@ RULES_ONLY=false
 SKIP_CHECKS=false
 ALLOW_DIRTY=false
 FORCE_FUNCTIONS=false
-DIRTY=false
+DRY_RUN=false
 ALLOW_MISSING=()
 ALL_FLAG=false
 REDERIVE_REPORT=""
@@ -312,17 +329,26 @@ trap 'exit 143' TERM
 
 usage_error() {
   echo "ERROR: $1" >&2
-  echo "Usage: bash scripts/deploy.sh [--with-pages] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--force-functions] [--allow-missing-secrets <worker>]..." >&2
+  echo "Usage: bash scripts/deploy.sh [--with-dashboard] [--with-functions] [--with-rules] [--all] [--functions-only] [--rules-only] [--rederive-report <path>] [--skip-rederive-check] [--skip-checks] [--allow-dirty] [--force-functions] [--dry-run] [--allow-missing-secrets <worker>]..." >&2
   FIRST_RC=2
   exit 2
 }
 
 is_worker() {
   local w
-  for w in "${WORKERS[@]}"; do
+  for w in "${WORKERS[@]}" "$DASHBOARD_WORKER"; do
     [ "$w" = "$1" ] && return 0
   done
   return 1
+}
+
+# The folder cf deploy runs in for a worker.
+worker_dir() {
+  if [ "$1" = "$DASHBOARD_WORKER" ]; then
+    echo "$DASHBOARD_DIR"
+  else
+    echo "workers/$1"
+  fi
 }
 
 allows_missing() {
@@ -336,10 +362,10 @@ allows_missing() {
 # --- Flags -------------------------------------------------------------------
 while [ $# -gt 0 ]; do
   case "$1" in
-    --with-pages) WITH_PAGES=true ;;
+    --with-dashboard|--with-pages) WITH_DASHBOARD=true ;;
     --with-functions) WITH_FUNCTIONS=true ;;
     --with-rules) WITH_RULES=true ;;
-    --all) WITH_PAGES=true; WITH_FUNCTIONS=true; ALL_FLAG=true ;;
+    --all) WITH_DASHBOARD=true; WITH_FUNCTIONS=true; ALL_FLAG=true ;;
     --functions-only) WITH_FUNCTIONS=true; FUNCTIONS_ONLY=true ;;
     --rules-only) WITH_RULES=true; RULES_ONLY=true ;;
     --rederive-report)
@@ -351,9 +377,10 @@ while [ $# -gt 0 ]; do
     --skip-checks) SKIP_CHECKS=true ;;
     --allow-dirty) ALLOW_DIRTY=true ;;
     --force-functions) FORCE_FUNCTIONS=true ;;
+    --dry-run) DRY_RUN=true ;;
     --allow-missing-secrets)
       [ $# -ge 2 ] || usage_error "--allow-missing-secrets needs a worker name"
-      is_worker "$2" || usage_error "--allow-missing-secrets: unknown worker '$2' (one of: ${WORKERS[*]})"
+      is_worker "$2" || usage_error "--allow-missing-secrets: unknown worker '$2' (one of: ${WORKERS[*]} $DASHBOARD_WORKER)"
       ALLOW_MISSING+=("$2")
       shift
       ;;
@@ -363,13 +390,13 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ "$FUNCTIONS_ONLY" = true ]; then
-  [ "$WITH_PAGES" = false ] || usage_error "--functions-only cannot be combined with --with-pages or --all"
+  [ "$WITH_DASHBOARD" = false ] || usage_error "--functions-only cannot be combined with --with-dashboard or --all"
   [ "$ALL_FLAG" = false ] || usage_error "--functions-only cannot be combined with --all"
   [ "${#ALLOW_MISSING[@]}" -eq 0 ] || usage_error "--functions-only cannot be combined with --allow-missing-secrets"
 fi
 if [ "$RULES_ONLY" = true ]; then
   [ "$ALL_FLAG" = false ] || usage_error "--rules-only cannot be combined with --all"
-  [ "$WITH_PAGES" = false ] || usage_error "--rules-only cannot be combined with --with-pages"
+  [ "$WITH_DASHBOARD" = false ] || usage_error "--rules-only cannot be combined with --with-dashboard"
   [ "$FUNCTIONS_ONLY" = false ] || usage_error "--rules-only cannot be combined with --functions-only"
   [ "$WITH_FUNCTIONS" = false ] || usage_error "--rules-only cannot be combined with --with-functions"
   [ "${#ALLOW_MISSING[@]}" -eq 0 ] || usage_error "--rules-only cannot be combined with --allow-missing-secrets"
@@ -398,9 +425,6 @@ if [ "$WITH_RULES" = true ]; then
   require_tool gcloud
   require_tool curl
 fi
-if [ "$WITH_PAGES" = true ]; then
-  require_tool wrangler
-fi
 # The rules deploy from the repository's firebase/ folder (a build copy of it).
 RULES_DIR="$(cd "$WARG_ROOT/.." && pwd)/firebase"
 if [ "$WITH_RULES" = true ] && [ ! -f "$RULES_DIR/firebase.json" ]; then
@@ -417,7 +441,6 @@ if [ -n "$DIRTY_PATHS" ]; then
     FIRST_RC=2
     exit 2
   fi
-  DIRTY=true
   LABEL="$SHA-dirty"
   TAG="${SHA:0:12}-dirty"
 else
@@ -447,8 +470,22 @@ elif [ "$ALL_FLAG" = true ]; then
   register_target "rules"
   set_result rules skipped "not deployed (pass --with-rules)"
 fi
-if [ "$WITH_PAGES" = true ]; then
-  register_target "pages:dashboard"
+if [ "$WITH_DASHBOARD" = true ]; then
+  register_target "worker:$DASHBOARD_WORKER"
+fi
+
+# --dry-run stops here: the summary lists every target these flags would
+# deploy as "planned", before any check, preflight, sign-in or deploy.
+if [ "$DRY_RUN" = true ]; then
+  for i in "${!TARGETS[@]}"; do
+    if [ "${RESULT[$i]}" = skipped ] && [ "${DETAIL[$i]}" = "-" ]; then
+      RESULT[i]="planned"
+      [ "${TARGETS[$i]}" != "worker:$DASHBOARD_WORKER" ] || DETAIL[i]="$DASHBOARD_DIR"
+    fi
+  done
+  echo "=== Dry run: nothing deployed ==="
+  FIRST_RC=0
+  exit 0
 fi
 
 WORK_DIR="$(mktemp -d)"
@@ -491,6 +528,7 @@ required_secrets_for() {
     readability)   echo "INTERNAL_API_KEY" ;;
     monolith)      echo "INTERNAL_API_KEY R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY" ;;
     gcs)           echo "INTERNAL_API_KEY ARCHIVE_GATEWAY_KEY CLOUD_FN_BASE_URL" ;;
+    warg-dashboard) echo "DASHBOARD_AUTH INTERNAL_API_KEY DASHBOARD_API_KEY BACKFILL_STATUS_KEY CF_API_TOKEN CF_ACCOUNT_ID" ;;
     *)             echo "" ;;
   esac
 }
@@ -522,7 +560,7 @@ preflight_secrets() {
     fi
   done
   if [ -n "$missing" ]; then
-    echo "Set each with: pnpm exec wrangler secret put <NAME> --config workers/$worker/wrangler.jsonc" >&2
+    echo "Set each with: cf workers secrets update <NAME> --worker $worker --type secret_text --text <value>" >&2
     fail_target "$target" failed 3 "missing secret(s):$missing"
   fi
 }
@@ -615,18 +653,12 @@ preflight_rules_rederive() {
 }
 
 # --- Sign-in preflight (fail closed) -----------------------------------------
-# wrangler and firebase-tools each keep their own credentials, so a missing
-# sign-in would otherwise surface only after the workers are live. A token in
-# the environment (CI) counts as signed in for firebase.
+# firebase-tools keeps its own credentials, so a missing sign-in would
+# otherwise surface only after the workers are live. A token in the
+# environment (CI) counts as signed in for firebase. The cf sign-in is proven
+# by the secret preflight's listings.
 preflight_signins() {
   local rc=0 listing
-  if [ "$WITH_PAGES" = true ]; then
-    wrangler whoami >"$WORK_DIR/err" 2>&1 || rc=$?
-    if [ "$rc" -ne 0 ]; then
-      cat "$WORK_DIR/err" >&2
-      fail_target "pages:dashboard" failed 3 "wrangler is not signed in (run wrangler login or set CLOUDFLARE_API_TOKEN)"
-    fi
-  fi
   local firebase_target="function:${CLOUD_FUNCTIONS[0]}"
   [ "$WITH_FUNCTIONS" = true ] || firebase_target="rules:firestore"
   if { [ "$WITH_FUNCTIONS" = true ] || [ "$WITH_RULES" = true ]; } && [ -z "${FIREBASE_TOKEN:-}" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
@@ -720,7 +752,7 @@ deploy_worker() {
   fi
 
   local log="$WORK_DIR/deploy-$w.log"
-  (cd "workers/$w" && cf deploy --tag "$TAG" --message "$LABEL" --provision=false) 2>&1 | tee "$log" || rc=$?
+  (cd "$(worker_dir "$w")" && cf deploy --tag "$TAG" --message "$LABEL" --provision=false) 2>&1 | tee "$log" || rc=$?
   if [ "$rc" -ne 0 ]; then
     fail_target "$target" failed "$rc" "cf deploy exited $rc"
   fi
@@ -1018,29 +1050,17 @@ deploy_rules() {
   echo "--- Storage rules deployed:$detail"
 }
 
-# --- Pages dashboard ---------------------------------------------------------
-deploy_pages() {
-  local target="pages:dashboard" rc=0
-  set_result "$target" running "-"
-  echo "--- Pages dashboard"
-  (cd pages/dashboard && wrangler pages deploy --branch "$PAGES_PRODUCTION_BRANCH" --commit-hash "$LABEL" --commit-message "$LABEL" --commit-dirty="$DIRTY") || rc=$?
+# --- Dashboard Worker --------------------------------------------------------
+deploy_dashboard() {
+  local rc=0
+  # The dashboard functions bundle the built id helpers of @warg/shared; rebuild
+  # them so the deploy never ships a stale copy.
+  set_result "worker:$DASHBOARD_WORKER" running "-"
+  pnpm --filter @warg/shared run build || rc=$?
   if [ "$rc" -ne 0 ]; then
-    fail_target "$target" failed "$rc" "wrangler pages deploy exited $rc"
+    fail_target "worker:$DASHBOARD_WORKER" failed "$rc" "@warg/shared build exited $rc"
   fi
-  local deadline=$((SECONDS + POLL_TIMEOUT)) listing newest="" newest_id=""
-  while :; do
-    listing="$(cf pages deployments list --project-name "$PAGES_PROJECT" --env production 2>/dev/null)" || listing=""
-    newest="$(printf '%s' "$listing" | json_eval 'd[0] && d[0].deployment_trigger.metadata.commit_hash' 2>/dev/null || true)"
-    if [ "$newest" = "$LABEL" ]; then
-      newest_id="$(printf '%s' "$listing" | json_eval 'd[0].id' 2>/dev/null || true)"
-      set_result "$target" deployed "${newest_id:-deployment}"
-      echo "--- dashboard deployed: ${newest_id:-deployment}"
-      return 0
-    fi
-    [ "$SECONDS" -lt "$deadline" ] || break
-    sleep "$POLL_INTERVAL"
-  done
-  fail_target "$target" unverified 3 "newest commit_hash is ${newest:-none}, expected $LABEL"
+  deploy_worker "$DASHBOARD_WORKER"
 }
 
 # --- Sandbox version preflight -----------------------------------------------
@@ -1110,6 +1130,11 @@ else
   done
   echo "=== Secret preflight passed ==="
 fi
+if [ "$WITH_DASHBOARD" = true ]; then
+  echo "=== Secret preflight (dashboard Worker) ==="
+  preflight_secrets "$DASHBOARD_WORKER"
+  echo "=== Secret preflight passed (dashboard Worker) ==="
+fi
 echo
 if [ "$WITH_FUNCTIONS" = true ]; then
   preflight_function_secrets
@@ -1122,7 +1147,7 @@ if [ "$WITH_RULES" = true ]; then
   echo
 fi
 
-# --- Sign-in preflight for the dashboard and the functions, before any deploy -
+# --- Sign-in preflight for the functions and the rules, before any deploy -----
 preflight_signins
 
 # --- Deploy in dependency order ----------------------------------------------
@@ -1149,6 +1174,8 @@ if [ "$WITH_RULES" = true ]; then
   deploy_rules
 fi
 
-if [ "$WITH_PAGES" = true ]; then
-  deploy_pages
+# The dashboard goes last: it binds logger and gateway, and reads the
+# functions' API.
+if [ "$WITH_DASHBOARD" = true ]; then
+  deploy_dashboard
 fi

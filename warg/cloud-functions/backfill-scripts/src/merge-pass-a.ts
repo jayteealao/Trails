@@ -1,8 +1,13 @@
 import { resolve } from 'node:path';
 import process from 'node:process';
 
-import { FieldPath } from 'firebase-admin/firestore';
 import type { BulkWriter, DocumentData, Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import {
+  copySharedArticleArchiveInBulk,
+  markSharedArticleMergedInBulk,
+  moveUserArticleCanonicalIdInBulk,
+  setSharedArticleNormalizedUrlInBulk,
+} from '@warg/article-writer';
 
 import {
   listUserIds,
@@ -291,11 +296,11 @@ async function writePlan(
     for (const group of groups) {
       const winner = shared.doc(group.winnerId);
       for (const copy of group.archiveCopies) {
-        writer.update(winner, new FieldPath('archives', copy.key), copy.entry).catch(ignore);
+        copySharedArticleArchiveInBulk(writer, winner, copy.key, copy.entry).catch(ignore);
       }
     }
     for (const write of normalizedUrlWrites) {
-      writer.update(shared.doc(write.id), 'normalizedUrl', write.normalizedUrl).catch(ignore);
+      setSharedArticleNormalizedUrlInBulk(writer, shared.doc(write.id), write.normalizedUrl).catch(ignore);
     }
     await writer.flush();
     // A failed write stops the run before the next phase: a winner that lost an
@@ -307,7 +312,7 @@ async function writePlan(
     // link names a winner its user holds no marker for.
     for (const add of markerAdds) {
       writer
-        .set(
+        .set( // article-write-check: not-an-article (article marker)
           markersCollection(db, add.uid).doc(add.key),
           markerBody(add.key, add.itemId, MERGE_MARKER_SOURCE),
           { merge: true },
@@ -318,9 +323,8 @@ async function writePlan(
     if (errors > 0) return errors;
     if (afterMarkers) await afterMarkers();
     for (const move of linkMoves) {
-      writer
-        .update(userArticlesCollection(db, move.uid).doc(move.itemId), 'canonicalId', move.to)
-        .catch(ignore);
+      const ref = userArticlesCollection(db, move.uid).doc(move.itemId);
+      moveUserArticleCanonicalIdInBulk(writer, ref, move.to).catch(ignore);
     }
     await writer.flush();
     if (errors > 0 || stopAfterPhase === 2) return errors;
@@ -328,7 +332,7 @@ async function writePlan(
     // Phase 3: losers become stubs, last, so a stopped run leaves every reader working.
     for (const group of groups) {
       for (const stub of group.stubWrites) {
-        writer.update(shared.doc(stub.id), 'mergedInto', stub.mergedInto).catch(ignore);
+        markSharedArticleMergedInBulk(writer, shared.doc(stub.id), stub.mergedInto).catch(ignore);
       }
     }
   } finally {

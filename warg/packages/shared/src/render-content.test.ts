@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { isChallengePage, isProxyErrorPage } from './render-content.js';
+import {
+  isChallengePage,
+  isDeadHostErrorText,
+  isProxyErrorPage,
+  PROXY_ERROR_PAGE_MAX_LENGTH,
+  proxyErrorPageText,
+} from './render-content.js';
 import {
   ARTICLE_ABOUT_CHALLENGES,
   CLOUDFLARE_CHALLENGE_PAGE,
@@ -140,7 +146,8 @@ describe('isChallengePage', () => {
   );
 
   it('does not scan a large page for a proxy error', () => {
-    expect(isProxyErrorPage('<html><body><pre>dial tcp: no such host</pre>' + '<div></div>'.repeat(5_000) + '</body></html>')).toBe(false);
+    const filler = '<div></div>'.repeat(Math.ceil(PROXY_ERROR_PAGE_MAX_LENGTH / '<div></div>'.length));
+    expect(isProxyErrorPage('<html><body><pre>dial tcp: no such host</pre>' + filler + '</body></html>')).toBe(false);
   });
 
   it('leaves every recorded page to this check rather than the proxy-error check', () => {
@@ -205,5 +212,138 @@ describe('detector verdicts on snapshot HTML', () => {
     const fromSnapshot = { proxy: isProxyErrorPage(snapshot), challenge: isChallengePage(snapshot) };
     expect(fromContent).toEqual(expected);
     expect(fromSnapshot).toEqual(fromContent);
+  });
+});
+
+// Shell of the observed stub, so each case below differs from the real page
+// only by the markup it adds beside the error <pre>.
+const STUB_PRE =
+  '<pre style="word-wrap: break-word; white-space: pre-wrap;">' +
+  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host\n' +
+  '</pre>';
+
+function stubPage(before: string, after: string): string {
+  return (
+    '<html><head><meta name="color-scheme" content="light dark"></head>' +
+    `<body>${before}${STUB_PRE}${after}</body></html>`
+  );
+}
+
+describe('isProxyErrorPage — void tags and empty nodes beside the pre', () => {
+  it('rejects the stub with a line break after the pre', () => {
+    expect(isProxyErrorPage(stubPage('', '<br>'))).toBe(true);
+  });
+
+  it('rejects the stub with a meta tag before the pre inside the body', () => {
+    expect(isProxyErrorPage(stubPage('<meta charset="utf-8">', ''))).toBe(true);
+  });
+
+  it('rejects the stub with a stylesheet link before the pre', () => {
+    expect(isProxyErrorPage(stubPage('<link rel="stylesheet" href="x.css">', ''))).toBe(true);
+  });
+
+  it('rejects the stub with an image after the pre', () => {
+    expect(isProxyErrorPage(stubPage('', '<img src="pixel.gif" alt="">'))).toBe(true);
+  });
+
+  it('rejects the stub with self-closing void tags', () => {
+    expect(isProxyErrorPage(stubPage('<br/>', '<img src="p.gif" />'))).toBe(true);
+  });
+
+  it('rejects the stub with an element that holds only a line break', () => {
+    expect(isProxyErrorPage(stubPage('', '<div><br></div>'))).toBe(true);
+  });
+
+  it('rejects the real stub shape: hidden empty div and a line break beside the pre', () => {
+    const page = stubPage('', '<div id="header-bqq3lsboese" style="display: none;"></div><br>');
+    expect(page.length).toBeGreaterThanOrEqual(275);
+    expect(page.length).toBeLessThanOrEqual(400);
+    expect(isProxyErrorPage(page)).toBe(true);
+  });
+
+  it('accepts a line break beside a pre that holds ordinary code', () => {
+    const page =
+      '<html><body><pre>function add(a, b) { return a + b; }</pre><br></body></html>';
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+
+  it('accepts an image beside prose and an error pre', () => {
+    const page =
+      '<html><body><img src="diagram.png" alt="">' +
+      '<p>The proxy answered with this error:</p>' +
+      '<pre>dial tcp: lookup example.com on 1.1.1.1:53: no such host</pre>' +
+      '</body></html>';
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+
+  it('accepts a line break beside a pre whose error text is too long to be a message', () => {
+    const text = `dial tcp: no such host ${'x'.repeat(600)}`;
+    const page = `<html><body><pre>${text}</pre><br></body></html>`;
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+});
+
+// The observed stub, padded with whitespace inside <body> to an exact length.
+function padStubTo(length: number): string {
+  const closing = '</body></html>';
+  const head = DEAD_HOST_STUB.slice(0, -closing.length);
+  return head + ' '.repeat(length - DEAD_HOST_STUB.length) + closing;
+}
+
+describe('isProxyErrorPage — bounded input', () => {
+  it('accepts a 5 MB document without treating it as a stub', () => {
+    const page = padStubTo(DEAD_HOST_STUB.length + 5 * 1024 * 1024);
+    expect(isProxyErrorPage(page)).toBe(false);
+  });
+
+  it('still reads a stub of exactly the limit and ignores one character more', () => {
+    const atLimit = padStubTo(PROXY_ERROR_PAGE_MAX_LENGTH);
+    const pastLimit = padStubTo(PROXY_ERROR_PAGE_MAX_LENGTH + 1);
+    expect(atLimit.length).toBe(PROXY_ERROR_PAGE_MAX_LENGTH);
+    expect(pastLimit.length).toBe(PROXY_ERROR_PAGE_MAX_LENGTH + 1);
+    expect(isProxyErrorPage(atLimit)).toBe(true);
+    expect(isProxyErrorPage(pastLimit)).toBe(false);
+  });
+
+  it('returns at once for a long run of unclosed tags instead of scanning it', () => {
+    const page = '<a'.repeat(Math.ceil((PROXY_ERROR_PAGE_MAX_LENGTH + 1) / 2));
+    const started = performance.now();
+    const verdict = isProxyErrorPage(page);
+    const elapsed = performance.now() - started;
+    expect(verdict).toBe(false);
+    expect(elapsed).toBeLessThan(50);
+  });
+
+  it('keeps the limit large enough for a stub with a heavy head', () => {
+    expect(Number.isInteger(PROXY_ERROR_PAGE_MAX_LENGTH)).toBe(true);
+    expect(PROXY_ERROR_PAGE_MAX_LENGTH).toBeGreaterThanOrEqual(16 * 1024);
+  });
+});
+
+describe('proxyErrorPageText', () => {
+  it('returns the error text of a stub and nothing for a real page', () => {
+    expect(proxyErrorPageText(DEAD_HOST_STUB)).toBe('dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host');
+    expect(proxyErrorPageText('<html><body><p>An article</p></body></html>')).toBeUndefined();
+    expect(proxyErrorPageText('')).toBe('');
+  });
+});
+
+describe('isDeadHostErrorText', () => {
+  it.each([
+    'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host',
+    'dial tcp 1.2.3.4:443: connect: connection refused',
+    'dial tcp 1.2.3.4:443: connect: no route to host',
+    'net::ERR_NAME_NOT_RESOLVED',
+  ])('reads "%s" as a dead host', (text) => {
+    expect(isDeadHostErrorText(text)).toBe(true);
+  });
+
+  it.each([
+    'dial tcp 1.2.3.4:443: i/o timeout',
+    'dial tcp 1.2.3.4:443: some new failure',
+    'read tcp 1.2.3.4:443: connection reset by peer',
+    'context deadline exceeded (no such host lookup pending)',
+  ])('keeps "%s" retryable', (text) => {
+    expect(isDeadHostErrorText(text)).toBe(false);
   });
 });

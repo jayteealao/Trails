@@ -98,7 +98,7 @@ export async function backfillMarkers(
         // Both the itemId-keyed and resolvedId-keyed markers carry the same
         // articleItemId for schema parity (Admin SDK bypasses rules).
         writer
-          .set(markers.doc(key), markerBody(key, articleItemId), { merge: true })
+          .set(markers.doc(key), markerBody(key, articleItemId), { merge: true }) // article-write-check: not-an-article (article marker)
           .catch(() => undefined);
       }
     }

@@ -1,15 +1,19 @@
 // Checks that each worker's two configs agree.
 //
-// `cf deploy` reads workers/<w>/cloudflare.config.ts; `wrangler dev` and
-// `wrangler types` still read workers/<w>/wrangler.jsonc. A binding, required
-// secret, Durable Object class, cron trigger, compatibility setting or tracing setting changed
-// in one file and not the other either breaks local dev and the generated types, or ships a
+// `cf deploy` and `cf dev` read <worker>/cloudflare.config.ts (plus
+// wrangler.config.ts, which names the static assets directory);
+// `wrangler types`, the logger's Workers-pool tests and the remaining
+// `wrangler dev` runs still read <worker>/wrangler.jsonc. The workers are
+// workers/* and the dashboard (pages/dashboard). A binding, required secret,
+// Durable Object class, cron trigger, static assets, compatibility setting or
+// tracing setting changed in one file and not the other either breaks local
+// dev and the generated types, or ships a
 // worker that differs from what was tested. This script loads both files for
 // every worker that has a cloudflare.config.ts, reduces each to the same
 // shape, and exits 1 on any difference.
 //
-// Both files must also carry the shared compatibility date of
-// workers/compatibility-date.mjs: cloudflare.config.ts imports it (a quoted
+// Both files of each Worker but those in OWN_DATE_WORKERS must also carry the
+// shared compatibility date of workers/compatibility-date.mjs: cloudflare.config.ts imports it (a quoted
 // date there fails), and wrangler.jsonc repeats it as a literal. A Worker in
 // MINIMUM_COMPATIBILITY_DATES fails when its date is before its minimum.
 //
@@ -29,6 +33,11 @@ const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The earliest compatibility date each listed Worker may run on. The renderer
 // needs 2026-03-24 for quickAction() on the browser binding.
 export const MINIMUM_COMPATIBILITY_DATES = { renderer: '2026-03-24' };
+
+// Workers that keep their own compatibility date instead of the shared one: the
+// dashboard (pages/dashboard) moved off Pages with its 2024-01-01 date and is
+// not on the archive path.
+export const OWN_DATE_WORKERS = ['dashboard'];
 
 // The Workers one archive passes through; one trace needs each of them traced.
 export const TRACED_WORKERS = [
@@ -84,6 +93,7 @@ const KNOWN_WRANGLER_KEYS = new Set([
   'compatibility_date',
   'compatibility_flags',
   'workers_dev',
+  'assets',
   'observability',
   'vars',
   'r2_buckets',
@@ -129,6 +139,17 @@ function observabilityKeyErrors(o, file, rate) {
 // One send-email binding: its fixed destination and its allow-lists.
 const sendEmail = (destination, allowedDestinations, allowedSenders) =>
   `send-email:${destination ?? ''}:${sorted(allowedDestinations ?? []).join(',')}:${sorted(allowedSenders ?? []).join(',')}`;
+
+// One line for a static assets setup, the same from either config.
+function assetsLine({ binding, directory, runWorkerFirst, notFoundHandling, htmlHandling }) {
+  return [
+    `binding=${binding ?? '-'}`,
+    `directory=${directory ?? '-'}`,
+    `runWorkerFirst=${JSON.stringify(runWorkerFirst ?? false)}`,
+    `notFoundHandling=${notFoundHandling ?? 'none'}`,
+    `htmlHandling=${htmlHandling ?? 'auto-trailing-slash'}`
+  ].join(' ');
+}
 
 // The common shape both configs reduce to.
 export function fromWrangler(w) {
@@ -177,6 +198,16 @@ export function fromWrangler(w) {
       b.allowed_sender_addresses
     );
   }
+  if (w.assets?.binding) bindings[w.assets.binding] = 'assets';
+  const assets = w.assets
+    ? assetsLine({
+        binding: w.assets.binding,
+        directory: w.assets.directory,
+        runWorkerFirst: w.assets.run_worker_first,
+        notFoundHandling: w.assets.not_found_handling,
+        htmlHandling: w.assets.html_handling
+      })
+    : '-';
 
   const exportsOut = {};
   for (const m of w.migrations ?? []) {
@@ -209,6 +240,7 @@ export function fromWrangler(w) {
         rate: 'head_sampling_rate'
       }),
       crons: sorted(w.triggers?.crons ?? []),
+      assets,
       bindings,
       exports: exportsOut,
       containers: sorted(containers)
@@ -216,7 +248,8 @@ export function fromWrangler(w) {
   };
 }
 
-export function fromCf(config) {
+// `tooling` is the default export of wrangler.config.ts, when there is one.
+export function fromCf(config, tooling = {}) {
   const errors = [];
   const worker = config.worker ?? {};
   errors.push(
@@ -227,6 +260,7 @@ export function fromCf(config) {
     )
   );
   const bindings = {};
+  let assetsBinding;
   for (const [name, b] of Object.entries(worker.env ?? {})) {
     switch (b.type) {
       case 'text':
@@ -259,6 +293,10 @@ export function fromCf(config) {
           b.allowedDestinationAddresses,
           b.allowedSenderAddresses
         );
+        break;
+      case 'assets':
+        bindings[name] = 'assets';
+        assetsBinding = name;
         break;
       default:
         errors.push(
@@ -293,6 +331,16 @@ export function fromCf(config) {
         `cloudflare.config.ts trigger type "${t.type}" is not compared by this check`
       );
   }
+  const assets =
+    worker.assets || assetsBinding || tooling.assetsDirectory
+      ? assetsLine({
+          binding: assetsBinding,
+          directory: tooling.assetsDirectory,
+          runWorkerFirst: worker.assets?.runWorkerFirst,
+          notFoundHandling: worker.assets?.notFoundHandling,
+          htmlHandling: worker.assets?.htmlHandling
+        })
+      : '-';
   return {
     errors,
     shape: {
@@ -306,6 +354,7 @@ export function fromCf(config) {
         rate: 'headSamplingRate'
       }),
       crons: sorted(crons),
+      assets,
       bindings,
       exports: exportsOut,
       containers: sorted(containers)
@@ -322,7 +371,8 @@ export function compareShapes(a, b) {
     'compatibilityDate',
     'workersDev',
     'observability',
-    'traces'
+    'traces',
+    'assets'
   ]) {
     if (a[key] !== b[key])
       diffs.push(
@@ -349,9 +399,9 @@ export function compareShapes(a, b) {
   return diffs;
 }
 
-export async function loadCfConfig(workerDir) {
+export async function loadCfConfig(workerDir, file = 'cloudflare.config.ts') {
   const result = await build({
-    entryPoints: [join(workerDir, 'cloudflare.config.ts')],
+    entryPoints: [join(workerDir, file)],
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -432,19 +482,28 @@ export async function checkWorker(workerDir) {
     readFileSync(join(workerDir, 'wrangler.jsonc'), 'utf8')
   );
   const cf = await loadCfConfig(workerDir);
+  const tooling = existsSync(join(workerDir, 'wrangler.config.ts'))
+    ? await loadCfConfig(workerDir, 'wrangler.config.ts')
+    : {};
   const w = fromWrangler(wrangler);
-  const c = fromCf(cf);
+  const c = fromCf(cf, tooling);
+  const name = basename(workerDir);
   const indexPath = join(workerDir, 'src', 'index.ts');
   const cronErrors = existsSync(indexPath)
     ? sourceCronErrors(readFileSync(indexPath, 'utf8'), w.shape.crons)
     : [];
+  const dateErrors = OWN_DATE_WORKERS.includes(name)
+    ? []
+    : [
+        ...sharedDateErrors(name, w.shape, c.shape),
+        ...literalDateErrors(readFileSync(join(workerDir, 'cloudflare.config.ts'), 'utf8'))
+      ];
   return [
     ...w.errors,
     ...c.errors,
     ...compareShapes(w.shape, c.shape),
-    ...sharedDateErrors(basename(workerDir), w.shape, c.shape),
-    ...tracingErrors(basename(workerDir), w.shape),
-    ...literalDateErrors(readFileSync(join(workerDir, 'cloudflare.config.ts'), 'utf8')),
+    ...dateErrors,
+    ...tracingErrors(name, w.shape),
     ...cronErrors
   ];
 }
@@ -453,9 +512,10 @@ async function main() {
   const args = process.argv.slice(2);
   const dirs = args.length
     ? args.map((d) => resolve(d))
-    : readdirSync(join(WARG, 'workers'))
-        .map((w) => join(WARG, 'workers', w))
-        .filter((d) => existsSync(join(d, 'cloudflare.config.ts')));
+    : [
+        ...readdirSync(join(WARG, 'workers')).map((w) => join(WARG, 'workers', w)),
+        join(WARG, 'pages', 'dashboard')
+      ].filter((d) => existsSync(join(d, 'cloudflare.config.ts')));
   let failed = 0;
   for (const dir of dirs) {
     const problems = await checkWorker(dir);

@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "cf dev",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "types": "wrangler types",
-    "test": "vitest run"
+    "types": "wrangler types"
   },
   "dependencies": {
     "@warg/shared": "workspace:*"
