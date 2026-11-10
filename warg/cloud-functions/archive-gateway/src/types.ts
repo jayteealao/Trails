@@ -161,7 +161,8 @@ export type FinalizeErrorResponse =
 
 /**
  * Mapping from artifact kind to archive key in Firestore.
- * Only artifact kinds that produce archive entries are listed.
+ * Only artifact kinds that produce archive entries are listed; the
+ * "Archive kinds" table of shared-types/WargMetadata.md is the contract.
  * readability.json → metadata (no archive entry)
  * manifest.json → not persisted to GCS
  */
@@ -169,6 +170,7 @@ export const KIND_TO_ARCHIVE_KEY: Partial<Record<ArtifactKind, GatewayArchiveKey
   'singlefile.html': 'singlefile',
   'monolith.html': 'monolith',
   'readability.md': 'readability',
+  'ai-markdown.md': 'ai_markdown',
   'rendered.md': 'markdown',
   'page.pdf': 'pdf',
   'screenshot.png': 'screenshot',

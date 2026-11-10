@@ -530,3 +530,32 @@ test('create-upload signs and journals the shared storage path of every artifact
     journalled.sort()
   );
 });
+
+const AI_MARKDOWN_PATH = `archives/${ID}/ai-markdown/output.md.gz`;
+
+test('create-upload of an AI Markdown archive journals its archive entry as uploading', async () => {
+  const body = uploadBody({ artifacts: [artifact('ai-markdown.md', 'text/markdown', true)] });
+  const out = await send(gatewayRequest({ path: '/create-upload', key: KEY, body }));
+  assert.equal(out.status, 200);
+  assert.equal(fake.writes.length, 1);
+  const data = fake.writes[0]!.data as { archives: Record<string, unknown> };
+  assert.deepEqual(data.archives, { ai_markdown: journalEntry('ai-markdown', 'output.md.gz') });
+  assertCanonicalFields(fake.writes[0]!.data);
+});
+
+test('finalize of an uploaded AI Markdown archive marks its archive entry stored with its path', async () => {
+  fake = makeFakeFirestore({
+    [PATH]: {
+      item_id: ID,
+      url: 'https://example.com/a',
+      archives: { ai_markdown: journalEntry('ai-markdown', 'output.md.gz') }
+    }
+  });
+  const body = finalizeBody({ uploaded: [uploaded('ai-markdown.md', AI_MARKDOWN_PATH)], metadata: METADATA });
+  const out = await send(gatewayRequest({ path: '/finalize', key: KEY, body }));
+  assert.deepEqual(out, FINALIZE_ANSWER);
+  assert.equal(fake.writes.length, 1);
+  const data = fake.writes[0]!.data as Record<string, unknown>;
+  assert.deepEqual(data['archives.ai_markdown'], stored(AI_MARKDOWN_PATH));
+  assertCanonicalFields(fake.writes[0]!.data);
+});
