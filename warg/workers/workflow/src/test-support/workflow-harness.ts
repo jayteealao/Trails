@@ -284,7 +284,7 @@ export interface AiCall {
  * The default conversion: a heading, then one Markdown link or image per
  * `href`/`src` the HTML holds, so a test can read the URLs the binding received.
  */
-export function echoLinksAsMarkdown(html: string): ConversionResponse {
+export function echoLinksAsMarkdown(html: string): Exclude<ConversionResponse, { format: 'error' }> {
   const lines = ['# Fixture title', ''];
   for (const [, name, value] of html.matchAll(/\s(href|src)="([^"]*)"/g)) {
     lines.push(name === 'src' ? `![image](${value})` : `[link](${value})`);

@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ArchiveManifest, ArchiveOptions } from '@warg/shared';
-import { getCheckpointKey, getOptionsKey } from '@warg/shared';
+import type { ArchiveManifest, ArchiveOptions, WorkflowCheckpoint } from '@warg/shared';
+import { getCheckpointKey, getOptionsKey, getR2Key } from '@warg/shared';
 import { createCheckpoint, markArtifactsPersisted, recordArtifacts } from './checkpoint.js';
 import {
   accessBlockedResponse,
   deadHostRenderFailure,
+  echoLinksAsMarkdown,
   errorOf,
   eventsOfType,
   fakeArtifact,
+  FIXTURE_READABILITY_MD,
   makeEvent,
   makeFakeBucket,
   makeFakeEnv,
@@ -92,6 +94,7 @@ describe('ArchiveWorkflow.run', () => {
       'singlefile',
       'readability',
       'monolith-attempt-1',
+      'ai-markdown',
       'write-manifest-manifest.json',
       'update-manifest-key',
       'log-completed',
@@ -101,6 +104,8 @@ describe('ArchiveWorkflow.run', () => {
     // Derivatives read rendered.html, so they come after render; their own order is free.
     expect(run.names.indexOf('render')).toBeLessThan(run.names.indexOf('readability'));
     expect(run.names.indexOf('render')).toBeLessThan(run.names.indexOf('monolith-attempt-1'));
+    // AI Markdown reads the stored Readability JSON, so it comes after readability.
+    expect(run.names.indexOf('readability')).toBeLessThan(run.names.indexOf('ai-markdown'));
 
     expect(run.names.filter((name) => name.startsWith('persist-gcs-'))).toHaveLength(5);
     expect(persistedSteps(fake).sort()).toEqual(['ai-markdown', 'monolith', 'readability', 'render', 'singlefile']);
@@ -323,6 +328,111 @@ describe('ArchiveWorkflow.run', () => {
     expect(fake.quota.acquired).toHaveLength(leases);
     expect(new Set(fake.quota.released).size).toBe(fake.quota.released.length);
     expect([...fake.quota.released].sort()).toEqual([...fake.quota.acquired].sort());
+  });
+});
+
+describe('AI Markdown archive', () => {
+  const AI_MARKDOWN_KEY = getR2Key(REQUEST_ID, 'ai-markdown.md');
+
+  function storedCheckpoint(bucket: FakeBucket): WorkflowCheckpoint {
+    const body = bucket.objects.get(getCheckpointKey(REQUEST_ID));
+    if (body === undefined) throw new Error('no checkpoint stored');
+    return JSON.parse(body) as WorkflowCheckpoint;
+  }
+
+  it('stores AI Markdown as a separate artifact and leaves readability.md as Readability wrote it', async () => {
+    const { fake, outcome } = await runRequest({});
+
+    expect(resultOf(outcome)).toMatchObject({ status: 'done', degraded: false });
+    expect(fake.aiCalls).toHaveLength(1);
+    expect(fake.bucket.objects.get(AI_MARKDOWN_KEY)).toBe(
+      echoLinksAsMarkdown(fake.aiCalls[0]?.html ?? '').data
+    );
+
+    expect(fake.bucket.objects.get(getR2Key(REQUEST_ID, 'readability.md'))).toBe(FIXTURE_READABILITY_MD);
+    const checkpoint = storedCheckpoint(fake.bucket);
+    expect(checkpoint.artifacts['readability.md']).toMatchObject({
+      ...fakeArtifact(REQUEST_ID, 'readability.md'),
+      producedBy: 'readability',
+    });
+    expect(checkpoint.artifacts['ai-markdown.md']).toMatchObject({
+      kind: 'ai-markdown.md',
+      r2Key: AI_MARKDOWN_KEY,
+      contentType: 'text/markdown',
+      producedBy: 'ai-markdown',
+      persisted: true,
+    });
+    expect(checkpoint.steps['ai-markdown'].status).toBe('succeeded');
+  });
+
+  it('resolves the relative link and image of the cleaned HTML against the article URL', async () => {
+    const { fake } = await runRequest({});
+
+    const stored = fake.bucket.objects.get(AI_MARKDOWN_KEY) ?? '';
+    expect(stored).toContain('[link](https://example.com/next)');
+    expect(stored).toContain('![image](https://example.com/img/a.png)');
+    expect(fake.aiCalls[0]).toMatchObject({
+      type: 'text/html',
+      options: { conversionOptions: { html: { hostname: URL } } },
+    });
+    expect(fake.aiCalls[0]?.html).not.toContain('href="../next"');
+  });
+
+  it('records a failed conversion for its step only and completes the request', async () => {
+    const { fake, run, outcome } = await runRequest(
+      {},
+      {
+        ai: () => {
+          throw new Error('Workers AI unavailable');
+        },
+      }
+    );
+
+    const result = resultOf(outcome);
+    expect(result).toMatchObject({ status: 'done', degraded: false });
+    expect(result.partialFailures).toEqual([]);
+
+    const checkpoint = storedCheckpoint(fake.bucket);
+    expect(checkpoint.steps['ai-markdown']).toMatchObject({ status: 'failed', error: 'Workers AI unavailable' });
+    expect(checkpoint.artifacts['ai-markdown.md']).toBeUndefined();
+    expect(fake.bucket.objects.has(AI_MARKDOWN_KEY)).toBe(false);
+
+    const failures = eventsOfType(fake.logger, 'step.failed');
+    expect(failures.map((event) => event.data.step)).toEqual(['ai-markdown']);
+
+    expect(persistedSteps(fake).sort()).toEqual(['monolith', 'readability', 'render', 'singlefile']);
+    const kinds = storedManifest(fake.bucket, result.manifestKey).artifacts.map((artifact) => artifact.kind);
+    expect(kinds).not.toContain('ai-markdown.md');
+    expect(kinds).toEqual(
+      expect.arrayContaining(['rendered.html', 'singlefile.html', 'readability.json', 'readability.md', 'monolith.html'])
+    );
+    expect(countOf(run.names, 'log-completed')).toBe(1);
+    expect(fake.logger.settles.map((entry) => entry.body.state)).toEqual(['done']);
+  });
+
+  it('skips the conversion on resume when the checkpoint holds a persisted AI Markdown artifact', async () => {
+    const bucket = makeFakeBucket();
+    const aiMarkdown = fakeArtifact(REQUEST_ID, 'ai-markdown.md');
+    const stored = createCheckpoint(REQUEST_ID, getOptionsKey(REQUEST_ID), true);
+    recordArtifacts(stored, 'ai-markdown', [aiMarkdown]);
+    markArtifactsPersisted(stored, [{ kind: aiMarkdown.kind, gcsPath: `gs://archive/${aiMarkdown.kind}` }]);
+    await bucket.put(getCheckpointKey(REQUEST_ID), JSON.stringify(stored));
+
+    const { fake, run, outcome } = await runRequest({}, { bucket });
+
+    expect(resultOf(outcome).status).toBe('done');
+    expect(fake.calls.READABILITY).toHaveLength(1);
+    expect(fake.aiCalls).toHaveLength(0);
+    expect(run.names).not.toContain('ai-markdown');
+    expect(persistedSteps(fake)).not.toContain('ai-markdown');
+  });
+
+  it('makes no conversion when readability is not requested', async () => {
+    const { fake, run, outcome } = await runRequest({ steps: ['singlefile'] });
+
+    expect(resultOf(outcome).status).toBe('done');
+    expect(fake.aiCalls).toHaveLength(0);
+    expect(run.names).not.toContain('ai-markdown');
   });
 });
 
