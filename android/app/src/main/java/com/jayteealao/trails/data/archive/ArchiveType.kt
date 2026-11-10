@@ -26,6 +26,12 @@ enum class ArchiveType(
     RENDERED("rendered", "text/html", false, "Rendered", CssGgIcons.Screen);
 
     companion object {
+        /**
+         * The archive key the server writes for the AI Markdown archive. It is not yet a
+         * local archive type, so [fromArchiveKey] answers null for it and sync skips it.
+         */
+        const val AI_MARKDOWN_ARCHIVE_KEY = "ai_markdown"
+
         fun fromArchiveKey(key: String): ArchiveType? = entries.find { it.archiveKey == key }
     }
 
