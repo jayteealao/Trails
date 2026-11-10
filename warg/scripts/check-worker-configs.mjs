@@ -103,6 +103,7 @@ const KNOWN_WRANGLER_KEYS = new Set([
   'migrations',
   'workflows',
   'browser',
+  'ai',
   'containers',
   'triggers',
   'send_email',
@@ -183,6 +184,7 @@ export function fromWrangler(w) {
   for (const b of w.workflows ?? [])
     bindings[b.binding] = `workflow:${b.name}:${b.class_name}`;
   if (w.browser) bindings[w.browser.binding] = 'browser';
+  if (w.ai) bindings[w.ai.binding] = 'ai';
   for (const name of w.secrets?.required ?? []) bindings[name] = 'secret';
   for (const key of Object.keys(w.secrets ?? {})) {
     if (key !== 'required') {
@@ -283,6 +285,9 @@ export function fromCf(config, tooling = {}) {
         break;
       case 'browser':
         bindings[name] = 'browser';
+        break;
+      case 'ai':
+        bindings[name] = 'ai';
         break;
       case 'secret':
         bindings[name] = 'secret';

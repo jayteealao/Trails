@@ -95,6 +95,15 @@ test('a renderer browser binding declared in wrangler.jsonc only is reported', a
   );
 });
 
+test('a workflow Workers AI binding declared in wrangler.jsonc only is reported', async () => {
+  const { wrangler, cf } = await load('workflow');
+  delete cf.worker.env.AI;
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /bindings\.AI: wrangler\.jsonc ai, cloudflare\.config\.ts \(absent\)/
+  );
+});
+
 test('a binding that points elsewhere is reported', async () => {
   const { wrangler, cf } = await load('gateway');
   cf.worker.env.ARCHIVE_BUCKET = { type: 'r2', name: 'other-bucket' };
