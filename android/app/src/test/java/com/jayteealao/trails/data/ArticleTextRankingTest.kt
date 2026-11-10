@@ -76,7 +76,7 @@ class ArticleTextRankingTest {
         row = Article(itemId = ID, url = "https://example.com/a", textSource = source).also { it.text = text }
     }
 
-    // ----- Readability stays when AI Markdown or renderer Markdown arrives (D-001) -----
+    // ----- Readability stays when AI Markdown or renderer Markdown arrives -----
 
     @Test
     fun storedReadability_aiMarkdownArrives_isKept() = runTest {
@@ -98,7 +98,7 @@ class ArticleTextRankingTest {
         assertEquals("readability", row?.textSource)
     }
 
-    // ----- A better source replaces a weaker stored text (AC-4) -----
+    // ----- A better source replaces a weaker stored text -----
 
     @Test
     fun storedMarkdown_readabilityArrives_isReplaced() = runTest {
@@ -110,7 +110,7 @@ class ArticleTextRankingTest {
         assertEquals("readability", row?.textSource)
     }
 
-    // ----- Ranking wins over a manual pick (D-003) -----
+    // ----- Ranking wins over a manual pick -----
 
     @Test
     fun manualPickOfMarkdown_thenReadabilityArrives_isReplaced() = runTest {
@@ -135,7 +135,7 @@ class ArticleTextRankingTest {
         assertEquals("readability", row?.textSource)
     }
 
-    // ----- A text from outside the rank is kept (RIM-1) -----
+    // ----- A text from outside the rank is kept -----
 
     @Test
     fun storedTextFromUnrankedSource_isNeverWritten() = runTest {

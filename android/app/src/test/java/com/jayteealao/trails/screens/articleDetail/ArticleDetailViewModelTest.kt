@@ -236,7 +236,7 @@ class ArticleDetailViewModelTest {
         collectJob.cancel()
     }
 
-    // ----- The stored text is ranked before the one read of an open (D-001, D-002) -----
+    // ----- The stored text is ranked before the one read of an open -----
 
     /** The article row the fake repository holds; [ArticleRepository.offerArticleText] writes it by the rank. */
     private var stored: Article? = null
@@ -313,7 +313,7 @@ class ArticleDetailViewModelTest {
         collectJob.cancel()
     }
 
-    /** Opens a6 with stored Markdown text, then a Readability archive arrives (screen reader-better-arrived). */
+    /** Opens a6 with stored Markdown text, then a Readability archive arrives while it is open. */
     private fun TestScope.openThenReadabilityArrives(): ArticleDetailViewModel {
         storeArticle("a6", "markdown text", "markdown")
         val markdown = localArchive("a6", ArchiveType.MARKDOWN)
