@@ -9,11 +9,13 @@ import type {
   ArtifactKind,
   ArtifactMeta,
   CheckpointStep,
+  ReadabilityResult,
   RequestSettle,
   WorkflowStartedData,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { WORKFLOW_STEPS, getR2Key } from '@warg/shared';
+import { WORKFLOW_STEPS, getR2Key, storeArtifact } from '@warg/shared';
+import { convertArticleToMarkdown } from './ai-markdown.js';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
@@ -624,6 +626,33 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       }
     }
 
+    // Step 7b: AI Markdown from the cleaned Readability HTML. Its failure marks
+    // this step only: the request still completes with every other artifact.
+    const aiMarkdownMode = resolveStepMode(checkpoint, 'ai-markdown', {
+      requested: wantReadability && Boolean(getArtifact(checkpoint, 'readability.json')),
+      resumeEnabled,
+      requiredKinds: [...STEP_REQUIRED_ARTIFACTS['ai-markdown']]
+    });
+
+    if (aiMarkdownMode === 'run') {
+      try {
+        markCheckpointStepStarted(checkpoint, 'ai-markdown', { resumed: resumeEnabled });
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+
+        const aiMarkdown = await this.runAiMarkdown(step, request_id, url);
+        recordArtifacts(checkpoint, 'ai-markdown', [aiMarkdown]);
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        await persistStepArtifacts('ai-markdown', 'step_succeeded');
+      } catch (err) {
+        const aiMarkdownError = err instanceof Error ? err : new Error(String(err));
+        markCheckpointStepFailed(checkpoint, 'ai-markdown', aiMarkdownError.message);
+        await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
+        await logStepFailed(this.env, request_id, 'ai-markdown', aiMarkdownError);
+      }
+    } else if (aiMarkdownMode === 'persist_only') {
+      await persistStepArtifacts('ai-markdown', 'resume_persist_only');
+    }
+
     // Step 8: Persist any leftover unpersisted artifacts, then build final manifest
     await persistStepArtifacts('final', 'final_reconcile');
 
@@ -1161,6 +1190,54 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       readabilityJson: readabilityResult.json,
       readabilityMd: readabilityResult.md
     };
+  }
+
+  /**
+   * Convert the stored Readability HTML of this request to the AI Markdown artifact.
+   */
+  private async runAiMarkdown(
+    step: WorkflowStep,
+    requestId: string,
+    url: string
+  ): Promise<ArtifactMeta> {
+    const startedAt = Date.now();
+    await step.do('log-ai-markdown-start', async () => {
+      await logStepStarted(this.env, requestId, 'ai-markdown');
+    });
+
+    const artifact = await step.do(
+      'ai-markdown',
+      {
+        retries: { limit: 2, delay: '5 seconds', backoff: 'linear' },
+        timeout: '2 minutes'
+      },
+      async () => {
+        const readabilityKey = getR2Key(requestId, 'readability.json');
+        const stored = await this.env.ARCHIVE_BUCKET.get(readabilityKey);
+        if (!stored) {
+          throw new NonRetryableError(`Readability JSON not found: ${readabilityKey}`);
+        }
+        const { content } = await stored.json<Partial<ReadabilityResult>>();
+        if (typeof content !== 'string' || !content) {
+          throw new NonRetryableError('Readability JSON has no cleaned HTML content');
+        }
+        const markdown = await convertArticleToMarkdown(this.env.AI, content, url);
+        return await storeArtifact(
+          this.env.ARCHIVE_BUCKET,
+          requestId,
+          'ai-markdown.md',
+          await new Response(markdown).arrayBuffer(),
+          'text/markdown'
+        );
+      }
+    );
+
+    await step.do('log-ai-markdown-artifact', async () => {
+      await logArtifactWritten(this.env, requestId, artifact.kind, artifact.r2Key, artifact.bytes, artifact.contentType, artifact.sha256);
+      await logStepCompletedWithDuration(this.env, requestId, 'ai-markdown', startedAt);
+    });
+
+    return artifact;
   }
 
   /**
