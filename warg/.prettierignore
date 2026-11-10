@@ -1,0 +1,2 @@
+# Byte-exact test fixtures: formatting them would change the bytes the tests pin.
+workers/readability/src/__fixtures__/
