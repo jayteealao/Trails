@@ -42,6 +42,25 @@ export interface FakeStep {
   cache: Map<string, unknown>;
 }
 
+/** Thrown by a fake step once its instance has stopped: no later step runs or records a result. */
+export class InstanceStopped extends Error {
+  constructor(at: string) {
+    super(`instance stopped before step ${at}`);
+    this.name = 'InstanceStopped';
+  }
+}
+
+export interface FakeStepOptions {
+  /**
+   * Stops the instance when a step.do or step.sleep of this name is reached,
+   * as an engine that goes away mid-run: that step and every later one throw
+   * InstanceStopped without running, and a callback still in flight records no result.
+   */
+  haltBefore?: string;
+  /** Called once, synchronously, at the moment the instance stops. */
+  onHalt?: () => void;
+}
+
 /**
  * A step that behaves like the Workflows engine on the points the tests pin:
  * a result is cached by step name and occurrence (deep-cloned, as the engine
@@ -49,15 +68,28 @@ export interface FakeStep {
  * callback is re-run up to `retries.limit` extra times, and at once stops on a
  * NonRetryableError. A step without a config is not retried. Sleeps return at once.
  */
-export function makeFakeStep(seed: Map<string, unknown> = new Map()): FakeStep {
+export function makeFakeStep(
+  seed: Map<string, unknown> = new Map(),
+  options: FakeStepOptions = {}
+): FakeStep {
   const cache = new Map(seed);
   const names: string[] = [];
   const attempts = new Map<string, number>();
   const sleeps: Array<[string, unknown]> = [];
   const seen = new Map<string, number>();
+  let stoppedAt: string | undefined;
+
+  const stopIfHalted = (name: string): void => {
+    if (stoppedAt === undefined && name === options.haltBefore) {
+      stoppedAt = name;
+      options.onHalt?.();
+    }
+    if (stoppedAt !== undefined) throw new InstanceStopped(stoppedAt);
+  };
 
   const fake = {
     async do(name: string, configOrFn: StepConfig | StepCallback, fn?: StepCallback): Promise<unknown> {
+      stopIfHalted(name);
       names.push(name);
       const occurrence = (seen.get(name) ?? 0) + 1;
       seen.set(name, occurrence);
@@ -74,9 +106,11 @@ export function makeFakeStep(seed: Map<string, unknown> = new Map()): FakeStep {
         attempts.set(name, (attempts.get(name) ?? 0) + 1);
         try {
           const value = await callback({ attempt });
+          if (stoppedAt !== undefined) throw new InstanceStopped(stoppedAt);
           cache.set(key, structuredClone(value));
           return value;
         } catch (error) {
+          if (stoppedAt !== undefined) throw new InstanceStopped(stoppedAt);
           lastError = error;
           if (error instanceof NonRetryableError) break;
         }
@@ -84,6 +118,7 @@ export function makeFakeStep(seed: Map<string, unknown> = new Map()): FakeStep {
       throw lastError;
     },
     async sleep(name: string, duration: unknown): Promise<void> {
+      stopIfHalted(name);
       sleeps.push([name, duration]);
     },
   };
@@ -204,6 +239,52 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
+/** The default success answer of the singlefile and monolith workers: one artifact of `kind`. */
+export function derivativeAnswer(kind: ArtifactKind): ServiceHandler {
+  return (body) => {
+    const response: DerivativeResponse = { artifact: fakeArtifact(String(body.request_id), kind) };
+    return jsonResponse(response);
+  };
+}
+
+export interface HeldResponse {
+  /** The handler to install for a binding; every call waits until `release`. */
+  handler: ServiceHandler;
+  /** Resolves when the first call arrives. */
+  started: Promise<void>;
+  /** The number of calls that have been answered. */
+  answered(): number;
+  /** Answers every waiting and later call, with `response` or the binding's normal answer. */
+  release(response?: Response): void;
+}
+
+/**
+ * A service that hangs: each call is recorded and answered only after
+ * `release`, with `answer` (the binding's normal success answer) by default.
+ */
+export function holdResponse(answer: ServiceHandler): HeldResponse {
+  let markStarted: () => void = () => undefined;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  let releaseAll: (response: Response | undefined) => void = () => undefined;
+  const released = new Promise<Response | undefined>((resolve) => {
+    releaseAll = resolve;
+  });
+  let answeredCount = 0;
+  return {
+    handler: async (body) => {
+      markStarted();
+      const response = await released;
+      answeredCount += 1;
+      return response?.clone() ?? (await answer(body));
+    },
+    started,
+    answered: () => answeredCount,
+    release: (response) => releaseAll(response),
+  };
+}
+
 function defaultHandlers(bucket: FakeBucket): Record<ServiceBinding, ServiceHandler> {
   const render: ServiceHandler = (body) => {
     const response: RendererResponse = {
@@ -213,15 +294,11 @@ function defaultHandlers(bucket: FakeBucket): Record<ServiceBinding, ServiceHand
     };
     return jsonResponse(response);
   };
-  const derivative = (kind: ArtifactKind): ServiceHandler => (body) => {
-    const response: DerivativeResponse = { artifact: fakeArtifact(String(body.request_id), kind) };
-    return jsonResponse(response);
-  };
   return {
     RENDERER: render,
     HYPERRENDERER: render,
-    SINGLEFILE: derivative('singlefile.html'),
-    MONOLITH: derivative('monolith.html'),
+    SINGLEFILE: derivativeAnswer('singlefile.html'),
+    MONOLITH: derivativeAnswer('monolith.html'),
     // Stores the JSON and Markdown bodies, as the readability worker does.
     READABILITY: async (body) => {
       const requestId = String(body.request_id);
