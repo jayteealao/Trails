@@ -213,6 +213,49 @@ describe('end state of an archive run', () => {
     expect(status.derived.diagnostics?.degradedSteps ?? []).toEqual([]);
   });
 
+  it('persists the Readability archive before SingleFile starts', async () => {
+    const id = newRequestId();
+
+    await using _instance = await startRun(id, {}, async (m) => {
+      await m.mockStepResult(
+        { name: 'render' },
+        {
+          result: {
+            uses_browser_rendering: true,
+            quota_kind_used: 'rest_request',
+            artifacts: [artifactMeta(id, 'rendered.html'), artifactMeta(id, 'rendered.md')]
+          },
+          fallbackUsed: false
+        }
+      );
+      await m.mockStepResult({ name: 'singlefile' }, { artifact: artifactMeta(id, 'singlefile.html') });
+      await m.mockStepResult(
+        { name: 'readability' },
+        { json: artifactMeta(id, 'readability.json'), md: artifactMeta(id, 'readability.md') }
+      );
+      await m.mockStepResult({ name: 'ai-markdown' }, artifactMeta(id, 'ai-markdown.md'));
+      await m.mockStepResult({ name: 'monolith-attempt-1' }, { artifact: artifactMeta(id, 'monolith.html') });
+    });
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const { events } = await readStatus(id);
+    const readabilityPersisted = events.findIndex(
+      (event) => event.type === 'persist.completed' && event.data?.checkpointStep === 'readability'
+    );
+    const singlefileStarted = events.findIndex(
+      (event) => event.type === 'step.started' && event.data?.step === 'singlefile'
+    );
+    const singlefileCompleted = events.findIndex(
+      (event) => event.type === 'step.completed' && event.data?.step === 'singlefile'
+    );
+    expect(readabilityPersisted).toBeGreaterThanOrEqual(0);
+    expect(singlefileStarted).toBeGreaterThanOrEqual(0);
+    expect(singlefileCompleted).toBeGreaterThanOrEqual(0);
+    expect(readabilityPersisted).toBeLessThan(singlefileStarted);
+    expect(readabilityPersisted).toBeLessThan(singlefileCompleted);
+  });
+
   it('marks the request incomplete when a resumed render is the only step that succeeds', async () => {
     const id = newRequestId();
     await seedLeftover(id, 'rendered.html');
