@@ -1,3 +1,5 @@
+// This test reads the checked-in config files from disk, so it needs the Node types (the workflow tests get them the same way).
+/// <reference types="node" />
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildSessionOptions, toStealthMode } from './index.js';
