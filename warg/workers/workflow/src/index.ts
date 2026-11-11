@@ -19,6 +19,7 @@ import { convertArticleToMarkdown } from './ai-markdown.js';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
 import type {
+  DerivativeResponse,
   WorkflowParams,
   RenderStepResult,
   WorkflowResult
@@ -27,8 +28,7 @@ import {
   callRendererForStep,
   callSinglefileForStep,
   callReadability,
-  callMonolith,
-  ServiceCallError
+  callMonolithForStep
 } from './services.js';
 import {
   logEvent,
@@ -843,61 +843,6 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     );
   }
 
-  private shouldRetryMonolithError(error: unknown): boolean {
-    if (error instanceof ServiceCallError) {
-      if (
-        error.classification.errorCode === 'MONOLITH_RPC_32MIB_LIMIT' ||
-        error.classification.errorCode === 'MONOLITH_INPUT_TOO_LARGE'
-      ) {
-        return false;
-      }
-      return error.classification.retryable;
-    }
-    return true;
-  }
-
-  private async callMonolithWithRetry(
-    step: WorkflowStep,
-    requestId: string,
-    renderedHtmlKey: string,
-    monolithBaseUrl: string
-  ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
-    // Workstream B2: monolith either produces in well under 2 min or it won't;
-    // 3×5-min retries were the main driver of the derive-latency tail. Cap at
-    // 2 attempts × 2-min step timeout. Deterministic failures (RPC 32 MiB,
-    // input-too-large) already short-circuit via shouldRetryMonolithError.
-    const maxAttempts = 2;
-    let delayMs = 6000;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        return await step.do(
-          `monolith-attempt-${attempt}`,
-          { timeout: '2 minutes' },
-          async () => {
-            return await callMonolith(this.env, {
-              request_id: requestId,
-              rendered_html_key: renderedHtmlKey,
-              base_url: monolithBaseUrl
-            });
-          }
-        );
-      } catch (error) {
-        const lastAttempt = attempt >= maxAttempts;
-        if (lastAttempt || !this.shouldRetryMonolithError(error)) {
-          throw error;
-        }
-
-        await step.do(`monolith-backoff-${attempt}`, async () => {
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        });
-        delayMs *= 2;
-      }
-    }
-
-    throw new Error('Monolith retry loop exhausted unexpectedly');
-  }
-
   /**
    * Run the monolith call under a Sandbox-exec concurrency lease (B1a).
    *
@@ -905,15 +850,15 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
    * a settling backfill batch fires many calls within a second — bursting the
    * Sandbox provisioner into HTTP 500s on the host→container write. Gate
    * concurrency through the same BrowserQuotaDO used for browser launches, via
-   * a separate `sandbox_exec` pool. The lease is held across the B2 retry loop
-   * (one lease per job; retries reuse it).
+   * a separate `sandbox_exec` pool. The lease is held across the step and its
+   * retries (one lease per job; retries reuse it).
    */
   private async monolithWithQuota(
     step: WorkflowStep,
     requestId: string,
     renderedHtmlKey: string,
     monolithBaseUrl: string
-  ): Promise<Awaited<ReturnType<typeof callMonolith>>> {
+  ): Promise<DerivativeResponse> {
     const { leaseId } = await acquireQuotaWithSleep(
       step,
       'monolith',
@@ -936,11 +881,26 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     // stops the container after the job, trading per-job cold starts for not
     // billing idle DO duration between jobs.
     try {
-      return await this.callMonolithWithRetry(
-        step,
-        requestId,
-        renderedHtmlKey,
-        monolithBaseUrl
+      // The step keeps the name `monolith-attempt-1` so a running instance
+      // replays its cached result. The budget is as before: 2 attempts of 2
+      // minutes with a 6 s wait between them, which the runtime owns. A
+      // deterministic failure fails the step at once.
+      return await step.do(
+        'monolith-attempt-1',
+        {
+          timeout: '2 minutes',
+          retries: { limit: 1, delay: '6 seconds', backoff: 'exponential' }
+        },
+        async () =>
+          await callMonolithForStep(
+            this.env,
+            {
+              request_id: requestId,
+              rendered_html_key: renderedHtmlKey,
+              base_url: monolithBaseUrl
+            },
+            (m) => new NonRetryableError(m)
+          )
       );
     } finally {
       await step.do('release-monolith-quota', async () => {
