@@ -13,7 +13,7 @@ export default defineConfig({
 			traces: { enabled: true },
 		},
 		env: {
-			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+			// Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
 			INTERNAL_API_KEY: bindings.secret(),
 			BROWSER: bindings.browser({}),
 			ARCHIVE_BUCKET: bindings.r2({

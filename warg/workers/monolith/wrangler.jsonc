@@ -39,10 +39,10 @@
   "migrations": [
     { "new_sqlite_classes": ["Sandbox"], "tag": "v1" }
   ],
-  // Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+  // Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
   "secrets": { "required": ["INTERNAL_API_KEY", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] }
 }
-// Secrets (via `wrangler secret put`):
+// Secrets (via `cf workers secrets update`):
 // - INTERNAL_API_KEY: shared key for internal worker auth
 // - MONOLITH_SERVICE_URL (optional): fallback HTTP service URL
 //   Not in secrets.required, so `wrangler dev` ignores a .dev.vars entry for it;

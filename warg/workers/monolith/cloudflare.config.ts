@@ -28,7 +28,7 @@ export default defineConfig({
 			enabled: true,
 		},
 		env: {
-			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+			// Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
 			INTERNAL_API_KEY: bindings.secret(),
 			R2_ACCOUNT_ID: bindings.secret(),
 			R2_ACCESS_KEY_ID: bindings.secret(),

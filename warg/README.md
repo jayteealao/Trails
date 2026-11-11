@@ -292,8 +292,9 @@ requests) or had at least one request in the last 24 hours and no success for
 48 hours, sends one email through its `HEALTH_EMAIL` binding. A kind with no
 request in the last 24 hours does not alert. A request of the last hour is not counted
 yet, since it may still be running. Before the first deploy that carries it, set
-`HEALTH_ALERT_FROM` and `HEALTH_ALERT_TO` with `pnpm exec wrangler secret put`
-in `workers/gateway`; the deploy refuses the gateway without them. The
+`HEALTH_ALERT_FROM` and `HEALTH_ALERT_TO` on the `gateway` worker with
+`pnpm exec cf workers secrets update <NAME> --worker gateway --type secret_text --text "$VALUE"`
+(read the value with `read -rs VALUE` first); the deploy refuses the gateway without them. The
 recipient must be a verified destination address in Email Routing, and the
 sender must be on a domain of the account with email sending enabled. The
 deploy checks only that the two secrets exist, so after the first deploy that
@@ -430,12 +431,12 @@ two secrets from the live worker, so remove them by hand, in this order:
    `BR_API_TOKEN` in the Cloudflare dashboard (My Profile → API Tokens):
 
    ```bash
-   pnpm exec wrangler secret delete BR_API_TOKEN --config workers/renderer/wrangler.jsonc
-   pnpm exec wrangler secret delete CF_ACCOUNT_ID --config workers/renderer/wrangler.jsonc
+   pnpm exec cf workers secrets delete BR_API_TOKEN --worker renderer
+   pnpm exec cf workers secrets delete CF_ACCOUNT_ID --worker renderer
    ```
 
    A rollback to a REST version after this step needs both secrets set again
-   (`pnpm exec wrangler secret put <NAME> --config workers/renderer/wrangler.jsonc`)
+   (`read -rs VALUE && pnpm exec cf workers secrets update <NAME> --worker renderer --type secret_text --text "$VALUE"`)
    and a token that is not revoked.
 
 ### Rotating the function keys (two steps)

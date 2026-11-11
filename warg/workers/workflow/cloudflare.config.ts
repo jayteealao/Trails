@@ -18,7 +18,7 @@ export default defineConfig({
 			traces: { enabled: true },
 		},
 		env: {
-			// Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+			// Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
 			INTERNAL_API_KEY: bindings.secret(),
 			MOCK_PIPELINE: bindings.text("false"),
 			// Workers AI: converts the cleaned Readability HTML to the AI Markdown artifact

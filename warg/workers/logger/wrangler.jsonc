@@ -22,6 +22,6 @@
     }
   ],
   "observability": { "enabled": true },
-  // Required secrets, set with `wrangler secret put`; scripts/deploy.sh checks the same names.
+  // Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
   "secrets": { "required": ["INTERNAL_API_KEY"] }
 }
