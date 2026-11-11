@@ -145,4 +145,23 @@ describe('a sandbox container that is not ready', () => {
     expect(sandbox.exec).toHaveBeenCalledTimes(1);
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
+
+  it('fails the job retryable when the container is not ready at the upload', async () => {
+    const notReady = new FakeContainerUnavailableError('container is starting', 3000);
+    const sandbox = {
+      exec: vi
+        .fn<() => Promise<ExecResult>>()
+        .mockResolvedValueOnce(execOk())
+        .mockRejectedValueOnce(notReady),
+      stop: vi.fn(async () => {})
+    };
+    getSandboxMock.mockReturnValue(sandbox as unknown as ReturnType<typeof getSandbox>);
+
+    await expect(
+      runMonolithInSandbox(createEnv(), 'req-x', 'archives/req-x/raw/rendered.html', 'https://example.com')
+    ).rejects.toMatchObject({ code: 'MONOLITH_CONTAINER_UNAVAILABLE', status: 503, retryable: true });
+
+    expect(sandbox.exec).toHaveBeenCalledTimes(2);
+    expect(sandbox.stop).toHaveBeenCalledTimes(1);
+  });
 });

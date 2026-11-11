@@ -171,22 +171,22 @@ function validateBaseUrl(url: string): string {
 /**
  * Normalized result of a single sandbox exec. Exec RPC failures are folded into
  * a failed outcome (not thrown) so the caller can attempt the curl fallback.
- *
- * `retryAfterMs` is set when the failure was a ContainerUnavailableError — the
- * SDK-signalled hint before the container will be ready. The job then fails
- * retryable; it does not wait.
  */
 interface ExecOutcome {
   success: boolean;
   exitCode: number;
   stdout: string;
   stderr: string;
-  /** Set when the exec threw ContainerUnavailableError; the job fails retryable and does not wait. */
-  retryAfterMs?: number;
 }
 
 type SandboxHandle = ReturnType<typeof getSandbox>;
 
+/**
+ * Run one command in the sandbox. A container that is not ready
+ * (ContainerUnavailableError with its retry hint) fails the job retryable at
+ * any exec: no fallback can reach a container that is not there, and the
+ * workflow step's retry delay does the waiting.
+ */
 async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<ExecOutcome> {
   try {
     const result = await sandbox.exec(command);
@@ -201,8 +201,9 @@ async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<E
     const retryAfterMs = error instanceof ContainerUnavailableError ? error.retryAfterMs : undefined;
     if (retryAfterMs !== undefined) {
       console.warn('[monolith] ContainerUnavailableError: container not ready', { retryAfterMs, message });
+      throw containerUnavailableError(retryAfterMs);
     }
-    return { success: false, exitCode: -1, stdout: '', stderr: `Sandbox exec failed: ${message}`, retryAfterMs };
+    return { success: false, exitCode: -1, stdout: '', stderr: `Sandbox exec failed: ${message}` };
   }
 }
 
@@ -253,12 +254,6 @@ export async function runMonolithInSandbox(
       sandbox,
       `${cleanOut}; ${buildMonolithUrlCommand(documentUrl, normalizedBaseUrl)}`
     );
-
-    // A container that is not ready fails the job retryable; the curl fallback
-    // would hit the same container. execInSandbox has logged the hint.
-    if (result.retryAfterMs !== undefined) {
-      throw containerUnavailableError(result.retryAfterMs);
-    }
 
     // Fallback: curl the URL into a local file, then monolith reads the file.
     if (!result.success) {
