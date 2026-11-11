@@ -896,6 +896,9 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       // replays its cached result. The budget is as before: 2 attempts of 2
       // minutes with a 6 s wait between them, which the runtime owns. A
       // deterministic failure fails the step at once.
+      // One-time cost of this change: an instance that cached a failed
+      // `monolith-attempt-1` under the old two-step loop replays that failure
+      // and degrades monolith; it does not run the old second attempt.
       return await step.do(
         'monolith-attempt-1',
         {
