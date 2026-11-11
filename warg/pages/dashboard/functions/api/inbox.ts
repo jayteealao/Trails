@@ -75,8 +75,10 @@ async function fetchCompletedToday(env: Env): Promise<number> {
   });
 
   if (!response.ok) {
+    // The upstream body is logged here, cut short, and never sent to the browser.
     const text = await response.text();
-    throw new Error(text || `Dashboard API returned ${response.status}`);
+    console.error({ event: 'inbox.completed_today.failed', status: response.status, body: text.slice(0, 300) });
+    throw new Error('Completed-today lookup failed');
   }
 
   const body = (await response.json()) as CompletedTodayResponse;
@@ -131,6 +133,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       },
     });
   } catch (err) {
+    console.error({ event: 'inbox.failed', error: err instanceof Error ? err.message : String(err) });
     const message = err instanceof Error ? err.message : 'Unknown error';
     return new Response(JSON.stringify({ error: message }), {
       status: 500,

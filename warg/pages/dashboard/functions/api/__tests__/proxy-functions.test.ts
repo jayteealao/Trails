@@ -606,13 +606,19 @@ describe('inbox proxy', () => {
     expect(data.counts.completedToday).toBe(0);
   });
 
-  it('fails the inbox when the completed-today call fails', async () => {
-    const { env } = setupInbox(() => errorResponse('boom', 500));
+  it('fails the inbox when the completed-today call fails, logging the upstream answer and not sending it', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { env } = setupInbox(() => errorResponse('boom', 500));
 
-    const response = await runInbox(env);
+      const response = await runInbox(env);
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: 'boom' });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: 'Completed-today lookup failed' });
+      expect(JSON.stringify(error.mock.calls)).toContain('boom');
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it('fails the inbox when the completed-today answer has no count', async () => {
