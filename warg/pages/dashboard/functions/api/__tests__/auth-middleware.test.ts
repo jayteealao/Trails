@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { listRoutes } from './route-inventory';
-import { onRequest } from '../../_middleware';
+import { onRequest, resetGuessCounts } from '../../_middleware';
 
 const API_DIR = fileURLToPath(new URL('..', import.meta.url));
 const routes = listRoutes(API_DIR);
@@ -222,6 +222,28 @@ describe('refused sign-ins are logged without the credential', () => {
     } finally {
       warn.mockRestore();
       error.mockRestore();
+    }
+  });
+});
+
+describe('repeated wrong credentials from one address', () => {
+  it('stop being checked after ten in a minute, for that address only', async () => {
+    resetGuessCounts();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const from = (ip: string) => ({ 'CF-Connecting-IP': ip });
+      for (let i = 0; i < 10; i++) {
+        const { response } = await run('/api/inbox', 'GET', basic('e2e-user:guess' + i), SECRET, from('203.0.113.7'));
+        expect(response.status).toBe(401);
+      }
+      const blocked = await run('/api/inbox', 'GET', basic(SECRET), SECRET, from('203.0.113.7'));
+      expect(blocked.response.status).toBe(429);
+      expect(blocked.next).not.toHaveBeenCalled();
+      const other = await run('/api/inbox', 'GET', basic(SECRET), SECRET, from('198.51.100.2'));
+      expect(other.response.status).toBe(299);
+    } finally {
+      warn.mockRestore();
+      resetGuessCounts();
     }
   });
 });
