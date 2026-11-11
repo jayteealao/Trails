@@ -729,6 +729,17 @@ class ArticleDetailViewModelTest {
     }
 
     @Test
+    fun blankReadabilityArchive_givesWayToTheMarkdownArchiveBelowIt() = runTest(scheduler) {
+        val viewModel = openWithoutText(listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN)) { type ->
+            if (type == ArchiveType.READABILITY) "  " else "markdown text"
+        }
+
+        assertEquals(ReaderBody.Text, viewModel.state.value.readerBody)
+        assertEquals("markdown text", viewModel.state.value.article?.text)
+        assertEquals("markdown", viewModel.state.value.textSource)
+    }
+
+    @Test
     fun readerBody_textArchiveThatDoesNotOpen_showsTheCouldNotOpenNotice() = runTest(scheduler) {
         val viewModel = openWithoutText(listOf(ArchiveType.READABILITY)) { null }
 

@@ -336,12 +336,14 @@ class ArticleDetailViewModel @Inject constructor(
     }
 
     /**
-     * Offers the best-ranked readable text archive of [archives] as the stored text, per
-     * [TextSourceRank]. Returns whether the stored text changed.
+     * Offers the best-ranked text archive of [archives] that has words as the stored text, per
+     * [TextSourceRank]. A blank or unreadable archive gives way to the next one down. Returns
+     * whether the stored text changed.
      */
     private suspend fun offerBestText(itemId: String, archives: List<LocalArchive>): Boolean {
         val keys = archives.map { it.archiveKey }
         val ranked = TextSourceRank.ORDER.filter { it in keys }
+        var sawBlank = false
         for (key in ranked) {
             val type = ArchiveType.fromArchiveKey(key) ?: continue
             val text = archiveService.readArchiveText(itemId, type)
@@ -349,10 +351,18 @@ class ArticleDetailViewModel @Inject constructor(
                 Timber.w("offerBestText($itemId) — readArchiveText returned null for $key")
                 continue
             }
-            _localText.value = if (text.isBlank()) LocalText.BLANK else LocalText.READABLE
+            if (text.isBlank()) {
+                sawBlank = true
+                continue
+            }
+            _localText.value = LocalText.READABLE
             return articleRepository.offerArticleText(itemId, text, key)
         }
-        _localText.value = if (ranked.isEmpty()) LocalText.NONE else LocalText.UNREADABLE
+        _localText.value = when {
+            ranked.isEmpty() -> LocalText.NONE
+            sawBlank -> LocalText.BLANK
+            else -> LocalText.UNREADABLE
+        }
         return false
     }
 
