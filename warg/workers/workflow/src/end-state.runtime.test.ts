@@ -186,6 +186,9 @@ describe('end state of an archive run', () => {
     const id = newRequestId();
 
     await using _instance = await startRun(id, {}, async (m) => {
+      await grantLease(m, 'render');
+      await grantLease(m, 'singlefile');
+      await grantLease(m, 'monolith');
       await m.mockStepResult(
         { name: 'render' },
         {
@@ -217,6 +220,9 @@ describe('end state of an archive run', () => {
     const id = newRequestId();
 
     await using _instance = await startRun(id, {}, async (m) => {
+      await grantLease(m, 'render');
+      await grantLease(m, 'singlefile');
+      await grantLease(m, 'monolith');
       await m.mockStepResult(
         { name: 'render' },
         {
