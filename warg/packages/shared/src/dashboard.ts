@@ -71,6 +71,16 @@ export function credentialFailure(errorCode: CredentialErrorCode): {
   return { errorCode, retryable: false, recommendedAction: 'check_api_key' };
 }
 
+/** The stealth settings a fallback render session can use. `none` is the default: stealth is an opt-in. */
+export const RENDER_STEALTH_MODES = ['none', 'auto', 'ultra'] as const;
+
+/** The stealth setting of a fallback render session. */
+export type RenderStealthMode = (typeof RENDER_STEALTH_MODES)[number];
+
+export function isRenderStealthMode(value: unknown): value is RenderStealthMode {
+  return typeof value === 'string' && (RENDER_STEALTH_MODES as readonly string[]).includes(value);
+}
+
 export interface RequestDiagnostics {
   errorCode?: RequestErrorCode;
   errorMessage?: string;
@@ -85,6 +95,8 @@ export interface RequestDiagnostics {
   renderProvider?: 'browser-rendering' | 'hyperbrowser' | 'unknown';
   renderFallbackUsed?: boolean;
   renderFallbackReason?: string;
+  /** The stealth setting the fallback renderer used. */
+  renderFallbackStealth?: RenderStealthMode;
   degraded?: boolean;
   degradedSteps?: string[];
 }

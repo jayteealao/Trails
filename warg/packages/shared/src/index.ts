@@ -42,6 +42,7 @@ export type {
   UserActionHint,
   RequestErrorCode,
   RequestDiagnostics,
+  RenderStealthMode,
   ArticleHealth
 } from './dashboard.js';
 export { R2_KEY_ERROR_NAMES, credentialFailure, isCredentialErrorCode } from './dashboard.js';
@@ -52,6 +53,8 @@ export {
   USER_ACTION_HINTS,
   isRequestErrorCode,
   isUserActionHint,
+  RENDER_STEALTH_MODES,
+  isRenderStealthMode,
 } from './dashboard.js';
 
 export type { RequestSettle, SettledRecord } from './settle.js';
