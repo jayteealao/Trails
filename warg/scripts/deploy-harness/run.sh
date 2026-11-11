@@ -377,10 +377,10 @@ scenario_secrets_list_fails() {
 
 scenario_secret_missing() {
   start secret-missing
-  run_deploy secret-missing H_SECRETS_MISSING=monolith:R2_ACCOUNT_ID --
+  run_deploy secret-missing H_SECRETS_MISSING=monolith:INTERNAL_API_KEY --
   expect_rc 3
   expect_row "worker:readability" skipped '-'
-  expect_row "worker:monolith" failed 'missing secret\(s\): R2_ACCOUNT_ID'
+  expect_row "worker:monolith" failed 'missing secret\(s\): INTERNAL_API_KEY'
   expect_row "worker:gcs" skipped '-'
   expect_out '^Set each with: cf workers secrets update <NAME> --worker monolith --type secret_text --text <value>$'
   expect_calls 0 '^wrangler '

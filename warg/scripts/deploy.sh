@@ -109,7 +109,7 @@ set -euo pipefail
 #   hyperrenderer: INTERNAL_API_KEY, HYPERBROWSER_API_KEY
 #   singlefile:    INTERNAL_API_KEY
 #   readability:   INTERNAL_API_KEY
-#   monolith:      INTERNAL_API_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+#   monolith:      INTERNAL_API_KEY
 #   gcs:           INTERNAL_API_KEY, ARCHIVE_GATEWAY_KEY, CLOUD_FN_BASE_URL
 #   warg-dashboard: DASHBOARD_AUTH, INTERNAL_API_KEY, DASHBOARD_API_KEY, BACKFILL_STATUS_KEY, CF_API_TOKEN, CF_ACCOUNT_ID
 # A failed listing (not signed in, token expired, worker not deployed yet)
@@ -526,7 +526,7 @@ required_secrets_for() {
     hyperrenderer) echo "INTERNAL_API_KEY HYPERBROWSER_API_KEY" ;;
     singlefile)    echo "INTERNAL_API_KEY" ;;
     readability)   echo "INTERNAL_API_KEY" ;;
-    monolith)      echo "INTERNAL_API_KEY R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY" ;;
+    monolith)      echo "INTERNAL_API_KEY" ;;
     gcs)           echo "INTERNAL_API_KEY ARCHIVE_GATEWAY_KEY CLOUD_FN_BASE_URL" ;;
     warg-dashboard) echo "DASHBOARD_AUTH INTERNAL_API_KEY DASHBOARD_API_KEY BACKFILL_STATUS_KEY CF_API_TOKEN CF_ACCOUNT_ID" ;;
     *)             echo "" ;;
