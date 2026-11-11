@@ -306,6 +306,26 @@ describe('rendererFallbackReasonFromBody', () => {
 
 // --- (f) the sandbox output classifier -----------------------------------------
 
+describe('a monolith container that is not ready', () => {
+  const body = JSON.stringify({
+    error: 'Internal error',
+    message: 'Sandbox container not ready (retry after 3000 ms)',
+    code: 'MONOLITH_CONTAINER_UNAVAILABLE',
+    retryable: true,
+  });
+
+  it('is classified under its own code, worth a retry', () => {
+    expect(classifyServiceFailure('/monolith', 503, body)).toEqual({
+      errorCode: 'MONOLITH_CONTAINER_UNAVAILABLE',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    });
+    expect(classifyError('monolith', `Service error 503: ${body}`).errorCode).toBe(
+      'MONOLITH_CONTAINER_UNAVAILABLE'
+    );
+  });
+});
+
 describe('classifySandboxOutput', () => {
   it.each([
     ['Serialized RPC arguments are limited to 32MiB', '', { errorCode: 'MONOLITH_RPC_32MIB_LIMIT', retryable: false }],
@@ -411,6 +431,7 @@ describe('the default retry and action of each error code', () => {
     MONOLITH_RPC_32MIB_LIMIT: [false, 'investigate_service'],
     MONOLITH_INPUT_TOO_LARGE: [false, 'investigate_service'],
     MONOLITH_R2_HANDLER_FAILED: [true, 'retry_step'],
+    MONOLITH_CONTAINER_UNAVAILABLE: [true, 'retry_step'],
     PERSIST_SERVICE_ERROR: [true, 'investigate_service'],
     ACCESS_BLOCKED: [false, 'check_access'],
     R2_CREDENTIAL_INVALID: [false, 'check_api_key'],

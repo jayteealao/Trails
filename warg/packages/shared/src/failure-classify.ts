@@ -123,6 +123,15 @@ function classifyMonolithError(errorMsgLower: string): ErrorClassification | und
     };
   }
 
+  // The sandbox container was not ready on every attempt of the step.
+  if (errorMsgLower.includes('monolith_container_unavailable')) {
+    return {
+      errorCode: 'MONOLITH_CONTAINER_UNAVAILABLE',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
+
   if (isRpc32MiBLimit(errorMsgLower)) {
     return {
       errorCode: 'MONOLITH_RPC_32MIB_LIMIT',
@@ -358,10 +367,16 @@ function classifyMonolithFailureFromBody(
   responseBody: string
 ): ErrorClassification | undefined {
   const parsed = parseJsonSafe(responseBody);
-  if (parsed && typeof parsed === 'object' && 'code' in parsed && parsed.code === 'MONOLITH_R2_HANDLER_FAILED') {
+  // The monolith Worker names these failures by code and says whether a retry may help.
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    'code' in parsed &&
+    (parsed.code === 'MONOLITH_R2_HANDLER_FAILED' || parsed.code === 'MONOLITH_CONTAINER_UNAVAILABLE')
+  ) {
     const retryable = 'retryable' in parsed && parsed.retryable === true;
     return {
-      errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+      errorCode: parsed.code,
       retryable,
       recommendedAction: retryable ? 'retry_step' : 'investigate_service',
     };
