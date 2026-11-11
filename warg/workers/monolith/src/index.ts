@@ -1,7 +1,6 @@
 import { getSandbox, Sandbox as BaseSandbox, ContainerUnavailableError } from '@cloudflare/sandbox';
 import {
   classifySandboxOutput,
-  getR2Key,
   isR2CredentialRejection,
   readInternalJsonRequest,
   storeArtifact,
@@ -18,8 +17,7 @@ import {
   redactSignedUrlParams,
   SANDBOX_OUTPUT_PATH
 } from './monolith-command.js';
-import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-presign.js';
-import { handleR2Outbound, R2_HANDLER_HOST } from './r2-outbound.js';
+import { handleR2Outbound, monolithKeys, R2_HANDLER_HOST, r2HandlerUrl } from './r2-outbound.js';
 
 /**
  * Sandbox DO binding with a 5m `sleepAfter` backstop (the upstream default
@@ -198,32 +196,10 @@ async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<E
 }
 
 /**
- * Assemble + validate the R2 presign config from worker secrets.
- * Throws a clear, non-retryable config error if any secret is missing.
- */
-function getPresignConfig(env: Env): R2PresignConfig {
-  const { R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID, R2_BUCKET_NAME } = env;
-  if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ACCOUNT_ID || !R2_BUCKET_NAME) {
-    throw new MonolithServiceError(
-      'R2 presign not configured (need R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID, R2_BUCKET_NAME)',
-      'MONOLITH_CONFIG',
-      500,
-      false
-    );
-  }
-  return {
-    accessKeyId: R2_ACCESS_KEY_ID,
-    secretAccessKey: R2_SECRET_ACCESS_KEY,
-    accountId: R2_ACCOUNT_ID,
-    bucket: R2_BUCKET_NAME
-  };
-}
-
-/**
  * Execute monolith in the sandbox and return processed HTML.
  *
- * Input is delivered over the container's own network via a presigned R2 GET
- * URL (B1b) — monolith fetches it directly. If that fails (e.g. monolith's
+ * The container reads its input from, and writes its output to, the Worker's
+ * R2 handler host — monolith fetches the input URL directly. If that fails (e.g. monolith's
  * URL-fetch or `-b` override misbehaves), fall back to `curl`-to-file, which
  * writes inside the container (normal fs) and feeds monolith a local path.
  * Neither path uses the host→container `writeFile` RPC that was 500ing.
@@ -235,6 +211,17 @@ export async function runMonolithInSandbox(
   baseUrl: string
 ): Promise<{ artifact: ArtifactMeta; sandboxId: string }> {
   const normalizedBaseUrl = validateBaseUrl(baseUrl);
+  // The R2 handler serves only this request's deterministic keys, so any other
+  // input key would be refused inside the container; refuse it here instead.
+  const keys = monolithKeys(requestId);
+  if (renderedHtmlKey !== keys.input) {
+    throw new MonolithServiceError(
+      `rendered_html_key must be ${keys.input}`,
+      'INVALID_INPUT_KEY',
+      400,
+      false
+    );
+  }
   const sandboxId = normalizeSandboxId(requestId);
   console.log('[monolith] Getting sandbox for request:', requestId, 'sandbox:', sandboxId);
   const sandbox = getSandbox(env.Sandbox, sandboxId, { transport: 'rpc' });
@@ -246,12 +233,11 @@ export async function runMonolithInSandbox(
     // this just closes the success-but-stale edge.
     const cleanOut = `rm -f ${SANDBOX_OUTPUT_PATH}`;
 
-    // Mint a short-lived presigned GET URL for the rendered HTML. Never logged —
-    // it grants read access to the object for its TTL.
-    const documentUrl = await presignR2GetUrl(getPresignConfig(env), renderedHtmlKey);
+    // The rendered HTML, served by the Worker's R2 handler.
+    const documentUrl = r2HandlerUrl(keys.input);
 
     // Primary: monolith fetches the URL directly (no curl dependency).
-    console.log('[monolith] Executing monolith via presigned URL fetch...');
+    console.log('[monolith] Executing monolith via R2 handler fetch...');
     let result = await execInSandbox(
       sandbox,
       `${cleanOut}; ${buildMonolithUrlCommand(documentUrl, normalizedBaseUrl)}`
@@ -296,13 +282,13 @@ export async function runMonolithInSandbox(
       throw classifySandboxFailure(result.stderr, result.stdout);
     }
 
-    // Upload the output straight to R2 via a presigned PUT URL, then read back its
+    // Upload the output to R2 through the Worker's R2 handler, then read back its
     // sha256 + byte size from stdout. Routing the bytes over the container network
     // sidesteps the 32 MiB `readFile` RPC ceiling that heavy (base64-inlined)
     // pages would otherwise overflow.
     console.log('[monolith] Execution complete, uploading output to R2...');
-    const r2Key = getR2Key(requestId, 'monolith.html');
-    const putUrl = await presignR2PutUrl(getPresignConfig(env), r2Key);
+    const r2Key = keys.output;
+    const putUrl = r2HandlerUrl(r2Key);
     const upload = await execInSandbox(sandbox, buildUploadAndHashCommand(putUrl));
     if (!upload.success) {
       console.error('[monolith] Output upload failed:', {
@@ -432,7 +418,7 @@ export default {
       }
 
       // Validate the rendered HTML exists in R2 without reading it into the
-      // worker — the Sandbox fetches it directly via a presigned URL.
+      // worker — the Sandbox fetches it through the Worker's R2 handler.
       const htmlHead = await env.ARCHIVE_BUCKET.head(rendered_html_key);
       if (!htmlHead) {
         return Response.json(
