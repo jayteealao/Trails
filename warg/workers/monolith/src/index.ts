@@ -211,10 +211,12 @@ async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<E
  * Execute monolith in the sandbox and return processed HTML.
  *
  * The container reads its input from, and writes its output to, the Worker's
- * R2 handler host — monolith fetches the input URL directly. If that fails (e.g. monolith's
- * URL-fetch or `-b` override misbehaves), fall back to `curl`-to-file, which
- * writes inside the container (normal fs) and feeds monolith a local path.
- * Neither path uses the host→container `writeFile` RPC that was 500ing.
+ * R2 handler host; monolith fetches the input URL directly.
+ *
+ * If that fails (e.g. monolith's URL-fetch or `-b` override misbehaves), fall
+ * back to `curl`-to-file, which writes inside the container (normal fs) and
+ * feeds monolith a local path. Neither path uses the host→container
+ * `writeFile` RPC that was 500ing.
  */
 export async function runMonolithInSandbox(
   env: Env,
