@@ -46,6 +46,12 @@ class TextSourceRankTest {
     }
 
     @Test
+    fun shouldReplace_blankNewText_isFalse() {
+        assertFalse(TextSourceRank.shouldReplace("md", "markdown", "readability", "  "))
+        assertFalse(TextSourceRank.shouldReplace(null, "", "readability", ""))
+    }
+
+    @Test
     fun shouldReplace_aiMarkdownDoesNotReplaceReadability() {
         assertFalse(TextSourceRank.shouldReplace("r", "readability", "ai_markdown", "a"))
     }

@@ -26,8 +26,12 @@ object TextSourceRank {
     /** The best-ranked text source among [keys], or null when none is a text source. */
     fun best(keys: Collection<String>): String? = ORDER.firstOrNull { it in keys }
 
-    /** Whether a text from [newSource] should replace the stored [currentText] from [currentSource]. */
+    /**
+     * Whether a text from [newSource] should replace the stored [currentText] from [currentSource].
+     * A blank text never replaces: an empty extraction must not wipe a text that has words.
+     */
     fun shouldReplace(currentText: String?, currentSource: String, newSource: String, newText: String): Boolean {
+        if (newText.isBlank()) return false
         val newRank = rankOf(newSource) ?: return false
         if (currentText.isNullOrBlank() || currentSource.isEmpty()) return true
         val currentRank = rankOf(currentSource) ?: return false
