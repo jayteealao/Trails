@@ -2,8 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSandbox } from '@cloudflare/sandbox';
 import { runMonolithInSandbox } from './index.js';
 
+// Stands in for the SDK's ContainerUnavailableError, whose constructor takes a full error response.
+const { FakeContainerUnavailableError } = vi.hoisted(() => ({
+  FakeContainerUnavailableError: class extends Error {
+    constructor(
+      message: string,
+      readonly retryAfterMs: number
+    ) {
+      super(message);
+    }
+  }
+}));
+
 vi.mock('@cloudflare/sandbox', () => ({
   getSandbox: vi.fn(),
+  ContainerUnavailableError: FakeContainerUnavailableError,
   Sandbox: class {},
   ContainerProxy: class {}
 }));
@@ -107,6 +120,33 @@ describe('a failed monolith sandbox upload is classified', () => {
       runMonolithInSandbox(createEnv(), 'req-x', 'archives/req-x/raw/rendered.html', 'https://example.com')
     ).rejects.toMatchObject(expected);
 
+    expect(sandbox.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a sandbox container that is not ready', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it('fails the job retryable at once, without waiting or trying the curl fallback', async () => {
+    const notReady = new FakeContainerUnavailableError('container is starting', 3000);
+    const sandbox = {
+      exec: vi.fn(async () => {
+        throw notReady;
+      }),
+      stop: vi.fn(async () => {})
+    };
+    getSandboxMock.mockReturnValue(sandbox as unknown as ReturnType<typeof getSandbox>);
+
+    await expect(
+      runMonolithInSandbox(createEnv(), 'req-x', 'archives/req-x/raw/rendered.html', 'https://example.com')
+    ).rejects.toMatchObject({ code: 'MONOLITH_CONTAINER_UNAVAILABLE', status: 503, retryable: true });
+
+    expect(sandbox.exec).toHaveBeenCalledTimes(1);
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
 });
