@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { handleR2Outbound, monolithKeys, R2_HANDLER_HOST, r2HandlerUrl, type R2OutboundDeps } from './r2-outbound.js';
+import { handleR2Outbound, MAX_OUTPUT_BYTES, monolithKeys, R2_HANDLER_HOST, r2HandlerUrl, type R2OutboundDeps } from './r2-outbound.js';
 
 const MIB_20 = 20 * 1024 * 1024;
 const CHUNK = 64 * 1024;
@@ -158,6 +158,22 @@ describe('handleR2Outbound answers', () => {
     const response = await handleR2Outbound(request, deps);
     expect(response.status).toBe(411);
     expect(put).not.toHaveBeenCalled();
+  });
+
+  it('answers 413 to a PUT larger than the output ceiling and stores nothing', async () => {
+    const { deps, put } = makeDeps();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const request = new Request(r2HandlerUrl(output), {
+      method: 'PUT',
+      body: chunkedStream(10),
+      headers: { 'content-length': String(MAX_OUTPUT_BYTES + 1) },
+      duplex: 'half'
+    } as RequestInit);
+    const response = await handleR2Outbound(request, deps);
+    expect(response.status).toBe(413);
+    expect(put).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('[monolith] r2 handler', expect.objectContaining({ status: 413 }));
+    warn.mockRestore();
   });
 
   it('answers 404 to a GET of a missing object', async () => {

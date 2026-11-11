@@ -75,6 +75,13 @@ function refusalReason(
   return undefined;
 }
 
+/**
+ * The largest monolith.html the handler stores. Monolith inlines a page's
+ * images and styles, so its output can be many times its input (at most
+ * 24 MiB), but never this large; a container that declares more is refused.
+ */
+export const MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+
 /** The longest value a log line carries for a field the container chose (key, host, method). */
 const LOGGED_KEY_LIMIT = 200;
 
@@ -93,12 +100,12 @@ interface HandlerLogLine {
 
 /**
  * One log line per request, at a level that follows the status: a refusal
- * (403, 411) is a warning and an R2 failure (5xx) an error, so neither hides
- * among routine reads and writes.
+ * (403, 411, 413) is a warning and an R2 failure (5xx) an error, so neither
+ * hides among routine reads and writes.
  */
 function logHandlerRequest(line: HandlerLogLine): void {
   if (line.status >= 500) console.error('[monolith] r2 handler', line);
-  else if (line.status === 403 || line.status === 411) console.warn('[monolith] r2 handler', line);
+  else if (line.status === 403 || line.status === 411 || line.status === 413) console.warn('[monolith] r2 handler', line);
   else console.log('[monolith] r2 handler', line);
 }
 
@@ -119,6 +126,7 @@ async function serve(request: Request, key: string, deps: R2OutboundDeps): Promi
     return new Response('Length required', { status: 411 });
   }
   const bytes = Number(lengthHeader);
+  if (bytes > MAX_OUTPUT_BYTES) return new Response('Payload too large', { status: 413 });
   const value = request.body === null ? new Uint8Array(0) : deps.knownLength(request.body, bytes);
   await deps.bucket.put(key, value, { httpMetadata: { contentType: 'text/html' } });
   return new Response(null, { status: 201 });
@@ -138,9 +146,9 @@ export async function handleR2Outbound(request: Request, deps: R2OutboundDeps): 
     method: request.method.slice(0, LOGGED_KEY_LIMIT),
     host: url.hostname.slice(0, LOGGED_KEY_LIMIT),
     containerId: deps.containerId,
-    ...(requestId === undefined ? {} : { requestId }),
-    // A key outside the allowed shape comes from the container: keep the line short.
-    ...(key === undefined ? {} : { key: requestId === undefined ? key.slice(0, LOGGED_KEY_LIMIT) : key }),
+    // The key and its request id come from the container: keep the line short.
+    ...(requestId === undefined ? {} : { requestId: requestId.slice(0, LOGGED_KEY_LIMIT) }),
+    ...(key === undefined ? {} : { key: key.slice(0, LOGGED_KEY_LIMIT) }),
     status: 0
   };
   let response: Response;
