@@ -56,10 +56,6 @@ function createEnv(): Env {
   // Only the fields runMonolithInSandbox reads.
   return {
     INTERNAL_API_KEY: 'test-key',
-    R2_BUCKET_NAME: 'warg-archives',
-    R2_ACCOUNT_ID: 'acct',
-    R2_ACCESS_KEY_ID: 'key-id',
-    R2_SECRET_ACCESS_KEY: 'key-secret',
     Sandbox: {},
     ARCHIVE_BUCKET: {}
   } as unknown as Env;
