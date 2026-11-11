@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.articleDetail
 
+import androidx.compose.ui.unit.dp
 import com.jayteealao.trails.screens.articleDetail.ReaderBody.Loading
 import com.jayteealao.trails.screens.articleDetail.ReaderBody.Notice
 import com.jayteealao.trails.screens.articleDetail.ReaderBody.Text
@@ -86,6 +87,12 @@ class ReaderNoticesTest {
         val failed = base.copy(textDownloadFailed = true, remoteTextPending = true)
         assertEquals(Notice(UNREADABLE), body(failed))
         assertEquals(Notice(OFFLINE), body(failed.copy(online = false)))
+    }
+
+    @Test
+    fun `the notice sits 96 dp down a tall area and closer to the top of a short one`() {
+        assertEquals(96.dp, noticeTopOffset(900.dp))
+        assertEquals(30f, noticeTopOffset(200.dp).value, 0.01f)
     }
 
     @Test

@@ -32,6 +32,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jayteealao.trails.data.archive.ArchiveTabIcons
@@ -144,6 +145,12 @@ fun readerBodyFor(s: ReaderSignals): ReaderBody = when {
 
 private fun offline() = ReaderBody.Notice(ReaderNoticeKind.OFFLINE)
 
+/** The offset of a notice from the top of a tall reading area. */
+internal val NOTICE_TOP_OFFSET: Dp = 96.dp
+
+/** The notice offset for a reading area [height] tall: 96 dp, or 15 % of a short area. */
+internal fun noticeTopOffset(height: Dp): Dp = minOf(NOTICE_TOP_OFFSET, height * 0.15f)
+
 /**
  * The body of a text archive tab: the skeleton while its file is read, the could-not-open
  * notice when the read failed, the empty notice for a file with no words, else the text.
@@ -201,19 +208,19 @@ private val NoticeTitleStyle = TextStyle(
 private val SkeletonLineWidths = listOf(0.92f, 1f, 0.84f, 1f, 0.96f, 0.70f, 1f, 0.88f, 1f, 0.60f)
 
 /**
- * A quiet notice in the reading column: a 40 dp outline icon, a title and one line, centred 96 dp
- * from the top. The words carry the state, so the icon is hidden from screen readers; the block
+ * A quiet notice in the reading column: a 40 dp outline icon, a title and one line, centred
+ * [topOffset] from the top (96 dp, less on a short window). The words carry the state, so the icon is hidden from screen readers; the block
  * is a polite live region, so a notice that changes while the Reader is open is read out.
  */
 @Composable
-fun ReaderNotice(kind: ReaderNoticeKind, modifier: Modifier = Modifier) {
+fun ReaderNotice(kind: ReaderNoticeKind, modifier: Modifier = Modifier, topOffset: Dp = NOTICE_TOP_OFFSET) {
     val colors = MaterialTheme.colorScheme
     BoxWithConstraints(modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(horizontal = readerSidePadding(maxWidth))
-                .padding(top = 96.dp)
+                .padding(top = topOffset)
                 .widthIn(max = 320.dp)
                 .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -277,9 +284,13 @@ fun ReaderBodyView(body: ReaderBody, text: String, modifier: Modifier = Modifier
     when (body) {
         ReaderBody.Text -> ArticleMarkdown(text, modifier)
         ReaderBody.Loading -> ReaderSkeleton(modifier.fillMaxSize())
-        // The notice scrolls, so a large font or a short window never hides its words.
-        is ReaderBody.Notice -> Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            ReaderNotice(body.kind)
+        // The notice scrolls, so a large font or a short window never hides its words, and its
+        // offset from the top shrinks on a short window (a phone in landscape).
+        is ReaderBody.Notice -> BoxWithConstraints(modifier.fillMaxSize()) {
+            val topOffset = noticeTopOffset(maxHeight)
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                ReaderNotice(body.kind, topOffset = topOffset)
+            }
         }
     }
 }
