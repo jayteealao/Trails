@@ -30,7 +30,9 @@ import java.util.zip.GZIPOutputStream
  *
  * [ACTION_SEED] stores the article [ITEM_ID] with renderer Markdown text and its local
  * Markdown archive. [ACTION_ARRIVE] then stores a local Readability archive, as a download
- * would, so the open Reader receives a better-ranked source.
+ * would, so the open Reader receives a better-ranked source. With [EXTRA_ITEM_ID] (it must start
+ * with [TEXT_FIRST_PREFIX]) it stores that archive for an article seeded by [ACTION_SEED_EMPTY]
+ * instead, so the first text arrives while the Reader shows its waiting notice.
  *
  * [ACTION_SEED_EMPTY] stores an article with no text and no local archive under the id in
  * [EXTRA_ITEM_ID] (it must start with [TEXT_FIRST_PREFIX]), so its archives arrive by download
@@ -61,6 +63,10 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
             Timber.w("ReaderFixtureReceiver — $action needs an $EXTRA_ITEM_ID that starts with $TEXT_FIRST_PREFIX, got $emptyId")
             return
         }
+        if (action == ACTION_ARRIVE && emptyId != null && !emptyId.startsWith(TEXT_FIRST_PREFIX)) {
+            Timber.w("ReaderFixtureReceiver — $action takes an $EXTRA_ITEM_ID that starts with $TEXT_FIRST_PREFIX, got $emptyId")
+            return
+        }
         val app = context.applicationContext
         val entryPoint = EntryPointAccessors.fromApplication(app, ReaderFixtureEntryPoint::class.java)
         val pending = goAsync()
@@ -71,7 +77,9 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
                     ACTION_SEED_EMPTY -> seedEmpty(entryPoint.articleDao(), emptyId!!)
                     ACTION_SEED_ALL_ARCHIVES -> seedAllArchives(app, entryPoint)
                     ACTION_SEED_WORST -> seedWorst(app, entryPoint)
-                    else -> storeArchive(app, entryPoint.localArchiveDao(), ITEM_ID, ArchiveType.READABILITY, READABILITY_SAMPLE)
+                    else -> storeArchive(
+                        app, entryPoint.localArchiveDao(), emptyId ?: ITEM_ID, ArchiveType.READABILITY, READABILITY_SAMPLE,
+                    )
                 }
                 Timber.d("ReaderFixtureReceiver — $action done")
             } catch (e: Exception) {

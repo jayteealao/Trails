@@ -30,6 +30,8 @@
         <!-- Debug only: makes a better text source arrive while the Reader is open.
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_ARRIVE
+             with the string extra itemId, for example text-first-r1, stores the Readability archive for
+             that article instead, so the first text arrives while the Reader waits.
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_EMPTY
              with the string extra itemId, for example text-first-a1 (an XML comment cannot hold a double hyphen).
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES
