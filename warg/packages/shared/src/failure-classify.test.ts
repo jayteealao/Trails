@@ -125,6 +125,11 @@ describe('classifyError on a tagged step failure', () => {
 // --- (c) the step-message classifier -------------------------------------------
 
 describe('classifyError', () => {
+  it('gives an AI Markdown step failure its own codes, so its failures group apart', () => {
+    expect(classifyError('ai-markdown', 'The operation timed out').errorCode).toBe('AI_MARKDOWN_TIMEOUT');
+    expect(classifyError('ai-markdown', 'Service error 503: Workers AI').errorCode).toBe('AI_MARKDOWN_SERVICE_ERROR');
+  });
+
   it('classifies monolith timeout signatures on request-level errors', () => {
     const classified = classifyError(
       'request',
@@ -390,6 +395,8 @@ describe('the default retry and action of each error code', () => {
     R2_CREDENTIAL_INVALID: [false, 'check_api_key'],
     BROWSER_TOKEN_INVALID: [false, 'check_api_key'],
     UNKNOWN_ERROR: [true, 'investigate_service'],
+    AI_MARKDOWN_TIMEOUT: [true, 'retry_step'],
+    AI_MARKDOWN_SERVICE_ERROR: [true, 'retry_step'],
   };
 
   it.each(REQUEST_ERROR_CODES.map((code) => [code] as const))('gives %s its default', (code) => {

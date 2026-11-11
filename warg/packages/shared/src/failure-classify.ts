@@ -253,6 +253,7 @@ export function classifyError(stepName: string, errorMsg: string): ErrorClassifi
       render: 'RENDER_TIMEOUT',
       singlefile: 'SINGLEFILE_TIMEOUT',
       readability: 'READABILITY_TIMEOUT',
+      'ai-markdown': 'AI_MARKDOWN_TIMEOUT',
       monolith: 'MONOLITH_TIMEOUT',
     };
     return {
@@ -267,6 +268,7 @@ export function classifyError(stepName: string, errorMsg: string): ErrorClassifi
       render: 'RENDER_SERVICE_ERROR',
       singlefile: 'SINGLEFILE_SERVICE_ERROR',
       readability: 'READABILITY_SERVICE_ERROR',
+      'ai-markdown': 'AI_MARKDOWN_SERVICE_ERROR',
       monolith: 'MONOLITH_SERVICE_ERROR',
       persist: 'PERSIST_SERVICE_ERROR',
       derivatives: 'MONOLITH_SERVICE_ERROR',
