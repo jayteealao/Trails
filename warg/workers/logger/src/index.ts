@@ -28,7 +28,7 @@ import {
   type StatsCountRow,
   type StatsListRow,
 } from './stats-query.js';
-import { asString, asNumber, asBoolean, asRecord } from './value-helpers.js';
+import { asString, asNumber, asBoolean, asRecord, asRenderStealth } from './value-helpers.js';
 
 export { LoggerDO };
 
@@ -173,6 +173,8 @@ function recomputeDiagnosticsFromEvents(events: LogEvent[]): RequestDiagnostics 
         if (fallbackUsed !== undefined) diagnostics.renderFallbackUsed = fallbackUsed;
         const fallbackReason = asString(data?.['fallbackReason']);
         if (fallbackReason) diagnostics.renderFallbackReason = fallbackReason;
+        const fallbackStealth = asRenderStealth(data?.['fallbackStealth']);
+        if (fallbackStealth) diagnostics.renderFallbackStealth = fallbackStealth;
 
         const meta = asRecord(data?.['meta']);
         const provider = asString(data?.['fallbackProvider']) ?? asString(meta?.['provider']);

@@ -24,7 +24,7 @@ import {
   parseRequestSettle
 } from '@warg/shared';
 import { initSchema, migrateSchema } from './schema.js';
-import { asNumber, asString, asBoolean, asRecord } from './value-helpers.js';
+import { asNumber, asString, asBoolean, asRecord, asRenderStealth } from './value-helpers.js';
 
 interface LoggerDoEnv {
   INDEX_DB: D1Database;
@@ -205,6 +205,11 @@ function updateDiagnostics(
       const fallbackReason = asString(data?.['fallbackReason']);
       if (fallbackReason) {
         diagnostics.renderFallbackReason = fallbackReason;
+      }
+
+      const fallbackStealth = asRenderStealth(data?.['fallbackStealth']);
+      if (fallbackStealth) {
+        diagnostics.renderFallbackStealth = fallbackStealth;
       }
 
       const meta = asRecord(data?.['meta']);
