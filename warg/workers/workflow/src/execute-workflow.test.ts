@@ -5,6 +5,7 @@ import { createCheckpoint, markArtifactsPersisted, recordArtifacts } from './che
 import {
   accessBlockedResponse,
   deadHostRenderFailure,
+  derivativeAnswer,
   echoLinksAsMarkdown,
   errorOf,
   eventsOfType,
@@ -540,5 +541,91 @@ describe('settle to the logger', () => {
 
     expect(errorOf(outcome).name).toBe('WorkflowTerminalError');
     expect(eventsOfType(fake.logger, 'request.failed')).toHaveLength(1);
+  });
+});
+
+describe('monolith step retries', () => {
+  const REMOVED_STEPS = ['monolith-attempt-2', 'monolith-backoff-1'];
+  // Monolith reads rendered.html, so the narrowest request renders too.
+  const MONOLITH_ONLY: Omit<ArchiveOptions, 'url'> = { steps: ['render', 'monolith'] };
+
+  function sandboxLeases(ids: string[]): string[] {
+    return ids.filter((id) => id.startsWith('lease-sandbox_exec-'));
+  }
+
+  function manifestKinds(fake: FakeEnv, outcome: Run['outcome']): string[] {
+    return storedManifest(fake.bucket, resultOf(outcome).manifestKey).artifacts.map((artifact) => artifact.kind);
+  }
+
+  it('runs the monolith call as one step with a timeout and a retry policy', async () => {
+    const { run } = await runRequest(MONOLITH_ONLY);
+
+    expect(run.configs.get('monolith-attempt-1')).toEqual({
+      timeout: '2 minutes',
+      retries: { limit: 1, delay: '6 seconds', backoff: 'exponential' },
+    });
+  });
+
+  it('retries a retryable monolith failure inside the one step and succeeds', async () => {
+    let calls = 0;
+    const succeed = derivativeAnswer('monolith.html');
+    const { fake, run, outcome } = await runRequest(
+      MONOLITH_ONLY,
+      { handlers: { MONOLITH: (body) => (++calls === 1 ? serviceError(503) : succeed(body)) } }
+    );
+
+    expect(fake.calls.MONOLITH).toHaveLength(2);
+    expect(run.attempts.get('monolith-attempt-1')).toBe(2);
+    expect(countOf(run.names, 'monolith-attempt-1')).toBe(1);
+    for (const removed of REMOVED_STEPS) expect(run.names).not.toContain(removed);
+
+    const result = resultOf(outcome);
+    expect(result.status).toBe('done');
+    expect(result.degraded ?? false).toBe(false);
+    expect(manifestKinds(fake, outcome)).toContain('monolith.html');
+
+    expect(sandboxLeases(fake.quota.acquired)).toHaveLength(1);
+    expect(sandboxLeases(fake.quota.released)).toEqual(sandboxLeases(fake.quota.acquired));
+  });
+
+  it('fails a deterministic monolith failure at once, with no retry', async () => {
+    const { fake, run } = await runRequest(
+      MONOLITH_ONLY,
+      { handlers: { MONOLITH: () => monolithInputTooLarge() } }
+    );
+
+    expect(fake.calls.MONOLITH).toHaveLength(1);
+    expect(run.attempts.get('monolith-attempt-1')).toBe(1);
+    const monolithFailures = eventsOfType(fake.logger, 'step.failed').filter(
+      (event) => event.data.step === 'monolith'
+    );
+    expect(monolithFailures.map((event) => event.data.errorCode)).toContain('MONOLITH_INPUT_TOO_LARGE');
+  });
+
+  it('replays a cached monolith result without calling the monolith worker again', async () => {
+    const seeded = makeFakeStep(
+      new Map([['monolith-attempt-1#1', { artifact: fakeArtifact(REQUEST_ID, 'monolith.html') }]])
+    );
+    const { fake, run, outcome } = await runRequest(MONOLITH_ONLY, {}, seeded);
+
+    expect(fake.calls.MONOLITH).toHaveLength(0);
+    expect(resultOf(outcome).status).toBe('done');
+    expect(manifestKinds(fake, outcome)).toContain('monolith.html');
+    for (const removed of REMOVED_STEPS) expect(run.names).not.toContain(removed);
+  });
+
+  it('replays a cached monolith failure to the same degraded end state', async () => {
+    const seeded = makeFakeStep(new Map(), {
+      failed: new Map([['monolith-attempt-1#1', new Error('Service error 503: upstream failure 503')]]),
+    });
+    const { fake, run, outcome } = await runRequest({}, {}, seeded);
+
+    expect(fake.calls.MONOLITH).toHaveLength(0);
+    const result = resultOf(outcome);
+    expect(result.degraded).toBe(true);
+    expect(result.partialFailures?.map((failure) => failure.step)).toEqual(['monolith']);
+    for (const removed of REMOVED_STEPS) expect(run.names).not.toContain(removed);
+    expect(sandboxLeases(fake.quota.acquired)).toHaveLength(1);
+    expect(sandboxLeases(fake.quota.released)).toEqual(sandboxLeases(fake.quota.acquired));
   });
 });
