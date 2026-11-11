@@ -61,6 +61,12 @@ The handler is registered as a static `outboundByHost` entry on the `Sandbox`
 class, and the Worker exports `ContainerProxy`, which the platform needs to
 deliver the intercepted requests.
 
+## Configuration
+
+Secrets: `INTERNAL_API_KEY` only. `MONOLITH_SERVICE_URL` is an optional
+fallback URL. R2 is reached through the `ARCHIVE_BUCKET` binding; the Worker
+holds no storage key.
+
 ## Tests
 
 ```bash
