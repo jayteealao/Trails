@@ -96,6 +96,22 @@ class ReaderNoticesTest {
     }
 
     @Test
+    fun `an article saved a day ago with no status and nothing pending shows the no-text notice`() {
+        assertEquals(Notice(NO_TEXT), body(base.copy(savedLongAgo = true)))
+        assertEquals(Notice(WAITING), body(base.copy(savedLongAgo = true, articleStatus = "processing")))
+        assertEquals(Notice(WAITING), body(base.copy(savedLongAgo = true, remoteTextPending = true)))
+    }
+
+    @Test
+    fun `saved long ago reads milliseconds and old second stamps, and an unknown time is recent`() {
+        val now = 1_800_000_000_000L
+        assertTrue(savedLongAgo(now - WAITING_CAP_MILLIS - 1, now))
+        assertFalse(savedLongAgo(now - 1000, now))
+        assertTrue(savedLongAgo(1_697_452_800L, now))
+        assertFalse(savedLongAgo(0L, now))
+    }
+
+    @Test
     fun `the first read of an open shows the skeleton`() {
         assertEquals(Loading, body(base.copy(loaded = false)))
     }

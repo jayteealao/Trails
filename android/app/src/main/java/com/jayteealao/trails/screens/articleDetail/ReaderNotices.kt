@@ -98,6 +98,7 @@ sealed interface ReaderBody {
  * @property localTextBlank the best stored text archive opened and holds no words.
  * @property localTextUnreadable no stored text archive could be opened.
  * @property articleStatus the status of the shared article on the server, or null.
+ * @property savedLongAgo the article was saved more than [WAITING_CAP_MILLIS] ago.
  */
 data class ReaderSignals(
     val hasText: Boolean,
@@ -110,7 +111,21 @@ data class ReaderSignals(
     val localTextBlank: Boolean = false,
     val localTextUnreadable: Boolean = false,
     val articleStatus: String? = null,
+    val savedLongAgo: Boolean = false,
 )
+
+/** How long the Reader says the text is on its way with no sign from the server: one day. */
+const val WAITING_CAP_MILLIS: Long = 24L * 60 * 60 * 1000
+
+/**
+ * Whether an article saved at [timeAdded] (milliseconds, or seconds for old rows; 0 when not
+ * known) is older than [WAITING_CAP_MILLIS] at [now].
+ */
+fun savedLongAgo(timeAdded: Long, now: Long): Boolean {
+    if (timeAdded <= 0) return false
+    val addedMillis = if (timeAdded < 100_000_000_000L) timeAdded * 1000 else timeAdded
+    return now - addedMillis > WAITING_CAP_MILLIS
+}
 
 /**
  * The statuses of a shared article (`shared-types/WargMetadata.md`). The archive pipeline
@@ -140,6 +155,9 @@ fun readerBodyFor(s: ReaderSignals): ReaderBody = when {
     s.localTextArchive && s.localTextUnreadable -> ReaderBody.Notice(ReaderNoticeKind.UNREADABLE)
     s.articleStatus in DONE_STATUSES -> ReaderBody.Notice(ReaderNoticeKind.NO_TEXT)
     !s.online -> offline()
+    // No status, nothing pending and saved a day ago: no archive is coming, so the Reader
+    // stops promising one and points to the Web tab.
+    s.articleStatus == null && s.savedLongAgo -> ReaderBody.Notice(ReaderNoticeKind.NO_TEXT)
     else -> ReaderBody.Notice(ReaderNoticeKind.WAITING)
 }
 

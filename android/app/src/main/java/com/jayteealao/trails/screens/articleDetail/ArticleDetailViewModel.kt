@@ -396,6 +396,7 @@ class ArticleDetailViewModel @Inject constructor(
             localTextBlank = ng.localText == LocalText.BLANK,
             localTextUnreadable = ng.localText == LocalText.UNREADABLE,
             articleStatus = ng.articleStatus,
+            savedLongAgo = savedLongAgo(ag.article?.timeAdded ?: 0L, System.currentTimeMillis()),
         )
     }
 
