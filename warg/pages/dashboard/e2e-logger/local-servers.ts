@@ -85,10 +85,12 @@ export function workflowServer(options: {
   const { port, registry, persist, internalKey, optionsKey, optionsFile } = options;
   return {
     // wrangler dev, not cf dev: the run needs its own R2 and Workflows folder (--persist-to).
+    // --local turns the remote bindings off: Workers AI always runs remotely and
+    // needs a Cloudflare token, and the mock pipeline never calls it.
     command:
       `pnpm exec wrangler r2 object put "warg-archives/${optionsKey}" --local --persist-to "${persist}"` +
       ` --file "${optionsFile}"` +
-      ` && pnpm exec wrangler dev --persist-to "${persist}" --ip 127.0.0.1 --port ${port}` +
+      ` && pnpm exec wrangler dev --local --persist-to "${persist}" --ip 127.0.0.1 --port ${port}` +
       ` --var INTERNAL_API_KEY:${internalKey} --var MOCK_PIPELINE:true`,
     cwd: WORKFLOW_DIR,
     // GET /status/ without an instance id answers 400, which counts as up.
