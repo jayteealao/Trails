@@ -154,8 +154,9 @@ internal fun readerImageModel(link: String, filesDir: File?): String? {
 
 /**
  * An image on its own line of the reader text: the full column width with the height from its
- * ratio; a 16:9 box in the surface variant while it loads, so the text does not jump; the
- * broken-image placeholder when it fails.
+ * ratio; a 16:9 box in the surface variant while it loads; the broken-image placeholder when it
+ * fails. The saved text gives no image size, so a figure that is not 16:9 changes height once it
+ * loads, and a failed one shrinks to the placeholder the board draws.
  */
 @Composable
 fun ReaderFigure(ref: ImageRef, modifier: Modifier = Modifier) {
