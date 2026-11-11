@@ -2,7 +2,6 @@ package com.jayteealao.trails.data.archive
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -31,9 +30,6 @@ class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
     /** Per article, the archives whose download is running or failed, by archive key. */
     private val downloads = MutableStateFlow<Map<String, Map<String, ArchiveDownload>>>(emptyMap())
 
-    /** Per article, the running heavy downloads by archive key, so leaving the article can stop them. */
-    private val heavyJobs = mutableMapOf<String, MutableMap<String, Job>>()
-
     /**
      * Mark [type] of [itemId] as downloading and launch its download, unless it is already
      * downloading (so two syncs never fetch one archive twice). The job stores the archive and
@@ -55,7 +51,7 @@ class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
         }
         Timber.d("syncArchives($itemId) — starting download for $key")
         val permits = if (type.providesText) textPermits else heavyPermits
-        val job = scope.launch {
+        scope.launch {
             val stored = try {
                 permits.withPermit { download() }
             } catch (e: CancellationException) {
@@ -65,24 +61,7 @@ class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
                 null
             }
             set(itemId, key, if (stored == null) ArchiveDownload.FAILED else null)
-        }
-        if (!type.providesText) synchronized(heavyJobs) { heavyJobs.getOrPut(itemId) { mutableMapOf() }[key] = job }
-        job.invokeOnCompletion { cause ->
-            if (!type.providesText) synchronized(heavyJobs) {
-                heavyJobs[itemId]?.let { jobs -> if (jobs[key] === job) jobs -= key; if (jobs.isEmpty()) heavyJobs -= itemId }
-            }
-            if (cause != null) set(itemId, key, null)
-        }
-    }
-
-    /**
-     * Stops the heavy downloads of [itemId] (SingleFile, Monolith, the rendered page, the PDF and
-     * the screenshot) when the person leaves the article; a text download runs on, so the text is
-     * there at the next open. A stopped archive downloads again at the next sync.
-     */
-    fun cancelHeavy(itemId: String) {
-        val jobs = synchronized(heavyJobs) { heavyJobs.remove(itemId)?.values?.toList().orEmpty() }
-        jobs.forEach { it.cancel() }
+        }.invokeOnCompletion { cause -> if (cause != null) set(itemId, key, null) }
     }
 
     private fun set(itemId: String, key: String, state: ArchiveDownload?) {

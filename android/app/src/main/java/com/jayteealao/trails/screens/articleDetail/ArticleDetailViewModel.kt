@@ -190,7 +190,6 @@ class ArticleDetailViewModel @Inject constructor(
             _localText.value = LocalText.NONE
             _selectedArchiveLoadFailed.value = false
             archiveObserverJob?.cancel()
-            currentArticleId?.let(archiveService::cancelHeavyDownloads)
         }
         currentArticleId = itemId
 
@@ -446,7 +445,5 @@ class ArticleDetailViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         archiveObserverJob?.cancel()
-        // Leaving the article stops its heavy downloads; its text downloads run on.
-        currentArticleId?.let(archiveService::cancelHeavyDownloads)
     }
 }
