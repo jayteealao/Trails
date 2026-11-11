@@ -500,6 +500,7 @@ describe('LoggerDO', () => {
           fallbackUsed: true,
           fallbackReason: 'browser_rendering_403',
           fallbackProvider: 'hyperbrowser',
+          fallbackStealth: 'none',
         },
       });
 
@@ -562,8 +563,42 @@ describe('LoggerDO', () => {
       expect(view?.derived.diagnostics?.renderProvider).toBe('hyperbrowser');
       expect(view?.derived.diagnostics?.renderFallbackUsed).toBe(true);
       expect(view?.derived.diagnostics?.renderFallbackReason).toBe('browser_rendering_403');
+      expect(view?.derived.diagnostics?.renderFallbackStealth).toBe('none');
       expect(view?.derived.diagnostics?.degraded).toBe(true);
       expect(view?.derived.diagnostics?.degradedSteps).toEqual(['singlefile']);
+    });
+
+    it('records the fallback with its stealth setting and drops an unknown setting', async () => {
+      const stub = getStub('bucket:2026060912');
+      const renderEvent = (fallbackStealth: string) => ({
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'step.completed' as const,
+        level: 'info' as const,
+        message: 'Step completed: render',
+        data: {
+          step: 'render',
+          fallbackUsed: true,
+          fallbackReason: 'browser_rendering_dead_host',
+          fallbackProvider: 'hyperbrowser',
+          fallbackStealth,
+        },
+      });
+
+      const optedIn = `test-${Date.now()}-5b-stealth-auto`;
+      await stub.initRequest({ requestId: optedIn, url: 'https://example.com' }, new Date().toISOString());
+      await stub.appendEvent(optedIn, renderEvent('auto'));
+      const optedInView = await stub.getRequestView(optedIn);
+      expect(optedInView?.derived.diagnostics?.renderFallbackStealth).toBe('auto');
+      expect(optedInView?.derived.diagnostics?.renderFallbackUsed).toBe(true);
+      expect(optedInView?.derived.diagnostics?.renderProvider).toBe('hyperbrowser');
+
+      const unknown = `test-${Date.now()}-5b-stealth-unknown`;
+      await stub.initRequest({ requestId: unknown, url: 'https://example.com' }, new Date().toISOString());
+      await stub.appendEvent(unknown, renderEvent('sneaky'));
+      const unknownView = await stub.getRequestView(unknown);
+      expect(unknownView?.derived.diagnostics?.renderFallbackStealth).toBeUndefined();
+      expect(unknownView?.derived.diagnostics?.renderFallbackUsed).toBe(true);
     });
 
     it('marks stage as incomplete when workflow completes with degraded monolith output', async () => {
