@@ -160,5 +160,14 @@ describe('an archive stopped under the earlier step order', () => {
 
     expect(run.names.filter((name) => name === 'log-completed')).toHaveLength(1);
     expect(eventsOfType(fake.logger, 'request.done')).toHaveLength(1);
+
+    // The monolith call is one retrying step now: a replay never looks for the
+    // second attempt or the backoff step of the earlier loop, and a cached
+    // first attempt is not called again.
+    expect(run.names).not.toContain('monolith-attempt-2');
+    expect(run.names).not.toContain('monolith-backoff-1');
+    if (cut.cache.some(([key]) => key === 'monolith-attempt-1#1')) {
+      expect(fake.calls.MONOLITH).toHaveLength(0);
+    }
   });
 });
