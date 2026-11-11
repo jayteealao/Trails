@@ -7,6 +7,7 @@ import org.intellij.markdown.parser.MarkdownParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.io.File
 
 /** Finding the image of a paragraph and its alt text, and the words of the broken-image placeholder. */
 class ReaderImageTest {
@@ -66,5 +67,19 @@ class ReaderImageTest {
         assertEquals("Image did not load: A map", brokenImageLabel("A map"))
         assertEquals("Image did not load", brokenImageLabel(null))
         assertEquals("Image did not load", brokenImageLabel("  "))
+    }
+
+    @Test
+    fun readerImageModel_loadsWebImagesAndTheAppsOwnFilesOnly() {
+        val files = java.nio.file.Files.createTempDirectory("files").toFile()
+        val own = File(files, "reader-fixture/figure.png").toURI().toString()
+        assertEquals("https://x.example/a.png", readerImageModel("https://x.example/a.png", files))
+        assertEquals("http://x.example/a.png", readerImageModel("http://x.example/a.png", files))
+        assertEquals(own, readerImageModel(own, files))
+        assertNull(readerImageModel(File(files.parentFile, "other/secret.png").toURI().toString(), files))
+        assertNull(readerImageModel("content://contacts/photo/1", files))
+        assertNull(readerImageModel("android.resource://com.x/1", files))
+        assertNull(readerImageModel("javascript:alert(1)", files))
+        assertNull(readerImageModel("not a link", files))
     }
 }

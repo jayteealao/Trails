@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import coil3.compose.SubcomposeAsyncImage
 import com.jayteealao.trails.data.archive.ArchiveTabIcons
 import org.intellij.markdown.IElementType
@@ -36,6 +37,8 @@ import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.ast.getTextInNode
+import java.io.File
+import java.net.URI
 
 /** An image of the reader text: where it loads from and its text alternative. */
 data class ImageRef(val link: String, val alt: String?)
@@ -131,14 +134,38 @@ fun BrokenImagePlaceholder(alt: String?, modifier: Modifier = Modifier) {
 }
 
 /**
+ * The image a link of the saved text may load: a web image (`http` or `https`), or a file in
+ * the app's own files. Any other link (another app's `content:` files, `android.resource:`,
+ * other files on the phone) is null, and the reader draws the broken-image placeholder: the
+ * text of a saved page is not trusted to point the app at local data.
+ */
+internal fun readerImageModel(link: String, filesDir: File?): String? {
+    val uri = runCatching { URI(link.trim()) }.getOrNull() ?: return null
+    return when (uri.scheme?.lowercase()) {
+        "http", "https" -> link
+        "file" -> {
+            val root = filesDir?.canonicalFile ?: return null
+            val file = runCatching { File(uri).canonicalFile }.getOrNull() ?: return null
+            if (file.path.startsWith(root.path + File.separator)) link else null
+        }
+        else -> null
+    }
+}
+
+/**
  * An image on its own line of the reader text: the full column width with the height from its
  * ratio; a 16:9 box in the surface variant while it loads, so the text does not jump; the
  * broken-image placeholder when it fails.
  */
 @Composable
 fun ReaderFigure(ref: ImageRef, modifier: Modifier = Modifier) {
+    val model = readerImageModel(ref.link, LocalContext.current.filesDir)
+    if (model == null) {
+        BrokenImagePlaceholder(ref.alt)
+        return
+    }
     SubcomposeAsyncImage(
-        model = ref.link,
+        model = model,
         contentDescription = ref.alt,
         modifier = modifier.fillMaxWidth(),
         contentScale = ContentScale.FillWidth,
@@ -157,8 +184,13 @@ fun ReaderFigure(ref: ImageRef, modifier: Modifier = Modifier) {
 /** An image inside running text, in the box the renderer sizes for it; the placeholder when it fails. */
 @Composable
 fun ReaderInlineImage(link: String, alt: String?) {
+    val model = readerImageModel(link, LocalContext.current.filesDir)
+    if (model == null) {
+        BrokenImagePlaceholder(alt)
+        return
+    }
     SubcomposeAsyncImage(
-        model = link,
+        model = model,
         contentDescription = alt,
         modifier = Modifier.fillMaxSize(),
         contentScale = ContentScale.Fit,
