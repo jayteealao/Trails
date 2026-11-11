@@ -210,6 +210,35 @@ class ArchiveService @Inject constructor(
         }
     }
 
+    /**
+     * Live status of the shared article that the user's article [itemId] is linked to, following
+     * `canonicalId` as [observeRemoteArchives] does: `pending`, `processing`, `complete`,
+     * `partial`, `failed` or `abandoned` (`shared-types/WargMetadata.md`). Null when the doc is
+     * missing, has no status, or cannot be read.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeArticleStatus(itemId: String): Flow<String?> =
+        observeCanonicalId(itemId)
+            .distinctUntilChanged()
+            .flatMapLatest { raw ->
+                observeSharedStatus(itemId, raw?.takeIf { it.isNotBlank() } ?: itemId)
+            }
+            .distinctUntilChanged()
+
+    /** Snapshot listener on the `status` of articles/{sharedId}; any error logs and sends null. */
+    private fun observeSharedStatus(itemId: String, sharedId: String): Flow<String?> = callbackFlow {
+        val registration = firestore.collection("articles").document(sharedId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Timber.e(error, "observeArticleStatus($itemId) — shared id $sharedId listener error (${error.code}), no status")
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+                trySend(snapshot?.takeIf { it.exists() }?.getString("status"))
+            }
+        awaitClose { registration.remove() }
+    }
+
     // ── b) Download archive from GCS → store locally ────────────────────
 
     suspend fun downloadAndStoreArchive(
