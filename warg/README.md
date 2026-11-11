@@ -444,7 +444,9 @@ two secrets from the live worker, so remove them by hand, in this order:
 The monolith container reaches R2 through the Worker's R2 handler and the
 `ARCHIVE_BUCKET` binding, and the Worker no longer reads `R2_ACCOUNT_ID`,
 `R2_ACCESS_KEY_ID` or `R2_SECRET_ACCESS_KEY`. The deploy does not remove the
-three secrets from the live worker, so remove them by hand, in this order:
+three secrets from the live worker, so remove them by hand, in this order.
+Until they are gone, every deploy that includes monolith ends with
+`WARNING: monolith still holds secret(s) it no longer reads: …`.
 
 1. Deploy, then keep all three secrets until one real archive shows
    `archives.monolith` with status `success` and `derived/monolith.html` is in

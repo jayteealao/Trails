@@ -427,6 +427,19 @@ scenario_renderer_internal_key_only() {
   finish
 }
 
+# A worker that still holds a secret it no longer reads deploys, with a warning
+# that names the secret, until a person retires it.
+scenario_retired_secret_warns() {
+  start retired-secret-warns
+  run_deploy retired-secret-warns "H_SECRETS_EXTRA=monolith:R2_RETIRED_KEY renderer:R2_OTHER_KEY" -- --skip-checks
+  expect_rc 0
+  expect_row "worker:monolith" deployed "$UUID"
+  expect_out '^--- WARN: monolith still holds secret\(s\) it no longer reads: R2_RETIRED_KEY$'
+  expect_out '^WARNING: monolith still holds secret\(s\) it no longer reads: R2_RETIRED_KEY; '
+  expect_no_out 'renderer still holds'
+  finish
+}
+
 scenario_allow_missing_secrets() {
   start allow-missing-secrets
   run_deploy allow-missing-secrets H_SECRETS_FAIL=renderer H_NO_DEPLOYMENTS=renderer -- --skip-checks --allow-missing-secrets renderer
@@ -1256,7 +1269,7 @@ scenario_secret_in_env() {
   finish
 }
 
-ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker renderer-internal-key-only allow-missing-secrets
+ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker renderer-internal-key-only retired-secret-warns allow-missing-secrets
   sandbox-version-drift quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
   dashboard-unverified dashboard-cf-only dry-run-dashboard dashboard-secret-missing dashboard-secret-list-fails functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts

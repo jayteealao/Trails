@@ -533,6 +533,17 @@ required_secrets_for() {
   esac
 }
 
+# Secrets a worker no longer reads, by name prefix. The deploy never deletes a
+# secret, so while the live worker still holds one the preflight warns (never
+# fails), until a person retires it: README.md, "Retiring the monolith
+# Worker's R2 keys".
+retired_secret_prefix_for() {
+  case "$1" in
+    monolith) echo "R2_" ;;
+    *)        echo "" ;;
+  esac
+}
+
 # A worker whose secret is missing deploys fine and then fails at runtime with
 # an opaque 500. A listing that fails hides an auth failure, so it stops too.
 preflight_secrets() {
@@ -562,6 +573,17 @@ preflight_secrets() {
   if [ -n "$missing" ]; then
     echo "Set each with: cf workers secrets update <NAME> --worker $worker --type secret_text --text <value>" >&2
     fail_target "$target" failed 3 "missing secret(s):$missing"
+  fi
+  local prefix retired=""
+  prefix="$(retired_secret_prefix_for "$worker")"
+  if [ -n "$prefix" ]; then
+    for secret in $names; do
+      case "$secret" in "$prefix"*) retired="$retired $secret" ;; esac
+    done
+  fi
+  if [ -n "$retired" ]; then
+    WARNINGS+=("$worker still holds secret(s) it no longer reads:$retired; retire them after the first clean archive (README.md, Retiring the monolith Worker's R2 keys)")
+    echo "--- WARN: $worker still holds secret(s) it no longer reads:$retired"
   fi
 }
 
