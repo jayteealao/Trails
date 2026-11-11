@@ -236,11 +236,46 @@ describe('repeated wrong credentials from one address', () => {
         const { response } = await run('/api/inbox', 'GET', basic('e2e-user:guess' + i), SECRET, from('203.0.113.7'));
         expect(response.status).toBe(401);
       }
-      const blocked = await run('/api/inbox', 'GET', basic(SECRET), SECRET, from('203.0.113.7'));
+      const blocked = await run('/api/inbox', 'GET', basic('e2e-user:guess10'), SECRET, from('203.0.113.7'));
       expect(blocked.response.status).toBe(429);
       expect(blocked.next).not.toHaveBeenCalled();
-      const other = await run('/api/inbox', 'GET', basic(SECRET), SECRET, from('198.51.100.2'));
-      expect(other.response.status).toBe(299);
+      const other = await run('/api/inbox', 'GET', basic('e2e-user:guess11'), SECRET, from('198.51.100.2'));
+      expect(other.response.status).toBe(401);
+    } finally {
+      warn.mockRestore();
+      resetGuessCounts();
+    }
+  });
+
+  it('never refuse the right credential, even from an address that is out of guesses', async () => {
+    resetGuessCounts();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const from = { 'CF-Connecting-IP': '203.0.113.7' };
+      for (let i = 0; i < 10; i++) {
+        await run('/api/inbox', 'GET', basic('e2e-user:guess' + i), SECRET, from);
+      }
+      const right = await run('/api/inbox', 'GET', basic(SECRET), SECRET, from);
+      expect(right.response.status).toBe(299);
+      expect(right.next).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      resetGuessCounts();
+    }
+  });
+
+  it('are not counted from a loopback address', async () => {
+    resetGuessCounts();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const ip of ['127.0.0.1', '::1']) {
+        for (let i = 0; i < 11; i++) {
+          const { response } = await run('/api/inbox', 'GET', basic('e2e-user:guess' + i), SECRET, {
+            'CF-Connecting-IP': ip,
+          });
+          expect(response.status).toBe(401);
+        }
+      }
     } finally {
       warn.mockRestore();
       resetGuessCounts();

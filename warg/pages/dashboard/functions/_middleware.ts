@@ -92,10 +92,15 @@ const GUESS_LIMIT = 10;
 const GUESS_WINDOW_MS = 60_000;
 const guesses = new Map<string, { count: number; windowStart: number }>();
 
-// The client address Cloudflare stamps on each request; a request without one
-// (a local test client) is not counted.
+// A local dev server stamps the loopback address; local clients are not counted.
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1']);
+
+// The client address Cloudflare stamps on each request; a request without one,
+// or from loopback (a local test client), is not counted.
 function clientAddress(request: Request): string | undefined {
-  return request.headers.get('CF-Connecting-IP') ?? undefined;
+  const address = request.headers.get('CF-Connecting-IP');
+  if (!address || LOOPBACK_ADDRESSES.has(address)) return undefined;
+  return address;
 }
 
 function guessesExhausted(address: string, now: number): boolean {
@@ -151,18 +156,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return authNotConfigured();
   }
   const candidate = credentialBytes(request.headers.get('Authorization'));
-  const address = clientAddress(request);
-  const now = Date.now();
-  if (candidate && address && guessesExhausted(address, now)) {
-    logRefusal(request, 'too_many_guesses');
-    return tooManyGuesses();
-  }
-  if (!candidate || !(await matchesSecret(candidate, secret))) {
-    // A browser's first request carries no credential; only a wrong one is a guess.
-    if (candidate) {
-      logRefusal(request, 'bad_credential');
-      if (address) countGuess(address, now);
+  // A browser's first request carries no credential; only a wrong one is a guess.
+  if (!candidate) return signInRequired();
+  // The secret is checked first, so the right credential is never refused for
+  // someone else's guesses from the same address.
+  if (!(await matchesSecret(candidate, secret))) {
+    const address = clientAddress(request);
+    const now = Date.now();
+    if (address && guessesExhausted(address, now)) {
+      logRefusal(request, 'too_many_guesses');
+      return tooManyGuesses();
     }
+    logRefusal(request, 'bad_credential');
+    if (address) countGuess(address, now);
     return signInRequired();
   }
   if (!READ_METHODS.has(request.method.toUpperCase()) && isCrossSite(request)) {
