@@ -23,6 +23,8 @@ fails when they differ), and in `.dev.vars` for local runs (see
 
 ## Logs
 
-Every fallback render, answered or failed, is logged with the stealth
-setting it used: `renderFallbackStealth` in the request diagnostics, next to
-`renderFallbackUsed` and `renderFallbackReason`.
+Every fallback render that this worker answers, with a result or an error,
+is logged with the stealth setting it used: `renderFallbackStealth` in the
+request diagnostics, next to `renderFallbackUsed` and `renderFallbackReason`.
+A fallback that gets no answer (a network failure or a timeout) logs
+`renderFallbackUsed` and `renderFallbackReason` without a stealth setting.
