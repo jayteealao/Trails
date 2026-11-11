@@ -546,7 +546,7 @@ function showContentViewer(archiveKey, url) {
 
   let contentHtml;
   const htmlTypes = ['rendered', 'singlefile', 'monolith'];
-  const textTypes = ['readability', 'markdown'];
+  const textTypes = ['readability', 'markdown', 'ai_markdown'];
 
   if (htmlTypes.includes(archiveKey)) {
     contentHtml = `<iframe class="content-viewer-frame" src="${escapeHtml(url)}" sandbox="allow-same-origin"></iframe>`;

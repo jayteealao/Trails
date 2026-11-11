@@ -15,13 +15,14 @@ const VALID_ARCHIVE_KEYS = new Set([
   'singlefile',
   'readability',
   'markdown',
+  'ai_markdown',
   'monolith',
   'pdf',
   'screenshot',
 ]);
 
 const HTML_ARCHIVES = new Set(['rendered', 'singlefile', 'monolith']);
-const TEXT_ARCHIVES = new Set(['readability', 'markdown']);
+const TEXT_ARCHIVES = new Set(['readability', 'markdown', 'ai_markdown']);
 
 // Stored pages are untrusted: the sandbox policy stops their script from
 // running on the dashboard origin, wherever the response is opened.

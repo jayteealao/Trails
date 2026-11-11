@@ -222,6 +222,10 @@ then `ai_markdown`, then `markdown`. The order is proved by
    `ArchiveType.kt` in `android/app/src/main/java/com/jayteealao/trails/data/archive/`
    (an enum entry, or a key constant while the app has no tab for it), unless
    the row's App column is `no:`.
+   The dashboard proxy serves a text or HTML archive only when its key is in
+   `VALID_ARCHIVE_KEYS` (and `TEXT_ARCHIVES` or `HTML_ARCHIVES`) of
+   `warg/pages/dashboard/functions/api/archive-content.ts`; add it there, and
+   to `ARCHIVE_KEY_TO_STEP` in `warg/pages/dashboard/public/modules/state.js`.
 4. Change both stacks in one commit, and run
    `node --experimental-strip-types shared-types/check-drift.ts`.
 5. Deploy the archive gateway before the workers that store the new kind.

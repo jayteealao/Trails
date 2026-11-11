@@ -865,6 +865,12 @@ describe('archive-content proxy', () => {
       expect(csp).not.toContain('allow-scripts');
     });
 
+    it('serves the AI Markdown archive as text', async () => {
+      const response = await serveArchive('archiveKey=ai_markdown', 'application/octet-stream');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
+    });
+
     it.each(['singlefile', 'monolith', 'readability', 'markdown', 'screenshot'])(
       'sandboxes the %s archive served under its inferred type',
       async (archiveKey) => {
