@@ -59,11 +59,11 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         if (action !in setOf(ACTION_SEED, ACTION_ARRIVE, ACTION_SEED_EMPTY, ACTION_SEED_ALL_ARCHIVES, ACTION_SEED_WORST)) return
         val emptyId = intent.getStringExtra(EXTRA_ITEM_ID)
-        if (action == ACTION_SEED_EMPTY && emptyId?.startsWith(TEXT_FIRST_PREFIX) != true) {
+        if (action == ACTION_SEED_EMPTY && emptyId?.matches(TEXT_FIRST_ID) != true) {
             Timber.w("ReaderFixtureReceiver — $action needs an $EXTRA_ITEM_ID that starts with $TEXT_FIRST_PREFIX, got $emptyId")
             return
         }
-        if (action == ACTION_ARRIVE && emptyId != null && !emptyId.startsWith(TEXT_FIRST_PREFIX)) {
+        if (action == ACTION_ARRIVE && emptyId != null && !emptyId.matches(TEXT_FIRST_ID)) {
             Timber.w("ReaderFixtureReceiver — $action takes an $EXTRA_ITEM_ID that starts with $TEXT_FIRST_PREFIX, got $emptyId")
             return
         }
@@ -218,6 +218,9 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
         const val ACTION_SEED_WORST = "com.jayteealao.trails.debug.READER_SEED_WORST"
         const val EXTRA_ITEM_ID = "itemId"
         const val TEXT_FIRST_PREFIX = "text-first"
+
+        /** An id of the text-first seed: the prefix, then letters, digits, `_` or `-` only, so it is one path segment. */
+        val TEXT_FIRST_ID = Regex("^$TEXT_FIRST_PREFIX[A-Za-z0-9_-]*$")
         private const val TEXT_FIRST_TITLE = "A text that arrives first"
         const val ITEM_ID = "reader-fixture"
         private const val TITLE = "Counting the street trees of a small city"
