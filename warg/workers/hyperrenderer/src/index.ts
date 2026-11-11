@@ -1,4 +1,4 @@
-import { accessBlockedResponse, isChallengePage, isProxyErrorPage, readInternalJsonRequest, storeArtifact } from '@warg/shared';
+import { accessBlockedResponse, isChallengePage, isProxyErrorPage, isRenderStealthMode, readInternalJsonRequest, storeArtifact } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import { capturePdfViaCdp } from './cdp-pdf.js';
 import {
@@ -59,11 +59,12 @@ function toWaitUntil(value: string | undefined): HyperbrowserWaitUntil {
   return 'load';
 }
 
-function toStealthMode(value: string | undefined): HyperbrowserStealthMode {
-  if (value === 'none' || value === 'auto' || value === 'ultra') {
-    return value;
-  }
-  return 'auto';
+/**
+ * Stealth is off unless a person sets `HYPERBROWSER_STEALTH` to `auto` or `ultra`.
+ * No value, or an unknown one, means off.
+ */
+export function toStealthMode(value: string | undefined): HyperbrowserStealthMode {
+  return isRenderStealthMode(value) ? value : 'none';
 }
 
 function toScreenshotFormat(value: string | undefined): 'png' | 'jpeg' | 'webp' {
@@ -88,7 +89,7 @@ function getConfig(env: Env): HyperbrowserWorkerConfig {
   };
 }
 
-function buildSessionOptions(stealth: HyperbrowserStealthMode): {
+export function buildSessionOptions(stealth: HyperbrowserStealthMode): {
   useStealth?: boolean;
   useUltraStealth?: boolean;
 } {
@@ -382,6 +383,7 @@ export default {
           hyperbrowserJobId: startedJob.jobId,
           hyperbrowserScrapeMs: scrapeMs,
           hyperbrowserPdfMs: pdfMs,
+          stealth: config.stealth,
         },
       };
 
