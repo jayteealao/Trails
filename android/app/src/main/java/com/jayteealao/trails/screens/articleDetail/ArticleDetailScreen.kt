@@ -255,7 +255,7 @@ private fun ReaderBodyPreview(body: ReaderBody, darkTheme: Boolean = false) {
 @Preview(name = "Reader notice • waiting • light", showBackground = true, widthDp = 411, heightDp = 900)
 @Composable
 private fun ReaderWaitingLightPreview() {
-    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true))
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING))
 }
 
 @Preview(
@@ -267,7 +267,7 @@ private fun ReaderWaitingLightPreview() {
 )
 @Composable
 private fun ReaderWaitingDarkPreview() {
-    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true), darkTheme = true)
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING), darkTheme = true)
 }
 
 @Preview(name = "Reader notice • offline • light", showBackground = true, widthDp = 411, heightDp = 900)
@@ -334,7 +334,7 @@ private fun ReaderSkeletonDarkPreview() {
 @Preview(name = "Reader notice • waiting • tablet", showBackground = true, widthDp = 900, heightDp = 900)
 @Composable
 private fun ReaderWaitingTabletPreview() {
-    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true))
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING))
 }
 
 /**

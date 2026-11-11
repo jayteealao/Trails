@@ -78,8 +78,8 @@ sealed interface ReaderBody {
     data object Text : ReaderBody
     data object Loading : ReaderBody
 
-    /** A notice; with [skeleton], skeleton lines under it while the text downloads. */
-    data class Notice(val kind: ReaderNoticeKind, val skeleton: Boolean = false) : ReaderBody
+    /** A notice alone; the skeleton is [Loading], the first read of an open. */
+    data class Notice(val kind: ReaderNoticeKind) : ReaderBody
 }
 
 /**
@@ -242,7 +242,7 @@ fun ReaderNotice(kind: ReaderNoticeKind, modifier: Modifier = Modifier) {
 }
 
 /**
- * Still skeleton lines in the reading column while the text is read or downloads: no spinner and
+ * Still skeleton lines in the reading column while the first read of an open runs: no spinner and
  * no shimmer, since nothing moves behind the text. Read out once as "Loading the text".
  */
 @Composable
@@ -269,10 +269,7 @@ fun ReaderSkeleton(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * A text body of the article screen: [text] in the reading column, the skeleton, or a notice,
- * with skeleton lines under it while the text downloads.
- */
+/** A text body of the article screen: [text] in the reading column, the skeleton, or a notice. */
 @Composable
 fun ReaderBodyView(body: ReaderBody, text: String, modifier: Modifier = Modifier) {
     when (body) {
@@ -280,9 +277,6 @@ fun ReaderBodyView(body: ReaderBody, text: String, modifier: Modifier = Modifier
         ReaderBody.Loading -> ReaderSkeleton(modifier.fillMaxSize())
         is ReaderBody.Notice -> Column(modifier.fillMaxSize()) {
             ReaderNotice(body.kind)
-            if (body.skeleton) {
-                ReaderSkeleton(Modifier.padding(top = 32.dp))
-            }
         }
     }
 }
