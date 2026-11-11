@@ -439,6 +439,31 @@ two secrets from the live worker, so remove them by hand, in this order:
    (`read -rs VALUE && pnpm exec cf workers secrets update <NAME> --worker renderer --type secret_text --text "$VALUE"`)
    and a token that is not revoked.
 
+### Retiring the monolith Worker's R2 keys (two steps)
+
+The monolith container reaches R2 through the Worker's R2 handler and the
+`ARCHIVE_BUCKET` binding, and the Worker no longer reads `R2_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID` or `R2_SECRET_ACCESS_KEY`. The deploy does not remove the
+three secrets from the live worker, so remove them by hand, in this order:
+
+1. Deploy, then keep all three secrets until one real archive shows
+   `archives.monolith` with status `success` and `derived/monolith.html` is in
+   R2 (read the `[monolith] r2 handler` lines in the monolith Worker logs).
+   Until then, a `wrangler rollback` of monolith to a version that still signs
+   R2 URLs works with no further step.
+2. From `warg/`, delete the three secrets and revoke the R2 API token behind
+   them in the Cloudflare dashboard (R2 → Manage R2 API Tokens):
+
+   ```bash
+   pnpm exec cf workers secrets delete R2_ACCESS_KEY_ID --worker monolith
+   pnpm exec cf workers secrets delete R2_SECRET_ACCESS_KEY --worker monolith
+   pnpm exec cf workers secrets delete R2_ACCOUNT_ID --worker monolith
+   ```
+
+   A rollback to a signing version after this step needs the three secrets set
+   again (`read -rs VALUE && pnpm exec cf workers secrets update <NAME> --worker monolith --type secret_text --text "$VALUE"`)
+   and an R2 API token that is not revoked.
+
 ### Rotating the function keys (two steps)
 
 Each caller of the HTTP Cloud Functions has its own key, so a leaked key opens

@@ -65,7 +65,11 @@ deliver the intercepted requests.
 
 Secrets: `INTERNAL_API_KEY` only. `MONOLITH_SERVICE_URL` is an optional
 fallback URL. R2 is reached through the `ARCHIVE_BUCKET` binding; the Worker
-holds no storage key.
+holds no storage key. A live Worker deployed before this change still holds
+`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`: retire them,
+and revoke the R2 API token behind them, after the first clean archive, as
+"Retiring the monolith Worker's R2 keys" in [`warg/README.md`](../../README.md)
+describes.
 
 ## Tests
 
