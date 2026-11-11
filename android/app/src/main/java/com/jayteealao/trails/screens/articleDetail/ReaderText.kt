@@ -66,6 +66,27 @@ object ReaderTypeScale {
     )
 }
 
+/**
+ * [markdown] without a leading YAML front matter block: a `---` line at the very start, `key:`
+ * lines, and a closing `---` or `...` line. Converted Markdown can open with the page's title and
+ * meta tags in such a block; the reader shows the article, not that block. The blank lines after
+ * the block go too. Text that does not open with front matter (a thematic break, an unclosed
+ * fence, a block that is not `key:` lines) is returned unchanged.
+ */
+fun withoutFrontMatter(markdown: String): String {
+    val text = markdown.removePrefix("﻿")
+    val lines = text.split('\n')
+    if (lines.size < 2 || lines[0].trimEnd() != "---") return markdown
+    val close = (1 until lines.size).firstOrNull { lines[it].trimEnd().let { l -> l == "---" || l == "..." } }
+        ?: return markdown
+    val firstEntry = lines.subList(1, close).firstOrNull { it.isNotBlank() } ?: return markdown
+    if (!FRONT_MATTER_KEY.containsMatchIn(firstEntry)) return markdown
+    return lines.subList(close + 1, lines.size).joinToString("\n").trimStart('\r', '\n')
+}
+
+/** The first line of a front matter block: a YAML key, bare or quoted, then a colon. */
+private val FRONT_MATTER_KEY = Regex("""^(?:[A-Za-z0-9_][\w.-]*|"[^"]+"|'[^']+')\s*:(?:\s|$)""")
+
 /** The side gutter of the reading column on a phone. */
 val READER_GUTTER: Dp = 16.dp
 

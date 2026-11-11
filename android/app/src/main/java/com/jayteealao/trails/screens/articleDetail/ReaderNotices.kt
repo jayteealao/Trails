@@ -179,11 +179,12 @@ internal fun noticeTopOffset(height: Dp): Dp = minOf(NOTICE_TOP_OFFSET, height *
 
 /**
  * The body of a text archive tab: the skeleton while its file is read, the could-not-open
- * notice when the read failed, the empty notice for a file with no words, else the text.
+ * notice when the read failed, the empty notice for a file with no words (front matter alone
+ * has none), else the text.
  */
 fun archiveTabBodyFor(content: String?, loadFailed: Boolean): ReaderBody = when {
     content == null -> if (loadFailed) ReaderBody.Notice(ReaderNoticeKind.UNREADABLE) else ReaderBody.Loading
-    content.isBlank() -> ReaderBody.Notice(ReaderNoticeKind.EMPTY)
+    withoutFrontMatter(content).isBlank() -> ReaderBody.Notice(ReaderNoticeKind.EMPTY)
     else -> ReaderBody.Text
 }
 

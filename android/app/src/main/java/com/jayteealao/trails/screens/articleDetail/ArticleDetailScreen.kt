@@ -520,15 +520,17 @@ fun ArticleArchiveWebView(
 
 /**
  * The reader text: Markdown in the reading column, with the reading heading scale, a 16 dp
- * gutter, a 680 dp centred width and the broken-image placeholder.
+ * gutter, a 680 dp centred width and the broken-image placeholder. A leading front matter
+ * block is not drawn ([withoutFrontMatter]).
  */
 @Composable
 fun ArticleMarkdown(
     content: String,
     modifier: Modifier = Modifier
 ) {
+    val body = remember(content) { withoutFrontMatter(content) }
     Markdown(
-        content = content,
+        content = body,
         modifier = modifier.fillMaxSize(),
         colors = markdownColor(),
         typography = readerMarkdownTypography(),

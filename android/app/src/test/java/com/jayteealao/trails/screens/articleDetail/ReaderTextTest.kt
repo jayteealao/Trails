@@ -90,4 +90,49 @@ class ReaderTextTest {
         assertEquals(110.dp, readerSidePadding(900.dp))
         assertEquals(300.dp, readerSidePadding(1280.dp))
     }
+
+    @Test
+    fun `a leading front matter block with nested meta is not drawn`() {
+        val markdown = """
+            ---
+            title: "It was all the things - by Sean Trende - Poll Vault"
+            meta:
+              author: Sean Trende
+              "og:title": It was all the things
+              "twitter:title": It was all the things
+            ---
+
+            # It was all the things
+
+            The first paragraph.
+        """.trimIndent()
+        assertEquals("# It was all the things\n\nThe first paragraph.", withoutFrontMatter(markdown))
+    }
+
+    @Test
+    fun `front matter with CRLF lines, a byte order mark or a dot-dot-dot close is not drawn`() {
+        assertEquals("Body\r\n", withoutFrontMatter("﻿---\r\ntitle: A\r\n---\r\n\r\nBody\r\n"))
+        assertEquals("Body", withoutFrontMatter("---\ntitle: A\n...\nBody"))
+    }
+
+    @Test
+    fun `text without front matter is unchanged`() {
+        val plain = "# Title\n\nA paragraph.\n\n---\n\nAfter a rule."
+        assertSame(plain, withoutFrontMatter(plain))
+        // A thematic break at the top, then prose: not front matter.
+        val rule = "---\nJust a line of prose.\n---\nMore."
+        assertSame(rule, withoutFrontMatter(rule))
+        // An unclosed fence is left alone.
+        val unclosed = "---\ntitle: A\nBody with no close"
+        assertSame(unclosed, withoutFrontMatter(unclosed))
+        assertSame("", withoutFrontMatter(""))
+    }
+
+    @Test
+    fun `a text tab holding only front matter shows the empty notice`() {
+        assertEquals(
+            ReaderBody.Notice(ReaderNoticeKind.EMPTY),
+            archiveTabBodyFor("---\ntitle: A\n---\n", loadFailed = false),
+        )
+    }
 }
