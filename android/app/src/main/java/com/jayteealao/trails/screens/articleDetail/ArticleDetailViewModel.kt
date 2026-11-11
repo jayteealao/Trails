@@ -47,7 +47,7 @@ private data class ArticleGroup(
 private data class ArchiveGroup(
     val remoteArchives: Map<String, ArchiveStatus>,
     val localArchives: List<LocalArchive>,
-    val archiveSyncing: Boolean,
+    val textDownloading: Boolean,
     val textSource: String,
     val selectedArchiveContent: String?,
 )
@@ -84,7 +84,7 @@ class ArticleDetailViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     private val _remoteArchives = MutableStateFlow<Map<String, ArchiveStatus>>(emptyMap())
     private val _localArchives = MutableStateFlow<List<LocalArchive>>(emptyList())
-    private val _archiveSyncing = MutableStateFlow(false)
+    private val _textDownloading = MutableStateFlow(false)
     private val _textSource = MutableStateFlow("")
     private val _selectedArchiveContent = MutableStateFlow<String?>(null)
     private val _articleStatus = MutableStateFlow<String?>(null)
@@ -117,7 +117,7 @@ class ArticleDetailViewModel @Inject constructor(
     }
 
     private val archiveGroupFlow = combine(
-        _remoteArchives, _localArchives, _archiveSyncing, _textSource, _selectedArchiveContent
+        _remoteArchives, _localArchives, _textDownloading, _textSource, _selectedArchiveContent
     ) { remote, local, syncing, textSrc, selectedContent ->
         ArchiveGroup(remote, local, syncing, textSrc, selectedContent)
     }
@@ -137,7 +137,7 @@ class ArticleDetailViewModel @Inject constructor(
             isLoading = ag.isLoading,
             remoteArchives = arc.remoteArchives,
             localArchives = arc.localArchives,
-            archiveSyncing = arc.archiveSyncing,
+            textDownloading = arc.textDownloading,
             textSource = arc.textSource,
             selectedArchiveContent = arc.selectedArchiveContent,
             online = ng.online,
@@ -253,7 +253,7 @@ class ArticleDetailViewModel @Inject constructor(
             // Syncing while a text archive downloads; a large archive never holds the Reader.
             launch {
                 archiveService.observeDownloads(itemId).collect { states ->
-                    _archiveSyncing.value = states.any { (key, state) ->
+                    _textDownloading.value = states.any { (key, state) ->
                         state == ArchiveDownload.DOWNLOADING && ArchiveType.fromArchiveKey(key)?.providesText == true
                     }
                     val textStates = states.filterKeys { ArchiveType.fromArchiveKey(it)?.providesText == true }.values
@@ -389,7 +389,7 @@ class ArticleDetailViewModel @Inject constructor(
             hasText = !ag.article?.text.isNullOrBlank(),
             loaded = !ag.isLoading && ag.article != null,
             online = ng.online,
-            textDownloading = arc.archiveSyncing,
+            textDownloading = arc.textDownloading,
             textDownloadFailed = ng.textDownloadFailed,
             remoteTextPending = arc.remoteArchives.keys.any { isText(it) && it !in localKeys },
             localTextArchive = localKeys.any(::isText),

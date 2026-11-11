@@ -14,7 +14,8 @@ data class ArticleDetailState(
     val isLoading: Boolean = false,
     val remoteArchives: Map<String, ArchiveStatus> = emptyMap(),
     val localArchives: List<LocalArchive> = emptyList(),
-    val archiveSyncing: Boolean = false,
+    /** A text archive is downloading to the phone; a heavy download does not count. */
+    val textDownloading: Boolean = false,
     val textSource: String = "",
     val selectedArchiveContent: String? = null,
     val online: Boolean = true,

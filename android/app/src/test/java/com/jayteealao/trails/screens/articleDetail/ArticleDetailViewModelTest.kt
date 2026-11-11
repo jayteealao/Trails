@@ -132,7 +132,7 @@ class ArticleDetailViewModelTest {
         assertFalse(s.isLoading)
         assertEquals(emptyMap<String, ArchiveStatus>(), s.remoteArchives)
         assertEquals(emptyList<LocalArchive>(), s.localArchives)
-        assertFalse(s.archiveSyncing)
+        assertFalse(s.textDownloading)
         assertEquals("", s.textSource)
         assertNull(s.selectedArchiveContent)
 
@@ -459,7 +459,7 @@ class ArticleDetailViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { archiveService.applyWargMetadata("a10") }
-        assertFalse(viewModel.state.value.archiveSyncing)
+        assertFalse(viewModel.state.value.textDownloading)
         assertEquals("a10", viewModel.state.value.article?.itemId)
         collectJob.cancel()
     }
@@ -491,11 +491,11 @@ class ArticleDetailViewModelTest {
         val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
         viewModel.getArticle("a12")
         advanceUntilIdle()
-        assertTrue(viewModel.state.value.archiveSyncing)
+        assertTrue(viewModel.state.value.textDownloading)
 
         downloads.value = mapOf("monolith" to ArchiveDownload.DOWNLOADING)
         advanceUntilIdle()
-        assertFalse(viewModel.state.value.archiveSyncing)
+        assertFalse(viewModel.state.value.textDownloading)
         collectJob.cancel()
     }
 
@@ -510,7 +510,7 @@ class ArticleDetailViewModelTest {
         viewModel.getArticle("a13")
         advanceUntilIdle()
 
-        assertFalse(viewModel.state.value.archiveSyncing)
+        assertFalse(viewModel.state.value.textDownloading)
         collectJob.cancel()
     }
 
@@ -535,7 +535,7 @@ class ArticleDetailViewModelTest {
 
         coVerify(exactly = 2) { archiveService.syncArchives("a14", any()) }
         coVerify(exactly = 2) { archiveService.applyWargMetadata("a14") }
-        assertFalse(viewModel.state.value.archiveSyncing)
+        assertFalse(viewModel.state.value.textDownloading)
         collectJob.cancel()
     }
 
