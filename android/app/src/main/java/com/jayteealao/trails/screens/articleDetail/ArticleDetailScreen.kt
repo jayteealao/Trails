@@ -99,6 +99,8 @@ fun ArticleDetailScreen(
             article = currentArticle,
             tabs = tabs,
             selectedArchiveContent = viewStore.state.selectedArchiveContent,
+            readerBody = viewStore.state.readerBody,
+            selectedArchiveLoadFailed = viewStore.state.selectedArchiveLoadFailed,
         )
 
         ArticleDetailTabRow(
@@ -311,19 +313,27 @@ fun ArticleDetails(
     article: Article,
     tabs: List<DetailTab> = detailTabsFor(emptyList()),
     selectedArchiveContent: String? = null,
+    readerBody: ReaderBody = ReaderBody.Loading,
+    selectedArchiveLoadFailed: Boolean = false,
 ) {
     AnimatedContent(
         targetState = selectedTabIndex,
         modifier = modifier
     ) { targetIndex ->
         when {
-            targetIndex == 0 -> ArticleMarkdown(article.text ?: "No content")
+            targetIndex == 0 -> ReaderBodyView(
+                body = if (!article.text.isNullOrBlank()) ReaderBody.Text else readerBody,
+                text = article.text.orEmpty(),
+            )
             targetIndex == 1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
             else -> {
                 val archiveType = tabs.getOrNull(targetIndex)?.archiveType
                 if (archiveType != null) {
                     if (archiveType.providesText) {
-                        ArticleMarkdown(selectedArchiveContent ?: "Loading...")
+                        ReaderBodyView(
+                            body = archiveTabBodyFor(selectedArchiveContent, selectedArchiveLoadFailed),
+                            text = selectedArchiveContent.orEmpty(),
+                        )
                     } else {
                         ArticleArchiveWebView(selectedArchiveContent ?: "")
                     }
