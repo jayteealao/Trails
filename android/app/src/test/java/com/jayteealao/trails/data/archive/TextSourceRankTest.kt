@@ -101,6 +101,44 @@ class TextSourceRankTest {
         assertFalse(TextSourceRank.shouldReplace(null, "", "rendered", "<html>"))
     }
 
+    private val runTogether = "# Title\n\n" + "One sentence ran into the next.".repeat(100)
+    private val paragraphs = "# Title\n\n" +
+        List(30) { "A paragraph of its own, with a [link](https://x.test)." }.joinToString("\n\n")
+
+    @Test
+    fun isRunTogether_aPageThatLostItsBreaks_isTrue() {
+        assertTrue(TextSourceRank.isRunTogether(runTogether))
+    }
+
+    @Test
+    fun isRunTogether_aTextWithParagraphs_isFalse() {
+        assertFalse(TextSourceRank.isRunTogether(paragraphs))
+        assertFalse(TextSourceRank.isRunTogether("A short text with no break at all."))
+    }
+
+    @Test
+    fun isRunTogether_aBreakOfSpacesStillSplits() {
+        val text = List(4) { "x".repeat(1500) }.joinToString("\n   \n")
+        assertFalse(TextSourceRank.isRunTogether(text))
+    }
+
+    @Test
+    fun shouldReplace_paragraphsReplaceARunTogetherReadability() {
+        assertTrue(TextSourceRank.shouldReplace(runTogether, "readability", "markdown", paragraphs))
+        assertTrue(TextSourceRank.shouldReplace(runTogether, "readability", "ai_markdown", paragraphs))
+    }
+
+    @Test
+    fun shouldReplace_aRunTogetherReadabilityDoesNotReplaceParagraphs() {
+        assertFalse(TextSourceRank.shouldReplace(paragraphs, "markdown", "readability", runTogether))
+    }
+
+    @Test
+    fun shouldReplace_sameShape_keepsTheRank() {
+        assertTrue(TextSourceRank.shouldReplace(runTogether, "markdown", "readability", runTogether + "!"))
+        assertFalse(TextSourceRank.shouldReplace(runTogether, "readability", "markdown", runTogether + "!"))
+    }
+
     /** The rank names exactly the archive kinds that the cross-stack contract marks as text. */
     @Test
     fun order_matchesTheTextRowsOfTheContract() {

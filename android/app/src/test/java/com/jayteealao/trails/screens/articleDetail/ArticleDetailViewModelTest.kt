@@ -740,6 +740,29 @@ class ArticleDetailViewModelTest {
     }
 
     @Test
+    fun runTogetherReadabilityArchive_givesWayToTheMarkdownArchiveWithParagraphs() = runTest(scheduler) {
+        val runTogether = "Every paragraph ran into the next.".repeat(100)
+        val paragraphs = List(20) { "A paragraph of its own." }.joinToString("\n\n")
+        val viewModel = openWithoutText(listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN)) { type ->
+            if (type == ArchiveType.READABILITY) runTogether else paragraphs
+        }
+
+        assertEquals(ReaderBody.Text, viewModel.state.value.readerBody)
+        assertEquals(paragraphs, viewModel.state.value.article?.text)
+        assertEquals("markdown", viewModel.state.value.textSource)
+    }
+
+    @Test
+    fun runTogetherReadabilityArchive_isTheTextWhenItIsTheOnlyOne() = runTest(scheduler) {
+        val runTogether = "Every paragraph ran into the next.".repeat(100)
+        val viewModel = openWithoutText(listOf(ArchiveType.READABILITY)) { runTogether }
+
+        assertEquals(ReaderBody.Text, viewModel.state.value.readerBody)
+        assertEquals(runTogether, viewModel.state.value.article?.text)
+        assertEquals("readability", viewModel.state.value.textSource)
+    }
+
+    @Test
     fun aHeavyArchiveRowLanding_doesNotReadTheTextArchiveAgain() = runTest(scheduler) {
         val readability = listOf(localArchive("a1", ArchiveType.READABILITY))
         val localFlow = MutableSharedFlow<List<LocalArchive>>(replay = 1)

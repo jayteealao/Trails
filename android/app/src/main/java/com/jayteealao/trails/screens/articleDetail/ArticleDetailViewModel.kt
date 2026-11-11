@@ -365,13 +365,15 @@ class ArticleDetailViewModel @Inject constructor(
 
     /**
      * Offers the best-ranked text archive of [archives] that has words as the stored text, per
-     * [TextSourceRank]. A blank or unreadable archive gives way to the next one down. Returns
-     * what the read found; the caller puts it in the notice state.
+     * [TextSourceRank]. A blank or unreadable archive gives way to the next one down, and so
+     * does a run-together one while a text with paragraphs is below it. Returns what the read
+     * found; the caller puts it in the notice state.
      */
     private suspend fun offerBestText(itemId: String, archives: List<LocalArchive>): LocalText {
         val keys = archives.map { it.archiveKey }
         val ranked = TextSourceRank.ORDER.filter { it in keys }
         var sawBlank = false
+        var runTogether: Pair<String, String>? = null
         for (key in ranked) {
             val type = ArchiveType.fromArchiveKey(key) ?: continue
             val text = archiveService.readArchiveText(itemId, type)
@@ -383,6 +385,14 @@ class ArticleDetailViewModel @Inject constructor(
                 sawBlank = true
                 continue
             }
+            if (TextSourceRank.isRunTogether(text)) {
+                if (runTogether == null) runTogether = key to text
+                continue
+            }
+            articleRepository.offerArticleText(itemId, text, key)
+            return LocalText.READABLE
+        }
+        runTogether?.let { (key, text) ->
             articleRepository.offerArticleText(itemId, text, key)
             return LocalText.READABLE
         }
