@@ -1,7 +1,5 @@
 package com.jayteealao.trails.data.archive
 
-import androidx.compose.ui.graphics.vector.ImageVector
-
 /**
  * The 6 archive types stored locally as gzipped files, each with its tab on the article
  * detail screen. PDF and screenshot are excluded — screenshot is only used for image fallback.
@@ -11,16 +9,15 @@ enum class ArchiveType(
     val contentType: String,
     val providesText: Boolean,
     val displayName: String,
-    val icon: ImageVector,
 ) {
-    SINGLEFILE("singlefile", "text/html", false, "SingleFile", ArchiveTabIcons.SingleFile),
-    MONOLITH("monolith", "text/html", false, "Monolith", ArchiveTabIcons.Monolith),
-    READABILITY("readability", "text/markdown", true, "Readability", ArchiveTabIcons.Readability),
-    MARKDOWN("markdown", "text/markdown", true, "Markdown", ArchiveTabIcons.Markdown),
-    RENDERED("rendered", "text/html", false, "Rendered", ArchiveTabIcons.Rendered),
+    SINGLEFILE("singlefile", "text/html", false, "SingleFile"),
+    MONOLITH("monolith", "text/html", false, "Monolith"),
+    READABILITY("readability", "text/markdown", true, "Readability"),
+    MARKDOWN("markdown", "text/markdown", true, "Markdown"),
+    RENDERED("rendered", "text/html", false, "Rendered"),
     // The literal, not AI_MARKDOWN_ARCHIVE_KEY: an entry cannot read the companion, which is
     // initialized after the entries.
-    AI_MARKDOWN("ai_markdown", "text/markdown", true, "AI Markdown", ArchiveTabIcons.AiMarkdown);
+    AI_MARKDOWN("ai_markdown", "text/markdown", true, "AI Markdown");
 
     companion object {
         /** The archive key the server writes for the AI Markdown archive: the key of [AI_MARKDOWN]. */

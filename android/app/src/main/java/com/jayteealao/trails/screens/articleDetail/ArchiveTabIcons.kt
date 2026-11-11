@@ -1,4 +1,4 @@
-package com.jayteealao.trails.data.archive
+package com.jayteealao.trails.screens.articleDetail
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.dp
+import com.jayteealao.trails.data.archive.ArchiveType
 
 /**
  * The outline icons of the article detail tabs, drawn on the 24 dp Material Symbols grid with a
@@ -84,3 +85,14 @@ object ArchiveTabIcons {
             strokeLineJoin = StrokeJoin.Round,
         )
 }
+
+/** The tab icon of an archive type; the screen owns the icons, so the data type carries none. */
+val ArchiveType.icon: ImageVector
+    get() = when (this) {
+        ArchiveType.SINGLEFILE -> ArchiveTabIcons.SingleFile
+        ArchiveType.MONOLITH -> ArchiveTabIcons.Monolith
+        ArchiveType.READABILITY -> ArchiveTabIcons.Readability
+        ArchiveType.MARKDOWN -> ArchiveTabIcons.Markdown
+        ArchiveType.RENDERED -> ArchiveTabIcons.Rendered
+        ArchiveType.AI_MARKDOWN -> ArchiveTabIcons.AiMarkdown
+    }

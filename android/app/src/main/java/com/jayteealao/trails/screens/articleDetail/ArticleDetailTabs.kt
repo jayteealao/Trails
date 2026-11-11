@@ -1,7 +1,6 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.jayteealao.trails.data.archive.ArchiveTabIcons
 import com.jayteealao.trails.data.archive.ArchiveType
 
 /** One tab of the article detail screen; [archiveType] is null for the Reader and Web tabs. */

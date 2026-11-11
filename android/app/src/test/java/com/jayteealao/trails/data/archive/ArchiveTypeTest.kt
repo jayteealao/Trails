@@ -1,5 +1,6 @@
 package com.jayteealao.trails.data.archive
 
+import com.jayteealao.trails.screens.articleDetail.icon
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
