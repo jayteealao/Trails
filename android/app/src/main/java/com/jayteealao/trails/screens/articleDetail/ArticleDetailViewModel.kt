@@ -209,6 +209,7 @@ class ArticleDetailViewModel @Inject constructor(
             val existingArchives = localArchiveDao.getArchivesForArticle(itemId)
             if (existingArchives.isNotEmpty()) {
                 Timber.d("loadArchives($itemId) — ${existingArchives.size} local archives, showing immediately")
+                keepSelectionOnItsArchive(existingArchives)
                 _localArchives.value = existingArchives
             }
 
@@ -225,6 +226,7 @@ class ArticleDetailViewModel @Inject constructor(
             launch {
                 localArchiveDao.observeArchives(itemId).collect { archives ->
                     Timber.d("loadArchives($itemId) — local emit: ${archives.size} archives [${archives.map { it.archiveKey }}]")
+                    keepSelectionOnItsArchive(archives)
                     _localArchives.value = archives
 
                     // A better source changes the stored text; the text on screen stays
@@ -311,8 +313,27 @@ class ArticleDetailViewModel @Inject constructor(
         }
     }
 
-    fun getAvailableArchiveTypes(): List<ArchiveType> {
-        return _localArchives.value.mapNotNull { ArchiveType.fromArchiveKey(it.archiveKey) }
+    fun getAvailableArchiveTypes(): List<ArchiveType> = archiveTypesOf(_localArchives.value)
+
+    private fun archiveTypesOf(archives: List<LocalArchive>): List<ArchiveType> =
+        detailTabsFor(archives.map { it.archiveKey }).mapNotNull { it.archiveType }
+
+    /**
+     * Tabs follow a fixed order, so an archive that arrives can take a place before the selected
+     * one. Moves the selected archive tab to its archive's new place, or to the Reader tab when
+     * its archive is gone. The Reader and Web tabs never move.
+     */
+    private fun keepSelectionOnItsArchive(newArchives: List<LocalArchive>) {
+        val index = _selectedTabIndex.value
+        if (index < FIRST_ARCHIVE_TAB_INDEX) return
+        val selected = getAvailableArchiveTypes().getOrNull(index - FIRST_ARCHIVE_TAB_INDEX) ?: return
+        val newPlace = archiveTypesOf(newArchives).indexOf(selected)
+        if (newPlace >= 0) {
+            _selectedTabIndex.value = FIRST_ARCHIVE_TAB_INDEX + newPlace
+        } else {
+            _selectedTabIndex.value = READER_TAB_INDEX
+            _selectedArchiveContent.value = null
+        }
     }
 
     override fun onCleared() {
