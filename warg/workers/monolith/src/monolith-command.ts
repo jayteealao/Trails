@@ -3,8 +3,8 @@
  *
  * No runtime imports so the shell-quoting and flag wiring can be unit-tested
  * under plain Node/Vitest. The Sandbox fetches its input over its own network
- * (a presigned R2 URL) instead of the host→container `writeFile` RPC that was
- * returning HTTP 500 under concurrency.
+ * (the Worker's R2 handler host) instead of the host→container `writeFile` RPC
+ * that was returning HTTP 500 under concurrency.
  */
 
 // Monolith CLI flags for creating clean single-file HTML.
@@ -26,8 +26,8 @@ export function shellQuote(value: string): string {
 }
 
 /**
- * Monolith fetches the document directly from `documentUrl` (a presigned R2
- * GET URL). `-b baseUrl` resolves relative resources against the original
+ * Monolith fetches the document directly from `documentUrl` (the input key on
+ * the Worker's R2 handler host). `-b baseUrl` resolves relative resources against the original
  * article, overriding the fetch URL as the base.
  */
 export function buildMonolithUrlCommand(documentUrl: string, baseUrl: string): string {
@@ -53,10 +53,11 @@ export function buildMonolithFileCommand(baseUrl: string, inputPath: string = SA
 }
 
 /**
- * Upload the monolith output straight to R2 via a presigned PUT URL, then print
- * its sha256 + byte size. Routing the bytes over the container's network avoids
- * reading them back through the 32 MiB `readFile` RPC. The `&&` ensures the
- * hash/size only print when the upload succeeds.
+ * Upload the monolith output to R2 through the Worker's R2 handler host, then
+ * print its sha256 + byte size. Routing the bytes over the container's network
+ * avoids reading them back through the 32 MiB `readFile` RPC. `Expect:` stops
+ * curl waiting for a `100 Continue` before it sends a body over 1 MiB. The `&&`
+ * ensures the hash/size only print when the upload succeeds.
  */
 export function buildUploadAndHashCommand(
   putUrl: string,
@@ -65,7 +66,7 @@ export function buildUploadAndHashCommand(
   const path = shellQuote(filePath);
   const url = shellQuote(putUrl);
   return (
-    `curl -sSf -X PUT -H 'Content-Type: text/html' --upload-file ${path} ${url} && ` +
+    `curl -sSf -X PUT -H 'Content-Type: text/html' -H 'Expect:' --upload-file ${path} ${url} && ` +
     `printf 'SHA256=%s\\nBYTES=%s\\n' "$(sha256sum ${path} | cut -d' ' -f1)" "$(stat -c %s ${path})"`
   );
 }
