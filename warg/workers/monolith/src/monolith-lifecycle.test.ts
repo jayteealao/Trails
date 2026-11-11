@@ -4,12 +4,8 @@ import { runMonolithInSandbox } from './index.js';
 
 vi.mock('@cloudflare/sandbox', () => ({
   getSandbox: vi.fn(),
-  Sandbox: class {}
-}));
-
-vi.mock('./r2-presign.js', () => ({
-  presignR2GetUrl: vi.fn(async () => 'https://r2.example/presigned-get'),
-  presignR2PutUrl: vi.fn(async () => 'https://r2.example/presigned-put')
+  Sandbox: class {},
+  ContainerProxy: class {}
 }));
 
 const getSandboxMock = vi.mocked(getSandbox);
@@ -81,13 +77,47 @@ describe('runMonolithInSandbox container lifecycle', () => {
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('reads the page and writes the output through the R2 handler host', async () => {
+    const sandbox = fakeSandbox([execOk(), execOk(UPLOAD_OK_STDOUT)]);
+
+    await runMonolithInSandbox(
+      createEnv(),
+      'req-success',
+      'archives/req-success/raw/rendered.html',
+      'https://example.com'
+    );
+
+    // Test boundary: the fake exec is declared without parameters, so its
+    // recorded calls are typed as empty tuples; the real call passes the command.
+    const commands = sandbox.exec.mock.calls.map(call => String((call as unknown[])[0]));
+    expect(commands[0]).toContain('http://r2.monolith.internal/archives/req-success/raw/rendered.html');
+    expect(commands[1]).toContain('http://r2.monolith.internal/archives/req-success/derived/monolith.html');
+    expect(commands.join(' ')).not.toContain('X-Amz-');
+  });
+
+  it("refuses an input key that is not the request's own rendered page, before any exec", async () => {
+    const sandbox = fakeSandbox([]);
+
+    await expect(
+      runMonolithInSandbox(
+        createEnv(),
+        'req-own',
+        'archives/req-other/raw/rendered.html',
+        'https://example.com'
+      )
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT_KEY', status: 400, retryable: false });
+
+    expect(sandbox.exec).not.toHaveBeenCalled();
+    expect(getSandboxMock).not.toHaveBeenCalled();
+  });
+
   it('keys the sandbox off the request id (no warm pool)', async () => {
     fakeSandbox([execOk(), execOk(UPLOAD_OK_STDOUT)]);
 
     const result = await runMonolithInSandbox(
       createEnv(),
       'Req-Keyed-123',
-      'archives/req/raw/rendered.html',
+      'archives/Req-Keyed-123/raw/rendered.html',
       'https://example.com'
     );
 
@@ -191,7 +221,7 @@ describe('runMonolithInSandbox container lifecycle', () => {
   it('returns success and stops the container once when primary exec fails but curl fallback succeeds', async () => {
     // Queue: [primary fail, curl ok, monolith-file ok, upload ok]
     const sandbox = fakeSandbox([
-      execFail('monolith: presigned URL fetch error'),
+      execFail('monolith: document fetch error'),
       execOk(),                       // curl download succeeds
       execOk(),                       // monolith file-path run succeeds
       execOk(UPLOAD_OK_STDOUT)        // upload + hash succeeds

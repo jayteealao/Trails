@@ -4,12 +4,8 @@ import { runMonolithInSandbox } from './index.js';
 
 vi.mock('@cloudflare/sandbox', () => ({
   getSandbox: vi.fn(),
-  Sandbox: class {}
-}));
-
-vi.mock('./r2-presign.js', () => ({
-  presignR2GetUrl: vi.fn(async () => 'https://r2.example/presigned-get'),
-  presignR2PutUrl: vi.fn(async () => 'https://r2.example/presigned-put')
+  Sandbox: class {},
+  ContainerProxy: class {}
 }));
 
 const getSandboxMock = vi.mocked(getSandbox);
@@ -44,7 +40,7 @@ function fakeSandbox(execResults: ExecResult[]) {
 }
 
 function createEnv(): Env {
-  // Only the fields runMonolithInSandbox reads; the presign module is mocked.
+  // Only the fields runMonolithInSandbox reads.
   return {
     INTERNAL_API_KEY: 'test-key',
     R2_BUCKET_NAME: 'warg-archives',

@@ -5,6 +5,7 @@ import worker from './index.js';
 vi.mock('@cloudflare/sandbox', () => ({
   getSandbox: vi.fn(),
   Sandbox: class {},
+  ContainerProxy: class {},
   ContainerUnavailableError: class extends Error {}
 }));
 
