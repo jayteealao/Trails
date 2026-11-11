@@ -762,6 +762,52 @@ new app release on the phone:
 5. Send a request with the old shared key to archive-gateway, as step 6 of the
    key rotation describes. It must get 401.
 
+## Gateway API
+
+The `gateway` worker is the only public entry. Every error answer has the same
+shape, `{ "error": "<message>", "code": "<code>", "id": "<id>" }`, and the same
+id in the `X-Request-Id` header; the gateway logs each refusal with that id, so
+an id a caller quotes matches a log line. The codes are `GATEWAY_ERROR_CODES`
+in `workers/gateway/src/errors.ts`.
+
+| Route | Key | Answers |
+|---|---|---|
+| `POST /begin` | `X-Internal-API-Key` (the operator) or `X-API-Key` (public); the internal key wins when both are sent | `201 { requestId }` |
+| `GET /status/:id` | `X-API-Key` | the status, the events and the artifact pointers |
+| `GET /status/:id/stream` | `X-API-Key` | the events as server-sent events, held open at most 60 s (`PUBLIC_STATUS_STREAM_MAX_MS`); send `Last-Event-ID` to resume |
+| `POST /internal/log`, `/internal/sweep-orphan-queued`, `/internal/health-check` | `X-Internal-API-Key` | operator and worker calls |
+
+`POST /begin` takes a JSON object: `url` (required), an optional `request_id`
+(letters, digits, `_` and `-`, at most 40), and the archive options
+(`includeScreenshot`, `includePdf` and the others of
+`workers/gateway/src/archive-options.ts`). An option of the wrong type is
+refused; an unknown key is dropped and its name logged. Only the internal key
+may send `dryRun` and `steps`. A `request_id` may be started again only by the
+caller that first started it, or by the internal key.
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `INVALID_JSON` | the body is not JSON |
+| 400 | `INVALID_OPTIONS` | the body is not an object, or an option has the wrong type |
+| 400 | `INVALID_REQUEST_ID` | the `request_id`, or the id in a `/status/` path, is not a request id |
+| 400 | `REQUEST_ID_REQUIRED` | `/status/` with no id |
+| 400 | `INVALID_INPUT_URL` | the `url` cannot be archived |
+| 401 | `UNAUTHORIZED` | the key is missing or wrong |
+| 403 | `OPTION_NOT_ALLOWED` | the public key sent `dryRun` or `steps` |
+| 404 | `REQUEST_NOT_FOUND` / `NOT_FOUND` | no such request / no such route |
+| 409 | `REQUEST_ID_CONFLICT` | the `request_id` belongs to another caller (a caller should not retry it) |
+| 413 | `INVALID_OPTIONS` | the body is over 64 KiB (`MAX_BEGIN_BODY_BYTES`) |
+| 502 | `WORKFLOW_TRIGGER_FAILED` | the archive could not start; only the internal key sees the workflow's own `workflowError` |
+| 5xx | `STATUS_LOOKUP_FAILED` / `INTERNAL_ERROR` | a status read or the gateway failed; a 500 carries the fixed message `Internal error` |
+
+Changes (2026-11): the error shape and its codes, the `/status/:id/stream`
+route, the 403, 409 and 413 refusals, the dropping of unknown option keys, and
+the 400 for a `/status/` path that is not a request id are new. Before, a
+wrong-typed option was stored as sent, a 500 carried the exception text, and
+any `/status/` path reached the logger. The gateway has no version marker; the
+callers in this repository (the backfill scheduler, the save trigger and the
+dashboard) handle every answer above.
+
 ## Structure
 
 - `workers/` - Cloudflare Workers
