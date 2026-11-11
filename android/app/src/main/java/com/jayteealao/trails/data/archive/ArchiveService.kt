@@ -342,6 +342,9 @@ class ArchiveService @Inject constructor(
     /** Downloads of [itemId] that are running or failed, by archive key. A stored archive is absent. */
     fun observeDownloads(itemId: String): Flow<Map<String, ArchiveDownload>> = downloads.observe(itemId)
 
+    /** Stops the heavy downloads of [itemId]; its text downloads run on. See [ArchiveDownloadScheduler.cancelHeavy]. */
+    fun cancelHeavyDownloads(itemId: String) = downloads.cancelHeavy(itemId)
+
     // ── One-shot shared article read ────────────────────────────────────
 
     /**
