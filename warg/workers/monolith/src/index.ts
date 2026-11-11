@@ -152,6 +152,15 @@ function classifySandboxFailure(stderr: string, stdout: string): MonolithService
   return new MonolithServiceError(message, errorCode, 500, retryable);
 }
 
+/**
+ * A container that is not ready is an expected cold-start condition: the job
+ * answers 503 and the workflow step retries it. execInSandbox logs it once as a
+ * warning, so the catch sites do not log it again as an error.
+ */
+function isContainerNotReady(error: unknown): boolean {
+  return error instanceof MonolithServiceError && error.code === 'MONOLITH_CONTAINER_UNAVAILABLE';
+}
+
 function isRetryableSandboxError(error: unknown): boolean {
   if (!(error instanceof MonolithServiceError)) return true;
   return error.retryable;
@@ -472,7 +481,7 @@ export default {
         artifact = sandboxResult.artifact;
         sandboxId = sandboxResult.sandboxId;
       } catch (sandboxError) {
-        console.error('[monolith] Sandbox execution failed:', sandboxError);
+        if (!isContainerNotReady(sandboxError)) console.error('[monolith] Sandbox execution failed:', sandboxError);
 
         if (env.MONOLITH_SERVICE_URL && isRetryableSandboxError(sandboxError)) {
           console.log('[monolith] Trying HTTP fallback...');
@@ -508,7 +517,7 @@ export default {
       };
       return Response.json(response);
     } catch (err) {
-      console.error('[monolith] Unhandled error:', err);
+      if (!isContainerNotReady(err)) console.error('[monolith] Unhandled error:', err);
       if (err instanceof MonolithServiceError) {
         return Response.json(
           {

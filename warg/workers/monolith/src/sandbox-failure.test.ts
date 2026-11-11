@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSandbox } from '@cloudflare/sandbox';
-import { runMonolithInSandbox } from './index.js';
+import worker, { runMonolithInSandbox } from './index.js';
 
 // Stands in for the SDK's ContainerUnavailableError, whose constructor takes a full error response.
 const { FakeContainerUnavailableError } = vi.hoisted(() => ({
@@ -163,5 +163,39 @@ describe('a sandbox container that is not ready', () => {
 
     expect(sandbox.exec).toHaveBeenCalledTimes(2);
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a not-ready container once, as a warning, and answers 503', async () => {
+    const notReady = new FakeContainerUnavailableError('container is starting', 3000);
+    const sandbox = {
+      exec: vi.fn(async () => {
+        throw notReady;
+      }),
+      stop: vi.fn(async () => {})
+    };
+    getSandboxMock.mockReturnValue(sandbox as unknown as ReturnType<typeof getSandbox>);
+    const env = {
+      ...createEnv(),
+      ARCHIVE_BUCKET: { head: async () => ({ size: 500 }) }
+    } as unknown as Env;
+
+    const response = await worker.fetch(
+      new Request('https://monolith/monolith', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': 'test-key' },
+        body: JSON.stringify({
+          request_id: 'req-x',
+          rendered_html_key: 'archives/req-x/raw/rendered.html',
+          base_url: 'https://example.com/'
+        })
+      }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'MONOLITH_CONTAINER_UNAVAILABLE', retryable: true });
+    expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(console.error).not.toHaveBeenCalled();
   });
 });
