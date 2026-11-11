@@ -6,6 +6,7 @@ import android.annotation.SuppressLint
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,22 +14,30 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.accompanist.web.AccompanistWebViewClient
@@ -36,8 +45,6 @@ import com.google.accompanist.web.LoadingState
 import com.google.accompanist.web.WebContent
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
-import com.jayteealao.trails.data.archive.ArchiveType
-import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
@@ -46,9 +53,6 @@ import com.mikepenz.markdown.compose.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.markdownPadding
-import compose.icons.CssGgIcons
-import compose.icons.cssggicons.AlignMiddle
-import compose.icons.cssggicons.Browser
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 
@@ -79,9 +83,7 @@ fun ArticleDetailScreen(
     }
 
     val currentArticle = viewStore.state.article ?: article
-    val archiveTabs = viewStore.state.localArchives.mapNotNull {
-        ArchiveType.fromArchiveKey(it.archiveKey)
-    }
+    val tabs = detailTabsFor(viewStore.state.localArchives.map { it.archiveKey })
 
     ConstraintLayout(
         modifier = Modifier
@@ -99,7 +101,7 @@ fun ArticleDetailScreen(
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
             article = currentArticle,
-            archiveTabs = archiveTabs,
+            tabs = tabs,
             selectedArchiveContent = viewStore.state.selectedArchiveContent,
         )
 
@@ -110,7 +112,7 @@ fun ArticleDetailScreen(
                 end.linkTo(parent.end)
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
-            archiveTabs = archiveTabs,
+            tabs = tabs,
             onTabSelected = { viewStore.action { setSelectedTab(it) } }
         )
     }
@@ -154,51 +156,99 @@ private fun ArticleDetailArchivePreview() {
         ArticleDetails(
             selectedTabIndex = 2,
             article = PreviewFixtures.article,
-            archiveTabs = listOf(ArchiveType.SINGLEFILE, ArchiveType.READABILITY),
+            tabs = detailTabsFor(listOf("singlefile", "readability")),
             selectedArchiveContent = "<h1>Archived Content</h1><p>This is archived HTML.</p>",
         )
     }
 }
 
+/** Every tab of an article with all six local archives, the AI Markdown tab selected. */
+@Preview(name = "Tab row • all tabs • light", showBackground = true, widthDp = 375)
+@Composable
+private fun ArticleDetailTabRowLightPreview() {
+    TrailsTheme(darkTheme = false) {
+        ArticleDetailTabRow(selectedTabIndex = 3, tabs = detailTabsFor(PREVIEW_ALL_ARCHIVE_KEYS))
+    }
+}
+
+@Preview(
+    name = "Tab row • all tabs • dark",
+    showBackground = true,
+    widthDp = 375,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ArticleDetailTabRowDarkPreview() {
+    TrailsTheme(darkTheme = true) {
+        ArticleDetailTabRow(selectedTabIndex = 3, tabs = detailTabsFor(PREVIEW_ALL_ARCHIVE_KEYS))
+    }
+}
+
+private val PREVIEW_ALL_ARCHIVE_KEYS =
+    listOf("singlefile", "monolith", "readability", "markdown", "rendered", "ai_markdown")
+
+/**
+ * The bottom row of the article detail screen: one labelled tab per entry of [tabs], on the
+ * surface with a hairline above. It scrolls when the tabs do not fit; the selected tab is in
+ * the accent with a 3 dp underline.
+ */
 @Composable
 fun ArticleDetailTabRow(
     modifier: Modifier = Modifier,
-    selectedTabIndex: Int = 1,
-    archiveTabs: List<ArchiveType> = emptyList(),
+    selectedTabIndex: Int = WEB_TAB_INDEX,
+    tabs: List<DetailTab> = detailTabsFor(emptyList()),
     onTabSelected: (Int) -> Unit = {}
 ) {
-    ScrollableTabRow(
-        selectedTabIndex = selectedTabIndex,
-        modifier = modifier.windowInsetsPadding(WindowInsets.navigationBars),
-        containerColor = MaterialTheme.colorScheme.surface,
-        edgePadding = 16.dp,
-    ) {
-        Tab(
-            selected = selectedTabIndex == 0,
-            onClick = { onTabSelected(0) },
-            icon = {
-                Icon(CssGgIcons.AlignMiddle, contentDescription = "Reader")
+    val colors = MaterialTheme.colorScheme
+    Column(modifier = modifier.windowInsetsPadding(WindowInsets.navigationBars)) {
+        HorizontalDivider(thickness = Dp.Hairline, color = colors.outlineVariant)
+        SecondaryScrollableTabRow(
+            selectedTabIndex = selectedTabIndex,
+            containerColor = colors.surface,
+            contentColor = colors.onSurfaceVariant,
+            edgePadding = 16.dp,
+            minTabWidth = 90.dp,
+            indicator = {
+                TabRowDefaults.SecondaryIndicator(
+                    modifier = Modifier
+                        .tabIndicatorOffset(selectedTabIndex, matchContentSize = false)
+                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)),
+                    height = 3.dp,
+                    color = colors.primary,
+                )
+            },
+            divider = {},
+        ) {
+            tabs.forEachIndexed { index, tab ->
+                ArticleDetailTab(
+                    tab = tab,
+                    selected = selectedTabIndex == index,
+                    onClick = { onTabSelected(index) },
+                )
             }
-        )
-
-        Tab(
-            selected = selectedTabIndex == 1,
-            onClick = { onTabSelected(1) },
-            icon = {
-                Icon(CssGgIcons.Browser, contentDescription = "Web")
-            }
-        )
-
-        archiveTabs.forEachIndexed { index, archiveType ->
-            val tabIndex = index + 2
-            Tab(
-                selected = selectedTabIndex == tabIndex,
-                onClick = { onTabSelected(tabIndex) },
-                icon = {
-                    Icon(archiveType.icon, contentDescription = archiveType.displayName)
-                }
-            )
         }
+    }
+}
+
+/** One tab: a 24 dp outline icon over a one-line label; the label is the tab's accessible name. */
+@Composable
+private fun ArticleDetailTab(tab: DetailTab, selected: Boolean, onClick: () -> Unit) {
+    Tab(
+        selected = selected,
+        onClick = onClick,
+        modifier = Modifier.height(64.dp),
+        selectedContentColor = MaterialTheme.colorScheme.primary,
+        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Icon(tab.icon, contentDescription = null, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = tab.label,
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
     }
 }
 
@@ -207,7 +257,7 @@ fun ArticleDetails(
     modifier: Modifier = Modifier,
     selectedTabIndex: Int = 1,
     article: Article,
-    archiveTabs: List<ArchiveType> = emptyList(),
+    tabs: List<DetailTab> = detailTabsFor(emptyList()),
     selectedArchiveContent: String? = null,
 ) {
     AnimatedContent(
@@ -218,9 +268,8 @@ fun ArticleDetails(
             targetIndex == 0 -> ArticleMarkdown(article.text ?: "No content")
             targetIndex == 1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
             else -> {
-                val archiveIndex = targetIndex - 2
-                if (archiveIndex in archiveTabs.indices) {
-                    val archiveType = archiveTabs[archiveIndex]
+                val archiveType = tabs.getOrNull(targetIndex)?.archiveType
+                if (archiveType != null) {
                     if (archiveType.providesText) {
                         ArticleMarkdown(selectedArchiveContent ?: "Loading...")
                     } else {
