@@ -111,13 +111,26 @@ function containerUnavailableError(retryAfterMs: number): MonolithServiceError {
   );
 }
 
-const SANDBOX_FAILURE_MESSAGES: Record<Exclude<SandboxFailureCode, 'MONOLITH_SANDBOX_500'>, string> = {
+const SANDBOX_FAILURE_MESSAGES: Record<
+  Exclude<SandboxFailureCode, 'MONOLITH_SANDBOX_500' | 'MONOLITH_R2_HANDLER_FAILED'>,
+  string
+> = {
   MONOLITH_RPC_32MIB_LIMIT: 'Monolith sandbox payload exceeded RPC size limit',
   MONOLITH_TIMEOUT: 'Sandbox timed out while processing monolith output'
 };
 
 function classifySandboxFailure(stderr: string, stdout: string): MonolithServiceError {
-  const { errorCode, retryable } = classifySandboxOutput(stderr, stdout);
+  const { errorCode, retryable, handlerStatus } = classifySandboxOutput(stderr, stdout);
+  if (errorCode === 'MONOLITH_R2_HANDLER_FAILED') {
+    // The Worker's own R2 handler refused or failed the container's request:
+    // answered 502 so it is not read as a monolith crash.
+    return new MonolithServiceError(
+      `R2 handler answered ${handlerStatus ?? 'an error'}: ${stderr || stdout}`,
+      errorCode,
+      502,
+      retryable
+    );
+  }
   const message =
     errorCode === 'MONOLITH_SANDBOX_500'
       ? `Sandbox execution failed: ${stderr || stdout || 'unknown sandbox error'}`
@@ -264,6 +277,9 @@ export async function runMonolithInSandbox(
           exitCode: curl.exitCode,
           stderr: curl.stderr.slice(0, 500)
         });
+        // When curl names an R2 handler answer, that says more than monolith's own failure.
+        const curlFailure = classifySandboxFailure(curl.stderr, curl.stdout);
+        if (curlFailure.code === 'MONOLITH_R2_HANDLER_FAILED') throw curlFailure;
       }
     }
 

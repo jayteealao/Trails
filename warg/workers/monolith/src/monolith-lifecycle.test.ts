@@ -169,7 +169,7 @@ describe('runMonolithInSandbox container lifecycle', () => {
         'archives/req-r2-rejected/raw/rendered.html',
         'https://example.com'
       )
-    ).rejects.toMatchObject({ code: 'MONOLITH_SANDBOX_500', status: 500 });
+    ).rejects.toMatchObject({ code: 'MONOLITH_R2_HANDLER_FAILED', status: 502, retryable: false });
 
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });

@@ -74,16 +74,33 @@ function isSandboxTimeoutText(lower: string): boolean {
   return lower.includes('timeout') || lower.includes('timed out') || lower.includes('deadline exceeded');
 }
 
-export type SandboxFailureCode = 'MONOLITH_RPC_32MIB_LIMIT' | 'MONOLITH_TIMEOUT' | 'MONOLITH_SANDBOX_500';
+export type SandboxFailureCode =
+  | 'MONOLITH_RPC_32MIB_LIMIT'
+  | 'MONOLITH_TIMEOUT'
+  | 'MONOLITH_R2_HANDLER_FAILED'
+  | 'MONOLITH_SANDBOX_500';
+
+/**
+ * The HTTP status curl reports for a failed request (`curl -f`: "The requested
+ * URL returned error: 403"). In the monolith sandbox curl talks only to the
+ * Worker's R2 handler, so this is the handler's answer.
+ */
+const CURL_HTTP_ERROR = /returned error: (\d{3})\b/;
 
 /** How a failed command inside the monolith sandbox is classified, from its stderr and stdout. */
 export function classifySandboxOutput(
   stderr: string,
   stdout: string
-): { errorCode: SandboxFailureCode; retryable: boolean } {
+): { errorCode: SandboxFailureCode; retryable: boolean; handlerStatus?: number } {
   const message = `${stderr}\n${stdout}`.toLowerCase();
   if (isRpc32MiBLimit(message)) return { errorCode: 'MONOLITH_RPC_32MIB_LIMIT', retryable: false };
   if (isSandboxTimeoutText(message)) return { errorCode: 'MONOLITH_TIMEOUT', retryable: true };
+  const handlerStatus = CURL_HTTP_ERROR.exec(message)?.[1];
+  if (handlerStatus !== undefined) {
+    const status = Number(handlerStatus);
+    // A refusal (403, 404, 411) answers the same on a retry; an R2 failure (5xx) may not.
+    return { errorCode: 'MONOLITH_R2_HANDLER_FAILED', retryable: status >= 500, handlerStatus: status };
+  }
   return { errorCode: 'MONOLITH_SANDBOX_500', retryable: true };
 }
 
@@ -95,6 +112,16 @@ function classifyMonolithError(errorMsgLower: string): ErrorClassification | und
     errorMsgLower.includes('monolith') ||
     errorMsgLower.includes('sandboxerror');
   if (!mentionsMonolith) return undefined;
+
+  // The monolith Worker names a failed R2 handler answer in its body; a
+  // retryable one reaches this rule untagged after the step's last retry.
+  if (errorMsgLower.includes('monolith_r2_handler_failed')) {
+    return {
+      errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
 
   if (isRpc32MiBLimit(errorMsgLower)) {
     return {
@@ -336,6 +363,14 @@ function classifyMonolithFailureFromBody(
   const parsed = parseJsonSafe(responseBody);
   if (parsed && typeof parsed === 'object' && 'code' in parsed && parsed.code === 'R2_CREDENTIAL_INVALID') {
     return credentialFailure('R2_CREDENTIAL_INVALID');
+  }
+  if (parsed && typeof parsed === 'object' && 'code' in parsed && parsed.code === 'MONOLITH_R2_HANDLER_FAILED') {
+    const retryable = 'retryable' in parsed && parsed.retryable === true;
+    return {
+      errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable,
+      recommendedAction: retryable ? 'retry_step' : 'investigate_service',
+    };
   }
 
   const message = readMessageFromResponseBody(responseBody);

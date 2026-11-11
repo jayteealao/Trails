@@ -314,8 +314,47 @@ describe('classifySandboxOutput', () => {
     // The sandbox has no `abort` timeout word, unlike the service and message rules.
     ['request aborted', '', { errorCode: 'MONOLITH_SANDBOX_500', retryable: true }],
     ['boom', '', { errorCode: 'MONOLITH_SANDBOX_500', retryable: true }],
+    [
+      'curl: (22) The requested URL returned error: 403',
+      '',
+      { errorCode: 'MONOLITH_R2_HANDLER_FAILED', retryable: false, handlerStatus: 403 },
+    ],
+    [
+      'curl: (22) The requested URL returned error: 502',
+      '',
+      { errorCode: 'MONOLITH_R2_HANDLER_FAILED', retryable: true, handlerStatus: 502 },
+    ],
   ])('classifies stderr %j stdout %j', (stderr, stdout, expected) => {
     expect(classifySandboxOutput(stderr, stdout)).toEqual(expected);
+  });
+});
+
+describe('a failed R2 handler answer of the monolith Worker', () => {
+  const body = (retryable: boolean) =>
+    JSON.stringify({
+      error: 'Internal error',
+      message: 'R2 handler answered 403: curl: (22) The requested URL returned error: 403',
+      code: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable,
+    });
+
+  it('keeps the code and the retry judgement of the answer', () => {
+    expect(classifyServiceFailure('/monolith', 502, body(false))).toEqual({
+      errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable: false,
+      recommendedAction: 'investigate_service',
+    });
+    expect(classifyServiceFailure('/monolith', 502, body(true))).toEqual({
+      errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    });
+  });
+
+  it('reads the code from the step failure message', () => {
+    expect(classifyError('monolith', `Service error 502: ${body(true)}`).errorCode).toBe(
+      'MONOLITH_R2_HANDLER_FAILED'
+    );
   });
 });
 
@@ -371,6 +410,7 @@ describe('the default retry and action of each error code', () => {
     MONOLITH_SANDBOX_500: [true, 'retry_step'],
     MONOLITH_RPC_32MIB_LIMIT: [false, 'investigate_service'],
     MONOLITH_INPUT_TOO_LARGE: [false, 'investigate_service'],
+    MONOLITH_R2_HANDLER_FAILED: [true, 'retry_step'],
     PERSIST_SERVICE_ERROR: [true, 'investigate_service'],
     ACCESS_BLOCKED: [false, 'check_access'],
     R2_CREDENTIAL_INVALID: [false, 'check_api_key'],
