@@ -577,7 +577,7 @@ export default {
       // A refused /begin leaves a log line naming the code, so a caller's rejected starts can be traced.
       const refuseBegin = (status: number, code: GatewayErrorCode, message: string): Response => {
         console.warn('[gateway] /begin refused', { id: errorId, status, code, caller: callerKind });
-        return errorResponse(status, code, message, errorId);
+        return errorResponse(status, code, message, errorId, {}, { logged: true });
       };
       try {
         const tooLargeMessage = `Request body exceeds ${MAX_BEGIN_BODY_BYTES} bytes`;

@@ -40,13 +40,21 @@ export function errorIdFor(candidate: string | undefined): string {
 /**
  * Build an error response `{ ...extra, error, code, id }` with the id also in X-Request-Id.
  * `extra` is spread first, so it can never override error, code or id.
+ *
+ * A refusal (4xx) is logged here with its id, so an id a caller quotes always
+ * matches a log line; pass `logged: true` when the caller has logged it already.
+ * A 5xx is logged by its handler, with the error.
  */
 export function errorResponse(
   status: number,
   code: GatewayErrorCode,
   message: string,
   id: string,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
+  { logged = false }: { logged?: boolean } = {}
 ): Response {
+  if (!logged && status >= 400 && status < 500) {
+    console.warn('[gateway] refused', { id, status, code });
+  }
   return withRequestId(Response.json({ ...extra, error: message, code, id }, { status }), id);
 }
