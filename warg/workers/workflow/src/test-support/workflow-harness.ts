@@ -28,7 +28,8 @@ import type {
 type StepCallback = (ctx: { attempt: number }) => Promise<unknown>;
 
 interface StepConfig {
-  retries?: { limit: number };
+  retries?: { limit: number; delay?: unknown; backoff?: string };
+  timeout?: unknown;
 }
 
 export interface FakeStep {
@@ -40,6 +41,8 @@ export interface FakeStep {
   sleeps: Array<[string, unknown]>;
   /** Step results by `name#occurrence`, in the order they completed. */
   cache: Map<string, unknown>;
+  /** The config of the last step.do call of each name (undefined when it had none). */
+  configs: Map<string, StepConfig | undefined>;
 }
 
 /** Thrown by a fake step once its instance has stopped: no later step runs or records a result. */
@@ -59,6 +62,12 @@ export interface FakeStepOptions {
   haltBefore?: string;
   /** Called once, synchronously, at the moment the instance stops. */
   onHalt?: () => void;
+  /**
+   * Cached failures by `name#occurrence`: that step throws its error at once
+   * without running the callback and adds no attempt, as the engine replays a
+   * step that failed after its retries.
+   */
+  failed?: Map<string, Error>;
 }
 
 /**
@@ -66,7 +75,8 @@ export interface FakeStepOptions {
  * a result is cached by step name and occurrence (deep-cloned, as the engine
  * serializes it), so a run against a seeded cache replays it; a throwing
  * callback is re-run up to `retries.limit` extra times, and at once stops on a
- * NonRetryableError. A step without a config is not retried. Sleeps return at once.
+ * NonRetryableError. A step without a config is not retried. A seeded failure
+ * replays as a throw. The config of each step is recorded. Sleeps return at once.
  */
 export function makeFakeStep(
   seed: Map<string, unknown> = new Map(),
@@ -75,6 +85,7 @@ export function makeFakeStep(
   const cache = new Map(seed);
   const names: string[] = [];
   const attempts = new Map<string, number>();
+  const configs = new Map<string, StepConfig | undefined>();
   const sleeps: Array<[string, unknown]> = [];
   const seen = new Map<string, number>();
   let stoppedAt: string | undefined;
@@ -94,10 +105,13 @@ export function makeFakeStep(
       const occurrence = (seen.get(name) ?? 0) + 1;
       seen.set(name, occurrence);
       const key = `${name}#${occurrence}`;
+      const config = typeof configOrFn === 'function' ? undefined : configOrFn;
+      configs.set(name, config);
       if (cache.has(key)) return structuredClone(cache.get(key));
+      const cachedFailure = options.failed?.get(key);
+      if (cachedFailure) throw cachedFailure;
 
       const callback = typeof configOrFn === 'function' ? configOrFn : fn;
-      const config = typeof configOrFn === 'function' ? undefined : configOrFn;
       if (!callback) throw new Error(`step ${name} has no callback`);
 
       const maxAttempts = (config?.retries?.limit ?? 0) + 1;
@@ -124,7 +138,7 @@ export function makeFakeStep(
   };
 
   // The fake implements only the step.do and step.sleep surface the workflow uses.
-  return { step: fake as unknown as WorkflowStep, names, attempts, sleeps, cache };
+  return { step: fake as unknown as WorkflowStep, names, attempts, sleeps, cache, configs };
 }
 
 /** An R2 bucket fake: bodies in a map, binary bodies decoded as UTF-8 text. */
