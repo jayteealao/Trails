@@ -710,6 +710,18 @@ class ArticleDetailViewModelTest {
     }
 
     @Test
+    fun readerBody_failedTextDownloadStillListedOnTheServer_showsTheCouldNotOpenNotice() = runTest(scheduler) {
+        every { archiveService.observeRemoteArchives("a1") } returns
+            flowOf(mapOf("readability" to ArchiveStatus("success", "gs://x/readability")))
+        every { archiveService.observeDownloads("a1") } returns
+            MutableStateFlow(mapOf("readability" to ArchiveDownload.FAILED))
+
+        val viewModel = openWithoutText()
+
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.UNREADABLE), viewModel.state.value.readerBody)
+    }
+
+    @Test
     fun readerBody_blankTextArchive_showsTheNoTextNotice() = runTest(scheduler) {
         val viewModel = openWithoutText(listOf(ArchiveType.READABILITY)) { "" }
 

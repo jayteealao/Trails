@@ -128,10 +128,12 @@ fun readerBodyFor(s: ReaderSignals): ReaderBody = when {
     !s.loaded -> ReaderBody.Loading
     s.textDownloading -> if (s.online) ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true) else offline()
     s.articleStatus in FAILED_STATUSES -> ReaderBody.Notice(ReaderNoticeKind.FAILED)
+    // A failed text download keeps its key in the server list, so it is told apart before the
+    // pending check, which would otherwise say the text is on its way.
+    s.textDownloadFailed -> if (s.online) ReaderBody.Notice(ReaderNoticeKind.UNREADABLE) else offline()
     s.remoteTextPending -> if (s.online) ReaderBody.Notice(ReaderNoticeKind.WAITING) else offline()
     s.localTextArchive && s.localTextBlank -> ReaderBody.Notice(ReaderNoticeKind.NO_TEXT)
     s.localTextArchive && s.localTextUnreadable -> ReaderBody.Notice(ReaderNoticeKind.UNREADABLE)
-    s.textDownloadFailed -> if (s.online) ReaderBody.Notice(ReaderNoticeKind.UNREADABLE) else offline()
     s.articleStatus in DONE_STATUSES -> ReaderBody.Notice(ReaderNoticeKind.NO_TEXT)
     !s.online -> offline()
     else -> ReaderBody.Notice(ReaderNoticeKind.WAITING)

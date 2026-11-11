@@ -82,6 +82,13 @@ class ReaderNoticesTest {
     }
 
     @Test
+    fun `a failed text download whose key the server still lists shows the could-not-open notice`() {
+        val failed = base.copy(textDownloadFailed = true, remoteTextPending = true)
+        assertEquals(Notice(UNREADABLE), body(failed))
+        assertEquals(Notice(OFFLINE), body(failed.copy(online = false)))
+    }
+
+    @Test
     fun `the first read of an open shows the skeleton`() {
         assertEquals(Loading, body(base.copy(loaded = false)))
     }
