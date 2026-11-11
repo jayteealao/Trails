@@ -50,9 +50,12 @@ fun standaloneImageOf(paragraph: ASTNode, content: String): ImageRef? {
             (it.type == MarkdownTokenTypes.TEXT && it.getTextInNode(content).isBlank())
     }
     val image = parts.singleOrNull()?.takeIf { it.type == MarkdownElementTypes.IMAGE } ?: return null
-    val link = image.linkOf(content) ?: return null
-    return ImageRef(link = link, alt = image.altOf(content))
+    return imageRefOf(image, content)
 }
+
+/** The link and alt text of an `IMAGE` node, or null when it has no link. */
+fun imageRefOf(image: ASTNode, content: String): ImageRef? =
+    image.linkOf(content)?.let { ImageRef(link = it, alt = image.altOf(content)) }
 
 /** The alt text of the first image under [node] that loads from [link], or null. */
 fun imageAltFor(link: String, node: ASTNode, content: String): String? =

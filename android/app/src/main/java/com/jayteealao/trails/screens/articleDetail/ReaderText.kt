@@ -1,15 +1,47 @@
 package com.jayteealao.trails.screens.articleDetail
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.compose.ui.unit.sp
 import com.jayteealao.trails.screens.theme.piazzollaFont
+import com.mikepenz.markdown.compose.MarkdownElement
+import com.mikepenz.markdown.compose.components.MarkdownComponent
+import com.mikepenz.markdown.compose.components.MarkdownComponents
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.MarkdownParagraph
+import com.mikepenz.markdown.compose.elements.MarkdownText
+import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.MarkdownPadding
+import com.mikepenz.markdown.model.MarkdownTypography
+import com.mikepenz.markdown.model.State
+import com.mikepenz.markdown.model.markdownPadding
 import org.intellij.markdown.IElementType
 import org.intellij.markdown.MarkdownElementTypes
+import org.intellij.markdown.MarkdownTokenTypes
 
 /**
  * The heading scale of the reader text: Piazzolla SemiBold at 28 / 23 / 19 sp for `#` / `##` /
@@ -74,3 +106,108 @@ private val MINOR_HEADINGS = setOf(
     MarkdownElementTypes.ATX_5,
     MarkdownElementTypes.ATX_6,
 )
+
+/** The renderer typography of the reader: [ReaderTypeScale] headings, `bodyLarge` text, links in the accent, underlined. */
+@Composable
+fun readerMarkdownTypography(): MarkdownTypography {
+    val body = MaterialTheme.typography.bodyLarge
+    return markdownTypography(
+        h1 = ReaderTypeScale.h1,
+        h2 = ReaderTypeScale.h2,
+        h3 = ReaderTypeScale.h3,
+        h4 = ReaderTypeScale.h4,
+        h5 = ReaderTypeScale.h5,
+        h6 = ReaderTypeScale.h6,
+        text = body,
+        paragraph = body,
+        ordered = body,
+        bullet = body,
+        list = body,
+        textLink = TextLinkStyles(
+            SpanStyle(color = MaterialTheme.colorScheme.primary, textDecoration = TextDecoration.Underline)
+        ),
+    )
+}
+
+/**
+ * The renderer padding of the reader: no block spacer, since [ReaderColumn] puts [readerBlockGap]
+ * between the blocks; lists indented 24 dp with items 2 dp apart.
+ */
+@Composable
+fun readerMarkdownPadding(): MarkdownPadding =
+    markdownPadding(block = 0.dp, list = 0.dp, listItemTop = 2.dp, listItemBottom = 2.dp, listIndent = 24.dp)
+
+/** The Markdown source of the column, for the alt text of an image inside running text. */
+private val LocalReaderSource = staticCompositionLocalOf { "" }
+
+private fun readerHeading(
+    style: (MarkdownTypography) -> TextStyle,
+    contentChildType: IElementType = MarkdownTokenTypes.ATX_CONTENT,
+): MarkdownComponent = {
+    MarkdownText(
+        content = it.content,
+        node = it.node,
+        style = style(it.typography),
+        modifier = Modifier.semantics { heading() },
+        contentChildType = contentChildType,
+    )
+}
+
+/**
+ * The renderer components of the reader: headings keep their heading semantics; a paragraph that
+ * holds only an image, and an image the renderer lifts to a block, show as a [ReaderFigure]; an
+ * image inside running text shows the broken-image placeholder when it fails.
+ */
+fun readerMarkdownComponents(): MarkdownComponents = markdownComponents(
+    heading1 = readerHeading({ it.h1 }),
+    heading2 = readerHeading({ it.h2 }),
+    heading3 = readerHeading({ it.h3 }),
+    heading4 = readerHeading({ it.h4 }),
+    heading5 = readerHeading({ it.h5 }),
+    heading6 = readerHeading({ it.h6 }),
+    setextHeading1 = readerHeading({ it.h1 }, MarkdownTokenTypes.SETEXT_CONTENT),
+    setextHeading2 = readerHeading({ it.h2 }, MarkdownTokenTypes.SETEXT_CONTENT),
+    paragraph = { model ->
+        val figure = standaloneImageOf(model.node, model.content)
+        if (figure != null) {
+            ReaderFigure(figure)
+        } else {
+            MarkdownParagraph(model.content, model.node, style = model.typography.paragraph)
+        }
+    },
+    image = { model -> imageRefOf(model.node, model.content)?.let { ReaderFigure(it) } },
+    // The renderer passes the link as the content and the paragraph as the node.
+    inlineImage = { model ->
+        ReaderInlineImage(model.content, imageAltFor(model.content, model.node, LocalReaderSource.current))
+    },
+)
+
+/**
+ * The reading column: one lazy item per top-level block, so a very long article composes only
+ * what is on screen; [readerBlockGap] above each block; the 16 dp gutter, widened so the column
+ * is at most 680 dp and centred. The scroll area stays the full width.
+ */
+@Composable
+fun ReaderColumn(state: State.Success, components: MarkdownComponents, modifier: Modifier = Modifier) {
+    CompositionLocalProvider(LocalReaderSource provides state.content) {
+        BoxWithConstraints(modifier.fillMaxSize()) {
+            val side = readerSidePadding(maxWidth)
+            val blocks = remember(state.node) {
+                state.node.children.filter {
+                    it.type != MarkdownTokenTypes.EOL && it.type != MarkdownTokenTypes.WHITE_SPACE
+                }
+            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = side, end = side, top = 8.dp, bottom = 8.dp),
+            ) {
+                itemsIndexed(blocks, key = { _, node -> node.startOffset }, contentType = { _, node -> node.type }) { index, node ->
+                    Column(Modifier.fillMaxWidth()) {
+                        Spacer(Modifier.height(readerBlockGap(blocks.getOrNull(index - 1)?.type, node.type)))
+                        MarkdownElement(node, components, state.content, includeSpacer = false)
+                    }
+                }
+            }
+        }
+    }
+}
