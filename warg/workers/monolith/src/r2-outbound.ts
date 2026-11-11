@@ -39,7 +39,11 @@ export interface R2OutboundDeps {
   knownLength(body: ReadableStream<Uint8Array>, bytes: number): ReadableStream<Uint8Array>;
 }
 
-const KEY_PATTERN = /^archives\/([^/]+)\/(raw\/rendered\.html|derived\/monolith\.html)$/;
+/**
+ * The request id of a key under `archives/<id>/`. Which keys of that id are
+ * allowed comes from monolithKeys (the shared key layout), not from here.
+ */
+const REQUEST_ID_PREFIX = /^archives\/([^/]+)\//;
 
 /** Decode a request path into an R2 key, or undefined when a segment is not valid. */
 function decodeKey(pathname: string): string | undefined {
@@ -65,10 +69,10 @@ function refusalReason(
 ): R2RefusalReason | undefined {
   if (host !== R2_HANDLER_HOST) return 'host';
   if (key === undefined) return 'bad_encoding';
-  const match = KEY_PATTERN.exec(key);
-  const requestId = match?.[1];
+  const requestId = REQUEST_ID_PREFIX.exec(key)?.[1];
   if (requestId === undefined || requestId === '.' || requestId === '..') return 'key_shape';
   const { input, output } = monolithKeys(requestId);
+  if (key !== input && key !== output) return 'key_shape';
   const allowed = (method === 'GET' && key === input) || (method === 'PUT' && key === output);
   if (!allowed) return 'method_or_key';
   if (deps.containerIdForRequest(requestId) !== deps.containerId) return 'foreign_container';
@@ -141,7 +145,7 @@ async function serve(request: Request, key: string, deps: R2OutboundDeps): Promi
 export async function handleR2Outbound(request: Request, deps: R2OutboundDeps): Promise<Response> {
   const url = new URL(request.url);
   const key = decodeKey(url.pathname);
-  const requestId = key === undefined ? undefined : KEY_PATTERN.exec(key)?.[1];
+  const requestId = key === undefined ? undefined : REQUEST_ID_PREFIX.exec(key)?.[1];
   const line: HandlerLogLine = {
     method: request.method.slice(0, LOGGED_KEY_LIMIT),
     host: url.hostname.slice(0, LOGGED_KEY_LIMIT),

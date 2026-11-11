@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getR2Key } from '@warg/shared';
 import { handleR2Outbound, MAX_OUTPUT_BYTES, monolithKeys, R2_HANDLER_HOST, r2HandlerUrl, type R2OutboundDeps } from './r2-outbound.js';
 
 const MIB_20 = 20 * 1024 * 1024;
@@ -144,6 +145,25 @@ describe('handleR2Outbound streams', () => {
     // Test boundary: a fake bucket with the two methods the handler calls.
     await handleR2Outbound(request, { ...deps, bucket: bucket as unknown as R2OutboundDeps['bucket'] });
     expect(counted).toBe(MIB_20);
+  });
+});
+
+describe('handleR2Outbound key layout', () => {
+  it('allows exactly the shared layout keys of the request', async () => {
+    const { deps, get, put } = makeDeps(streamingObject(10));
+    const read = await handleR2Outbound(new Request(r2HandlerUrl(getR2Key(REQUEST_ID, 'rendered.html'))), deps);
+    expect(read.status).toBe(200);
+    expect(get).toHaveBeenCalledWith(getR2Key(REQUEST_ID, 'rendered.html'));
+    const write = await handleR2Outbound(
+      new Request(r2HandlerUrl(getR2Key(REQUEST_ID, 'monolith.html')), {
+        method: 'PUT',
+        body: 'x',
+        headers: { 'content-length': '1' }
+      }),
+      deps
+    );
+    expect(write.status).toBe(201);
+    expect(put).toHaveBeenCalledWith(getR2Key(REQUEST_ID, 'monolith.html'), expect.anything(), expect.anything());
   });
 });
 
