@@ -19,6 +19,7 @@ import {
   SANDBOX_OUTPUT_PATH
 } from './monolith-command.js';
 import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-presign.js';
+import { handleR2Outbound, R2_HANDLER_HOST } from './r2-outbound.js';
 
 /**
  * Sandbox DO binding with a 5m `sleepAfter` backstop (the upstream default
@@ -34,6 +35,30 @@ import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-pre
 export class Sandbox extends BaseSandbox {
   override sleepAfter: string | number = '5m';
 }
+
+/**
+ * The container reaches R2 only through this handler, on one internal host,
+ * against the Worker's own ARCHIVE_BUCKET binding. Every other host stays on
+ * the container's own network.
+ *
+ * Registered by assignment, not as a `static` class field: the build targets
+ * ES2022, whose class fields define a new property that would hide the base
+ * class's setter and leave the handler unregistered. It is static on purpose:
+ * a runtime override (`setOutboundByHost`) switches the container to
+ * intercepting every host.
+ */
+Sandbox.outboundByHost = {
+  [R2_HANDLER_HOST]: (request, env, ctx) =>
+    handleR2Outbound(request, {
+      bucket: env.ARCHIVE_BUCKET,
+      containerId: ctx.containerId,
+      containerIdForRequest: id => env.Sandbox.idFromName(normalizeSandboxId(id)).toString(),
+      knownLength: (body, bytes) => body.pipeThrough(new FixedLengthStream(bytes))
+    })
+};
+
+// The platform hands intercepted container requests to this entrypoint.
+export { ContainerProxy } from '@cloudflare/sandbox';
 
 class MonolithServiceError extends Error {
   readonly code: string;
