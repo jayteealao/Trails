@@ -27,4 +27,8 @@ Every fallback render that this worker answers, with a result or an error,
 is logged with the stealth setting it used: `renderFallbackStealth` in the
 request diagnostics, next to `renderFallbackUsed` and `renderFallbackReason`.
 A fallback that gets no answer (a network failure or a timeout) logs
-`renderFallbackUsed` and `renderFallbackReason` without a stealth setting.
+`renderFallbackUsed` and `renderFallbackReason` without a stealth setting, and
+so does one answered by a hyperrenderer deployed before the setting was
+reported. To judge what turning stealth off costs, count fallbacks by
+`renderFallbackUsed` and their outcome; a count by `renderFallbackStealth` is a
+lower bound.
