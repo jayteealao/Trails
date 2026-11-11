@@ -16,6 +16,7 @@ import {
   makeFakeEnv,
   makeFakeStep,
   monolithInputTooLarge,
+  renderArtifactsFor,
   resultOf,
   runArchiveWorkflow,
   seedOptions,
@@ -231,10 +232,54 @@ describe('ArchiveWorkflow.run', () => {
       fallbackUsed: true,
       fallbackReason: 'browser_rendering_dead_host',
     });
+    // This fallback answer carries no stealth setting, so the event logs none.
+    expect(renderCompleted[0]?.data).not.toHaveProperty('fallbackStealth');
 
     // The derivatives read the rendered.html that the fallback produced.
     expect(fake.calls.READABILITY).toHaveLength(1);
     expect(fake.calls.MONOLITH).toHaveLength(1);
+  });
+
+  it('logs the fallback with its provider and stealth setting', async () => {
+    const { fake, outcome } = await runRequest(
+      {},
+      {
+        handlers: {
+          RENDERER: () => deadHostRenderFailure(),
+          HYPERRENDERER: (body) =>
+            Response.json({
+              uses_browser_rendering: true,
+              quota_kind_used: 'rest_request',
+              artifacts: renderArtifactsFor(body),
+              meta: { skipped: [], provider: 'hyperbrowser', stealth: 'none' },
+            }),
+        },
+      }
+    );
+
+    expect(resultOf(outcome).status).toBe('done');
+    const renderCompleted = eventsOfType(fake.logger, 'step.completed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderCompleted).toHaveLength(1);
+    expect(renderCompleted[0]?.data).toMatchObject({
+      fallbackUsed: true,
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackProvider: 'hyperbrowser',
+      fallbackStealth: 'none',
+    });
+  });
+
+  it('logs no fallback fields when the primary renderer answers', async () => {
+    const { fake, outcome } = await runRequest({});
+
+    expect(resultOf(outcome).status).toBe('done');
+    const renderCompleted = eventsOfType(fake.logger, 'step.completed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderCompleted).toHaveLength(1);
+    expect(renderCompleted[0]?.data).not.toHaveProperty('fallbackUsed');
+    expect(renderCompleted[0]?.data).not.toHaveProperty('fallbackStealth');
   });
 
   it('logs request.failed once when no requested output is produced', async () => {
