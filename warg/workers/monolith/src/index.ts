@@ -70,8 +70,9 @@ class MonolithServiceError extends Error {
   }
 }
 
-function shortDeterministicHash(input: string): string {
-  let hash = 2166136261;
+/** A 32-bit FNV-1a hash of `input` from `seed`, as 8 hex digits. */
+function fnv1a32(input: string, seed: number): string {
+  let hash = seed;
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
@@ -79,21 +80,33 @@ function shortDeterministicHash(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+/** A deterministic 64-bit hash of `input`, as 16 hex digits (two seeded FNV-1a passes). */
+function deterministicHash64(input: string): string {
+  return fnv1a32(input, 2166136261) + fnv1a32(input, 0x5bd1e995);
+}
+
+/** The suffix a sandbox id carries when it is not the request id itself. */
+const HASH_SUFFIX = /-[0-9a-f]{16}$/;
+
 /**
  * Sandbox IDs have stricter constraints than request IDs.
  * Keep request_id unchanged for artifact keys/joins and normalize a separate sandbox id.
+ *
+ * Two request ids never share a sandbox id: an id that is already a valid
+ * sandbox id (and does not end like a hash suffix) is kept as it is; any other
+ * id gets a hash of the exact request id. The R2 handler's per-request check
+ * compares sandbox ids, so it rests on this.
  */
-function normalizeSandboxId(requestId: string): string {
+export function normalizeSandboxId(requestId: string): string {
   const lower = requestId.trim().toLowerCase();
   const sanitized = lower.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
   const prefixed = /^[a-z]/.test(sanitized) ? sanitized : `s-${sanitized || 'request'}`;
 
-  // Keep room for deterministic hash suffix when truncating.
-  if (prefixed.length <= 63) return prefixed;
+  if (prefixed === requestId && prefixed.length <= 63 && !HASH_SUFFIX.test(prefixed)) return prefixed;
 
-  const suffix = shortDeterministicHash(requestId);
+  const suffix = deterministicHash64(requestId);
   const maxBaseLength = 63 - suffix.length - 1;
-  const base = prefixed.slice(0, Math.max(1, maxBaseLength)).replace(/-+$/g, '');
+  const base = prefixed.slice(0, maxBaseLength).replace(/-+$/g, '');
   return `${base}-${suffix}`;
 }
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSandbox } from '@cloudflare/sandbox';
-import worker, { runMonolithInSandbox } from './index.js';
+import worker, { normalizeSandboxId, runMonolithInSandbox } from './index.js';
 
 vi.mock('@cloudflare/sandbox', () => ({
   getSandbox: vi.fn(),
@@ -116,8 +116,30 @@ describe('runMonolithInSandbox container lifecycle', () => {
       'https://example.com'
     );
 
-    expect(result.sandboxId).toBe('req-keyed-123');
-    expect(getSandboxMock).toHaveBeenCalledWith(expect.anything(), 'req-keyed-123', { transport: 'rpc' });
+    expect(result.sandboxId).toMatch(/^req-keyed-123-[0-9a-f]{16}$/);
+    expect(getSandboxMock).toHaveBeenCalledWith(expect.anything(), result.sandboxId, { transport: 'rpc' });
+  });
+
+  it('keeps a request id that is already a sandbox id as its sandbox id', () => {
+    expect(normalizeSandboxId('req-keyed-123')).toBe('req-keyed-123');
+  });
+
+  it('never gives two request ids the same sandbox id', () => {
+    const ids = [
+      'req-keyed-123',
+      'Req-Keyed-123',
+      'REQ-KEYED-123',
+      'req_keyed_123',
+      'req--keyed-123',
+      `req-keyed-123-${'0'.repeat(16)}`,
+      '0b6f5e1c-3c7a-4e2b-9f1d-2a5c8e7b6d40',
+      '0B6F5E1C-3C7A-4E2B-9F1D-2A5C8E7B6D40'
+    ];
+    const sandboxIds = ids.map(normalizeSandboxId);
+    expect(new Set(sandboxIds).size).toBe(ids.length);
+    for (const id of sandboxIds) {
+      expect(id).toMatch(/^[a-z][a-z0-9-]{0,62}$/);
+    }
   });
 
   it('stops the container once when execution fails (primary + curl fallback)', async () => {
