@@ -997,7 +997,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
                 ? {
                     fallbackUsed: true,
                     fallbackReason: renderOutcome.fallbackReason,
-                    fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser'
+                    fallbackProvider: renderResult.meta?.provider ?? 'hyperbrowser',
+                    ...(renderResult.meta?.stealth ? { fallbackStealth: renderResult.meta.stealth } : {})
                   }
                 : {}),
               ...(renderResult.meta ? { meta: renderResult.meta } : {})

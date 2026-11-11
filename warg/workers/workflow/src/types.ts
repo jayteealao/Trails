@@ -1,4 +1,4 @@
-import type { ArtifactMeta, ArtifactKind } from '@warg/shared';
+import type { ArtifactMeta, ArtifactKind, RenderStealthMode } from '@warg/shared';
 
 /**
  * Parameters passed to the workflow when starting it.
@@ -27,6 +27,8 @@ export interface RendererResponse {
     hyperbrowserJobId?: string;
     hyperbrowserScrapeMs?: number;
     hyperbrowserPdfMs?: number;
+    /** The stealth setting of the render session; set by the hyperrenderer. */
+    stealth?: RenderStealthMode;
   };
 }
 
