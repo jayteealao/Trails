@@ -74,7 +74,7 @@ object ReaderTypeScale {
  * fence, a block that is not `key:` lines) is returned unchanged.
  */
 fun withoutFrontMatter(markdown: String): String {
-    val text = markdown.removePrefix("﻿")
+    val text = markdown.removePrefix("\uFEFF")
     val lines = text.split('\n')
     if (lines.size < 2 || lines[0].trimEnd() != "---") return markdown
     val close = (1 until lines.size).firstOrNull { lines[it].trimEnd().let { l -> l == "---" || l == "..." } }

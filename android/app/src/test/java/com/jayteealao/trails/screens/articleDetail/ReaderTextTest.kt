@@ -111,7 +111,7 @@ class ReaderTextTest {
 
     @Test
     fun `front matter with CRLF lines, a byte order mark or a dot-dot-dot close is not drawn`() {
-        assertEquals("Body\r\n", withoutFrontMatter("﻿---\r\ntitle: A\r\n---\r\n\r\nBody\r\n"))
+        assertEquals("Body\r\n", withoutFrontMatter("\uFEFF---\r\ntitle: A\r\n---\r\n\r\nBody\r\n"))
         assertEquals("Body", withoutFrontMatter("---\ntitle: A\n...\nBody"))
     }
 
