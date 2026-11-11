@@ -34,8 +34,32 @@ Three layers guarantee shutdown:
 
 | Route | Notes |
 |---|---|
-| `POST /monolith` | `{ request_id, rendered_html_key, base_url }` → runs the job; HTML moves via presigned R2 URLs, never through worker RPC |
+| `POST /monolith` | `{ request_id, rendered_html_key, base_url }` → runs the job; `rendered_html_key` must be `archives/<request_id>/raw/rendered.html` (otherwise `400 INVALID_INPUT_KEY`). HTML moves through the Worker's R2 handler (`r2.monolith.internal`), never through worker RPC |
 | `POST /container/stop` | `{ request_id }` → stops that request's container; idempotent (`200 ok` when already stopped); called by the workflow's quota object |
+
+## R2 access
+
+The container holds no storage key. It reaches R2 at
+`http://r2.monolith.internal/<key>`, and the platform hands requests to that
+one host to this Worker, which answers them from its own `ARCHIVE_BUCKET`
+binding (`src/r2-outbound.ts`). Every other host, such as the images and
+stylesheets of the archived page, stays on the container's own network and
+never passes through the Worker.
+
+- Only two objects of the container's own request are reachable: `GET
+  archives/<request_id>/raw/rendered.html` and `PUT
+  archives/<request_id>/derived/monolith.html`. The request id must map to the
+  calling container.
+- Bodies stream in both directions, so the Worker never holds the whole page.
+- Answers: `403` for any other key, method or container (no R2 read happens),
+  `404` for a missing input, `411` for an upload without `Content-Length`,
+  `502` when R2 itself fails.
+- Each request logs one line, `[monolith] r2 handler`, with the method, host,
+  key and status.
+
+The handler is registered as a static `outboundByHost` entry on the `Sandbox`
+class, and the Worker exports `ContainerProxy`, which the platform needs to
+deliver the intercepted requests.
 
 ## Tests
 
