@@ -34,7 +34,7 @@ Three layers guarantee shutdown:
 
 | Route | Notes |
 |---|---|
-| `POST /monolith` | `{ request_id, rendered_html_key, base_url }` → runs the job; `rendered_html_key` must be `archives/<request_id>/raw/rendered.html` (otherwise `400 INVALID_INPUT_KEY`). HTML moves through the Worker's R2 handler (`r2.monolith.internal`), never through worker RPC |
+| `POST /monolith` | `{ request_id, rendered_html_key, base_url }` → runs the job; `rendered_html_key` must be `archives/<request_id>/raw/rendered.html` (otherwise `400 INVALID_INPUT_KEY`). HTML moves through the Worker's R2 handler (`r2.monolith.internal`), never through worker RPC. A container that is not ready answers `503 MONOLITH_CONTAINER_UNAVAILABLE` (retryable) at once: the job does not wait or try the curl fallback, and the workflow step's retry delay does the waiting. A refused or failed R2 handler request answers `502 MONOLITH_R2_HANDLER_FAILED` (retryable only for an R2 `5xx`) |
 | `POST /container/stop` | `{ request_id }` → stops that request's container; idempotent (`200 ok` when already stopped); called by the workflow's quota object |
 
 ## R2 access
