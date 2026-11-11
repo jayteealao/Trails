@@ -4,6 +4,7 @@ import {
   callRendererForStep,
   callRendererWith403Fallback,
   callMonolith,
+  callMonolithForStep,
   callSinglefile,
   callSinglefileForStep,
   getRendererFallbackReason,
@@ -1028,5 +1029,61 @@ describe('when the primary renderer and the hyperrenderer both fail', () => {
       retryable: false,
       recommendedAction: 'check_access',
     });
+  });
+});
+
+const monolithParams = {
+  request_id: 'req-monolith-step',
+  rendered_html_key: 'archives/req-monolith-step/raw/rendered.html',
+  base_url: 'https://example.com',
+};
+
+function makeMonolithEnv(monolithFetch: ReturnType<typeof vi.fn>): Env {
+  return {
+    INTERNAL_API_KEY: 'test-internal-key',
+    MONOLITH: { fetch: monolithFetch },
+  } as unknown as Env;
+}
+
+/** The monolith step: one first attempt and one retry. */
+function runMonolithStep(env: Env): Promise<unknown> {
+  return runWithRetries(1, () =>
+    callMonolithForStep(env, monolithParams, (m) => new FakeNonRetryableError(m)),
+  );
+}
+
+describe('monolith step failures', () => {
+  it('fails at once on an input that is too large', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(500, { error: 'Internal error', message: 'Monolith input too large: 40000000 bytes' }),
+    );
+
+    const failure = await runMonolithStep(makeMonolithEnv(monolithFetch)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FakeNonRetryableError);
+    expect(failure instanceof Error ? failure.message : '').toContain('[classified MONOLITH_INPUT_TOO_LARGE final');
+    expect(monolithFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails at once on the 32 MiB RPC limit', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(500, {
+        error: 'Internal error',
+        message:
+          'Message length too big: found 33640795 bytes, the max allowed message length is 33554432 bytes',
+      }),
+    );
+
+    const failure = await runMonolithStep(makeMonolithEnv(monolithFetch)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FakeNonRetryableError);
+    expect(failure instanceof Error ? failure.message : '').toContain('[classified MONOLITH_RPC_32MIB_LIMIT final');
+    expect(monolithFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('spends its retry on a monolith worker that answers 503', async () => {
+    const monolithFetch = vi.fn(async () => new Response('upstream failure', { status: 503 }));
+
+    const error = await catchServiceCallError(runMonolithStep(makeMonolithEnv(monolithFetch)));
+    expect(error.classification.retryable).toBe(true);
+    expect(monolithFetch).toHaveBeenCalledTimes(2);
   });
 });
