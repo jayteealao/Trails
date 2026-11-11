@@ -13,12 +13,11 @@ package com.jayteealao.trails.data.archive
  */
 object TextSourceRank {
 
-    /** Archive keys of the text sources, best first. */
-    val ORDER: List<String> = listOf(
-        ArchiveType.READABILITY.archiveKey,
-        ArchiveType.AI_MARKDOWN_ARCHIVE_KEY,
-        ArchiveType.MARKDOWN.archiveKey,
-    )
+    /** Archive keys of the text sources, best first, from [ArchiveType.textRank]. */
+    val ORDER: List<String> = ArchiveType.entries
+        .filter { it.textRank != null }
+        .sortedBy { it.textRank }
+        .map { it.archiveKey }
 
     /** 0 for the best text source; null when [key] is not a text source. */
     fun rankOf(key: String): Int? = ORDER.indexOf(key).takeIf { it >= 0 }
