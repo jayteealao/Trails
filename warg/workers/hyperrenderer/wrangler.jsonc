@@ -9,7 +9,8 @@
   "observability": { "enabled": true, "traces": { "enabled": true } },
   "vars": {
     "HYPERBROWSER_BASE_URL": "https://api.hyperbrowser.ai",
-    "HYPERBROWSER_STEALTH": "auto",
+    // Stealth is off by default; set "auto" or "ultra" (here and in cloudflare.config.ts) to opt in.
+    "HYPERBROWSER_STEALTH": "none",
     "HYPERBROWSER_WAIT_UNTIL": "load",
     "HYPERBROWSER_NAV_TIMEOUT_MS": "30000",
     "HYPERBROWSER_WAIT_FOR_MS": "0",
@@ -29,7 +30,7 @@
 // - HYPERBROWSER_API_KEY: Hyperbrowser API key
 // Optional vars:
 // - HYPERBROWSER_BASE_URL (default https://api.hyperbrowser.ai)
-// - HYPERBROWSER_STEALTH (none|auto|ultra; default auto)
+// - HYPERBROWSER_STEALTH (none|auto|ultra; default none — auto and ultra opt in to stealth)
 // - HYPERBROWSER_WAIT_UNTIL (load|domcontentloaded|networkidle; default load)
 // - HYPERBROWSER_NAV_TIMEOUT_MS (default 30000)
 // - HYPERBROWSER_WAIT_FOR_MS (default 0)

@@ -22,7 +22,8 @@ export default defineConfig({
 			INTERNAL_API_KEY: bindings.secret(),
 			HYPERBROWSER_API_KEY: bindings.secret(),
 			HYPERBROWSER_BASE_URL: bindings.text("https://api.hyperbrowser.ai"),
-			HYPERBROWSER_STEALTH: bindings.text("auto"),
+			// Stealth is off by default; set "auto" or "ultra" (here and in wrangler.jsonc) to opt in.
+			HYPERBROWSER_STEALTH: bindings.text("none"),
 			HYPERBROWSER_WAIT_UNTIL: bindings.text("load"),
 			HYPERBROWSER_NAV_TIMEOUT_MS: bindings.text("30000"),
 			HYPERBROWSER_WAIT_FOR_MS: bindings.text("0"),
