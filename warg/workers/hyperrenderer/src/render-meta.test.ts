@@ -23,7 +23,9 @@ function envWith(vars: Record<string, string> = {}): HandlerEnv {
 }
 
 /** Fakes the Hyperbrowser scrape API and keeps the body of the scrape start request. */
-function fakeHyperbrowser(): { scrapeBodies: unknown[] } {
+function fakeHyperbrowser(
+  html = '<html><body><p>An article</p></body></html>',
+): { scrapeBodies: unknown[] } {
   const scrapeBodies: unknown[] = [];
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const { pathname } = new URL(String(input));
@@ -39,7 +41,7 @@ function fakeHyperbrowser(): { scrapeBodies: unknown[] } {
       return Response.json({
         jobId: 'job-1',
         status: 'completed',
-        data: { html: '<html><body><p>An article</p></body></html>' },
+        data: { html },
       });
     }
     return new Response('unexpected request', { status: 500 });
@@ -47,17 +49,23 @@ function fakeHyperbrowser(): { scrapeBodies: unknown[] } {
   return { scrapeBodies };
 }
 
-function renderRequest(): Request {
+function renderRequest(
+  fields: Record<string, string> = {
+    request_id: 'req-1',
+    url: 'https://example.com/a',
+    browser_quota_kind: 'rest_request',
+  },
+): Request {
   return new Request('https://hyperrenderer/render', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': 'test-key' },
-    body: JSON.stringify({
-      request_id: 'req-1',
-      url: 'https://example.com/a',
-      browser_quota_kind: 'rest_request',
-    }),
+    body: JSON.stringify(fields),
   });
 }
+
+const CHALLENGE_PAGE =
+  '<html><head><title>Just a moment...</title><script>window._cf_chl_opt={};</script></head>' +
+  '<body><span id="challenge-error-text">Enable JavaScript and cookies to continue</span></body></html>';
 
 describe('fallback render session and meta', () => {
   it('renders without stealth when no setting is given and reports it', async () => {
@@ -92,5 +100,27 @@ describe('fallback render session and meta', () => {
 
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect(body.stealth).toBe('ultra');
+  });
+
+  it('names the stealth setting when the page answers with a challenge', async () => {
+    fakeHyperbrowser(CHALLENGE_PAGE);
+
+    const res = await worker.fetch(renderRequest(), envWith());
+    const body = (await res.json()) as { reason: string; stealth: string };
+
+    expect(res.status).toBe(403);
+    expect(body.reason).toBe('access_blocked');
+    expect(body.stealth).toBe('none');
+  });
+
+  it('names the stealth setting when the request is refused before rendering', async () => {
+    const res = await worker.fetch(
+      renderRequest({ request_id: 'req-1', url: 'not a url', browser_quota_kind: 'rest_request' }),
+      envWith({ HYPERBROWSER_STEALTH: 'auto' }),
+    );
+    const body = (await res.json()) as { stealth: string };
+
+    expect(res.status).toBe(400);
+    expect(body.stealth).toBe('auto');
   });
 });

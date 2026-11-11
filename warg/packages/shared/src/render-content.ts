@@ -273,11 +273,18 @@ export function isChallengePage(html: string): boolean {
 
 /**
  * The answer of a worker when the target site blocked access. A worker answers
- * a site block with `403`, so the workflow records `ACCESS_BLOCKED`.
+ * a site block with `403`, so the workflow records `ACCESS_BLOCKED`. `extra`
+ * adds fields the worker reports with every answer (the fallback renderer's
+ * stealth setting).
  */
-export function accessBlockedResponse(url: string, navigationStatus?: number): Response {
+export function accessBlockedResponse(
+  url: string,
+  navigationStatus?: number,
+  extra: Readonly<Record<string, string>> = {},
+): Response {
   return Response.json(
     {
+      ...extra,
       error: 'Target page blocked access',
       reason: ACCESS_BLOCKED_REASON,
       url,

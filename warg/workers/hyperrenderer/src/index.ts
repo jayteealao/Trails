@@ -171,6 +171,9 @@ function isValidUrl(input: string): boolean {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // Every answer after the key check names the stealth setting, so the caller
+    // can log a failed fallback with it.
+    const stealth = toStealthMode(env.HYPERBROWSER_STEALTH);
     try {
       const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/render']);
       if (!pre.ok) return pre.response;
@@ -180,17 +183,17 @@ export default {
       const { request_id, url: targetUrl, options_r2_key, browser_quota_kind } = body;
       if (!request_id || !targetUrl || !browser_quota_kind) {
         return Response.json(
-          { error: 'Missing required fields: request_id, url, browser_quota_kind' },
+          { error: 'Missing required fields: request_id, url, browser_quota_kind', stealth },
           { status: 400 },
         );
       }
 
       if (!isValidUrl(targetUrl)) {
-        return Response.json({ error: 'Invalid url' }, { status: 400 });
+        return Response.json({ error: 'Invalid url', stealth }, { status: 400 });
       }
 
       if (!env.HYPERBROWSER_API_KEY) {
-        return Response.json({ error: 'Server misconfigured' }, { status: 500 });
+        return Response.json({ error: 'Server misconfigured', stealth }, { status: 500 });
       }
 
       const config = getConfig(env);
@@ -261,7 +264,7 @@ export default {
       }
       if (isChallengePage(html)) {
         console.warn('[hyperrenderer] Hyperbrowser returned a challenge page:', targetUrl);
-        return accessBlockedResponse(targetUrl);
+        return accessBlockedResponse(targetUrl, undefined, { stealth });
       }
 
       const htmlData = new TextEncoder().encode(html);
@@ -389,9 +392,6 @@ export default {
 
       return Response.json(response);
     } catch (error) {
-      // Every failure answer names the stealth setting, so the caller can log a
-      // failed fallback with it.
-      const stealth = toStealthMode(env.HYPERBROWSER_STEALTH);
       if (error instanceof HyperbrowserRateLimitError) {
         const rateLimited: RenderRateLimitedResponse = {
           error: 'rate_limited',

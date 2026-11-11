@@ -294,6 +294,32 @@ describe('ArchiveWorkflow.run', () => {
     });
   });
 
+  it('logs a fallback answered with a challenge page with its stealth setting', async () => {
+    const { fake } = await runRequest(
+      { steps: ['render'] },
+      {
+        handlers: {
+          RENDERER: () => deadHostRenderFailure(),
+          HYPERRENDERER: () =>
+            Response.json(
+              { stealth: 'none', error: 'Target page blocked access', reason: 'access_blocked', url: 'https://example.com/a' },
+              { status: 403 }
+            ),
+        },
+      }
+    );
+
+    const renderFailures = eventsOfType(fake.logger, 'step.failed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderFailures).toHaveLength(1);
+    expect(renderFailures[0]?.data).toMatchObject({
+      fallbackUsed: true,
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackStealth: 'none',
+    });
+  });
+
   it('logs no fallback fields when the primary renderer answers', async () => {
     const { fake, outcome } = await runRequest({});
 
