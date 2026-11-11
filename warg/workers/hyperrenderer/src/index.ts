@@ -389,11 +389,15 @@ export default {
 
       return Response.json(response);
     } catch (error) {
+      // Every failure answer names the stealth setting, so the caller can log a
+      // failed fallback with it.
+      const stealth = toStealthMode(env.HYPERBROWSER_STEALTH);
       if (error instanceof HyperbrowserRateLimitError) {
         const rateLimited: RenderRateLimitedResponse = {
           error: 'rate_limited',
           retry_after_ms: error.retryAfterMs,
           message: error.message,
+          stealth,
         };
         return Response.json(rateLimited, { status: 429 });
       }
@@ -404,6 +408,7 @@ export default {
             error: 'Hyperbrowser request failed',
             status: error.status,
             details: error.body || error.message,
+            stealth,
           },
           { status: 502 },
         );
@@ -411,7 +416,7 @@ export default {
 
       const message = error instanceof Error ? error.message : String(error);
       console.error('[hyperrenderer] Unhandled error:', message);
-      return Response.json({ error: 'Internal error', message }, { status: 500 });
+      return Response.json({ error: 'Internal error', message, stealth }, { status: 500 });
     }
   },
 };

@@ -270,6 +270,30 @@ describe('ArchiveWorkflow.run', () => {
     });
   });
 
+  it('logs a fallback that failed with its stealth setting', async () => {
+    const { fake } = await runRequest(
+      { steps: ['render'] },
+      {
+        handlers: {
+          RENDERER: () => deadHostRenderFailure(),
+          HYPERRENDERER: () =>
+            Response.json({ error: 'Internal error', message: 'challenge page', stealth: 'none' }, { status: 500 }),
+        },
+      }
+    );
+
+    const renderFailures = eventsOfType(fake.logger, 'step.failed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderFailures).toHaveLength(1);
+    expect(renderFailures[0]?.data).toMatchObject({
+      fallbackUsed: true,
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackProvider: 'hyperbrowser',
+      fallbackStealth: 'none',
+    });
+  });
+
   it('logs no fallback fields when the primary renderer answers', async () => {
     const { fake, outcome } = await runRequest({});
 

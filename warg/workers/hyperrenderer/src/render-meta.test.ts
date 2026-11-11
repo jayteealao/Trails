@@ -83,4 +83,14 @@ describe('fallback render session and meta', () => {
     expect((scrapeBodies[0] as { sessionOptions: object }).sessionOptions).toEqual({ useStealth: true });
     expect(body.meta.stealth).toBe('auto');
   });
+
+  it('names the stealth setting in a failure answer', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('upstream down', { status: 503 })) as typeof fetch;
+
+    const res = await worker.fetch(renderRequest(), envWith({ HYPERBROWSER_STEALTH: 'ultra' }));
+    const body = (await res.json()) as { stealth: string };
+
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(body.stealth).toBe('ultra');
+  });
 });

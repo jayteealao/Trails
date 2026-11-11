@@ -601,6 +601,33 @@ describe('LoggerDO', () => {
       expect(unknownView?.derived.diagnostics?.renderFallbackUsed).toBe(true);
     });
 
+    it('records a fallback that failed with its stealth setting', async () => {
+      const stub = getStub('bucket:2026060912');
+      const requestId = `test-${Date.now()}-5b-failed-fallback`;
+      await stub.initRequest({ requestId, url: 'https://example.com' }, new Date().toISOString());
+      await stub.appendEvent(requestId, {
+        ts: new Date().toISOString(),
+        source: 'workflow',
+        type: 'step.failed',
+        level: 'error',
+        message: 'Step failed: render',
+        data: {
+          step: 'render',
+          error: 'Renderer failed with Browser Rendering fallback-eligible error and fallback failed',
+          fallbackUsed: true,
+          fallbackReason: 'browser_rendering_dead_host',
+          fallbackProvider: 'hyperbrowser',
+          fallbackStealth: 'none',
+        },
+      });
+
+      const view = await stub.getRequestView(requestId);
+      expect(view?.derived.diagnostics?.renderFallbackUsed).toBe(true);
+      expect(view?.derived.diagnostics?.renderFallbackReason).toBe('browser_rendering_dead_host');
+      expect(view?.derived.diagnostics?.renderFallbackStealth).toBe('none');
+      expect(view?.derived.diagnostics?.renderProvider).toBe('hyperbrowser');
+    });
+
     it('marks stage as incomplete when workflow completes with degraded monolith output', async () => {
       const requestId = `test-${Date.now()}-5c-incomplete`;
       const stub = getStub('bucket:2026060912');

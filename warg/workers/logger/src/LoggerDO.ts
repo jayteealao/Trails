@@ -195,34 +195,35 @@ function updateDiagnostics(
       if (step === 'render' || step === 'singlefile') diagnostics.renderMs = durationMs;
       else if (step === 'derivatives' || step === 'readability' || step === 'monolith') diagnostics.deriveMs = durationMs;
     }
+  }
 
-    if (step === 'render') {
-      const fallbackUsed = asBoolean(data?.['fallbackUsed']);
-      if (fallbackUsed !== undefined) {
-        diagnostics.renderFallbackUsed = fallbackUsed;
-      }
+  // A fallback render is recorded whether it answered (step.completed) or failed (step.failed).
+  if ((event.type === 'step.completed' || event.type === 'step.failed') && asString(data?.['step']) === 'render') {
+    const fallbackUsed = asBoolean(data?.['fallbackUsed']);
+    if (fallbackUsed !== undefined) {
+      diagnostics.renderFallbackUsed = fallbackUsed;
+    }
 
-      const fallbackReason = asString(data?.['fallbackReason']);
-      if (fallbackReason) {
-        diagnostics.renderFallbackReason = fallbackReason;
-      }
+    const fallbackReason = asString(data?.['fallbackReason']);
+    if (fallbackReason) {
+      diagnostics.renderFallbackReason = fallbackReason;
+    }
 
-      const fallbackStealth = asRenderStealth(data?.['fallbackStealth']);
-      if (fallbackStealth) {
-        diagnostics.renderFallbackStealth = fallbackStealth;
-      }
+    const fallbackStealth = asRenderStealth(data?.['fallbackStealth']);
+    if (fallbackStealth) {
+      diagnostics.renderFallbackStealth = fallbackStealth;
+    }
 
-      const meta = asRecord(data?.['meta']);
-      const provider = normalizeRenderProvider(
-        asString(data?.['fallbackProvider']) ??
-          asString(meta?.['provider']) ??
-          (fallbackUsed === false ? 'browser-rendering' : undefined)
-      );
-      if (provider) {
-        diagnostics.renderProvider = provider;
-      } else if (fallbackUsed === true) {
-        diagnostics.renderProvider = 'hyperbrowser';
-      }
+    const meta = asRecord(data?.['meta']);
+    const provider = normalizeRenderProvider(
+      asString(data?.['fallbackProvider']) ??
+        asString(meta?.['provider']) ??
+        (fallbackUsed === false ? 'browser-rendering' : undefined)
+    );
+    if (provider) {
+      diagnostics.renderProvider = provider;
+    } else if (fallbackUsed === true) {
+      diagnostics.renderProvider = 'hyperbrowser';
     }
   }
 

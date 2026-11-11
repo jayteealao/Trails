@@ -28,7 +28,8 @@ import {
   callRendererForStep,
   callSinglefileForStep,
   callReadability,
-  callMonolithForStep
+  callMonolithForStep,
+  readRenderFallbackFailure
 } from './services.js';
 import {
   logEvent,
@@ -414,7 +415,17 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
           renderError.message
         );
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
-        await logStepFailed(this.env, request_id, 'render', renderError);
+        // A fallback that ran and failed is logged with its stealth setting too.
+        const fallbackFailure = readRenderFallbackFailure(renderError.message);
+        await logStepFailed(
+          this.env,
+          request_id,
+          'render',
+          renderError,
+          fallbackFailure
+            ? { fallbackUsed: true, fallbackProvider: 'hyperbrowser', ...fallbackFailure }
+            : undefined
+        );
         recordPartialFailure('render', renderError.message);
       }
 

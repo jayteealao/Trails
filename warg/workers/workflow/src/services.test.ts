@@ -3,6 +3,7 @@ import {
   callRenderer,
   callRendererForStep,
   callRendererWith403Fallback,
+  readRenderFallbackFailure,
   callMonolith,
   callMonolithForStep,
   callSinglefile,
@@ -1014,6 +1015,28 @@ describe('when the primary renderer and the hyperrenderer both fail', () => {
 
     expect(error.message).toMatch(/primary=.*; fallback=/);
     expect(error.classification.retryable).toBe(true);
+  });
+
+  it('names the fallback and its stealth setting in the error that names both failures', async () => {
+    const rendererFetch = vi.fn(async () =>
+      wrappedContentFailure('dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host'),
+    );
+    const hyperrendererFetch = vi.fn(async () =>
+      makeJsonResponse(500, { error: 'Internal error', message: 'challenge page', stealth: 'auto' }),
+    );
+
+    const error = await catchServiceCallError(
+      callRendererWith403Fallback(makeEnv(rendererFetch, hyperrendererFetch), renderParams),
+    );
+
+    expect(readRenderFallbackFailure(error.message)).toEqual({
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackStealth: 'auto',
+    });
+  });
+
+  it('reads no fallback from a render error that names none', () => {
+    expect(readRenderFallbackFailure('Service error 500: upstream failure')).toBeUndefined();
   });
 
   it('keeps the access-blocked classification on the error that names both failures', async () => {

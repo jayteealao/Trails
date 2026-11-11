@@ -13,10 +13,11 @@ import {
   INTERNAL_API_KEY_HEADER,
   classifyServiceFailure,
   classifyServiceTimeout,
+  isRenderStealthMode,
   rendererFallbackReasonFromBody,
   withClassificationTag,
 } from '@warg/shared';
-import type { ErrorClassification, RendererFallbackReason } from '@warg/shared';
+import type { ErrorClassification, RenderStealthMode, RendererFallbackReason } from '@warg/shared';
 
 export type ServiceErrorClassification = ErrorClassification;
 export type { RendererFallbackReason };
@@ -183,6 +184,60 @@ export interface RendererCallOutcome {
   fallbackReason?: RendererFallbackReason;
 }
 
+/** A fallback render that ran and failed: why it ran, and the stealth setting it used when its answer said. */
+export interface RenderFallbackFailure {
+  fallbackReason: RendererFallbackReason;
+  fallbackStealth?: RenderStealthMode;
+}
+
+/**
+ * The tag a failed fallback leaves in the render error message. The message is
+ * what survives the workflow step boundary, so the step's failure log reads the
+ * fallback back from it with readRenderFallbackFailure.
+ */
+const RENDER_FALLBACK_TAG = /\[render fallback reason=([a-z0-9_]+)(?: stealth=([a-z]+))?\]/;
+
+function renderFallbackTag(failure: RenderFallbackFailure): string {
+  const stealth = failure.fallbackStealth ? ` stealth=${failure.fallbackStealth}` : '';
+  return `[render fallback reason=${failure.fallbackReason}${stealth}]`;
+}
+
+/** The fallback that a render error message names, or undefined when no fallback ran. */
+export function readRenderFallbackFailure(message: string): RenderFallbackFailure | undefined {
+  const match = RENDER_FALLBACK_TAG.exec(message);
+  const reason = match?.[1];
+  if (reason === undefined || !isRendererFallbackReason(reason)) return undefined;
+  const stealth = match?.[2];
+  return {
+    fallbackReason: reason,
+    ...(isRenderStealthMode(stealth) ? { fallbackStealth: stealth } : {}),
+  };
+}
+
+const RENDERER_FALLBACK_REASONS: readonly RendererFallbackReason[] = [
+  'browser_rendering_403',
+  'browser_rendering_5006',
+  'browser_rendering_6000',
+  'browser_rendering_proxy_error_page',
+  'browser_rendering_dead_host',
+];
+
+function isRendererFallbackReason(value: string): value is RendererFallbackReason {
+  return RENDERER_FALLBACK_REASONS.some((reason) => reason === value);
+}
+
+/** The stealth setting a hyperrenderer error answer reports, if any. */
+function stealthFromResponseBody(body: string | undefined): RenderStealthMode | undefined {
+  if (!body) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (!parsed || typeof parsed !== 'object' || !('stealth' in parsed)) return undefined;
+    return isRenderStealthMode(parsed.stealth) ? parsed.stealth : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Call the primary renderer and, when it reports a failure that the
  * hyperrenderer may still render, call the hyperrenderer once. When both fail,
@@ -216,9 +271,13 @@ export async function callRendererWith403Fallback(
     } catch (fallbackError) {
       const fallbackMessage =
         fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      const message = `Renderer failed with Browser Rendering fallback-eligible error and fallback failed. primary=${error.message}; fallback=${fallbackMessage}`;
       const fallbackServiceError =
         fallbackError instanceof ServiceCallError ? fallbackError : undefined;
+      const tag = renderFallbackTag({
+        fallbackReason,
+        fallbackStealth: stealthFromResponseBody(fallbackServiceError?.responseBody),
+      });
+      const message = `Renderer failed with Browser Rendering fallback-eligible error and fallback failed ${tag}. primary=${error.message}; fallback=${fallbackMessage}`;
 
       if (!error.classification.retryable) {
         throw new ServiceCallError(
@@ -240,7 +299,9 @@ export async function callRendererWith403Fallback(
           fallbackServiceError.responseBody
         );
       }
-      throw fallbackError;
+      // The hyperrenderer gave no answer (a network failure); keep the primary's
+      // retryable classification and the message that names both failures.
+      throw new ServiceCallError(message, error.classification, '/render', error.status, error.responseBody);
     }
   }
 }

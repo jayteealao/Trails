@@ -32,6 +32,8 @@ export interface RenderRateLimitedResponse {
   error: 'rate_limited';
   retry_after_ms: number;
   message: string;
+  /** The stealth setting of the failed render, so a failed fallback is logged with it. */
+  stealth: HyperbrowserStealthMode;
 }
 
 export interface RendererOptions {
