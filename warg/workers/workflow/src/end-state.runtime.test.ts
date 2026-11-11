@@ -432,3 +432,56 @@ describe('render step retry', () => {
     });
   });
 });
+
+describe('monolith step retry', () => {
+  beforeAll(async () => {
+    await applyD1Migrations(env.INDEX_DB, env.TEST_MIGRATIONS);
+  });
+
+  const RETRYABLE_MONOLITH_FAILURE = 'Service error 503: upstream failure 503';
+
+  async function mockRenderAndLeases(m: WorkflowInstanceModifier, id: string): Promise<void> {
+    await m.mockStepResult(
+      { name: 'render' },
+      {
+        result: {
+          uses_browser_rendering: true,
+          quota_kind_used: 'rest_request',
+          artifacts: [artifactMeta(id, 'rendered.html')]
+        },
+        fallbackUsed: false
+      }
+    );
+    await grantLease(m, 'render');
+    await grantLease(m, 'monolith');
+  }
+
+  it('completes when the one monolith step succeeds on its retry', async () => {
+    const id = newRequestId();
+    await using _instance = await startRun(id, { steps: ['render', 'monolith'] }, async (m) => {
+      await mockRenderAndLeases(m, id);
+      await m.mockStepError({ name: 'monolith-attempt-1' }, new Error(RETRYABLE_MONOLITH_FAILURE), 1);
+      await m.mockStepResult({ name: 'monolith-attempt-1' }, { artifact: artifactMeta(id, 'monolith.html') });
+    });
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('done');
+    expect(status.derived.diagnostics?.degradedSteps ?? []).toEqual([]);
+  });
+
+  it('degrades monolith when every attempt of the step fails', async () => {
+    const id = newRequestId();
+    await using _instance = await startRun(id, { steps: ['render', 'monolith'] }, async (m) => {
+      await mockRenderAndLeases(m, id);
+      await m.mockStepError({ name: 'monolith-attempt-1' }, new Error(RETRYABLE_MONOLITH_FAILURE));
+    });
+
+    expect(await waitForEnd(id)).toBe('complete');
+
+    const status = await readStatus(id);
+    expect(status.derived.stage).toBe('incomplete');
+    expect(status.derived.diagnostics?.degradedSteps).toEqual(['monolith']);
+  });
+});
