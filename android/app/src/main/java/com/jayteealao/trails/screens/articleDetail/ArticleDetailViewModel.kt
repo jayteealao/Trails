@@ -93,6 +93,9 @@ class ArticleDetailViewModel @Inject constructor(
     private val _selectedArchiveLoadFailed = MutableStateFlow(false)
 
     private var archiveObserverJob: Job? = null
+
+    /** The text archives (key and download time) the last [offerBestText] read; null before one. */
+    private var lastReadTextArchives: Set<Pair<String, Long>>? = null
     private var currentArticleId: String? = null
 
     private val useFreediumFlow = sharedPreferencesManager.preferenceChangesFlow()
@@ -194,7 +197,9 @@ class ArticleDetailViewModel @Inject constructor(
             _isLoading.value = true
             try {
                 // Rank the local text archives first, so the one read below gets the best text.
-                _localText.value = offerBestText(itemId, localArchiveDao.getArchivesForArticle(itemId))
+                val archives = localArchiveDao.getArchivesForArticle(itemId)
+                _localText.value = offerBestText(itemId, archives)
+                lastReadTextArchives = textArchivesOf(archives)
                 publishArticle(itemId)
 
                 // Start archive observation
@@ -287,7 +292,13 @@ class ArticleDetailViewModel @Inject constructor(
                     // A better source changes the stored text; the text on screen stays
                     // until the next open, unless there was none. The text is read before the
                     // new archives show, so the Reader never shows a notice for text it has.
-                    _localText.value = offerBestText(itemId, archives)
+                    // Only a change of the text archives is read again; a heavy archive row
+                    // that lands leaves the text as it was.
+                    val textArchives = textArchivesOf(archives)
+                    if (textArchives != lastReadTextArchives) {
+                        _localText.value = offerBestText(itemId, archives)
+                        lastReadTextArchives = textArchives
+                    }
                     if (_article.value?.text.isNullOrBlank()) {
                         publishArticle(itemId)
                     }
@@ -364,6 +375,11 @@ class ArticleDetailViewModel @Inject constructor(
             else -> LocalText.UNREADABLE
         }
     }
+
+    private fun textArchivesOf(archives: List<LocalArchive>): Set<Pair<String, Long>> =
+        archives.filter { TextSourceRank.rankOf(it.archiveKey) != null }
+            .map { it.archiveKey to it.downloadedAt }
+            .toSet()
 
     /** What the Reader body is decided from; see [readerBodyFor]. */
     private fun readerSignals(ag: ArticleGroup, arc: ArchiveGroup, ng: NoticeGroup): ReaderSignals {

@@ -740,6 +740,20 @@ class ArticleDetailViewModelTest {
     }
 
     @Test
+    fun aHeavyArchiveRowLanding_doesNotReadTheTextArchiveAgain() = runTest(scheduler) {
+        val readability = listOf(localArchive("a1", ArchiveType.READABILITY))
+        val localFlow = MutableSharedFlow<List<LocalArchive>>(replay = 1)
+        localFlow.tryEmit(readability)
+        val viewModel = openWithoutText(listOf(ArchiveType.READABILITY), localFlow) { "readability text" }
+
+        localFlow.tryEmit(readability + localArchive("a1", ArchiveType.MONOLITH))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { archiveService.readArchiveText("a1", ArchiveType.READABILITY) }
+        assertEquals("readability text", viewModel.state.value.article?.text)
+    }
+
+    @Test
     fun readerBody_textArchiveThatDoesNotOpen_showsTheCouldNotOpenNotice() = runTest(scheduler) {
         val viewModel = openWithoutText(listOf(ArchiveType.READABILITY)) { null }
 
