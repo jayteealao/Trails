@@ -163,8 +163,17 @@ fun readerBodyFor(s: ReaderSignals): ReaderBody = when {
 
 private fun offline() = ReaderBody.Notice(ReaderNoticeKind.OFFLINE)
 
+// The measures of a Reader notice, as the approved reader-waiting board draws them; the reading
+// column itself is READER_GUTTER and READER_MAX_WIDTH, the heading scale ReaderTypeScale.
+
 /** The offset of a notice from the top of a tall reading area. */
 internal val NOTICE_TOP_OFFSET: Dp = 96.dp
+
+/** The widest a notice's words run. */
+internal val NOTICE_MAX_WIDTH: Dp = 320.dp
+
+/** The size of a notice icon. */
+internal val NOTICE_ICON_SIZE: Dp = 40.dp
 
 /** The notice offset for a reading area [height] tall: 96 dp, or 15 % of a short area. */
 internal fun noticeTopOffset(height: Dp): Dp = minOf(NOTICE_TOP_OFFSET, height * 0.15f)
@@ -226,7 +235,7 @@ private val NoticeTitleStyle = TextStyle(
 private val SkeletonLineWidths = listOf(0.92f, 1f, 0.84f, 1f, 0.96f, 0.70f, 1f, 0.88f, 1f, 0.60f)
 
 /**
- * A quiet notice in the reading column: a 40 dp outline icon, a title and one line, centred
+ * A quiet notice in the reading column: a [NOTICE_ICON_SIZE] outline icon, a title and one line, centred
  * [topOffset] from the top (96 dp, less on a short window). The words carry the state, so the icon is hidden from screen readers; the block
  * is a polite live region, so a notice that changes while the Reader is open is read out.
  */
@@ -239,14 +248,14 @@ fun ReaderNotice(kind: ReaderNoticeKind, modifier: Modifier = Modifier, topOffse
                 .align(Alignment.TopCenter)
                 .padding(horizontal = readerSidePadding(maxWidth))
                 .padding(top = topOffset)
-                .widthIn(max = 320.dp)
+                .widthIn(max = NOTICE_MAX_WIDTH)
                 .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
                 imageVector = kind.icon,
                 contentDescription = null,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(NOTICE_ICON_SIZE),
                 tint = if (kind.isError) colors.error else colors.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
