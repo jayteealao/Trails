@@ -814,6 +814,7 @@ dashboard) handle every answer above.
   - `gateway/` - Public API (POST /begin, GET /status/:id) + cron sweeps + the daily archive health email
   - `workflow/` - Orchestration workflow + browser/sandbox quota DO
   - `renderer/` - Browser rendering
+  - `hyperrenderer/` - Fallback renderer (Hyperbrowser) for pages the renderer cannot reach; stealth is off by default (`HYPERBROWSER_STEALTH=none`; set `auto` or `ultra` in both config files to opt in), and each fallback render is logged with the stealth setting it used (`renderFallbackStealth` in the request diagnostics)
   - `singlefile/` - SingleFile HTML extraction
   - `readability/` - Readability extraction
   - `monolith/` - Monolith HTML extraction (sandbox container, stopped per job — see its README)
