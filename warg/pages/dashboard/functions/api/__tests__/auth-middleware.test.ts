@@ -202,3 +202,26 @@ function toBuffer(value: ArrayBuffer | ArrayBufferView): Buffer {
     ? Buffer.from(value.buffer, value.byteOffset, value.byteLength)
     : Buffer.from(new Uint8Array(value));
 }
+
+describe('refused sign-ins are logged without the credential', () => {
+  it('logs a wrong credential, a missing secret and a cross-site write, and never the credential', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await run('/api/inbox', 'GET', basic('e2e-user:wrong-guess'));
+      await run('/api/inbox', 'GET', basic(SECRET), UNSET);
+      await run('/api/begin', 'POST', basic(SECRET), SECRET, { 'Sec-Fetch-Site': 'cross-site' });
+      await run('/api/inbox', 'GET');
+
+      const reasons = [...warn.mock.calls, ...error.mock.calls].map(([line]) => (line as { reason: string }).reason);
+      expect(reasons.sort()).toEqual(['bad_credential', 'cross_site_write', 'not_configured']);
+      expect(error.mock.calls.map(([line]) => (line as { reason: string }).reason)).toEqual(['not_configured']);
+      const logged = JSON.stringify([...warn.mock.calls, ...error.mock.calls]);
+      expect(logged).not.toContain('wrong-guess');
+      expect(logged).not.toContain('e2e-pass');
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+});

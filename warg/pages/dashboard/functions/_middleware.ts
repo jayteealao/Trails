@@ -82,12 +82,38 @@ function isCrossSite(request: Request): boolean {
   }
 }
 
+type Refusal = 'not_configured' | 'bad_credential' | 'cross_site_write';
+
+// One structured line per refused request, never with the credential, so a
+// mis-set secret and repeated guesses show in the Worker's logs.
+function logRefusal(request: Request, reason: Refusal): void {
+  const line = {
+    event: 'dashboard.auth.refused',
+    reason,
+    method: request.method,
+    path: new URL(request.url).pathname,
+    secFetchSite: request.headers.get('Sec-Fetch-Site'),
+  };
+  // A missing secret locks every operator out: a deploy defect, not a caller error.
+  if (reason === 'not_configured') console.error(line);
+  else console.warn(line);
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
+  const { request } = context;
   const secret = context.env.DASHBOARD_AUTH;
-  if (!secret) return authNotConfigured();
-  const candidate = credentialBytes(context.request.headers.get('Authorization'));
-  if (!candidate || !(await matchesSecret(candidate, secret))) return signInRequired();
-  if (!READ_METHODS.has(context.request.method.toUpperCase()) && isCrossSite(context.request)) {
+  if (!secret) {
+    logRefusal(request, 'not_configured');
+    return authNotConfigured();
+  }
+  const candidate = credentialBytes(request.headers.get('Authorization'));
+  if (!candidate || !(await matchesSecret(candidate, secret))) {
+    // A browser's first request carries no credential; only a wrong one is a guess.
+    if (candidate) logRefusal(request, 'bad_credential');
+    return signInRequired();
+  }
+  if (!READ_METHODS.has(request.method.toUpperCase()) && isCrossSite(request)) {
+    logRefusal(request, 'cross_site_write');
     return crossSiteWriteRefused();
   }
   return context.next();
