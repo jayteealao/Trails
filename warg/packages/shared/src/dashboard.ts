@@ -97,7 +97,10 @@ export interface RequestDiagnostics {
   renderProvider?: 'browser-rendering' | 'hyperbrowser' | 'unknown';
   renderFallbackUsed?: boolean;
   renderFallbackReason?: string;
-  /** The stealth setting the fallback renderer used. */
+  /**
+   * The stealth setting the fallback renderer used. It is read from the logs;
+   * the dashboard types it but shows no view of it.
+   */
   renderFallbackStealth?: RenderStealthMode;
   degraded?: boolean;
   degradedSteps?: string[];
