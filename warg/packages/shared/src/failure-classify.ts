@@ -180,10 +180,7 @@ export function classifyError(stepName: string, errorMsg: string): ErrorClassifi
   // A worker names a rejected credential in its answer body; the step boundary
   // keeps only the message, so read the name from it.
   if (msg.includes('browser_token_invalid')) return credentialFailure('BROWSER_TOKEN_INVALID');
-  if (
-    msg.includes('r2_credential_invalid') ||
-    R2_KEY_ERROR_NAMES.some((name) => msg.includes(name.toLowerCase()))
-  ) {
+  if (R2_KEY_ERROR_NAMES.some((name) => msg.includes(name.toLowerCase()))) {
     return credentialFailure('R2_CREDENTIAL_INVALID');
   }
   // A worker answers a site block with HTTP 401/403 (classifyServiceFailure below).
@@ -361,9 +358,6 @@ function classifyMonolithFailureFromBody(
   responseBody: string
 ): ErrorClassification | undefined {
   const parsed = parseJsonSafe(responseBody);
-  if (parsed && typeof parsed === 'object' && 'code' in parsed && parsed.code === 'R2_CREDENTIAL_INVALID') {
-    return credentialFailure('R2_CREDENTIAL_INVALID');
-  }
   if (parsed && typeof parsed === 'object' && 'code' in parsed && parsed.code === 'MONOLITH_R2_HANDLER_FAILED') {
     const retryable = 'retryable' in parsed && parsed.retryable === true;
     return {

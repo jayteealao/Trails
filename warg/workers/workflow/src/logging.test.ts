@@ -177,11 +177,6 @@ describe('settleForResult and settleForFailure', () => {
       'Renderer failed with Browser Rendering fallback-eligible error and fallback failed. primary=Service error 502: {"error":"Browser Rendering /content failed","status":403,"reason":"browser_token_invalid"}; fallback=Service error 403: Forbidden',
       'BROWSER_TOKEN_INVALID',
     ],
-    [
-      'monolith',
-      'Service error 502: {"error":"Internal error","message":"R2 rejected the storage credential of the presigned URL (HTTP 403)","code":"R2_CREDENTIAL_INVALID","retryable":false}',
-      'R2_CREDENTIAL_INVALID',
-    ],
     ['persist', 'put: SignatureDoesNotMatch (403)', 'R2_CREDENTIAL_INVALID'],
   ])('classifies a rejected credential in a %s failure under its own code', (stepName, message, code) => {
     const classified = classifyError(stepName, message);

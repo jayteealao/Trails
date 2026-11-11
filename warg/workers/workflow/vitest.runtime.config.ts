@@ -31,8 +31,8 @@ const CHALLENGE_URL = 'https://challenge.example/article';
 const BLOCKED_URL = 'https://blocked.example/article';
 const ARTICLE_URL = 'https://article.example/post';
 
-// The target URL of the R2 credential case; end-state.runtime.test.ts uses the same value.
-const R2_REJECTED_URL = 'https://r2-rejected.example/article';
+// The target URL of the refused R2 handler case; end-state.runtime.test.ts uses the same value.
+const R2_REFUSED_URL = 'https://r2-refused.example/article';
 
 // The target URL of the render retry case; end-state.runtime.test.ts uses the same value.
 const RETRY_URL = 'https://retry.example/article';
@@ -49,11 +49,11 @@ async function requestedUrl(request: Request): Promise<string | undefined> {
   return typeof body.url === 'string' ? body.url : undefined;
 }
 
-/** The recorded page the browser binding loads for each target URL of the blocked-page and credential cases. */
+/** The recorded page the browser binding loads for each target URL of the blocked-page and R2 handler cases. */
 const LOADED_PAGES: Record<string, string> = {
   [CHALLENGE_URL]: CLOUDFLARE_CHALLENGE_PAGE,
   [ARTICLE_URL]: ARTICLE_ABOUT_CHALLENGES,
-  [R2_REJECTED_URL]: ARTICLE_ABOUT_CHALLENGES,
+  [R2_REFUSED_URL]: ARTICLE_ABOUT_CHALLENGES,
   [RETRY_URL]: ARTICLE_ABOUT_CHALLENGES
 };
 
@@ -116,20 +116,20 @@ async function singlefileStub(request: Request): Promise<Response> {
   return failingService();
 }
 
-/** monolith answers a rejected R2 key for R2_REJECTED_URL, and fails otherwise. */
+/** monolith answers a refused R2 handler request for R2_REFUSED_URL, and fails otherwise. */
 async function monolithStub(request: Request): Promise<Response> {
   const body: unknown = await request.json();
   const baseUrl =
     typeof body === 'object' && body !== null && 'base_url' in body && typeof body.base_url === 'string'
       ? body.base_url
       : undefined;
-  if (baseUrl === R2_REJECTED_URL) {
-    // The answer of the monolith worker when R2 rejects its storage key.
+  if (baseUrl === R2_REFUSED_URL) {
+    // The answer of the monolith worker when its R2 handler refuses the container's request.
     return Response.json(
       {
         error: 'Internal error',
-        message: 'R2 rejected the storage credential of the presigned URL (HTTP 403)',
-        code: 'R2_CREDENTIAL_INVALID',
+        message: 'R2 handler answered 403: curl: (22) The requested URL returned error: 403',
+        code: 'MONOLITH_R2_HANDLER_FAILED',
         retryable: false
       },
       { status: 502 }

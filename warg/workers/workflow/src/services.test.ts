@@ -526,12 +526,12 @@ describe('rejected credentials', () => {
     expect(hyperrendererFetch).not.toHaveBeenCalled();
   });
 
-  it('classifies a monolith answer that names a rejected storage key as R2_CREDENTIAL_INVALID', async () => {
+  it('classifies a monolith answer that names a refused R2 handler request under its own code', async () => {
     const monolithFetch = vi.fn(async () =>
       makeJsonResponse(502, {
         error: 'Internal error',
-        message: 'R2 rejected the storage credential of the presigned URL (HTTP 403)',
-        code: 'R2_CREDENTIAL_INVALID',
+        message: 'R2 handler answered 403: curl: (22) The requested URL returned error: 403',
+        code: 'MONOLITH_R2_HANDLER_FAILED',
         retryable: false,
       }),
     );
@@ -548,7 +548,11 @@ describe('rejected credentials', () => {
         base_url: 'https://example.com',
       }),
     ).rejects.toMatchObject({
-      classification: { errorCode: 'R2_CREDENTIAL_INVALID', retryable: false, recommendedAction: 'check_api_key' },
+      classification: {
+        errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+        retryable: false,
+        recommendedAction: 'investigate_service',
+      },
     });
   });
 });

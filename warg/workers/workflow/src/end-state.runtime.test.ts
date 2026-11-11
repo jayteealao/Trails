@@ -12,8 +12,8 @@ const CHALLENGE_URL = 'https://challenge.example/article';
 const BLOCKED_URL = 'https://blocked.example/article';
 const ARTICLE_URL = 'https://article.example/post';
 
-// The target URL that the stubs of vitest.runtime.config.ts answer with a rejected credential.
-const R2_REJECTED_URL = 'https://r2-rejected.example/article';
+// The target URL that the stubs of vitest.runtime.config.ts answer with a refused R2 handler request.
+const R2_REFUSED_URL = 'https://r2-refused.example/article';
 
 // The target URL whose first PDF load the browser stand-in of vitest.runtime.config.ts rate-limits.
 const RETRY_URL = 'https://retry.example/article';
@@ -354,12 +354,12 @@ describe('blocked pages', () => {
   });
 });
 
-describe('credential failures', () => {
+describe('monolith R2 handler failures', () => {
   beforeAll(async () => {
     await applyD1Migrations(env.INDEX_DB, env.TEST_MIGRATIONS);
   });
 
-  it('records a storage key that R2 rejects as a rejected storage key', async () => {
+  it('records a container request that the R2 handler refuses under its own code', async () => {
     const id = newRequestId();
     await using _instance = await startRun(
       id,
@@ -368,7 +368,7 @@ describe('credential failures', () => {
         await grantLease(m, 'render');
         await grantLease(m, 'monolith');
       },
-      R2_REJECTED_URL
+      R2_REFUSED_URL
     );
 
     expect(await waitForEnd(id)).toBe('complete');
@@ -376,8 +376,8 @@ describe('credential failures', () => {
     const status = await readStatus(id);
     expect(status.derived.stage).toBe('incomplete');
     expect(status.derived.diagnostics?.degradedSteps).toEqual(['monolith']);
-    expect(status.derived.diagnostics?.errorCode).toBe('R2_CREDENTIAL_INVALID');
-    expect(failedStepCodes(status, 'monolith')).toContain('R2_CREDENTIAL_INVALID');
+    expect(status.derived.diagnostics?.errorCode).toBe('MONOLITH_R2_HANDLER_FAILED');
+    expect(failedStepCodes(status, 'monolith')).toContain('MONOLITH_R2_HANDLER_FAILED');
   });
 });
 
