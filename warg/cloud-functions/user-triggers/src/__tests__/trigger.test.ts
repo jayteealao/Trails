@@ -149,6 +149,21 @@ test('a gateway failure after the retry window resolves and records the failure 
   assert.equal(store.docs.get(USER_PATH)?.['error'], 'Gateway begin failed: 400 bad');
 });
 
+test('a request id the operator owns is neither retried nor marked failed', async () => {
+  const store = seed({ users: { [`${USER}/articles/${ITEM}`]: saveData } });
+  answer([
+    {
+      status: 409,
+      body: '{"error":"Request id belongs to another caller","code":"REQUEST_ID_CONFLICT","id":"req-x"}',
+    },
+  ]);
+  const e = event({ data: saveData });
+  assert.equal(await deliver(e), null);
+  assert.equal(posts.length, 1);
+  assert.equal(store.docs.get(`articles/${ITEM}`)?.['status'], 'pending');
+  assert.equal(store.docs.get(USER_PATH)?.['error'], undefined);
+});
+
 test('a gateway failure inside the retry window throws for a re-delivery, which then starts the archive once', async () => {
   const store = seed({ users: { [`${USER}/articles/${ITEM}`]: saveData } });
   const e = event({ data: saveData });
