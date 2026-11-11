@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.articleDetail
 
+import com.jayteealao.trails.common.NetworkMonitor
 import com.jayteealao.trails.common.UrlModifier
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
@@ -61,6 +62,13 @@ class ArticleDetailViewModelTest {
     @MockK private lateinit var archiveService: ArchiveService
     @MockK private lateinit var localArchiveDao: LocalArchiveDao
     @MockK private lateinit var urlModifier: UrlModifier
+    @MockK private lateinit var networkMonitor: NetworkMonitor
+
+    /** Whether the phone is online, as the network monitor reports it. */
+    private val online = MutableStateFlow(true)
+
+    /** The status of the shared article on the server. */
+    private val status = MutableStateFlow<String?>(null)
 
     private val preferenceChangesFlow = MutableSharedFlow<String?>(extraBufferCapacity = 64)
 
@@ -83,6 +91,8 @@ class ArticleDetailViewModelTest {
         every { archiveService.observeRemoteArchives(any()) } returns emptyFlow()
         every { archiveService.observeDownloads(any()) } returns flowOf(emptyMap())
         coEvery { archiveService.applyWargMetadata(any()) } just Runs
+        every { networkMonitor.isOnline } returns online
+        every { archiveService.observeArticleStatus(any()) } returns status
     }
 
     @After
@@ -102,6 +112,7 @@ class ArticleDetailViewModelTest {
         archiveService = archiveService,
         localArchiveDao = localArchiveDao,
         urlModifier = urlModifier,
+        networkMonitor = networkMonitor,
         ioDispatcher = testDispatcher,
     )
 
@@ -639,5 +650,137 @@ class ArticleDetailViewModelTest {
         coVerify(atLeast = 1) { articleRepository.offerArticleText("a19", "ai markdown text", "ai_markdown") }
         assertEquals("ai markdown text", viewModel.state.value.article?.text)
         assertEquals("ai_markdown", viewModel.state.value.textSource)
+    }
+
+    // ----- The Reader body: a quiet notice or the skeleton when there is no text -----
+
+    /**
+     * Opens a1, which has no text, with [archives] stored on the phone; each archive reads as
+     * [readText] gives it. Returns the view model, collecting its state.
+     */
+    private fun TestScope.openWithoutText(
+        archives: List<ArchiveType> = emptyList(),
+        localFlow: MutableSharedFlow<List<LocalArchive>>? = null,
+        readText: (ArchiveType) -> String? = { null },
+    ): ArticleDetailViewModel {
+        storeArticle("a1", null, "")
+        val local = archives.map { localArchive("a1", it) }
+        coEvery { localArchiveDao.getArchivesForArticle("a1") } returns local
+        every { localArchiveDao.observeArchives("a1") } returns (localFlow ?: flowOf(local))
+        ArchiveType.entries.forEach { type ->
+            coEvery { archiveService.readArchiveText("a1", type) } answers { readText(type) }
+        }
+        coEvery { archiveService.syncArchives(any(), any()) } just Runs
+
+        val viewModel = buildViewModel()
+        viewModel.state.onEach { }.launchIn(backgroundScope)
+        viewModel.getArticle("a1")
+        advanceUntilIdle()
+        return viewModel
+    }
+
+    @Test
+    fun readerBody_textArchiveDownloading_showsTheWaitingNoticeWithSkeletonLines() = runTest(scheduler) {
+        every { archiveService.observeDownloads("a1") } returns
+            MutableStateFlow(mapOf("readability" to ArchiveDownload.DOWNLOADING))
+
+        val viewModel = openWithoutText()
+
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true), viewModel.state.value.readerBody)
+    }
+
+    @Test
+    fun readerBody_offlineWithNothingPending_showsTheOfflineNotice() = runTest(scheduler) {
+        online.value = false
+
+        val viewModel = openWithoutText()
+
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.OFFLINE), viewModel.state.value.readerBody)
+        assertFalse(viewModel.state.value.online)
+    }
+
+    @Test
+    fun readerBody_archiveFailed_showsTheFailedNotice() = runTest(scheduler) {
+        status.value = "failed"
+
+        val viewModel = openWithoutText()
+
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.FAILED), viewModel.state.value.readerBody)
+        assertEquals("failed", viewModel.state.value.articleStatus)
+    }
+
+    @Test
+    fun readerBody_blankTextArchive_showsTheNoTextNotice() = runTest(scheduler) {
+        val viewModel = openWithoutText(listOf(ArchiveType.READABILITY)) { "" }
+
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.NO_TEXT), viewModel.state.value.readerBody)
+    }
+
+    @Test
+    fun readerBody_textArchiveThatDoesNotOpen_showsTheCouldNotOpenNotice() = runTest(scheduler) {
+        val viewModel = openWithoutText(listOf(ArchiveType.READABILITY)) { null }
+
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.UNREADABLE), viewModel.state.value.readerBody)
+    }
+
+    @Test
+    fun readerBody_firstTextArrivesWhileWaiting_replacesTheNoticeWithNoEvent() = runTest(scheduler) {
+        val events = mutableListOf<ArticleDetailEvent>()
+        val localFlow = MutableSharedFlow<List<LocalArchive>>(replay = 1)
+        localFlow.tryEmit(emptyList())
+        val viewModel = openWithoutText(localFlow = localFlow) { type ->
+            if (type == ArchiveType.READABILITY) "first text" else null
+        }
+        viewModel.event.onEach { events += it }.launchIn(backgroundScope)
+        advanceUntilIdle()
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.WAITING), viewModel.state.value.readerBody)
+
+        val readability = listOf(localArchive("a1", ArchiveType.READABILITY))
+        coEvery { localArchiveDao.getArchivesForArticle("a1") } returns readability
+        localFlow.tryEmit(readability)
+        advanceUntilIdle()
+
+        assertEquals(ReaderBody.Text, viewModel.state.value.readerBody)
+        assertEquals("first text", viewModel.state.value.article?.text)
+        assertEquals(emptyList<ArticleDetailEvent>(), events)
+    }
+
+    @Test
+    fun selectedArchiveLoadFailed_setByAFailedRead_andClearedByAnotherTab() = runTest(scheduler) {
+        val viewModel = openWithoutText(listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN)) { type ->
+            if (type == ArchiveType.READABILITY) "readability text" else null
+        }
+
+        viewModel.setSelectedTab(FIRST_ARCHIVE_TAB_INDEX + viewModel.getAvailableArchiveTypes().indexOf(ArchiveType.MARKDOWN))
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.selectedArchiveLoadFailed)
+
+        viewModel.setSelectedTab(WEB_TAB_INDEX)
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.selectedArchiveLoadFailed)
+    }
+
+    @Test
+    fun backOnline_syncsTheRemoteArchivesOnceMore() = runTest(scheduler) {
+        val remote = mapOf("readability" to ArchiveStatus("success", "gs://x/readability"))
+        every { archiveService.observeRemoteArchives("a1") } returns flowOf(remote)
+        online.value = false
+        openWithoutText()
+        coVerify(exactly = 1) { archiveService.syncArchives("a1", remote) }
+
+        online.value = true
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { archiveService.syncArchives("a1", remote) }
+    }
+
+    @Test
+    fun readerBody_textArchiveUploadingOnTheServer_showsTheWaitingNoticeAlone() = runTest(scheduler) {
+        every { archiveService.observeRemoteArchives("a1") } returns
+            flowOf(mapOf("readability" to ArchiveStatus("uploading", null)))
+
+        val viewModel = openWithoutText()
+
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.WAITING), viewModel.state.value.readerBody)
     }
 }
