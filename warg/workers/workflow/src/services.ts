@@ -344,6 +344,25 @@ export function callMonolith(
 }
 
 /**
+ * Body of the workflow's monolith step. A deterministic failure (the 32 MiB RPC
+ * limit, an input that is too large, or any classification that is not
+ * retryable) is rethrown through `makeNonRetryable` so the step fails at once;
+ * every other error keeps the step's retry policy. The factory is injected so
+ * this module stays free of runtime-only imports.
+ */
+export async function callMonolithForStep(
+  env: Env,
+  params: MonolithParams,
+  makeNonRetryable: (message: string) => Error
+): Promise<DerivativeResponse> {
+  try {
+    return await callMonolith(env, params);
+  } catch (error) {
+    rethrowForStep(error, makeNonRetryable);
+  }
+}
+
+/**
  * Call the GCS service to persist artifacts.
  */
 export function callGcs(env: Env, params: GcsParams): Promise<GcsResponse> {
