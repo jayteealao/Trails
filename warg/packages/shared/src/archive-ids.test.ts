@@ -91,6 +91,7 @@ describe('getGcsPath', () => {
     'monolith.html': { folder: 'monolith', filename: 'output.html.gz', path: 'archives/req-1/monolith/output.html.gz' },
     'readability.json': { folder: 'readability', filename: 'output.json', path: 'archives/req-1/readability/output.json' },
     'readability.md': { folder: 'readability', filename: 'output.md.gz', path: 'archives/req-1/readability/output.md.gz' },
+    'ai-markdown.md': { folder: 'ai-markdown', filename: 'output.md.gz', path: 'archives/req-1/ai-markdown/output.md.gz' },
     'page.pdf': { folder: 'pdf', filename: 'output.pdf', path: 'archives/req-1/pdf/output.pdf' },
     'screenshot.png': { folder: 'screenshot', filename: 'output.png', path: 'archives/req-1/screenshot/output.png' },
     'rendered.html': { folder: 'rendered', filename: 'output.html.gz', path: 'archives/req-1/rendered/output.html.gz' },

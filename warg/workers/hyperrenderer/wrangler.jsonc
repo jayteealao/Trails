@@ -2,12 +2,15 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hyperrenderer",
   "main": "src/index.ts",
-  "compatibility_date": "2025-01-01",
+  // Equals COMPATIBILITY_DATE in ../compatibility-date.mjs; scripts/check-worker-configs.mjs fails otherwise.
+  "compatibility_date": "2026-03-24",
   "workers_dev": false,
-  "observability": { "enabled": true },
+  // Workers tracing: the runtime emits the spans; enabled alone turns on logs only.
+  "observability": { "enabled": true, "traces": { "enabled": true } },
   "vars": {
     "HYPERBROWSER_BASE_URL": "https://api.hyperbrowser.ai",
-    "HYPERBROWSER_STEALTH": "auto",
+    // Stealth is off by default; set "auto" or "ultra" (here and in cloudflare.config.ts) to opt in.
+    "HYPERBROWSER_STEALTH": "none",
     "HYPERBROWSER_WAIT_UNTIL": "load",
     "HYPERBROWSER_NAV_TIMEOUT_MS": "30000",
     "HYPERBROWSER_WAIT_FOR_MS": "0",
@@ -18,14 +21,16 @@
   },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives" }
-  ]
+  ],
+  // Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
+  "secrets": { "required": ["INTERNAL_API_KEY", "HYPERBROWSER_API_KEY"] }
 }
-// Secrets (via `wrangler secret put`):
+// Secrets (via `cf workers secrets update`):
 // - INTERNAL_API_KEY: shared key for internal worker auth
 // - HYPERBROWSER_API_KEY: Hyperbrowser API key
 // Optional vars:
 // - HYPERBROWSER_BASE_URL (default https://api.hyperbrowser.ai)
-// - HYPERBROWSER_STEALTH (none|auto|ultra; default auto)
+// - HYPERBROWSER_STEALTH (none|auto|ultra; default none — auto and ultra opt in to stealth)
 // - HYPERBROWSER_WAIT_UNTIL (load|domcontentloaded|networkidle; default load)
 // - HYPERBROWSER_NAV_TIMEOUT_MS (default 30000)
 // - HYPERBROWSER_WAIT_FOR_MS (default 0)

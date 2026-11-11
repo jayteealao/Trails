@@ -68,12 +68,14 @@ describe('parseRequestSettle', () => {
 });
 
 describe('isIncompleteDegradation', () => {
-  it('is true when monolith degraded', () => {
-    expect(isIncompleteDegradation(['monolith'])).toBe(true);
+  it.each([
+    ['monolith', ['monolith']],
+    ['singlefile only', ['singlefile']],
+  ])('is true when %s degraded', (_label, steps) => {
+    expect(isIncompleteDegradation(steps)).toBe(true);
   });
 
   it.each([
-    ['singlefile only', ['singlefile']],
     ['no steps', []],
     ['undefined', undefined],
   ])('is false for %s', (_label, steps) => {

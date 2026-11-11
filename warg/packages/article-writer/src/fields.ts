@@ -29,6 +29,7 @@ export const GATEWAY_ARCHIVE_KEYS = [
   'pdf',
   'screenshot',
   'rendered',
+  'ai_markdown',
 ] as const;
 
 /** The fields of an archive entry the archive gateway writes. */

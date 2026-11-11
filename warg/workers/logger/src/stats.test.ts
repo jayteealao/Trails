@@ -117,6 +117,7 @@ function expectedStats(now: number): unknown {
     byStage: { unknown: 1, done: 79, failed: 7, queued: 7, rendering: 2 },
     successRate: 0.919,
     failureRate: 0.081,
+    incompleteRate: 0,
     activeCount: 10,
     stuckCount: 4,
     orphanQueue: { total: 6, olderThan10m: 4, olderThan60m: 2 },
@@ -202,7 +203,7 @@ describe('GET /stats', () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(
-      '{"total":0,"byStage":{},"successRate":0,"failureRate":0,"activeCount":0,"stuckCount":0,' +
+      '{"total":0,"byStage":{},"successRate":0,"failureRate":0,"incompleteRate":0,"activeCount":0,"stuckCount":0,' +
         '"orphanQueue":{"total":0,"olderThan10m":0,"olderThan60m":0},' +
         '"recentActivity":{"last1h":0,"last24h":0},"topDomains":[],"recentFailures":[]}'
     );

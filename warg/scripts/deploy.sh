@@ -73,7 +73,12 @@ set -euo pipefail
 #                                     warg-dashboard included);
 #                                     repeatable; printed as a warning in the
 #                                     summary. Never put it in a package.json
-#                                     script.
+#                                     script. It skips only this script's
+#                                     listing: cf still refuses a worker whose
+#                                     declared secret is not set, so the first
+#                                     deploy of a new worker needs
+#                                     `cf deploy --secrets-file <file>` run by
+#                                     hand once.
 #   --allow-dirty                     deploy from a tree with uncommitted or
 #                                     untracked files; every label then ends
 #                                     in -dirty
@@ -92,15 +97,19 @@ set -euo pipefail
 # Required secrets per worker (checked with `cf workers secrets list` for all
 # nine workers, and the dashboard Worker when it deploys, before the first
 # worker deploys). required_secrets_for() below is the list the preflight
-# reads; the deploy harness fails when this copy differs from it:
+# reads; the deploy harness fails when this copy differs from it. Each of the
+# nine workers also declares the same names in its cloudflare.config.ts and
+# wrangler.jsonc, so cf and wrangler refuse to deploy a worker that is missing
+# one; the harness and scripts/check-worker-configs.mjs fail when a declared
+# copy differs:
 #   logger:        INTERNAL_API_KEY
-#   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY
+#   gateway:       INTERNAL_API_KEY, PUBLIC_API_KEY, HEALTH_ALERT_FROM, HEALTH_ALERT_TO
 #   workflow:      INTERNAL_API_KEY
-#   renderer:      INTERNAL_API_KEY, CF_ACCOUNT_ID, BR_API_TOKEN
+#   renderer:      INTERNAL_API_KEY
 #   hyperrenderer: INTERNAL_API_KEY, HYPERBROWSER_API_KEY
 #   singlefile:    INTERNAL_API_KEY
 #   readability:   INTERNAL_API_KEY
-#   monolith:      INTERNAL_API_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+#   monolith:      INTERNAL_API_KEY
 #   gcs:           INTERNAL_API_KEY, ARCHIVE_GATEWAY_KEY, CLOUD_FN_BASE_URL
 #   warg-dashboard: DASHBOARD_AUTH, INTERNAL_API_KEY, DASHBOARD_API_KEY, BACKFILL_STATUS_KEY, CF_API_TOKEN, CF_ACCOUNT_ID
 # A failed listing (not signed in, token expired, worker not deployed yet)
@@ -109,6 +118,12 @@ set -euo pipefail
 # (the sign-in credential); the other five are the keys its API routes send.
 # Set a missing one with:
 #   cf workers secrets update <NAME> --worker <worker> --type secret_text --text <value>
+#
+# Monolith versions: a run that deploys workers stops with exit 3 on
+# worker:monolith, before any deploy, unless the sandbox image tag in
+# workers/monolith/Dockerfile equals the exact @cloudflare/sandbox version in
+# workers/monolith/package.json (scripts/check-sandbox-version.mjs).
+# --skip-checks does not skip it.
 #
 # Cloud Functions need a .env file in each cloud-functions/<fn>/ folder (copy
 # .env.example). It holds plain configuration only: a line that assigns one of
@@ -190,7 +205,8 @@ set -euo pipefail
 # refused dirty tree; 3 when a target ran but failed verification, a
 # secret is missing or a sign-in is missing; 130 / 143 on SIGINT / SIGTERM.
 #
-# Needs: node, git and one sign-in per target: cf signed in (`cf auth login`)
+# Needs: node 22.23+ or 24.22+, which cf requires, git and one sign-in per
+# target: cf signed in (`cf auth login`)
 # for the workers; for --with-functions firebase-tools signed in
 # (`firebase login`, FIREBASE_TOKEN or `gcloud auth application-default
 # login`) and gcloud signed in (`gcloud auth login`, the function
@@ -297,6 +313,11 @@ on_exit() {
   done
   for i in "${!WARNINGS[@]}"; do
     echo "WARNING: ${WARNINGS[$i]}"
+  done
+  for i in "${!TARGETS[@]}"; do
+    if [ "${TARGETS[$i]}" = "worker:gateway" ] && [ "${RESULT[$i]}" = "deployed" ]; then
+      echo "NOTE: gateway deployed; send the health check test email and confirm it arrived (warg/README.md, \"Archive health email\")"
+    fi
   done
   echo "Exit code: $FIRST_RC"
   [ -z "$WORK_DIR" ] || rm -rf "$WORK_DIR"
@@ -499,16 +520,27 @@ time_after() {
 required_secrets_for() {
   case "$1" in
     logger)        echo "INTERNAL_API_KEY" ;;
-    gateway)       echo "INTERNAL_API_KEY PUBLIC_API_KEY" ;;
+    gateway)       echo "INTERNAL_API_KEY PUBLIC_API_KEY HEALTH_ALERT_FROM HEALTH_ALERT_TO" ;;
     workflow)      echo "INTERNAL_API_KEY" ;;
-    renderer)      echo "INTERNAL_API_KEY CF_ACCOUNT_ID BR_API_TOKEN" ;;
+    renderer)      echo "INTERNAL_API_KEY" ;;
     hyperrenderer) echo "INTERNAL_API_KEY HYPERBROWSER_API_KEY" ;;
     singlefile)    echo "INTERNAL_API_KEY" ;;
     readability)   echo "INTERNAL_API_KEY" ;;
-    monolith)      echo "INTERNAL_API_KEY R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY" ;;
+    monolith)      echo "INTERNAL_API_KEY" ;;
     gcs)           echo "INTERNAL_API_KEY ARCHIVE_GATEWAY_KEY CLOUD_FN_BASE_URL" ;;
     warg-dashboard) echo "DASHBOARD_AUTH INTERNAL_API_KEY DASHBOARD_API_KEY BACKFILL_STATUS_KEY CF_API_TOKEN CF_ACCOUNT_ID" ;;
     *)             echo "" ;;
+  esac
+}
+
+# Secrets a worker no longer reads, by name prefix. The deploy never deletes a
+# secret, so while the live worker still holds one the preflight warns (never
+# fails), until a person retires it: README.md, "Retiring the monolith
+# Worker's R2 keys".
+retired_secret_prefix_for() {
+  case "$1" in
+    monolith) echo "R2_" ;;
+    *)        echo "" ;;
   esac
 }
 
@@ -541,6 +573,17 @@ preflight_secrets() {
   if [ -n "$missing" ]; then
     echo "Set each with: cf workers secrets update <NAME> --worker $worker --type secret_text --text <value>" >&2
     fail_target "$target" failed 3 "missing secret(s):$missing"
+  fi
+  local prefix retired=""
+  prefix="$(retired_secret_prefix_for "$worker")"
+  if [ -n "$prefix" ]; then
+    for secret in $names; do
+      case "$secret" in "$prefix"*) retired="$retired $secret" ;; esac
+    done
+  fi
+  if [ -n "$retired" ]; then
+    WARNINGS+=("$worker still holds secret(s) it no longer reads:$retired; retire them after the first clean archive (README.md, Retiring the monolith Worker's R2 keys)")
+    echo "--- WARN: $worker still holds secret(s) it no longer reads:$retired"
   fi
 }
 
@@ -1041,6 +1084,23 @@ deploy_dashboard() {
   fi
   deploy_worker "$DASHBOARD_WORKER"
 }
+
+# --- Sandbox version preflight -----------------------------------------------
+# preflight_sandbox_version: stops the run when the monolith image and SDK name
+# different versions. It sits outside the pre-checks so --skip-checks keeps it.
+preflight_sandbox_version() {
+  local output detail rc=0
+  output="$(node scripts/check-sandbox-version.mjs 2>&1)" || rc=$?
+  printf '%s\n' "$output"
+  if [ "$rc" -ne 0 ]; then
+    detail="$(printf '%s\n' "$output" | sed -n '/^FAIL /{s///p;q;}')"
+    fail_target "worker:monolith" failed 3 "${detail:-the sandbox version check exited $rc}"
+  fi
+}
+
+if [ "$SKIP_WORKERS" = false ]; then
+  preflight_sandbox_version
+fi
 
 # --- Pre-checks --------------------------------------------------------------
 if [ "$SKIP_CHECKS" = false ]; then

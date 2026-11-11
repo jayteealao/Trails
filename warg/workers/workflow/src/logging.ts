@@ -135,10 +135,11 @@ export function logStepCompletedWithDuration(
 export function stepCompletedEvent(
   stepName: string,
   startedAt: number,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  level: LogLevel = 'info'
 ): LogEvent {
   const durationMs = Date.now() - startedAt;
-  return createEvent('workflow', 'step.completed', 'info', `Step completed: ${stepName}`, {
+  return createEvent('workflow', 'step.completed', level, `Step completed: ${stepName}`, {
     step: stepName,
     ...data,
     duration_ms: durationMs
@@ -324,7 +325,7 @@ function isStaleSettleAnswer(value: unknown): value is { reason: 'stale'; stage?
   return typeof value === 'object' && value !== null && 'reason' in value && value.reason === 'stale';
 }
 
-/** The settle of a run that returned: incomplete when monolith degraded, else done. */
+/** The settle of a run that returned: incomplete when a step degraded, else done. */
 export function settleForResult(
   result: WorkflowResult,
   runId: string,

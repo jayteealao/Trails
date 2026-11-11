@@ -1,15 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSandbox } from '@cloudflare/sandbox';
-import { runMonolithInSandbox } from './index.js';
+import worker, { normalizeSandboxId, runMonolithInSandbox } from './index.js';
 
 vi.mock('@cloudflare/sandbox', () => ({
   getSandbox: vi.fn(),
-  Sandbox: class {}
-}));
-
-vi.mock('./r2-presign.js', () => ({
-  presignR2GetUrl: vi.fn(async () => 'https://r2.example/presigned-get'),
-  presignR2PutUrl: vi.fn(async () => 'https://r2.example/presigned-put')
+  Sandbox: class {},
+  ContainerProxy: class {}
 }));
 
 const getSandboxMock = vi.mocked(getSandbox);
@@ -51,10 +47,6 @@ function fakeSandbox(execResults: ExecResult[]) {
 function createEnv(): Env {
   return {
     INTERNAL_API_KEY: 'test-key',
-    R2_BUCKET_NAME: 'warg-archives',
-    R2_ACCOUNT_ID: 'acct',
-    R2_ACCESS_KEY_ID: 'key-id',
-    R2_SECRET_ACCESS_KEY: 'key-secret',
     Sandbox: {},
     ARCHIVE_BUCKET: {}
   } as unknown as Env;
@@ -81,18 +73,73 @@ describe('runMonolithInSandbox container lifecycle', () => {
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('reads the page and writes the output through the R2 handler host', async () => {
+    const sandbox = fakeSandbox([execOk(), execOk(UPLOAD_OK_STDOUT)]);
+
+    await runMonolithInSandbox(
+      createEnv(),
+      'req-success',
+      'archives/req-success/raw/rendered.html',
+      'https://example.com'
+    );
+
+    // Test boundary: the fake exec is declared without parameters, so its
+    // recorded calls are typed as empty tuples; the real call passes the command.
+    const commands = sandbox.exec.mock.calls.map(call => String((call as unknown[])[0]));
+    expect(commands[0]).toContain('http://r2.monolith.internal/archives/req-success/raw/rendered.html');
+    expect(commands[1]).toContain('http://r2.monolith.internal/archives/req-success/derived/monolith.html');
+  });
+
+  it("refuses an input key that is not the request's own rendered page, before any exec", async () => {
+    const sandbox = fakeSandbox([]);
+
+    await expect(
+      runMonolithInSandbox(
+        createEnv(),
+        'req-own',
+        'archives/req-other/raw/rendered.html',
+        'https://example.com'
+      )
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT_KEY', status: 400, retryable: false });
+
+    expect(sandbox.exec).not.toHaveBeenCalled();
+    expect(getSandboxMock).not.toHaveBeenCalled();
+  });
+
   it('keys the sandbox off the request id (no warm pool)', async () => {
     fakeSandbox([execOk(), execOk(UPLOAD_OK_STDOUT)]);
 
     const result = await runMonolithInSandbox(
       createEnv(),
       'Req-Keyed-123',
-      'archives/req/raw/rendered.html',
+      'archives/Req-Keyed-123/raw/rendered.html',
       'https://example.com'
     );
 
-    expect(result.sandboxId).toBe('req-keyed-123');
-    expect(getSandboxMock).toHaveBeenCalledWith(expect.anything(), 'req-keyed-123', { transport: 'rpc' });
+    expect(result.sandboxId).toMatch(/^req-keyed-123-[0-9a-f]{16}$/);
+    expect(getSandboxMock).toHaveBeenCalledWith(expect.anything(), result.sandboxId, { transport: 'rpc' });
+  });
+
+  it('keeps a request id that is already a sandbox id as its sandbox id', () => {
+    expect(normalizeSandboxId('req-keyed-123')).toBe('req-keyed-123');
+  });
+
+  it('never gives two request ids the same sandbox id', () => {
+    const ids = [
+      'req-keyed-123',
+      'Req-Keyed-123',
+      'REQ-KEYED-123',
+      'req_keyed_123',
+      'req--keyed-123',
+      `req-keyed-123-${'0'.repeat(16)}`,
+      '0b6f5e1c-3c7a-4e2b-9f1d-2a5c8e7b6d40',
+      '0B6F5E1C-3C7A-4E2B-9F1D-2A5C8E7B6D40'
+    ];
+    const sandboxIds = ids.map(normalizeSandboxId);
+    expect(new Set(sandboxIds).size).toBe(ids.length);
+    for (const id of sandboxIds) {
+      expect(id).toMatch(/^[a-z][a-z0-9-]{0,62}$/);
+    }
   });
 
   it('stops the container once when execution fails (primary + curl fallback)', async () => {
@@ -124,6 +171,27 @@ describe('runMonolithInSandbox container lifecycle', () => {
         'https://example.com'
       )
     ).rejects.toThrow();
+
+    expect(sandbox.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['the upload', [execOk(), execFail('curl: (22) The requested URL returned error: 403')]],
+    [
+      'the download',
+      [execFail('monolith: fetch failed'), execFail('curl: (22) The requested URL returned error: 403')]
+    ]
+  ])('fails the job and stops the container when the R2 handler refuses %s', async (_path, results) => {
+    const sandbox = fakeSandbox(results);
+
+    await expect(
+      runMonolithInSandbox(
+        createEnv(),
+        'req-r2-rejected',
+        'archives/req-r2-rejected/raw/rendered.html',
+        'https://example.com'
+      )
+    ).rejects.toMatchObject({ code: 'MONOLITH_R2_HANDLER_FAILED', status: 502, retryable: false });
 
     expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
@@ -170,7 +238,7 @@ describe('runMonolithInSandbox container lifecycle', () => {
   it('returns success and stops the container once when primary exec fails but curl fallback succeeds', async () => {
     // Queue: [primary fail, curl ok, monolith-file ok, upload ok]
     const sandbox = fakeSandbox([
-      execFail('monolith: presigned URL fetch error'),
+      execFail('monolith: document fetch error'),
       execOk(),                       // curl download succeeds
       execOk(),                       // monolith file-path run succeeds
       execOk(UPLOAD_OK_STDOUT)        // upload + hash succeeds
@@ -190,53 +258,40 @@ describe('runMonolithInSandbox container lifecycle', () => {
   });
 });
 
-describe('runMonolithInSandbox signed URL redaction', () => {
-  const SIGNED = 'https://r2.example/doc?X-Amz-Credential=key-id&X-Amz-Signature=secret-sig';
-
+describe('monolith job without storage keys', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  function logged(...spies: Array<{ mock: { calls: unknown[][] } }>): string {
-    return JSON.stringify(spies.flatMap(spy => spy.mock.calls));
-  }
+  it('runs a job with no R2 key in its environment', async () => {
+    const bucket = { head: vi.fn(async () => ({ size: 500 })), get: vi.fn(), put: vi.fn() };
+    // Test boundary: the fake bindings carry only what the handler reaches.
+    const env = { INTERNAL_API_KEY: 'test-key', Sandbox: {}, ARCHIVE_BUCKET: bucket } as unknown as Env;
+    expect(Object.keys(env).some(key => key.startsWith('R2_'))).toBe(false);
+    const sandbox = fakeSandbox([execOk(), execOk(UPLOAD_OK_STDOUT)]);
 
-  it('keeps the signature out of logs and the thrown error when output echoes the URL', async () => {
-    fakeSandbox([execFail(`monolith: failed ${SIGNED}`), execFail(`curl: (22) ${SIGNED}`)]);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await worker.fetch(
+      new Request('https://monolith/monolith', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': 'test-key' },
+        body: JSON.stringify({
+          request_id: 'req-no-keys',
+          rendered_html_key: 'archives/req-no-keys/raw/rendered.html',
+          base_url: 'https://example.com/'
+        })
+      }),
+      env,
+      {} as ExecutionContext
+    );
 
-    const error = await runMonolithInSandbox(
-      createEnv(),
-      'req-redact',
-      'archives/req-redact/raw/rendered.html',
-      'https://example.com'
-    ).catch((caught: unknown) => caught);
-
-    expect(String(error)).toContain('X-Amz-Signature=[redacted]');
-    expect(String(error)).not.toContain('secret-sig');
-    expect(logged(warnSpy, errorSpy)).not.toContain('secret-sig');
-    expect(logged(warnSpy, errorSpy)).not.toContain('key-id');
-    warnSpy.mockRestore();
-    errorSpy.mockRestore();
-  });
-
-  it('keeps the signature out of the error when exec itself throws with the command', async () => {
-    const sandbox = fakeSandbox([]);
-    sandbox.exec.mockRejectedValue(new Error(`exec failed: ${SIGNED}`));
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const error = await runMonolithInSandbox(
-      createEnv(),
-      'req-redact-throw',
-      'archives/req-redact-throw/raw/rendered.html',
-      'https://example.com'
-    ).catch((caught: unknown) => caught);
-
-    expect(String(error)).not.toContain('secret-sig');
-    expect(logged(warnSpy, errorSpy)).not.toContain('secret-sig');
-    warnSpy.mockRestore();
-    errorSpy.mockRestore();
+    expect(res.status).toBe(200);
+    const body: { artifact: { r2Key: string }; meta: { method: string } } = await res.json();
+    expect(body.artifact.r2Key).toBe('archives/req-no-keys/derived/monolith.html');
+    expect(body.meta.method).toBe('sandbox');
+    const commands = sandbox.exec.mock.calls.map(call => String((call as unknown[])[0]));
+    expect(commands[0]).toContain('http://r2.monolith.internal/archives/req-no-keys/raw/rendered.html');
+    expect(bucket.get).not.toHaveBeenCalled();
+    expect(bucket.put).not.toHaveBeenCalled();
+    expect(sandbox.stop).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,6 +3,8 @@
  * Used by LoggerDO.ts and index.ts.
  */
 
+import { isRenderStealthMode, type RenderStealthMode } from '@warg/shared';
+
 export function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
@@ -19,4 +21,8 @@ export function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+export function asRenderStealth(value: unknown): RenderStealthMode | undefined {
+  return isRenderStealthMode(value) ? value : undefined;
 }

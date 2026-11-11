@@ -7,7 +7,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "logger",
   "main": "src/index.ts",
-  "compatibility_date": "2025-01-01",
+  // Equals COMPATIBILITY_DATE in ../compatibility-date.mjs; scripts/check-worker-configs.mjs fails otherwise.
+  "compatibility_date": "2026-03-24",
   "workers_dev": false,
   "durable_objects": {
     "bindings": [{ "name": "LOGGER_DO", "class_name": "LoggerDO" }]
@@ -20,5 +21,7 @@
       "database_id": "ff077e87-293b-4434-ad9e-ab669c9cbabb"
     }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
+  "secrets": { "required": ["INTERNAL_API_KEY"] }
 }

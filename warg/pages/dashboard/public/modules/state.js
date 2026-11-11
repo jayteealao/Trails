@@ -33,6 +33,7 @@ export const ARCHIVE_KEY_TO_STEP = {
   singlefile: 'singlefile',
   readability: 'readability',
   markdown: 'readability',
+  ai_markdown: 'readability',
   monolith: 'monolith',
 };
 

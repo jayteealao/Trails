@@ -15,13 +15,14 @@ const VALID_ARCHIVE_KEYS = new Set([
   'singlefile',
   'readability',
   'markdown',
+  'ai_markdown',
   'monolith',
   'pdf',
   'screenshot',
 ]);
 
 const HTML_ARCHIVES = new Set(['rendered', 'singlefile', 'monolith']);
-const TEXT_ARCHIVES = new Set(['readability', 'markdown']);
+const TEXT_ARCHIVES = new Set(['readability', 'markdown', 'ai_markdown']);
 
 // Stored pages are untrusted: the sandbox policy stops their script from
 // running on the dashboard origin, wherever the response is opened.
@@ -157,9 +158,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     const headers = new Headers();
     const contentType = inferContentType(archiveKey, upstream.headers.get('Content-Type'));
     headers.set('Content-Type', contentType);
-    if (!isPdfMediaType(contentType)) {
+    // Only the archive the dashboard asked for as a PDF goes unsandboxed; a stored
+    // header alone cannot lift the sandbox from another archive.
+    if (!(archiveKey === 'pdf' && isPdfMediaType(contentType))) {
       headers.set('Content-Security-Policy', ARCHIVE_SANDBOX_CSP);
     }
+    headers.set('X-Content-Type-Options', 'nosniff');
     headers.set('Cache-Control', 'no-store');
     headers.set('X-Archive-Source-Key', signed.archive_source_key ?? archiveKey);
 

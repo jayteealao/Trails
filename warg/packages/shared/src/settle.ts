@@ -51,7 +51,7 @@ export function parseRequestSettle(value: unknown): RequestSettle | undefined {
   return settle;
 }
 
-/** A degraded archive is incomplete when its monolith output is missing. */
+/** A degraded archive is incomplete when any step's output is missing. */
 export function isIncompleteDegradation(degradedSteps: readonly string[] | undefined): boolean {
-  return degradedSteps?.includes('monolith') ?? false;
+  return (degradedSteps?.length ?? 0) > 0;
 }

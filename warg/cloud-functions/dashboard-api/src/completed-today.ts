@@ -45,10 +45,21 @@ export function countCompletedSince(items: ArticleListItem[], sinceMs: number): 
 /** How long a count is reused before the articles are read again. */
 export const COMPLETED_TODAY_TTL_MS = 60_000;
 
+/**
+ * How long past COMPLETED_TODAY_TTL_MS a count of the same day is still served
+ * while a fresh read runs, so an inbox load never waits on the 2000-article read
+ * once a count exists.
+ */
+export const COMPLETED_TODAY_STALE_MS = 10 * 60_000;
+
 interface CachedCount {
   since: string;
   expiresAt: number;
   body: Promise<CompletedTodayResponse>;
+  /** The answer once the read succeeded. */
+  settled?: CompletedTodayResponse;
+  /** A fresh read started while this count is served stale. */
+  refreshing?: boolean;
 }
 
 /** Counts by dashboard user, so a burst of inbox loads reads the articles once. */
@@ -82,21 +93,45 @@ export async function handleCompletedToday(
   const userId = deps.userId ?? getDashboardUserId();
   const cache = deps.cache ?? sharedCache;
 
-  const cached = cache.get(userId);
-  let entry: CachedCount;
-  if (cached && cached.since === since.toISOString() && cached.expiresAt > nowMs) {
-    entry = cached;
-  } else {
-    entry = {
+  const startRead = (): CachedCount => {
+    const entry: CachedCount = {
       since: since.toISOString(),
       expiresAt: nowMs + COMPLETED_TODAY_TTL_MS,
       body: countForDay(deps.db ?? getFirestore(), userId, since),
     };
-    cache.set(userId, entry);
-    // A failed read is not reused: the next call reads again.
-    entry.body.catch(() => {
-      if (cache.get(userId) === entry) cache.delete(userId);
-    });
+    entry.body.then(
+      (body) => {
+        entry.settled = body;
+        cache.set(userId, entry);
+      },
+      // A failed read is not reused: the next call reads again.
+      () => {
+        if (cache.get(userId) === entry) cache.delete(userId);
+      }
+    );
+    return entry;
+  };
+
+  const cached = cache.get(userId);
+  const sameDay = cached?.since === since.toISOString();
+  if (cached && sameDay && cached.expiresAt > nowMs) {
+    res.json(await cached.body);
+    return;
   }
+  if (cached && sameDay && cached.settled && cached.expiresAt + COMPLETED_TODAY_STALE_MS > nowMs) {
+    // Serve the last count now and read again behind it, once.
+    if (!cached.refreshing) {
+      cached.refreshing = true;
+      const next = startRead();
+      next.body.catch(() => {
+        cached.refreshing = false;
+        if (!cache.has(userId)) cache.set(userId, cached);
+      });
+    }
+    res.json(cached.settled);
+    return;
+  }
+  const entry = startRead();
+  cache.set(userId, entry);
   res.json(await entry.body);
 }

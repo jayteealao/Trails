@@ -13,10 +13,13 @@ import {
   INTERNAL_API_KEY_HEADER,
   classifyServiceFailure,
   classifyServiceTimeout,
+  isRenderStealthMode,
+  readContainerNotReadyHint,
+  renderFallbackTag,
   rendererFallbackReasonFromBody,
   withClassificationTag,
 } from '@warg/shared';
-import type { ErrorClassification, RendererFallbackReason } from '@warg/shared';
+import type { ErrorClassification, RenderStealthMode, RendererFallbackReason } from '@warg/shared';
 
 export type ServiceErrorClassification = ErrorClassification;
 export type { RendererFallbackReason };
@@ -183,6 +186,34 @@ export interface RendererCallOutcome {
   fallbackReason?: RendererFallbackReason;
 }
 
+/** The wait before the monolith step's retry. */
+const MONOLITH_RETRY_DELAY_MS = 6000;
+/** The longest extra wait a container-not-ready hint adds (the Worker once waited up to 5 s in place). */
+const MONOLITH_CONTAINER_WAIT_CAP_MS = 5000;
+
+/**
+ * The delay before the monolith step's retry: 6 s, plus the container's own
+ * readiness hint (capped at 5 s) when the container was not ready, so a slow
+ * cold start gets the time the old in-place wait gave it.
+ */
+export function monolithRetryDelayMs(error: Error): number {
+  const hint = readContainerNotReadyHint(error.message);
+  if (hint === undefined) return MONOLITH_RETRY_DELAY_MS;
+  return MONOLITH_RETRY_DELAY_MS + Math.min(hint, MONOLITH_CONTAINER_WAIT_CAP_MS);
+}
+
+/** The stealth setting a hyperrenderer error answer reports, if any. */
+function stealthFromResponseBody(body: string | undefined): RenderStealthMode | undefined {
+  if (!body) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (!parsed || typeof parsed !== 'object' || !('stealth' in parsed)) return undefined;
+    return isRenderStealthMode(parsed.stealth) ? parsed.stealth : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Call the primary renderer and, when it reports a failure that the
  * hyperrenderer may still render, call the hyperrenderer once. When both fail,
@@ -216,9 +247,13 @@ export async function callRendererWith403Fallback(
     } catch (fallbackError) {
       const fallbackMessage =
         fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-      const message = `Renderer failed with Browser Rendering fallback-eligible error and fallback failed. primary=${error.message}; fallback=${fallbackMessage}`;
       const fallbackServiceError =
         fallbackError instanceof ServiceCallError ? fallbackError : undefined;
+      const tag = renderFallbackTag({
+        fallbackReason,
+        fallbackStealth: stealthFromResponseBody(fallbackServiceError?.responseBody),
+      });
+      const message = `Renderer failed with Browser Rendering fallback-eligible error and fallback failed ${tag}. primary=${error.message}; fallback=${fallbackMessage}`;
 
       if (!error.classification.retryable) {
         throw new ServiceCallError(
@@ -240,7 +275,9 @@ export async function callRendererWith403Fallback(
           fallbackServiceError.responseBody
         );
       }
-      throw fallbackError;
+      // The hyperrenderer gave no answer (a network failure); keep the primary's
+      // retryable classification and the message that names both failures.
+      throw new ServiceCallError(message, error.classification, '/render', error.status, error.responseBody);
     }
   }
 }
@@ -341,6 +378,25 @@ export function callMonolith(
     env.INTERNAL_API_KEY,
     240000 // 4 minute timeout
   );
+}
+
+/**
+ * Body of the workflow's monolith step. A deterministic failure (the 32 MiB RPC
+ * limit, an input that is too large, or any classification that is not
+ * retryable) is rethrown through `makeNonRetryable` so the step fails at once;
+ * every other error keeps the step's retry policy. The factory is injected so
+ * this module stays free of runtime-only imports.
+ */
+export async function callMonolithForStep(
+  env: Env,
+  params: MonolithParams,
+  makeNonRetryable: (message: string) => Error
+): Promise<DerivativeResponse> {
+  try {
+    return await callMonolith(env, params);
+  } catch (error) {
+    rethrowForStep(error, makeNonRetryable);
+  }
 }
 
 /**

@@ -1,0 +1,755 @@
+[
+  {
+    "cut": "singlefile",
+    "baseCommit": "aa5e5d1b65340cda7c2ca6b4dea9a2ecf967b852",
+    "cache": [
+      [
+        "read-options#1",
+        {
+          "url": "https://example.com/article"
+        }
+      ],
+      [
+        "log-started#1",
+        null
+      ],
+      [
+        "checkpoint-load-init#1",
+        {
+          "version": 1,
+          "requestId": "req-old-order-0001",
+          "optionsR2Key": "archives/req-old-order-0001/input/options.json",
+          "createdAt": "2026-11-10T20:28:14.614Z",
+          "updatedAt": "2026-11-10T20:28:14.614Z",
+          "resumeFromCheckpoint": true,
+          "steps": {
+            "render": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "singlefile": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "readability": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "monolith": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "ai-markdown": {
+              "status": "pending",
+              "attempts": 0
+            }
+          },
+          "artifacts": {}
+        }
+      ],
+      [
+        "checkpoint-persisted-snapshot#1",
+        {}
+      ],
+      [
+        "acquire-render-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-bindings_launch-1"
+        }
+      ],
+      [
+        "log-render-start#1",
+        null
+      ],
+      [
+        "render#1",
+        {
+          "result": {
+            "uses_browser_rendering": true,
+            "quota_kind_used": "rest_request",
+            "artifacts": [
+              {
+                "kind": "rendered.html",
+                "r2Key": "archives/req-old-order-0001/raw/rendered.html",
+                "bytes": 2048,
+                "sha256": "sha-rendered.html",
+                "contentType": "text/html"
+              },
+              {
+                "kind": "rendered.md",
+                "r2Key": "archives/req-old-order-0001/raw/rendered.md",
+                "bytes": 2048,
+                "sha256": "sha-rendered.md",
+                "contentType": "text/markdown"
+              }
+            ]
+          },
+          "fallbackUsed": false
+        }
+      ],
+      [
+        "log-render-artifacts#1",
+        null
+      ],
+      [
+        "release-render-quota#1",
+        null
+      ],
+      [
+        "write-manifest-render-316f9b0514ae47fb.json#1",
+        "archives/req-old-order-0001/state/manifests/render-316f9b0514ae47fb.json"
+      ],
+      [
+        "log-persist-start-render-316f9b0514ae47fb_json#1",
+        null
+      ],
+      [
+        "persist-gcs-render-316f9b0514ae47fb_json#1",
+        {
+          "success": true,
+          "firestore_doc_id": "doc-1",
+          "uploaded": 2,
+          "artifacts": [
+            {
+              "kind": "rendered.html",
+              "gcs_path": "gs://archive/req-old-order-0001/rendered.html"
+            },
+            {
+              "kind": "rendered.md",
+              "gcs_path": "gs://archive/req-old-order-0001/rendered.md"
+            }
+          ]
+        }
+      ],
+      [
+        "log-persist-complete-render-316f9b0514ae47fb_json#1",
+        null
+      ],
+      [
+        "acquire-singlefile-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-bindings_launch-2"
+        }
+      ],
+      [
+        "log-singlefile-start#1",
+        null
+      ]
+    ],
+    "bucket": [
+      [
+        "archives/req-old-order-0001/input/options.json",
+        "{\"url\":\"https://example.com/article\"}"
+      ],
+      [
+        "archives/req-old-order-0001/state/checkpoint.json",
+        "{\n  \"version\": 1,\n  \"requestId\": \"req-old-order-0001\",\n  \"optionsR2Key\": \"archives/req-old-order-0001/input/options.json\",\n  \"createdAt\": \"2026-11-10T20:28:14.614Z\",\n  \"updatedAt\": \"2026-11-10T20:28:14.625Z\",\n  \"resumeFromCheckpoint\": true,\n  \"steps\": {\n    \"render\": {\n      \"status\": \"succeeded\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.615Z\",\n      \"completedAt\": \"2026-11-10T20:28:14.617Z\"\n    },\n    \"singlefile\": {\n      \"status\": \"running\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.625Z\",\n      \"resumed\": true\n    },\n    \"readability\": {\n      \"status\": \"pending\",\n      \"attempts\": 0\n    },\n    \"monolith\": {\n      \"status\": \"pending\",\n      \"attempts\": 0\n    },\n    \"ai-markdown\": {\n      \"status\": \"pending\",\n      \"attempts\": 0\n    }\n  },\n  \"artifacts\": {\n    \"rendered.html\": {\n      \"kind\": \"rendered.html\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.html\",\n      \"contentType\": \"text/html\",\n      \"producedBy\": \"render\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.625Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/rendered.html\"\n    },\n    \"rendered.md\": {\n      \"kind\": \"rendered.md\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.md\",\n      \"contentType\": \"text/markdown\",\n      \"producedBy\": \"render\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.625Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/rendered.md\"\n    }\n  }\n}"
+      ],
+      [
+        "archives/req-old-order-0001/state/manifests/render-316f9b0514ae47fb.json",
+        "{\n  \"requestId\": \"req-old-order-0001\",\n  \"url\": \"https://example.com/article\",\n  \"createdAt\": \"2026-11-10T20:28:14.624Z\",\n  \"completedAt\": \"2026-11-10T20:28:14.624Z\",\n  \"artifacts\": [\n    {\n      \"kind\": \"rendered.html\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.html\",\n      \"contentType\": \"text/html\"\n    },\n    {\n      \"kind\": \"rendered.md\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.md\",\n      \"contentType\": \"text/markdown\"\n    }\n  ]\n}"
+      ]
+    ],
+    "gcsKinds": [
+      "rendered.html",
+      "rendered.md"
+    ],
+    "serviceCalls": {
+      "RENDERER": 1,
+      "SINGLEFILE": 0,
+      "READABILITY": 0,
+      "MONOLITH": 0,
+      "AI": 0
+    }
+  },
+  {
+    "cut": "monolith-attempt-1",
+    "baseCommit": "aa5e5d1b65340cda7c2ca6b4dea9a2ecf967b852",
+    "cache": [
+      [
+        "read-options#1",
+        {
+          "url": "https://example.com/article"
+        }
+      ],
+      [
+        "log-started#1",
+        null
+      ],
+      [
+        "checkpoint-load-init#1",
+        {
+          "version": 1,
+          "requestId": "req-old-order-0001",
+          "optionsR2Key": "archives/req-old-order-0001/input/options.json",
+          "createdAt": "2026-11-10T20:28:14.632Z",
+          "updatedAt": "2026-11-10T20:28:14.632Z",
+          "resumeFromCheckpoint": true,
+          "steps": {
+            "render": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "singlefile": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "readability": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "monolith": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "ai-markdown": {
+              "status": "pending",
+              "attempts": 0
+            }
+          },
+          "artifacts": {}
+        }
+      ],
+      [
+        "checkpoint-persisted-snapshot#1",
+        {}
+      ],
+      [
+        "acquire-render-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-bindings_launch-1"
+        }
+      ],
+      [
+        "log-render-start#1",
+        null
+      ],
+      [
+        "render#1",
+        {
+          "result": {
+            "uses_browser_rendering": true,
+            "quota_kind_used": "rest_request",
+            "artifacts": [
+              {
+                "kind": "rendered.html",
+                "r2Key": "archives/req-old-order-0001/raw/rendered.html",
+                "bytes": 2048,
+                "sha256": "sha-rendered.html",
+                "contentType": "text/html"
+              },
+              {
+                "kind": "rendered.md",
+                "r2Key": "archives/req-old-order-0001/raw/rendered.md",
+                "bytes": 2048,
+                "sha256": "sha-rendered.md",
+                "contentType": "text/markdown"
+              }
+            ]
+          },
+          "fallbackUsed": false
+        }
+      ],
+      [
+        "log-render-artifacts#1",
+        null
+      ],
+      [
+        "release-render-quota#1",
+        null
+      ],
+      [
+        "write-manifest-render-316f9b0514ae47fb.json#1",
+        "archives/req-old-order-0001/state/manifests/render-316f9b0514ae47fb.json"
+      ],
+      [
+        "log-persist-start-render-316f9b0514ae47fb_json#1",
+        null
+      ],
+      [
+        "persist-gcs-render-316f9b0514ae47fb_json#1",
+        {
+          "success": true,
+          "firestore_doc_id": "doc-1",
+          "uploaded": 2,
+          "artifacts": [
+            {
+              "kind": "rendered.html",
+              "gcs_path": "gs://archive/req-old-order-0001/rendered.html"
+            },
+            {
+              "kind": "rendered.md",
+              "gcs_path": "gs://archive/req-old-order-0001/rendered.md"
+            }
+          ]
+        }
+      ],
+      [
+        "log-persist-complete-render-316f9b0514ae47fb_json#1",
+        null
+      ],
+      [
+        "acquire-singlefile-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-bindings_launch-2"
+        }
+      ],
+      [
+        "log-singlefile-start#1",
+        null
+      ],
+      [
+        "singlefile#1",
+        {
+          "artifact": {
+            "kind": "singlefile.html",
+            "r2Key": "archives/req-old-order-0001/derived/singlefile.html",
+            "bytes": 2048,
+            "sha256": "sha-singlefile.html",
+            "contentType": "text/html"
+          }
+        }
+      ],
+      [
+        "log-singlefile-artifact#1",
+        null
+      ],
+      [
+        "release-singlefile-quota#1",
+        null
+      ],
+      [
+        "write-manifest-singlefile-c03d7702c32f2305.json#1",
+        "archives/req-old-order-0001/state/manifests/singlefile-c03d7702c32f2305.json"
+      ],
+      [
+        "log-persist-start-singlefile-c03d7702c32f2305_json#1",
+        null
+      ],
+      [
+        "persist-gcs-singlefile-c03d7702c32f2305_json#1",
+        {
+          "success": true,
+          "firestore_doc_id": "doc-1",
+          "uploaded": 1,
+          "artifacts": [
+            {
+              "kind": "singlefile.html",
+              "gcs_path": "gs://archive/req-old-order-0001/singlefile.html"
+            }
+          ]
+        }
+      ],
+      [
+        "log-persist-complete-singlefile-c03d7702c32f2305_json#1",
+        null
+      ],
+      [
+        "log-readability-start#1",
+        null
+      ],
+      [
+        "log-monolith-start#1",
+        null
+      ],
+      [
+        "acquire-monolith-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-sandbox_exec-3"
+        }
+      ]
+    ],
+    "bucket": [
+      [
+        "archives/req-old-order-0001/input/options.json",
+        "{\"url\":\"https://example.com/article\"}"
+      ],
+      [
+        "archives/req-old-order-0001/state/checkpoint.json",
+        "{\n  \"version\": 1,\n  \"requestId\": \"req-old-order-0001\",\n  \"optionsR2Key\": \"archives/req-old-order-0001/input/options.json\",\n  \"createdAt\": \"2026-11-10T20:28:14.632Z\",\n  \"updatedAt\": \"2026-11-10T20:28:14.635Z\",\n  \"resumeFromCheckpoint\": true,\n  \"steps\": {\n    \"render\": {\n      \"status\": \"succeeded\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.632Z\",\n      \"completedAt\": \"2026-11-10T20:28:14.632Z\"\n    },\n    \"singlefile\": {\n      \"status\": \"succeeded\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.634Z\",\n      \"completedAt\": \"2026-11-10T20:28:14.635Z\"\n    },\n    \"readability\": {\n      \"status\": \"running\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.635Z\",\n      \"resumed\": true\n    },\n    \"monolith\": {\n      \"status\": \"running\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.635Z\",\n      \"resumed\": true\n    },\n    \"ai-markdown\": {\n      \"status\": \"pending\",\n      \"attempts\": 0\n    }\n  },\n  \"artifacts\": {\n    \"rendered.html\": {\n      \"kind\": \"rendered.html\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.html\",\n      \"contentType\": \"text/html\",\n      \"producedBy\": \"render\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.634Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/rendered.html\"\n    },\n    \"rendered.md\": {\n      \"kind\": \"rendered.md\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.md\",\n      \"contentType\": \"text/markdown\",\n      \"producedBy\": \"render\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.634Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/rendered.md\"\n    },\n    \"singlefile.html\": {\n      \"kind\": \"singlefile.html\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/singlefile.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-singlefile.html\",\n      \"contentType\": \"text/html\",\n      \"producedBy\": \"singlefile\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.635Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/singlefile.html\"\n    }\n  }\n}"
+      ],
+      [
+        "archives/req-old-order-0001/state/manifests/render-316f9b0514ae47fb.json",
+        "{\n  \"requestId\": \"req-old-order-0001\",\n  \"url\": \"https://example.com/article\",\n  \"createdAt\": \"2026-11-10T20:28:14.634Z\",\n  \"completedAt\": \"2026-11-10T20:28:14.634Z\",\n  \"artifacts\": [\n    {\n      \"kind\": \"rendered.html\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.html\",\n      \"contentType\": \"text/html\"\n    },\n    {\n      \"kind\": \"rendered.md\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.md\",\n      \"contentType\": \"text/markdown\"\n    }\n  ]\n}"
+      ],
+      [
+        "archives/req-old-order-0001/state/manifests/singlefile-c03d7702c32f2305.json",
+        "{\n  \"requestId\": \"req-old-order-0001\",\n  \"url\": \"https://example.com/article\",\n  \"createdAt\": \"2026-11-10T20:28:14.635Z\",\n  \"completedAt\": \"2026-11-10T20:28:14.635Z\",\n  \"artifacts\": [\n    {\n      \"kind\": \"singlefile.html\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/singlefile.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-singlefile.html\",\n      \"contentType\": \"text/html\"\n    }\n  ]\n}"
+      ],
+      [
+        "archives/req-old-order-0001/derived/readability.json",
+        "{\"title\":\"Fixture title\",\"byline\":null,\"dir\":null,\"lang\":\"en\",\"content\":\"<h1>Fixture title</h1><p>Read <a href=\\\"../next\\\">the next post</a>.</p><img src=\\\"img/a.png\\\" alt=\\\"A figure\\\">\",\"textContent\":\"Fixture title Read the next post.\",\"length\":33,\"excerpt\":null,\"siteName\":null,\"publishedTime\":null,\"leadImage\":null}"
+      ],
+      [
+        "archives/req-old-order-0001/derived/readability.md",
+        "# Fixture title\n\nRead the next post.\n"
+      ]
+    ],
+    "gcsKinds": [
+      "rendered.html",
+      "rendered.md",
+      "singlefile.html"
+    ],
+    "serviceCalls": {
+      "RENDERER": 1,
+      "SINGLEFILE": 1,
+      "READABILITY": 1,
+      "MONOLITH": 0,
+      "AI": 0
+    }
+  },
+  {
+    "cut": "log-ai-markdown-start",
+    "baseCommit": "aa5e5d1b65340cda7c2ca6b4dea9a2ecf967b852",
+    "cache": [
+      [
+        "read-options#1",
+        {
+          "url": "https://example.com/article"
+        }
+      ],
+      [
+        "log-started#1",
+        null
+      ],
+      [
+        "checkpoint-load-init#1",
+        {
+          "version": 1,
+          "requestId": "req-old-order-0001",
+          "optionsR2Key": "archives/req-old-order-0001/input/options.json",
+          "createdAt": "2026-11-10T20:28:14.636Z",
+          "updatedAt": "2026-11-10T20:28:14.636Z",
+          "resumeFromCheckpoint": true,
+          "steps": {
+            "render": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "singlefile": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "readability": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "monolith": {
+              "status": "pending",
+              "attempts": 0
+            },
+            "ai-markdown": {
+              "status": "pending",
+              "attempts": 0
+            }
+          },
+          "artifacts": {}
+        }
+      ],
+      [
+        "checkpoint-persisted-snapshot#1",
+        {}
+      ],
+      [
+        "acquire-render-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-bindings_launch-1"
+        }
+      ],
+      [
+        "log-render-start#1",
+        null
+      ],
+      [
+        "render#1",
+        {
+          "result": {
+            "uses_browser_rendering": true,
+            "quota_kind_used": "rest_request",
+            "artifacts": [
+              {
+                "kind": "rendered.html",
+                "r2Key": "archives/req-old-order-0001/raw/rendered.html",
+                "bytes": 2048,
+                "sha256": "sha-rendered.html",
+                "contentType": "text/html"
+              },
+              {
+                "kind": "rendered.md",
+                "r2Key": "archives/req-old-order-0001/raw/rendered.md",
+                "bytes": 2048,
+                "sha256": "sha-rendered.md",
+                "contentType": "text/markdown"
+              }
+            ]
+          },
+          "fallbackUsed": false
+        }
+      ],
+      [
+        "log-render-artifacts#1",
+        null
+      ],
+      [
+        "release-render-quota#1",
+        null
+      ],
+      [
+        "write-manifest-render-316f9b0514ae47fb.json#1",
+        "archives/req-old-order-0001/state/manifests/render-316f9b0514ae47fb.json"
+      ],
+      [
+        "log-persist-start-render-316f9b0514ae47fb_json#1",
+        null
+      ],
+      [
+        "persist-gcs-render-316f9b0514ae47fb_json#1",
+        {
+          "success": true,
+          "firestore_doc_id": "doc-1",
+          "uploaded": 2,
+          "artifacts": [
+            {
+              "kind": "rendered.html",
+              "gcs_path": "gs://archive/req-old-order-0001/rendered.html"
+            },
+            {
+              "kind": "rendered.md",
+              "gcs_path": "gs://archive/req-old-order-0001/rendered.md"
+            }
+          ]
+        }
+      ],
+      [
+        "log-persist-complete-render-316f9b0514ae47fb_json#1",
+        null
+      ],
+      [
+        "acquire-singlefile-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-bindings_launch-2"
+        }
+      ],
+      [
+        "log-singlefile-start#1",
+        null
+      ],
+      [
+        "singlefile#1",
+        {
+          "artifact": {
+            "kind": "singlefile.html",
+            "r2Key": "archives/req-old-order-0001/derived/singlefile.html",
+            "bytes": 2048,
+            "sha256": "sha-singlefile.html",
+            "contentType": "text/html"
+          }
+        }
+      ],
+      [
+        "log-singlefile-artifact#1",
+        null
+      ],
+      [
+        "release-singlefile-quota#1",
+        null
+      ],
+      [
+        "write-manifest-singlefile-c03d7702c32f2305.json#1",
+        "archives/req-old-order-0001/state/manifests/singlefile-c03d7702c32f2305.json"
+      ],
+      [
+        "log-persist-start-singlefile-c03d7702c32f2305_json#1",
+        null
+      ],
+      [
+        "persist-gcs-singlefile-c03d7702c32f2305_json#1",
+        {
+          "success": true,
+          "firestore_doc_id": "doc-1",
+          "uploaded": 1,
+          "artifacts": [
+            {
+              "kind": "singlefile.html",
+              "gcs_path": "gs://archive/req-old-order-0001/singlefile.html"
+            }
+          ]
+        }
+      ],
+      [
+        "log-persist-complete-singlefile-c03d7702c32f2305_json#1",
+        null
+      ],
+      [
+        "log-readability-start#1",
+        null
+      ],
+      [
+        "log-monolith-start#1",
+        null
+      ],
+      [
+        "acquire-monolith-quota-attempt-1#1",
+        {
+          "granted": true,
+          "leaseId": "lease-sandbox_exec-3"
+        }
+      ],
+      [
+        "readability#1",
+        {
+          "json": {
+            "kind": "readability.json",
+            "r2Key": "archives/req-old-order-0001/derived/readability.json",
+            "bytes": 2048,
+            "sha256": "sha-readability.json",
+            "contentType": "application/json"
+          },
+          "md": {
+            "kind": "readability.md",
+            "r2Key": "archives/req-old-order-0001/derived/readability.md",
+            "bytes": 2048,
+            "sha256": "sha-readability.md",
+            "contentType": "text/markdown"
+          }
+        }
+      ],
+      [
+        "monolith-attempt-1#1",
+        {
+          "artifact": {
+            "kind": "monolith.html",
+            "r2Key": "archives/req-old-order-0001/derived/monolith.html",
+            "bytes": 2048,
+            "sha256": "sha-monolith.html",
+            "contentType": "text/html"
+          }
+        }
+      ],
+      [
+        "release-monolith-quota#1",
+        null
+      ],
+      [
+        "log-readability-artifacts#1",
+        null
+      ],
+      [
+        "log-monolith-artifact#1",
+        null
+      ],
+      [
+        "write-manifest-readability-c2b36d675e8ca1fd.json#1",
+        "archives/req-old-order-0001/state/manifests/readability-c2b36d675e8ca1fd.json"
+      ],
+      [
+        "log-persist-start-readability-c2b36d675e8ca1fd_json#1",
+        null
+      ],
+      [
+        "persist-gcs-readability-c2b36d675e8ca1fd_json#1",
+        {
+          "success": true,
+          "firestore_doc_id": "doc-1",
+          "uploaded": 2,
+          "artifacts": [
+            {
+              "kind": "readability.json",
+              "gcs_path": "gs://archive/req-old-order-0001/readability.json"
+            },
+            {
+              "kind": "readability.md",
+              "gcs_path": "gs://archive/req-old-order-0001/readability.md"
+            }
+          ]
+        }
+      ],
+      [
+        "log-persist-complete-readability-c2b36d675e8ca1fd_json#1",
+        null
+      ],
+      [
+        "write-manifest-monolith-7021aedd955b2537.json#1",
+        "archives/req-old-order-0001/state/manifests/monolith-7021aedd955b2537.json"
+      ],
+      [
+        "log-persist-start-monolith-7021aedd955b2537_json#1",
+        null
+      ],
+      [
+        "persist-gcs-monolith-7021aedd955b2537_json#1",
+        {
+          "success": true,
+          "firestore_doc_id": "doc-1",
+          "uploaded": 1,
+          "artifacts": [
+            {
+              "kind": "monolith.html",
+              "gcs_path": "gs://archive/req-old-order-0001/monolith.html"
+            }
+          ]
+        }
+      ],
+      [
+        "log-persist-complete-monolith-7021aedd955b2537_json#1",
+        null
+      ]
+    ],
+    "bucket": [
+      [
+        "archives/req-old-order-0001/input/options.json",
+        "{\"url\":\"https://example.com/article\"}"
+      ],
+      [
+        "archives/req-old-order-0001/state/checkpoint.json",
+        "{\n  \"version\": 1,\n  \"requestId\": \"req-old-order-0001\",\n  \"optionsR2Key\": \"archives/req-old-order-0001/input/options.json\",\n  \"createdAt\": \"2026-11-10T20:28:14.636Z\",\n  \"updatedAt\": \"2026-11-10T20:28:14.638Z\",\n  \"resumeFromCheckpoint\": true,\n  \"steps\": {\n    \"render\": {\n      \"status\": \"succeeded\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.636Z\",\n      \"completedAt\": \"2026-11-10T20:28:14.636Z\"\n    },\n    \"singlefile\": {\n      \"status\": \"succeeded\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.637Z\",\n      \"completedAt\": \"2026-11-10T20:28:14.637Z\"\n    },\n    \"readability\": {\n      \"status\": \"succeeded\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.637Z\",\n      \"completedAt\": \"2026-11-10T20:28:14.638Z\"\n    },\n    \"monolith\": {\n      \"status\": \"succeeded\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.637Z\",\n      \"completedAt\": \"2026-11-10T20:28:14.638Z\"\n    },\n    \"ai-markdown\": {\n      \"status\": \"running\",\n      \"attempts\": 1,\n      \"startedAt\": \"2026-11-10T20:28:14.638Z\",\n      \"resumed\": true\n    }\n  },\n  \"artifacts\": {\n    \"rendered.html\": {\n      \"kind\": \"rendered.html\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.html\",\n      \"contentType\": \"text/html\",\n      \"producedBy\": \"render\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.637Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/rendered.html\"\n    },\n    \"rendered.md\": {\n      \"kind\": \"rendered.md\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.md\",\n      \"contentType\": \"text/markdown\",\n      \"producedBy\": \"render\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.637Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/rendered.md\"\n    },\n    \"singlefile.html\": {\n      \"kind\": \"singlefile.html\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/singlefile.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-singlefile.html\",\n      \"contentType\": \"text/html\",\n      \"producedBy\": \"singlefile\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.637Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/singlefile.html\"\n    },\n    \"readability.json\": {\n      \"kind\": \"readability.json\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/readability.json\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-readability.json\",\n      \"contentType\": \"application/json\",\n      \"producedBy\": \"readability\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.638Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/readability.json\"\n    },\n    \"readability.md\": {\n      \"kind\": \"readability.md\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/readability.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-readability.md\",\n      \"contentType\": \"text/markdown\",\n      \"producedBy\": \"readability\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.638Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/readability.md\"\n    },\n    \"monolith.html\": {\n      \"kind\": \"monolith.html\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/monolith.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-monolith.html\",\n      \"contentType\": \"text/html\",\n      \"producedBy\": \"monolith\",\n      \"persisted\": true,\n      \"persistedAt\": \"2026-11-10T20:28:14.638Z\",\n      \"gcsPath\": \"gs://archive/req-old-order-0001/monolith.html\"\n    }\n  }\n}"
+      ],
+      [
+        "archives/req-old-order-0001/state/manifests/render-316f9b0514ae47fb.json",
+        "{\n  \"requestId\": \"req-old-order-0001\",\n  \"url\": \"https://example.com/article\",\n  \"createdAt\": \"2026-11-10T20:28:14.636Z\",\n  \"completedAt\": \"2026-11-10T20:28:14.636Z\",\n  \"artifacts\": [\n    {\n      \"kind\": \"rendered.html\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.html\",\n      \"contentType\": \"text/html\"\n    },\n    {\n      \"kind\": \"rendered.md\",\n      \"r2Key\": \"archives/req-old-order-0001/raw/rendered.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-rendered.md\",\n      \"contentType\": \"text/markdown\"\n    }\n  ]\n}"
+      ],
+      [
+        "archives/req-old-order-0001/state/manifests/singlefile-c03d7702c32f2305.json",
+        "{\n  \"requestId\": \"req-old-order-0001\",\n  \"url\": \"https://example.com/article\",\n  \"createdAt\": \"2026-11-10T20:28:14.637Z\",\n  \"completedAt\": \"2026-11-10T20:28:14.637Z\",\n  \"artifacts\": [\n    {\n      \"kind\": \"singlefile.html\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/singlefile.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-singlefile.html\",\n      \"contentType\": \"text/html\"\n    }\n  ]\n}"
+      ],
+      [
+        "archives/req-old-order-0001/derived/readability.json",
+        "{\"title\":\"Fixture title\",\"byline\":null,\"dir\":null,\"lang\":\"en\",\"content\":\"<h1>Fixture title</h1><p>Read <a href=\\\"../next\\\">the next post</a>.</p><img src=\\\"img/a.png\\\" alt=\\\"A figure\\\">\",\"textContent\":\"Fixture title Read the next post.\",\"length\":33,\"excerpt\":null,\"siteName\":null,\"publishedTime\":null,\"leadImage\":null}"
+      ],
+      [
+        "archives/req-old-order-0001/derived/readability.md",
+        "# Fixture title\n\nRead the next post.\n"
+      ],
+      [
+        "archives/req-old-order-0001/state/manifests/readability-c2b36d675e8ca1fd.json",
+        "{\n  \"requestId\": \"req-old-order-0001\",\n  \"url\": \"https://example.com/article\",\n  \"createdAt\": \"2026-11-10T20:28:14.638Z\",\n  \"completedAt\": \"2026-11-10T20:28:14.638Z\",\n  \"artifacts\": [\n    {\n      \"kind\": \"readability.json\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/readability.json\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-readability.json\",\n      \"contentType\": \"application/json\"\n    },\n    {\n      \"kind\": \"readability.md\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/readability.md\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-readability.md\",\n      \"contentType\": \"text/markdown\"\n    }\n  ]\n}"
+      ],
+      [
+        "archives/req-old-order-0001/state/manifests/monolith-7021aedd955b2537.json",
+        "{\n  \"requestId\": \"req-old-order-0001\",\n  \"url\": \"https://example.com/article\",\n  \"createdAt\": \"2026-11-10T20:28:14.638Z\",\n  \"completedAt\": \"2026-11-10T20:28:14.638Z\",\n  \"artifacts\": [\n    {\n      \"kind\": \"monolith.html\",\n      \"r2Key\": \"archives/req-old-order-0001/derived/monolith.html\",\n      \"bytes\": 2048,\n      \"sha256\": \"sha-monolith.html\",\n      \"contentType\": \"text/html\"\n    }\n  ]\n}"
+      ]
+    ],
+    "gcsKinds": [
+      "rendered.html",
+      "rendered.md",
+      "singlefile.html",
+      "readability.json",
+      "readability.md",
+      "monolith.html"
+    ],
+    "serviceCalls": {
+      "RENDERER": 1,
+      "SINGLEFILE": 1,
+      "READABILITY": 1,
+      "MONOLITH": 1,
+      "AI": 0
+    }
+  }
+]

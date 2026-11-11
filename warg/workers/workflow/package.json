@@ -7,14 +7,16 @@
     "dev": "cf dev",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types",
-    "test": "vitest run"
+    "test": "vitest run && vitest run --config vitest.runtime.config.ts",
+    "test:runtime": "vitest run --config vitest.runtime.config.ts"
   },
   "dependencies": {
     "@warg/shared": "workspace:*"
   },
   "devDependencies": {
-    "cf": "1.0.0-beta.17",
+    "@cloudflare/vitest-pool-workers": "^0.18.4",
+    "cf": "1.0.0-beta.28",
     "vitest": "4.1.10",
-    "wrangler": "4.148.0"
+    "wrangler": "4.158.0"
   }
 }

@@ -6,6 +6,7 @@ import android.annotation.SuppressLint
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,42 +14,43 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SecondaryScrollableTabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.constraintlayout.compose.ConstraintLayout
+import androidx.constraintlayout.compose.Dimension
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.accompanist.web.AccompanistWebViewClient
 import com.google.accompanist.web.LoadingState
 import com.google.accompanist.web.WebContent
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
-import com.jayteealao.trails.data.archive.ArchiveType
-import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.compose.Markdown
 import com.mikepenz.markdown.m3.markdownColor
-import com.mikepenz.markdown.m3.markdownTypography
-import com.mikepenz.markdown.model.markdownPadding
-import compose.icons.CssGgIcons
-import compose.icons.cssggicons.AlignMiddle
-import compose.icons.cssggicons.Browser
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 
@@ -79,14 +81,10 @@ fun ArticleDetailScreen(
     }
 
     val currentArticle = viewStore.state.article ?: article
-    val archiveTabs = viewStore.state.localArchives.mapNotNull {
-        ArchiveType.fromArchiveKey(it.archiveKey)
-    }
+    val tabs = detailTabsFor(viewStore.state.tabArchiveKeys)
 
     ConstraintLayout(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 56.dp)
+        modifier = Modifier.fillMaxSize()
     ) {
         val (tabRow, detailView) = createRefs()
 
@@ -96,11 +94,17 @@ fun ArticleDetailScreen(
                 bottom.linkTo(tabRow.top)
                 start.linkTo(parent.start)
                 end.linkTo(parent.end)
+                height = Dimension.fillToConstraints
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
             article = currentArticle,
-            archiveTabs = archiveTabs,
+            tabs = tabs,
             selectedArchiveContent = viewStore.state.selectedArchiveContent,
+            readerBody = viewStore.state.readerBody,
+            selectedArchiveLoadFailed = viewStore.state.selectedArchiveLoadFailed,
+            pendingArchiveKeys = viewStore.state.pendingArchiveKeys,
+            failedArchiveKeys = viewStore.state.failedArchiveKeys,
+            online = viewStore.state.online,
         )
 
         ArticleDetailTabRow(
@@ -110,7 +114,7 @@ fun ArticleDetailScreen(
                 end.linkTo(parent.end)
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
-            archiveTabs = archiveTabs,
+            tabs = tabs,
             onTabSelected = { viewStore.action { setSelectedTab(it) } }
         )
     }
@@ -154,51 +158,257 @@ private fun ArticleDetailArchivePreview() {
         ArticleDetails(
             selectedTabIndex = 2,
             article = PreviewFixtures.article,
-            archiveTabs = listOf(ArchiveType.SINGLEFILE, ArchiveType.READABILITY),
+            tabs = detailTabsFor(listOf("singlefile", "readability")),
             selectedArchiveContent = "<h1>Archived Content</h1><p>This is archived HTML.</p>",
         )
     }
 }
 
+/** The reading column on a phone: the reading heading scale, a 16 dp gutter, a broken image. */
+@Preview(name = "Reader text • phone • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ArticleMarkdownPhoneLightPreview() {
+    TrailsTheme(darkTheme = false) {
+        ArticleMarkdown(PREVIEW_READER_MARKDOWN)
+    }
+}
+
+@Preview(
+    name = "Reader text • phone • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ArticleMarkdownPhoneDarkPreview() {
+    TrailsTheme(darkTheme = true) {
+        ArticleMarkdown(PREVIEW_READER_MARKDOWN)
+    }
+}
+
+/** On a tablet the column stops at 680 dp and is centred. */
+@Preview(name = "Reader text • tablet • light", showBackground = true, widthDp = 900, heightDp = 900)
+@Composable
+private fun ArticleMarkdownTabletPreview() {
+    TrailsTheme(darkTheme = false) {
+        ArticleMarkdown(PREVIEW_READER_MARKDOWN)
+    }
+}
+
+// Synthetic sample text, written for the previews; not from a real site. The image link uses a
+// reserved domain that never resolves, so the broken-image placeholder draws.
+private val PREVIEW_READER_MARKDOWN = """
+    # Counting the street trees of a small city
+
+    *By Mara Ellison*
+
+    The survey began with a question nobody at the council could answer: how many trees line our streets?
+
+    ## How the count worked
+
+    Forty volunteers split the city into 212 blocks. Each pair walked one block an evening.
+
+    ![A map of the 212 survey blocks](https://images.example.invalid/street-trees/survey-blocks-map.png)
+
+    - 212 blocks, two walkers each
+    - Trunk girth at chest height
+    - Species, bark state and verge width
+
+    ### Planting from the survey
+
+    The council now plants 300 trees a year, chosen from the survey. The spreadsheet is on the [council's open data page](https://data.example.org/street-trees).
+""".trimIndent()
+
+/** Every tab of an article with all six local archives, the AI Markdown tab selected. */
+@Preview(name = "Tab row • all tabs • light", showBackground = true, widthDp = 375)
+@Composable
+private fun ArticleDetailTabRowLightPreview() {
+    TrailsTheme(darkTheme = false) {
+        ArticleDetailTabRow(selectedTabIndex = 3, tabs = detailTabsFor(PREVIEW_ALL_ARCHIVE_KEYS))
+    }
+}
+
+@Preview(
+    name = "Tab row • all tabs • dark",
+    showBackground = true,
+    widthDp = 375,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ArticleDetailTabRowDarkPreview() {
+    TrailsTheme(darkTheme = true) {
+        ArticleDetailTabRow(selectedTabIndex = 3, tabs = detailTabsFor(PREVIEW_ALL_ARCHIVE_KEYS))
+    }
+}
+
+private val PREVIEW_ALL_ARCHIVE_KEYS =
+    listOf("singlefile", "monolith", "readability", "markdown", "rendered", "ai_markdown")
+
+/** A Reader body on the theme's background, as the article screen draws it. */
+@Composable
+private fun ReaderBodyPreview(body: ReaderBody, darkTheme: Boolean = false) {
+    TrailsTheme(darkTheme = darkTheme) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            ReaderBodyView(body = body, text = "")
+        }
+    }
+}
+
+@Preview(name = "Reader notice • waiting • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderWaitingLightPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING))
+}
+
+@Preview(
+    name = "Reader notice • waiting • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ReaderWaitingDarkPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING), darkTheme = true)
+}
+
+@Preview(name = "Reader notice • offline • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderOfflinePreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.OFFLINE))
+}
+
+@Preview(name = "Reader notice • failed • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderFailedLightPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.FAILED))
+}
+
+@Preview(
+    name = "Reader notice • failed • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ReaderFailedDarkPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.FAILED), darkTheme = true)
+}
+
+@Preview(name = "Reader notice • no text • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderNoTextPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.NO_TEXT))
+}
+
+@Preview(name = "Text tab notice • empty • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderEmptyPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.EMPTY))
+}
+
+@Preview(name = "Text tab notice • could not be opened • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderUnreadablePreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.UNREADABLE))
+}
+
+@Preview(name = "Reader skeleton • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderSkeletonLightPreview() {
+    ReaderBodyPreview(ReaderBody.Loading)
+}
+
+@Preview(
+    name = "Reader skeleton • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ReaderSkeletonDarkPreview() {
+    ReaderBodyPreview(ReaderBody.Loading, darkTheme = true)
+}
+
+/** At twice the font size the notice scrolls rather than hiding its line. */
+@Preview(name = "Reader notice • failed • large font", showBackground = true, widthDp = 411, heightDp = 600, fontScale = 2f)
+@Composable
+private fun ReaderFailedLargeFontPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.FAILED))
+}
+
+/** On a tablet the notice stays centred in the 680 dp reading column. */
+@Preview(name = "Reader notice • waiting • tablet", showBackground = true, widthDp = 900, heightDp = 900)
+@Composable
+private fun ReaderWaitingTabletPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING))
+}
+
+/**
+ * The bottom row of the article detail screen: one labelled tab per entry of [tabs], on the
+ * surface with a hairline above. It scrolls when the tabs do not fit; the selected tab is in
+ * the accent with a 3 dp underline.
+ */
 @Composable
 fun ArticleDetailTabRow(
     modifier: Modifier = Modifier,
-    selectedTabIndex: Int = 1,
-    archiveTabs: List<ArchiveType> = emptyList(),
+    selectedTabIndex: Int = WEB_TAB_INDEX,
+    tabs: List<DetailTab> = detailTabsFor(emptyList()),
     onTabSelected: (Int) -> Unit = {}
 ) {
-    ScrollableTabRow(
-        selectedTabIndex = selectedTabIndex,
-        modifier = modifier.windowInsetsPadding(WindowInsets.navigationBars),
-        containerColor = MaterialTheme.colorScheme.surface,
-        edgePadding = 16.dp,
-    ) {
-        Tab(
-            selected = selectedTabIndex == 0,
-            onClick = { onTabSelected(0) },
-            icon = {
-                Icon(CssGgIcons.AlignMiddle, contentDescription = "Reader")
+    val colors = MaterialTheme.colorScheme
+    Column(modifier = modifier.windowInsetsPadding(WindowInsets.navigationBars)) {
+        HorizontalDivider(thickness = Dp.Hairline, color = colors.outlineVariant)
+        SecondaryScrollableTabRow(
+            selectedTabIndex = selectedTabIndex,
+            containerColor = colors.surface,
+            contentColor = colors.onSurfaceVariant,
+            edgePadding = 16.dp,
+            minTabWidth = 90.dp,
+            indicator = {
+                TabRowDefaults.SecondaryIndicator(
+                    modifier = Modifier
+                        .tabIndicatorOffset(selectedTabIndex, matchContentSize = false)
+                        .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)),
+                    height = 3.dp,
+                    color = colors.primary,
+                )
+            },
+            divider = {},
+        ) {
+            tabs.forEachIndexed { index, tab ->
+                ArticleDetailTab(
+                    tab = tab,
+                    selected = selectedTabIndex == index,
+                    onClick = { onTabSelected(index) },
+                )
             }
-        )
-
-        Tab(
-            selected = selectedTabIndex == 1,
-            onClick = { onTabSelected(1) },
-            icon = {
-                Icon(CssGgIcons.Browser, contentDescription = "Web")
-            }
-        )
-
-        archiveTabs.forEachIndexed { index, archiveType ->
-            val tabIndex = index + 2
-            Tab(
-                selected = selectedTabIndex == tabIndex,
-                onClick = { onTabSelected(tabIndex) },
-                icon = {
-                    Icon(archiveType.icon, contentDescription = archiveType.displayName)
-                }
-            )
         }
+    }
+}
+
+/** One tab: a 24 dp outline icon over a one-line label; the label is the tab's accessible name. */
+@Composable
+private fun ArticleDetailTab(tab: DetailTab, selected: Boolean, onClick: () -> Unit) {
+    Tab(
+        selected = selected,
+        onClick = onClick,
+        modifier = Modifier.height(64.dp),
+        selectedContentColor = MaterialTheme.colorScheme.primary,
+        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Icon(tab.icon, contentDescription = null, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = tab.label,
+            style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
     }
 }
 
@@ -207,22 +417,41 @@ fun ArticleDetails(
     modifier: Modifier = Modifier,
     selectedTabIndex: Int = 1,
     article: Article,
-    archiveTabs: List<ArchiveType> = emptyList(),
+    tabs: List<DetailTab> = detailTabsFor(emptyList()),
     selectedArchiveContent: String? = null,
+    readerBody: ReaderBody = ReaderBody.Loading,
+    selectedArchiveLoadFailed: Boolean = false,
+    pendingArchiveKeys: Set<String> = emptySet(),
+    failedArchiveKeys: Set<String> = emptySet(),
+    online: Boolean = true,
 ) {
     AnimatedContent(
         targetState = selectedTabIndex,
         modifier = modifier
     ) { targetIndex ->
         when {
-            targetIndex == 0 -> ArticleMarkdown(article.text ?: "No content")
+            targetIndex == 0 -> ReaderBodyView(
+                body = if (!article.text.isNullOrBlank()) ReaderBody.Text else readerBody,
+                text = article.text.orEmpty(),
+            )
             targetIndex == 1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
             else -> {
-                val archiveIndex = targetIndex - 2
-                if (archiveIndex in archiveTabs.indices) {
-                    val archiveType = archiveTabs[archiveIndex]
-                    if (archiveType.providesText) {
-                        ArticleMarkdown(selectedArchiveContent ?: "Loading...")
+                val archiveType = tabs.getOrNull(targetIndex)?.archiveType
+                if (archiveType != null) {
+                    if (archiveType.archiveKey in pendingArchiveKeys) {
+                        // The archive is still on its way to the phone.
+                        ReaderBodyView(
+                            body = pendingArchiveBodyFor(
+                                downloadFailed = archiveType.archiveKey in failedArchiveKeys,
+                                online = online,
+                            ),
+                            text = "",
+                        )
+                    } else if (archiveType.providesText) {
+                        ReaderBodyView(
+                            body = archiveTabBodyFor(selectedArchiveContent, selectedArchiveLoadFailed),
+                            text = selectedArchiveContent.orEmpty(),
+                        )
                     } else {
                         ArticleArchiveWebView(selectedArchiveContent ?: "")
                     }
@@ -304,20 +533,25 @@ fun ArticleArchiveWebView(
     }
 }
 
+/**
+ * The reader text: Markdown in the reading column, with the reading heading scale, a 16 dp
+ * gutter, a 680 dp centred width and the broken-image placeholder. A leading front matter
+ * block is not drawn ([withoutFrontMatter]).
+ */
 @Composable
 fun ArticleMarkdown(
     content: String,
     modifier: Modifier = Modifier
 ) {
-    val scrollState = rememberScrollState()
+    val body = remember(content) { withoutFrontMatter(content) }
     Markdown(
-        content = content,
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState),
+        content = body,
+        modifier = modifier.fillMaxSize(),
         colors = markdownColor(),
-        typography = markdownTypography(),
+        typography = readerMarkdownTypography(),
+        padding = readerMarkdownPadding(),
         imageTransformer = Coil3ImageTransformerImpl,
-        padding = markdownPadding(block = 4.dp)
+        components = readerMarkdownComponents(),
+        success = { state, components, columnModifier -> ReaderColumn(state, components, columnModifier) },
     )
 }

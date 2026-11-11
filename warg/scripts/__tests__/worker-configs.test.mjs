@@ -1,16 +1,31 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
   checkWorker,
+  sourceCronErrors,
   compareShapes,
   fromCf,
   fromWrangler,
+  literalDateErrors,
   loadCfConfig,
-  parseJsonc
+  parseJsonc,
+  sharedDateErrors,
+  TRACED_WORKERS,
+  tracingErrors
 } from '../check-worker-configs.mjs';
 
 const WARG = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -71,6 +86,24 @@ test('a binding added to cloudflare.config.ts only is reported', async () => {
   );
 });
 
+test('a renderer browser binding declared in wrangler.jsonc only is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  delete cf.worker.env.BROWSER;
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /bindings\.BROWSER: wrangler\.jsonc browser, cloudflare\.config\.ts \(absent\)/
+  );
+});
+
+test('a workflow Workers AI binding declared in wrangler.jsonc only is reported', async () => {
+  const { wrangler, cf } = await load('workflow');
+  delete cf.worker.env.AI;
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /bindings\.AI: wrangler\.jsonc ai, cloudflare\.config\.ts \(absent\)/
+  );
+});
+
 test('a binding that points elsewhere is reported', async () => {
   const { wrangler, cf } = await load('gateway');
   cf.worker.env.ARCHIVE_BUCKET = { type: 'r2', name: 'other-bucket' };
@@ -107,6 +140,18 @@ test('a cron changed in one file is reported', async () => {
   assert.match(diff(wrangler, cf).join('\n'), /crons:/);
 });
 
+test('a dispatched cron that no config lists is reported', () => {
+  const source = "export const HEALTH_CHECK_CRON = '0 9 * * *';";
+  assert.match(sourceCronErrors(source, ['*/10 * * * *', '0 8 * * *']).join('\n'), /HEALTH_CHECK_CRON '0 9 \* \* \*'/);
+  assert.deepEqual(sourceCronErrors(source, ['0 9 * * *']), []);
+});
+
+test('a send-email destination set in one file is reported', async () => {
+  const { wrangler, cf } = await load('gateway');
+  wrangler.send_email[0].destination_address = 'owner@example.com';
+  assert.match(diff(wrangler, cf).join('\n'), /bindings\.HEALTH_EMAIL:/);
+});
+
 test('a compatibility date or flag that differs is reported', async () => {
   const { wrangler, cf } = await load('singlefile');
   wrangler.compatibility_date = '2026-01-01';
@@ -123,6 +168,259 @@ test('a wrangler.jsonc section the check does not know is reported, not ignored'
     diff(wrangler, cf).join('\n'),
     /key "kv_namespaces" is not compared/
   );
+});
+
+test('a secret declared in wrangler.jsonc only is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  wrangler.secrets = {
+    required: [...(wrangler.secrets?.required ?? []), 'EXTRA_SECRET']
+  };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /bindings\.EXTRA_SECRET: wrangler\.jsonc secret, cloudflare\.config\.ts \(absent\)/
+  );
+});
+
+test('a secret declared in cloudflare.config.ts only is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  cf.worker.env.EXTRA_SECRET = { type: 'secret' };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /bindings\.EXTRA_SECRET: wrangler\.jsonc \(absent\), cloudflare\.config\.ts secret/
+  );
+});
+
+test('a wrangler.jsonc secrets setting the check does not know is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  wrangler.secrets = { ...wrangler.secrets, optional: ['EXTRA_SECRET'] };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /secrets key "optional" is not compared/
+  );
+});
+
+/**
+ * Copies one Worker's configs into a temp folder laid out like workers/, with
+ * the shared compatibility date module beside it, after `editWrangler` changes
+ * the parsed wrangler.jsonc. Inside warg/ so that cloudflare.config.ts can
+ * resolve cf/config.
+ */
+const tempWorker = (name, editWrangler) => {
+  const tmp = mkdtempSync(join(WARG, 'node_modules', '.tmp-worker-configs-'));
+  const cleanup = () => rmSync(tmp, { recursive: true, force: true });
+  try {
+    copyFileSync(
+      join(WARG, 'workers', 'compatibility-date.mjs'),
+      join(tmp, 'compatibility-date.mjs')
+    );
+    const dir = join(tmp, name);
+    mkdirSync(dir);
+    const src = join(WARG, 'workers', name);
+    copyFileSync(join(src, 'cloudflare.config.ts'), join(dir, 'cloudflare.config.ts'));
+    const wrangler = parseJsonc(readFileSync(join(src, 'wrangler.jsonc'), 'utf8'));
+    editWrangler(wrangler);
+    writeFileSync(join(dir, 'wrangler.jsonc'), JSON.stringify(wrangler, null, 2));
+    return { dir, cleanup };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+};
+
+test('the check exits 1 and names the Worker and the secret that differ', () => {
+  const { dir, cleanup } = tempWorker('renderer', (wrangler) => {
+    wrangler.secrets = {
+      required: [...(wrangler.secrets?.required ?? []), 'EXTRA_SECRET']
+    };
+  });
+  try {
+    const run = spawnSync(
+      process.execPath,
+      ['scripts/check-worker-configs.mjs', dir],
+      { cwd: WARG, encoding: 'utf8' }
+    );
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(run.stdout, /FAIL renderer/);
+    assert.match(run.stdout, /bindings\.EXTRA_SECRET/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a date both files agree on but that is not the shared constant is reported', async () => {
+  const { wrangler, cf } = await load('singlefile');
+  wrangler.compatibility_date = '2026-01-01';
+  cf.worker.compatibilityDate = '2026-01-01';
+  const out = sharedDateErrors(
+    'singlefile',
+    fromWrangler(wrangler).shape,
+    fromCf(cf).shape
+  ).join('\n');
+  assert.match(out, /wrangler\.jsonc "2026-01-01", shared constant/);
+  assert.match(out, /cloudflare\.config\.ts "2026-01-01", shared constant/);
+});
+
+test('a quoted date in cloudflare.config.ts is reported', () => {
+  assert.match(
+    literalDateErrors('compatibilityDate: "2026-03-24",').join('\n'),
+    /import COMPATIBILITY_DATE/
+  );
+  assert.deepEqual(literalDateErrors('compatibilityDate: COMPATIBILITY_DATE,'), []);
+});
+
+test('a renderer date before its minimum is reported', async () => {
+  const { wrangler, cf } = await load('renderer');
+  wrangler.compatibility_date = '2026-03-23';
+  cf.worker.compatibilityDate = '2026-03-23';
+  assert.match(
+    sharedDateErrors(
+      'renderer',
+      fromWrangler(wrangler).shape,
+      fromCf(cf).shape,
+      '2026-03-23'
+    ).join('\n'),
+    /before the minimum "2026-03-24" of renderer/
+  );
+});
+
+test('the check exits 1 and names the Worker whose wrangler.jsonc date differs from the shared constant', () => {
+  const { dir, cleanup } = tempWorker('gcs', (wrangler) => {
+    wrangler.compatibility_date = '2026-03-23';
+  });
+  try {
+    const run = spawnSync(
+      process.execPath,
+      ['scripts/check-worker-configs.mjs', dir],
+      { cwd: WARG, encoding: 'utf8' }
+    );
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(run.stdout, /FAIL gcs/);
+    assert.match(run.stdout, /shared constant/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('tracing enabled in wrangler.jsonc only is reported', async () => {
+  const { wrangler, cf } = await load('readability');
+  wrangler.observability = {
+    ...wrangler.observability,
+    traces: { enabled: true }
+  };
+  delete cf.worker.observability.traces;
+  assert.match(diff(wrangler, cf).join('\n'), /^traces: wrangler\.jsonc/m);
+});
+
+test('tracing enabled in cloudflare.config.ts only is reported', async () => {
+  const { wrangler, cf } = await load('readability');
+  delete wrangler.observability.traces;
+  cf.worker.observability = {
+    ...cf.worker.observability,
+    traces: { enabled: true }
+  };
+  assert.match(diff(wrangler, cf).join('\n'), /^traces: wrangler\.jsonc/m);
+});
+
+test('a tracing sampling rate that differs between the files is reported', async () => {
+  const { wrangler, cf } = await load('readability');
+  wrangler.observability = {
+    ...wrangler.observability,
+    traces: { enabled: true, head_sampling_rate: 0.5 }
+  };
+  cf.worker.observability = {
+    ...cf.worker.observability,
+    traces: { enabled: true }
+  };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /^traces: wrangler\.jsonc .*headSamplingRate\\":0\.5/m
+  );
+});
+
+test('tracing disabled in one file and absent in the other is not reported', async () => {
+  const { wrangler, cf } = await load('readability');
+  wrangler.observability = {
+    ...wrangler.observability,
+    traces: { enabled: false }
+  };
+  delete cf.worker.observability.traces;
+  assert.deepEqual(diff(wrangler, cf), []);
+});
+
+test('an observability key the check does not compare is reported', async () => {
+  const { wrangler, cf } = await load('readability');
+  wrangler.observability.logs = { enabled: true };
+  assert.match(
+    diff(wrangler, cf).join('\n'),
+    /wrangler\.jsonc observability key "logs" is not compared/
+  );
+});
+
+test('a Worker on the archive path without tracing is reported', async () => {
+  const { wrangler } = await load('renderer');
+  delete wrangler.observability.traces;
+  assert.match(
+    tracingErrors('renderer', fromWrangler(wrangler).shape).join('\n'),
+    /renderer is on the archive path/
+  );
+});
+
+test('a Worker off the archive path may leave tracing off', async () => {
+  const { wrangler } = await load('logger');
+  assert.deepEqual(tracingErrors('logger', fromWrangler(wrangler).shape), []);
+});
+
+test('every traced Worker is a Worker folder with a cloudflare.config.ts', () => {
+  for (const name of TRACED_WORKERS) {
+    assert.ok(
+      existsSync(join(WARG, 'workers', name, 'cloudflare.config.ts')),
+      name
+    );
+  }
+});
+
+test('the check exits 1 and names the Worker whose wrangler.jsonc drops tracing', () => {
+  const { dir, cleanup } = tempWorker('singlefile', (wrangler) => {
+    delete wrangler.observability.traces;
+  });
+  try {
+    const run = spawnSync(
+      process.execPath,
+      ['scripts/check-worker-configs.mjs', dir],
+      { cwd: WARG, encoding: 'utf8' }
+    );
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(run.stdout, /FAIL singlefile/);
+    assert.match(run.stdout, /^\s+traces: wrangler\.jsonc/m);
+    assert.match(run.stdout, /singlefile is on the archive path/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('the renderer neither declares nor reads BR_API_TOKEN or CF_ACCOUNT_ID', () => {
+  // The renderer loads pages through its browser binding, so it holds no
+  // Browser Rendering API token. worker-configuration.d.ts is generated from
+  // wrangler.jsonc and is not read here.
+  const renderer = join(WARG, 'workers', 'renderer');
+  const files = [
+    'wrangler.jsonc',
+    'cloudflare.config.ts',
+    'package.json',
+    ...readdirSync(join(renderer, 'src'), { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) =>
+        relative(renderer, join(entry.parentPath, entry.name)).split(sep).join('/')
+      )
+  ];
+  const hits = [];
+  for (const file of files.sort()) {
+    const text = readFileSync(join(renderer, file), 'utf8');
+    for (const name of ['BR_API_TOKEN', 'CF_ACCOUNT_ID']) {
+      if (text.includes(name)) hits.push(`${file}: ${name}`);
+    }
+  }
+  assert.deepEqual(hits, []);
 });
 
 const DASHBOARD = join(WARG, 'pages', 'dashboard');

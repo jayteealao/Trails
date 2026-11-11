@@ -9,11 +9,23 @@ import type {
   RequestFieldsPatch,
   RequestStage,
   RequestSettle,
-  TerminalState
+  TerminalState,
+  KindHealthRow,
+  KindHealthArtifact,
+  ArtifactKind,
+  WorkflowStartedData,
+  WorkflowStep
 } from '@warg/shared';
-import { extractHostname, isIncompleteDegradation, parseRequestSettle } from '@warg/shared';
+import {
+  HEALTH_KIND_ARTIFACTS,
+  WORKFLOW_STEPS,
+  extractHostname,
+  isIncompleteDegradation,
+  parseRequestSettle
+} from '@warg/shared';
 import { initSchema, migrateSchema } from './schema.js';
 import { asNumber, asString, asBoolean, asRecord } from './value-helpers.js';
+import { applyRenderFallbackDiagnostics } from './render-fallback-diagnostics.js';
 
 interface LoggerDoEnv {
   INDEX_DB: D1Database;
@@ -83,18 +95,28 @@ function deriveStage(
   return undefined;
 }
 
+const HEALTH_STEPS = new Set<string>(WORKFLOW_STEPS);
+const HEALTH_ARTIFACT_KINDS: string[] = Object.values(HEALTH_KIND_ARTIFACTS);
+
+/** The `requestedSteps` of a `workflow.started` payload, when it is a list of known steps. */
+function requestedStepsOf(dataJson: string | null): WorkflowStep[] | undefined {
+  if (!dataJson) return undefined;
+  try {
+    // Parsed against the shared payload of workflow.started; every field is checked below.
+    const value = (JSON.parse(dataJson) as Partial<Record<keyof WorkflowStartedData, unknown>>).requestedSteps;
+    if (!Array.isArray(value)) return undefined;
+    return value.every((entry) => typeof entry === 'string' && HEALTH_STEPS.has(entry))
+      ? (value as WorkflowStep[])
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function asStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const strings = value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
   return strings.length > 0 ? strings : undefined;
-}
-
-function normalizeRenderProvider(value: string | undefined): RequestDiagnostics['renderProvider'] | undefined {
-  if (!value) return undefined;
-  const lower = value.toLowerCase();
-  if (lower === 'hyperbrowser') return 'hyperbrowser';
-  if (lower === 'browser-rendering' || lower === 'browser_rendering') return 'browser-rendering';
-  return 'unknown';
 }
 
 function shouldMarkIncompleteFromDiagnostics(
@@ -114,6 +136,7 @@ function isArtifactKind(value: string): value is ArtifactRecord['kind'] {
     value === 'readability.json' ||
     value === 'readability.md' ||
     value === 'monolith.html' ||
+    value === 'ai-markdown.md' ||
     value === 'manifest.json'
   );
 }
@@ -165,31 +188,9 @@ function updateDiagnostics(
       if (step === 'render' || step === 'singlefile') diagnostics.renderMs = durationMs;
       else if (step === 'derivatives' || step === 'readability' || step === 'monolith') diagnostics.deriveMs = durationMs;
     }
-
-    if (step === 'render') {
-      const fallbackUsed = asBoolean(data?.['fallbackUsed']);
-      if (fallbackUsed !== undefined) {
-        diagnostics.renderFallbackUsed = fallbackUsed;
-      }
-
-      const fallbackReason = asString(data?.['fallbackReason']);
-      if (fallbackReason) {
-        diagnostics.renderFallbackReason = fallbackReason;
-      }
-
-      const meta = asRecord(data?.['meta']);
-      const provider = normalizeRenderProvider(
-        asString(data?.['fallbackProvider']) ??
-          asString(meta?.['provider']) ??
-          (fallbackUsed === false ? 'browser-rendering' : undefined)
-      );
-      if (provider) {
-        diagnostics.renderProvider = provider;
-      } else if (fallbackUsed === true) {
-        diagnostics.renderProvider = 'hyperbrowser';
-      }
-    }
   }
+
+  applyRenderFallbackDiagnostics(diagnostics, event);
 
   if (event.type === 'persist.completed') {
     const durationMs = asNumber(data?.['duration_ms']);
@@ -227,6 +228,17 @@ function updateDiagnostics(
     const errorCode = asString(data?.['errorCode']) as RequestDiagnostics['errorCode'] | undefined;
     diagnostics.errorCode = errorCode ?? 'UNKNOWN_ERROR';
     diagnostics.errorMessage = asString(data?.['error']) ?? event.message;
+    diagnostics.errorSource = event.source;
+    diagnostics.retryable = asBoolean(data?.['retryable']) ?? diagnostics.retryable;
+    const recommendedAction = asString(data?.['recommendedAction']);
+    if (recommendedAction) {
+      diagnostics.recommendedAction = recommendedAction as RequestDiagnostics['recommendedAction'];
+    }
+  } else if (event.level === 'warn' && asString(data?.['errorCode'])) {
+    // A step that a fallback rescued can still name a cause to act on (a
+    // rejected credential). Record the code without counting an error.
+    diagnostics.errorCode = asString(data?.['errorCode']) as RequestDiagnostics['errorCode'];
+    diagnostics.errorMessage = event.message;
     diagnostics.errorSource = event.source;
     diagnostics.retryable = asBoolean(data?.['retryable']) ?? diagnostics.retryable;
     const recommendedAction = asString(data?.['recommendedAction']);
@@ -312,7 +324,7 @@ function applySettle(derived: DerivedSummary, settle: RequestSettle): void {
 /**
  * Apply a single event to a mutable DerivedSummary in-place.
  * Encapsulates the stage machine, terminal flags, errorCount, lastEventTs,
- * diagnostics update, and the degraded-monolith incomplete override.
+ * diagnostics update, and the degraded incomplete override.
  * A request.settled event applies the settle; while a settle holds (no newer
  * reopen), other events keep the settled stage and error fields.
  * Pure with respect to storage — no SQL side-effects.
@@ -1005,5 +1017,53 @@ export class LoggerDO extends DurableObject<LoggerDoEnv> {
       })),
       nextCursor
     };
+  }
+
+  /** Requests created since `sinceIso`, with requested steps and primary-artifact creation times. */
+  getKindHealthRows(sinceIso: string): KindHealthRow[] {
+    this.ensureSchema();
+
+    const requests = this.sql
+      .exec<{ request_id: string; created_at: string }>(
+        'SELECT request_id, created_at FROM requests WHERE created_at >= ?',
+        sinceIso
+      )
+      .toArray();
+    if (requests.length === 0) return [];
+
+    // The latest workflow.started that carries a requested-steps list wins: the
+    // gateway's orphan sweep logs a workflow.started without one.
+    const requestedSteps = new Map<string, WorkflowStep[]>();
+    for (const row of this.sql
+      .exec<{ request_id: string; data_json: string | null }>(
+        "SELECT request_id, data_json FROM events WHERE type = 'workflow.started' ORDER BY id"
+      )
+      .toArray()) {
+      const steps = requestedStepsOf(row.data_json);
+      if (steps) requestedSteps.set(row.request_id, steps);
+    }
+
+    const artifacts = new Map<string, KindHealthArtifact[]>();
+    for (const row of this.sql
+      .exec<{ request_id: string; kind: string; created_at: string }>(
+        `SELECT request_id, kind, strftime('%Y-%m-%dT%H:%M:%SZ', created_at) AS created_at
+         FROM artifacts WHERE kind IN (${HEALTH_ARTIFACT_KINDS.map(() => '?').join(', ')})`,
+        ...HEALTH_ARTIFACT_KINDS
+      )
+      .toArray()) {
+      const list = artifacts.get(row.request_id) ?? [];
+      list.push({ kind: row.kind as ArtifactKind, createdAt: row.created_at });
+      artifacts.set(row.request_id, list);
+    }
+
+    return requests.map((row) => {
+      const steps = requestedSteps.get(row.request_id);
+      return {
+        requestId: row.request_id,
+        createdAt: row.created_at,
+        ...(steps ? { requestedSteps: steps } : {}),
+        artifacts: artifacts.get(row.request_id) ?? []
+      };
+    });
   }
 }

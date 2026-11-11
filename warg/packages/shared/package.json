@@ -9,6 +9,10 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
+    "./fixtures": {
+      "types": "./src/challenge-page.fixtures.ts",
+      "import": "./src/challenge-page.fixtures.ts"
+    },
     "./archive-ids": {
       "types": "./dist/archive-ids.d.ts",
       "import": "./dist/archive-ids.js"

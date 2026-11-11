@@ -1,10 +1,11 @@
-import { isRequestErrorCode, isUserActionHint } from './dashboard.js';
-import { isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from './render-content.js';
-import type { RequestErrorCode, UserActionHint } from './dashboard.js';
+import { credentialFailure, isCredentialErrorCode, isRenderStealthMode, isRequestErrorCode, isUserActionHint, R2_KEY_ERROR_NAMES } from './dashboard.js';
+import { BROWSER_TOKEN_INVALID_REASON, isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from './render-content.js';
+import type { RenderStealthMode, RequestErrorCode, UserActionHint } from './dashboard.js';
 
 /**
- * The `error` text of the renderer's answer when Browser Run fails to load the page.
- * The renderer writes it and the service classifier and the renderer fallback read it.
+ * The `error` text of the renderer's answer when Browser Run fails to load the page
+ * (content or snapshot). The renderer writes it and the service classifier and the
+ * renderer fallback read it.
  */
 export const RENDERER_CONTENT_FAILED_ERROR = 'Browser Rendering /content failed';
 
@@ -42,6 +43,53 @@ export function readClassificationTag(message: string): ErrorClassification | un
   return found;
 }
 
+/**
+ * The message of the monolith Worker's answer when its sandbox container is not
+ * ready. The workflow reads the hint back with readContainerNotReadyHint to
+ * wait that much longer before the step's retry.
+ */
+export function containerNotReadyMessage(retryAfterMs: number): string {
+  return `Sandbox container not ready (retry after ${retryAfterMs} ms)`;
+}
+
+const CONTAINER_NOT_READY = /container not ready \(retry after (\d+) ms\)/i;
+
+/** The readiness hint, in ms, that a containerNotReadyMessage carries, or undefined. */
+export function readContainerNotReadyHint(message: string): number | undefined {
+  const hint = CONTAINER_NOT_READY.exec(message)?.[1];
+  return hint === undefined ? undefined : Number(hint);
+}
+
+/** A fallback render that ran and failed: why it ran, and the stealth setting it used when its answer said. */
+export interface RenderFallbackFailure {
+  fallbackReason: RendererFallbackReason;
+  fallbackStealth?: RenderStealthMode;
+}
+
+/**
+ * The tag a failed fallback leaves in the render error message. The message is
+ * what survives the workflow step boundary, so the step's failure log reads the
+ * fallback back from it with readRenderFallbackTag.
+ */
+const RENDER_FALLBACK_TAG = /\[render fallback reason=([a-z0-9_]+)(?: stealth=([a-z]+))?\]/;
+
+export function renderFallbackTag(failure: RenderFallbackFailure): string {
+  const stealth = failure.fallbackStealth ? ` stealth=${failure.fallbackStealth}` : '';
+  return `[render fallback reason=${failure.fallbackReason}${stealth}]`;
+}
+
+/** The fallback that a render error message names, or undefined when no fallback ran. */
+export function readRenderFallbackTag(message: string): RenderFallbackFailure | undefined {
+  const match = RENDER_FALLBACK_TAG.exec(message);
+  const reason = match?.[1];
+  if (reason === undefined || !isRendererFallbackReason(reason)) return undefined;
+  const stealth = match?.[2];
+  return {
+    fallbackReason: reason,
+    ...(isRenderStealthMode(stealth) ? { fallbackStealth: stealth } : {}),
+  };
+}
+
 // --- Monolith text rules -----------------------------------------------------
 
 /**
@@ -73,16 +121,33 @@ function isSandboxTimeoutText(lower: string): boolean {
   return lower.includes('timeout') || lower.includes('timed out') || lower.includes('deadline exceeded');
 }
 
-export type SandboxFailureCode = 'MONOLITH_RPC_32MIB_LIMIT' | 'MONOLITH_TIMEOUT' | 'MONOLITH_SANDBOX_500';
+export type SandboxFailureCode =
+  | 'MONOLITH_RPC_32MIB_LIMIT'
+  | 'MONOLITH_TIMEOUT'
+  | 'MONOLITH_R2_HANDLER_FAILED'
+  | 'MONOLITH_SANDBOX_500';
+
+/**
+ * The HTTP status curl reports for a failed request (`curl -f`: "The requested
+ * URL returned error: 403"). In the monolith sandbox curl talks only to the
+ * Worker's R2 handler, so this is the handler's answer.
+ */
+const CURL_HTTP_ERROR = /returned error: (\d{3})\b/;
 
 /** How a failed command inside the monolith sandbox is classified, from its stderr and stdout. */
 export function classifySandboxOutput(
   stderr: string,
   stdout: string
-): { errorCode: SandboxFailureCode; retryable: boolean } {
+): { errorCode: SandboxFailureCode; retryable: boolean; handlerStatus?: number } {
   const message = `${stderr}\n${stdout}`.toLowerCase();
   if (isRpc32MiBLimit(message)) return { errorCode: 'MONOLITH_RPC_32MIB_LIMIT', retryable: false };
   if (isSandboxTimeoutText(message)) return { errorCode: 'MONOLITH_TIMEOUT', retryable: true };
+  const handlerStatus = CURL_HTTP_ERROR.exec(message)?.[1];
+  if (handlerStatus !== undefined) {
+    const status = Number(handlerStatus);
+    // A refusal (403, 404, 411) answers the same on a retry; an R2 failure (5xx) may not.
+    return { errorCode: 'MONOLITH_R2_HANDLER_FAILED', retryable: status >= 500, handlerStatus: status };
+  }
   return { errorCode: 'MONOLITH_SANDBOX_500', retryable: true };
 }
 
@@ -94,6 +159,25 @@ function classifyMonolithError(errorMsgLower: string): ErrorClassification | und
     errorMsgLower.includes('monolith') ||
     errorMsgLower.includes('sandboxerror');
   if (!mentionsMonolith) return undefined;
+
+  // The monolith Worker names a failed R2 handler answer in its body; a
+  // retryable one reaches this rule untagged after the step's last retry.
+  if (errorMsgLower.includes('monolith_r2_handler_failed')) {
+    return {
+      errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
+
+  // The sandbox container was not ready on every attempt of the step.
+  if (errorMsgLower.includes('monolith_container_unavailable')) {
+    return {
+      errorCode: 'MONOLITH_CONTAINER_UNAVAILABLE',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    };
+  }
 
   if (isRpc32MiBLimit(errorMsgLower)) {
     return {
@@ -149,6 +233,17 @@ export function classifyError(stepName: string, errorMsg: string): ErrorClassifi
   if (tagged) return tagged;
 
   const msg = errorMsg.toLowerCase();
+  // A worker names a rejected credential in its answer body; the step boundary
+  // keeps only the message, so read the name from it.
+  if (msg.includes('browser_token_invalid')) return credentialFailure('BROWSER_TOKEN_INVALID');
+  if (R2_KEY_ERROR_NAMES.some((name) => msg.includes(name.toLowerCase()))) {
+    return credentialFailure('R2_CREDENTIAL_INVALID');
+  }
+  // A worker answers a site block with HTTP 401/403 (classifyServiceFailure below).
+  // The step boundary keeps only the message, so read the status from it.
+  if (/\bservice error 40[13]\b/.test(msg)) {
+    return { errorCode: 'ACCESS_BLOCKED', retryable: false, recommendedAction: 'check_access' };
+  }
   const monolithError = classifyMonolithError(msg);
   if (monolithError) return monolithError;
 
@@ -226,6 +321,7 @@ export function classifyError(stepName: string, errorMsg: string): ErrorClassifi
       render: 'RENDER_TIMEOUT',
       singlefile: 'SINGLEFILE_TIMEOUT',
       readability: 'READABILITY_TIMEOUT',
+      'ai-markdown': 'AI_MARKDOWN_TIMEOUT',
       monolith: 'MONOLITH_TIMEOUT',
     };
     return {
@@ -240,6 +336,7 @@ export function classifyError(stepName: string, errorMsg: string): ErrorClassifi
       render: 'RENDER_SERVICE_ERROR',
       singlefile: 'SINGLEFILE_SERVICE_ERROR',
       readability: 'READABILITY_SERVICE_ERROR',
+      'ai-markdown': 'AI_MARKDOWN_SERVICE_ERROR',
       monolith: 'MONOLITH_SERVICE_ERROR',
       persist: 'PERSIST_SERVICE_ERROR',
       derivatives: 'MONOLITH_SERVICE_ERROR',
@@ -316,6 +413,22 @@ function readMessageFromResponseBody(responseBody: string): string | undefined {
 function classifyMonolithFailureFromBody(
   responseBody: string
 ): ErrorClassification | undefined {
+  const parsed = parseJsonSafe(responseBody);
+  // The monolith Worker names these failures by code and says whether a retry may help.
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    'code' in parsed &&
+    (parsed.code === 'MONOLITH_R2_HANDLER_FAILED' || parsed.code === 'MONOLITH_CONTAINER_UNAVAILABLE')
+  ) {
+    const retryable = 'retryable' in parsed && parsed.retryable === true;
+    return {
+      errorCode: parsed.code,
+      retryable,
+      recommendedAction: retryable ? 'retry_step' : 'investigate_service',
+    };
+  }
+
   const message = readMessageFromResponseBody(responseBody);
   if (!message) return undefined;
   const lower = message.toLowerCase();
@@ -406,6 +519,9 @@ function classifyRenderFailureFromBody(
     return isProxyErrorPageDeadHost(record) ? UNREACHABLE_TARGET : undefined;
   }
   if (!looksLikeRendererContentFailurePayload(record)) return undefined;
+
+  // No renderer sends this reason any more; kept so an answer from a renderer version before the browser binding still classifies.
+  if (record.reason === BROWSER_TOKEN_INVALID_REASON) return credentialFailure('BROWSER_TOKEN_INVALID');
 
   if (containsRendererNetworkClosed5006(record.details)) {
     return {
@@ -567,12 +683,20 @@ function containsRendererNetworkClosed5006(details: unknown): boolean {
   });
 }
 
-export type RendererFallbackReason =
-  | 'browser_rendering_403'
-  | 'browser_rendering_5006'
-  | 'browser_rendering_6000'
-  | 'browser_rendering_proxy_error_page'
-  | 'browser_rendering_dead_host';
+/** Why the workflow called the fallback renderer after a primary-renderer failure. */
+export const RENDERER_FALLBACK_REASONS = [
+  'browser_rendering_403',
+  'browser_rendering_5006',
+  'browser_rendering_6000',
+  'browser_rendering_proxy_error_page',
+  'browser_rendering_dead_host',
+] as const;
+
+export type RendererFallbackReason = (typeof RENDERER_FALLBACK_REASONS)[number];
+
+export function isRendererFallbackReason(value: unknown): value is RendererFallbackReason {
+  return RENDERER_FALLBACK_REASONS.some((reason) => reason === value);
+}
 
 /**
  * The fallback reason a failed primary-renderer answer body gives: an access-blocked,
@@ -617,7 +741,8 @@ export function defaultRetryableForCode(code: RequestErrorCode): boolean {
     code !== 'ACCESS_BLOCKED' &&
     code !== 'INVALID_INPUT_URL' &&
     code !== 'MONOLITH_RPC_32MIB_LIMIT' &&
-    code !== 'MONOLITH_INPUT_TOO_LARGE'
+    code !== 'MONOLITH_INPUT_TOO_LARGE' &&
+    !isCredentialErrorCode(code)
   );
 }
 
@@ -639,6 +764,7 @@ export function defaultActionForCode(code: RequestErrorCode): UserActionHint {
     return 'investigate_service';
   }
   if (code === 'PERSIST_SERVICE_ERROR' || code === 'UNKNOWN_ERROR') return 'investigate_service';
+  if (isCredentialErrorCode(code)) return credentialFailure(code).recommendedAction;
   return 'retry_step';
 }
 

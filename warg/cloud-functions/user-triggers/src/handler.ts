@@ -42,7 +42,25 @@ async function recordFailure(itemId: string, write: () => Promise<unknown>): Pro
   }
 }
 
-export type HandleResult = 'missing-url' | 'invalid-id' | 'conflict' | 'linked' | 'created' | 'already-linked' | 'error';
+export type HandleResult =
+  | 'missing-url'
+  | 'invalid-id'
+  | 'conflict'
+  | 'archive-owned'
+  | 'linked'
+  | 'created'
+  | 'already-linked'
+  | 'error';
+
+/**
+ * Whether the gateway refused the archive because the operator's own run owns
+ * this request id (409, code REQUEST_ID_CONFLICT). That run archives the shared
+ * article, so the save must not retry or mark anything failed.
+ */
+function isRequestIdConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('REQUEST_ID_CONFLICT');
+}
 
 /**
  * Handles a new users/{userId}/articles/{itemId} document: links it to its
@@ -117,6 +135,10 @@ export async function handleUserArticleCreated(
     if (error instanceof InvalidSharedIdError) {
       await recordFailure(itemId, () => recordUserArticleError(userRef, 'Invalid article id'));
       return 'invalid-id';
+    }
+    if (isRequestIdConflict(error)) {
+      console.warn(`[onUserArticleSave] ${itemId}: the operator's run already archives this article`);
+      return 'archive-owned';
     }
 
     console.error(`[onUserArticleSave] Error processing ${itemId}:`, error);

@@ -61,6 +61,7 @@ export interface StatsBody {
   byStage: Record<string, number>;
   successRate: number;
   failureRate: number;
+  incompleteRate: number;
   activeCount: number;
   stuckCount: number;
   orphanQueue: { total: number; olderThan10m: number; olderThan60m: number };
@@ -79,6 +80,7 @@ export function buildStatsBody(countRows: StatsCountRow[], listRows: StatsListRo
   let total = 0;
   let doneCount = 0;
   let failedCount = 0;
+  let incompleteCount = 0;
   let activeCount = 0;
   let stuckCount = 0;
   let last1h = 0;
@@ -92,6 +94,8 @@ export function buildStatsBody(countRows: StatsCountRow[], listRows: StatsListRo
     byStage[stage] = row.count;
     if (stage === 'done') doneCount = row.count;
     else if (stage === 'failed') failedCount = row.count;
+    // An incomplete request has finished with a failed or degraded step; it is not active.
+    else if (stage === 'incomplete') incompleteCount = row.count;
     else activeCount += row.count;
     total += row.count;
     stuckCount += row.stuck;
@@ -102,13 +106,15 @@ export function buildStatsBody(countRows: StatsCountRow[], listRows: StatsListRo
     orphan60m += row.orphan60m;
   }
 
-  const terminal = doneCount + failedCount;
+  // Every finished request counts: an incomplete one is not a success.
+  const terminal = doneCount + failedCount + incompleteCount;
 
   return {
     total,
     byStage,
     successRate: terminal > 0 ? roundRate(doneCount / terminal) : 0,
     failureRate: terminal > 0 ? roundRate(failedCount / terminal) : 0,
+    incompleteRate: terminal > 0 ? roundRate(incompleteCount / terminal) : 0,
     activeCount,
     stuckCount,
     orphanQueue: { total: orphan, olderThan10m: orphan10m, olderThan60m: orphan60m },

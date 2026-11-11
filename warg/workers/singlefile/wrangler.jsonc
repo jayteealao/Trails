@@ -2,14 +2,18 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "singlefile",
   "main": "src/index.ts",
-  "compatibility_date": "2025-01-01",
+  // Equals COMPATIBILITY_DATE in ../compatibility-date.mjs; scripts/check-worker-configs.mjs fails otherwise.
+  "compatibility_date": "2026-03-24",
   "workers_dev": false,
   "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true },
+  // Workers tracing: the runtime emits the spans; enabled alone turns on logs only.
+  "observability": { "enabled": true, "traces": { "enabled": true } },
   "browser": { "binding": "MYBROWSER" },
   "r2_buckets": [
     { "binding": "ARCHIVE_BUCKET", "bucket_name": "warg-archives", "preview_bucket_name": "warg-archives" }
-  ]
+  ],
+  // Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
+  "secrets": { "required": ["INTERNAL_API_KEY"] }
 }
-// Secrets (via `wrangler secret put`):
+// Secrets (via `cf workers secrets update`):
 // - INTERNAL_API_KEY: shared key for internal worker auth

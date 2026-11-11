@@ -42,10 +42,14 @@ FIX="$ROOT/repo"
 mkdir -p "$FIX/scripts" "$FIX/$DASHBOARD_DIR"
 cp "$WARG/scripts/deploy.sh" "$FIX/scripts/deploy.sh"
 cp "$WARG/scripts/rules-release.mjs" "$FIX/scripts/rules-release.mjs"
+cp "$WARG/scripts/check-sandbox-version.mjs" "$FIX/scripts/check-sandbox-version.mjs"
 for w in "${WORKERS[@]}"; do
   mkdir -p "$FIX/workers/$w"
   echo "{}" >"$FIX/workers/$w/package.json"
 done
+# The monolith image and SDK must agree, or every worker deploy stops.
+echo "FROM docker.io/cloudflare/sandbox:1.2.3" >"$FIX/workers/monolith/Dockerfile"
+echo '{"dependencies":{"@cloudflare/sandbox":"1.2.3"}}' >"$FIX/workers/monolith/package.json"
 for fn in "${FUNCTIONS[@]}"; do
   mkdir -p "$FIX/cloud-functions/$fn"
   echo "PLACEHOLDER=1" >"$FIX/cloud-functions/$fn/.env"
@@ -373,10 +377,10 @@ scenario_secrets_list_fails() {
 
 scenario_secret_missing() {
   start secret-missing
-  run_deploy secret-missing H_SECRETS_MISSING=monolith:R2_ACCOUNT_ID --
+  run_deploy secret-missing H_SECRETS_MISSING=monolith:INTERNAL_API_KEY --
   expect_rc 3
   expect_row "worker:readability" skipped '-'
-  expect_row "worker:monolith" failed 'missing secret\(s\): R2_ACCOUNT_ID'
+  expect_row "worker:monolith" failed 'missing secret\(s\): INTERNAL_API_KEY'
   expect_row "worker:gcs" skipped '-'
   expect_out '^Set each with: cf workers secrets update <NAME> --worker monolith --type secret_text --text <value>$'
   expect_calls 0 '^wrangler '
@@ -405,6 +409,37 @@ scenario_secret_missing_last_worker() {
   finish
 }
 
+# The renderer loads pages through its browser binding, so an account where it
+# holds only INTERNAL_API_KEY (no Browser Rendering API token or account id)
+# passes the preflight.
+scenario_renderer_internal_key_only() {
+  start renderer-internal-key-only
+  local missing="" n
+  for n in $H_ALL_SECRETS; do
+    [ "$n" = "INTERNAL_API_KEY" ] || missing="$missing renderer:$n"
+  done
+  run_deploy renderer-internal-key-only "H_SECRETS_MISSING=$missing" -- --skip-checks
+  expect_rc 0
+  expect_row "worker:renderer" deployed "$UUID"
+  expect_no_out 'missing secret'
+  [ "$(required_secrets_for renderer)" = "INTERNAL_API_KEY" ] ||
+    fail "required_secrets_for renderer prints '$(required_secrets_for renderer)', expected INTERNAL_API_KEY"
+  finish
+}
+
+# A worker that still holds a secret it no longer reads deploys, with a warning
+# that names the secret, until a person retires it.
+scenario_retired_secret_warns() {
+  start retired-secret-warns
+  run_deploy retired-secret-warns "H_SECRETS_EXTRA=monolith:R2_RETIRED_KEY renderer:R2_OTHER_KEY" -- --skip-checks
+  expect_rc 0
+  expect_row "worker:monolith" deployed "$UUID"
+  expect_out '^--- WARN: monolith still holds secret\(s\) it no longer reads: R2_RETIRED_KEY$'
+  expect_out '^WARNING: monolith still holds secret\(s\) it no longer reads: R2_RETIRED_KEY; '
+  expect_no_out 'renderer still holds'
+  finish
+}
+
 scenario_allow_missing_secrets() {
   start allow-missing-secrets
   run_deploy allow-missing-secrets H_SECRETS_FAIL=renderer H_NO_DEPLOYMENTS=renderer -- --skip-checks --allow-missing-secrets renderer
@@ -414,6 +449,23 @@ scenario_allow_missing_secrets() {
   expect_calls 0 '^cf workers secrets list --worker renderer$'
   expect_calls 8 '^cf workers secrets list --worker '
   expect_row "worker:gateway" deployed "$UUID"
+  finish
+}
+
+# A monolith image and SDK that differ stop the run before any worker deploys,
+# even with --skip-checks.
+scenario_sandbox_version_drift() {
+  start sandbox-version-drift
+  sed -i 's/"1.2.3"/"1.2.4"/' "$FIX/workers/monolith/package.json"
+  LABEL="$SHA-dirty"
+  run_deploy sandbox-version-drift -- --allow-dirty --skip-checks
+  git -C "$FIX" checkout -q -- workers/monolith/package.json
+  expect_rc 3
+  expect_row "worker:monolith" failed 'sandbox versions differ: image 1\.2\.3, SDK 1\.2\.4'
+  expect_row "worker:logger" skipped '-'
+  expect_calls 0 '^cf deploy'
+  expect_out '^Exit code: 3$'
+  LABEL="$SHA"
   finish
 }
 
@@ -1008,6 +1060,28 @@ scenario_secrets_doc_sync() {
   finish
 }
 
+# The secrets each wrangler.jsonc declares match required_secrets_for();
+# check-worker-configs.mjs ties cloudflare.config.ts to the same names.
+scenario_secrets_declared_sync() {
+  start secrets-declared-sync
+  local w want got
+  for w in "${WORKERS[@]}"; do
+    want="$(required_secrets_for "$w" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+    # The jsonc path comes first: check-worker-configs.mjs runs its own CLI
+    # when it is process.argv[1].
+    got="$(node -e '
+      const fs = require("fs");
+      if (!fs.existsSync(process.argv[1])) process.exit(0);
+      import(require("node:url").pathToFileURL(process.argv[2])).then(({ parseJsonc }) => {
+        const w = parseJsonc(fs.readFileSync(process.argv[1], "utf8"));
+        console.log((w.secrets?.required ?? []).join(" "));
+      });
+    ' "$WARG/workers/$w/wrangler.jsonc" "$WARG/scripts/check-worker-configs.mjs" 2>&1 | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+    [ "$want" = "$got" ] || fail "wrangler.jsonc of $w declares '$got', required_secrets_for() has '$want'"
+  done
+  finish
+}
+
 # function_names_for() names exactly the functions each codebase exports from
 # src/index.ts, so a new or renamed export cannot deploy unverified.
 scenario_function_exports_sync() {
@@ -1195,11 +1269,11 @@ scenario_secret_in_env() {
   finish
 }
 
-ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker allow-missing-secrets
-  quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
+ALL=(full-success secrets-list-fails secret-missing secret-missing-last-worker renderer-internal-key-only retired-secret-warns allow-missing-secrets
+  sandbox-version-drift quick-still-preflights same-version-ids foreign-version-id no-printed-id-tag-match no-printed-id-foreign
   dirty-refused dirty-allowed all-without-rules fn-old-updatetime fn-new-updatetime fn-deploy-fails fn-force fn-force-usage fn-pass-label-missing
   dashboard-unverified dashboard-cf-only dry-run-dashboard dashboard-secret-missing dashboard-secret-list-fails functions-unauth induced-failure-rc precheck-fails unknown-flag static-scripts
-  worker-list-sync secrets-doc-sync function-exports-sync
+  worker-list-sync secrets-doc-sync secrets-declared-sync function-exports-sync
   functions-only functions-only-usage rules-only rules-only-usage dual-accept-unset secret-in-env
   rules-first-stamp rules-reused-stamp rules-released-zero rules-hash-mismatch rules-storage-drift
   rules-placeholder-missing rules-gcloud-unauth rules-release-unit

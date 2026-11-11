@@ -12,19 +12,37 @@
 //     --only firestore,auth --project trails-e428e
 //
 // Usage:
-//   node seed-canonical-fixture.mjs <seed|markers|user-articles> \
+//   node seed-canonical-fixture.mjs <command> [--item <id>] \
 //     --firestore 127.0.0.1:8787 --auth 127.0.0.1:9099 --project trails-e428e
 //
 //   seed           writes the fixture for the single signed-in (anonymous) emulator account
 //   markers        lists every marker doc of that account with its source
 //   user-articles  lists the account's article doc ids and whether each has a resolvedId field
+//   text-first     --item <id>: writes articles/<id> with its Readability and Monolith archives
+//                  both finished, and the account's marker for it
+//   heavy-first    --item <id>: the same, with the Readability archive still uploading
+//   text-ready     --item <id>: marks the Readability archive of articles/<id> finished
+//   archive-failed --item <id>: writes articles/<id> with status failed and no archive, and the
+//                  account's marker for it
+//
+// text-first, heavy-first and text-ready serve the check that a large archive that is still
+// downloading does not hold back the text: run the stub with --stall monolith, and store the
+// article in the app first with the debug broadcast READER_SEED_EMPTY and the same id.
+// archive-failed serves the check of the Reader's failed notice: store the article in the app
+// first with READER_SEED_EMPTY and the same id.
 
 const ITEM_ID = 'fixtureAlias01';
 const SHARED_ID = 'fixtureShared01';
 const OWNER = { Authorization: 'Bearer owner', 'Content-Type': 'application/json' };
 
+const COMMANDS = ['seed', 'markers', 'user-articles', 'text-first', 'heavy-first', 'text-ready', 'archive-failed'];
+const ITEM_COMMANDS = ['text-first', 'heavy-first', 'text-ready', 'archive-failed'];
+
 function parseArgs(argv) {
   const [command, ...rest] = argv;
+  if (!COMMANDS.includes(command)) {
+    throw new Error(`unknown command '${command ?? ''}' (${COMMANDS.join(' | ')})`);
+  }
   const opts = {};
   for (let i = 0; i < rest.length; i += 2) {
     const key = rest[i]?.replace(/^--/, '');
@@ -34,6 +52,7 @@ function parseArgs(argv) {
   for (const required of ['firestore', 'auth', 'project']) {
     if (!opts[required]) throw new Error(`--${required} is required`);
   }
+  if (ITEM_COMMANDS.includes(command) && !opts.item) throw new Error(`--item is required for ${command}`);
   return { command, ...opts };
 }
 
@@ -108,6 +127,55 @@ async function seed(opts) {
   console.log(`seeded users/<uid>/articles/${ITEM_ID} (canonicalId=${SHARED_ID}), articles/${SHARED_ID}, marker ${SHARED_ID}`);
 }
 
+const READY = (path) => ({ status: 'success', gcs_path: `gs://fixture/${path}` });
+
+// A shared article read by the app's own itemId (no canonicalId), with a Monolith archive the
+// stub stalls and a Readability archive that is finished, or still uploading when textReady is false.
+async function seedTextFirst(opts, textReady) {
+  const uid = await onlyUid(opts);
+  const base = docsBase(opts);
+  const id = opts.item;
+  await request('PATCH', `${base}/articles/${id}`, {
+    fields: fields({
+      archives: {
+        monolith: READY('monolith.html'),
+        readability: textReady ? READY('readability.md') : { status: 'uploading' },
+      },
+    }),
+  });
+  await request('PATCH', `${base}/users/${uid}/articleMarkers/${id}`, {
+    fields: fields({ key: id, itemId: id, createdAt: new Date(), source: 'fixture' }),
+  });
+  console.log(`seeded articles/${id} (monolith success, readability ${textReady ? 'success' : 'uploading'}), marker ${id}`);
+}
+
+async function markTextReady(opts) {
+  const id = opts.item;
+  await request('PATCH', `${docsBase(opts)}/articles/${id}?updateMask.fieldPaths=archives.readability`, {
+    fields: fields({ archives: { readability: READY('readability.md') } }),
+  });
+  console.log(`articles/${id} readability success`);
+}
+
+// A shared article the archive pipeline gave up on: status failed, no usable archive.
+async function seedArchiveFailed(opts) {
+  const uid = await onlyUid(opts);
+  const base = docsBase(opts);
+  const id = opts.item;
+  await request('PATCH', `${base}/articles/${id}`, {
+    fields: fields({
+      status: 'failed',
+      error: 'fixture: archive failed',
+      failed_at: new Date(),
+      archives: {},
+    }),
+  });
+  await request('PATCH', `${base}/users/${uid}/articleMarkers/${id}`, {
+    fields: fields({ key: id, itemId: id, createdAt: new Date(), source: 'fixture' }),
+  });
+  console.log(`seeded articles/${id} (status failed, no archives), marker ${id}`);
+}
+
 async function list(opts, collection) {
   const uid = await onlyUid(opts);
   const { documents = [] } = await request('GET', `${docsBase(opts)}/users/${uid}/${collection}?pageSize=300`);
@@ -130,8 +198,18 @@ async function main() {
         console.log(`article ${id} resolvedId=${'resolvedId' in f ? 'present' : 'absent'}`);
       }
       break;
-    default:
-      throw new Error(`unknown command '${opts.command}' (seed | markers | user-articles)`);
+    case 'text-first':
+      await seedTextFirst(opts, true);
+      break;
+    case 'heavy-first':
+      await seedTextFirst(opts, false);
+      break;
+    case 'text-ready':
+      await markTextReady(opts);
+      break;
+    case 'archive-failed':
+      await seedArchiveFailed(opts);
+      break;
   }
 }
 

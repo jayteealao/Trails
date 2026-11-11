@@ -82,12 +82,97 @@ function isCrossSite(request: Request): boolean {
   }
 }
 
+type Refusal = 'not_configured' | 'bad_credential' | 'cross_site_write' | 'too_many_guesses';
+
+// Wrong credentials allowed per client address in one window before the
+// dashboard stops checking that address's guesses for the rest of the window.
+// The count lives in the Worker instance: it slows online guessing at the
+// edge, it is not a global lockout.
+const GUESS_LIMIT = 10;
+const GUESS_WINDOW_MS = 60_000;
+const guesses = new Map<string, { count: number; windowStart: number }>();
+
+// A local dev server stamps the loopback address; local clients are not counted.
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1']);
+
+// The client address Cloudflare stamps on each request; a request without one,
+// or from loopback (a local test client), is not counted.
+function clientAddress(request: Request): string | undefined {
+  const address = request.headers.get('CF-Connecting-IP');
+  if (!address || LOOPBACK_ADDRESSES.has(address)) return undefined;
+  return address;
+}
+
+function guessesExhausted(address: string, now: number): boolean {
+  const entry = guesses.get(address);
+  return entry !== undefined && now - entry.windowStart < GUESS_WINDOW_MS && entry.count >= GUESS_LIMIT;
+}
+
+function countGuess(address: string, now: number): void {
+  const entry = guesses.get(address);
+  if (!entry || now - entry.windowStart >= GUESS_WINDOW_MS) {
+    // Drop stale windows now and then, so the map stays small.
+    if (guesses.size > 1000) {
+      for (const [key, value] of guesses) if (now - value.windowStart >= GUESS_WINDOW_MS) guesses.delete(key);
+    }
+    guesses.set(address, { count: 1, windowStart: now });
+  } else {
+    entry.count += 1;
+  }
+}
+
+/** Test hook: forget every counted guess. */
+export function resetGuessCounts(): void {
+  guesses.clear();
+}
+
+function tooManyGuesses(): Response {
+  return new Response('Too many sign-in attempts. Try again in a minute.', {
+    status: 429,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': String(GUESS_WINDOW_MS / 1000) },
+  });
+}
+
+// One structured line per refused request, never with the credential, so a
+// mis-set secret and repeated guesses show in the Worker's logs.
+function logRefusal(request: Request, reason: Refusal): void {
+  const line = {
+    event: 'dashboard.auth.refused',
+    reason,
+    method: request.method,
+    path: new URL(request.url).pathname,
+    secFetchSite: request.headers.get('Sec-Fetch-Site'),
+  };
+  // A missing secret locks every operator out: a deploy defect, not a caller error.
+  if (reason === 'not_configured') console.error(line);
+  else console.warn(line);
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
+  const { request } = context;
   const secret = context.env.DASHBOARD_AUTH;
-  if (!secret) return authNotConfigured();
-  const candidate = credentialBytes(context.request.headers.get('Authorization'));
-  if (!candidate || !(await matchesSecret(candidate, secret))) return signInRequired();
-  if (!READ_METHODS.has(context.request.method.toUpperCase()) && isCrossSite(context.request)) {
+  if (!secret) {
+    logRefusal(request, 'not_configured');
+    return authNotConfigured();
+  }
+  const candidate = credentialBytes(request.headers.get('Authorization'));
+  // A browser's first request carries no credential; only a wrong one is a guess.
+  if (!candidate) return signInRequired();
+  // The secret is checked first, so the right credential is never refused for
+  // someone else's guesses from the same address.
+  if (!(await matchesSecret(candidate, secret))) {
+    const address = clientAddress(request);
+    const now = Date.now();
+    if (address && guessesExhausted(address, now)) {
+      logRefusal(request, 'too_many_guesses');
+      return tooManyGuesses();
+    }
+    logRefusal(request, 'bad_credential');
+    if (address) countGuess(address, now);
+    return signInRequired();
+  }
+  if (!READ_METHODS.has(request.method.toUpperCase()) && isCrossSite(request)) {
+    logRefusal(request, 'cross_site_write');
     return crossSiteWriteRefused();
   }
   return context.next();

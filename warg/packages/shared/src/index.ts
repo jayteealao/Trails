@@ -42,14 +42,19 @@ export type {
   UserActionHint,
   RequestErrorCode,
   RequestDiagnostics,
+  RenderStealthMode,
   ArticleHealth
 } from './dashboard.js';
+export { R2_KEY_ERROR_NAMES, credentialFailure, isCredentialErrorCode } from './dashboard.js';
+export type { CredentialErrorCode } from './dashboard.js';
 
 export {
   REQUEST_ERROR_CODES,
   USER_ACTION_HINTS,
   isRequestErrorCode,
   isUserActionHint,
+  RENDER_STEALTH_MODES,
+  isRenderStealthMode,
 } from './dashboard.js';
 
 export type { RequestSettle, SettledRecord } from './settle.js';
@@ -66,17 +71,23 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
-export type { ErrorClassification, RendererFallbackReason, SandboxFailureCode } from './failure-classify.js';
+export type { ErrorClassification, RenderFallbackFailure, RendererFallbackReason, SandboxFailureCode } from './failure-classify.js';
 export {
   RENDERER_CONTENT_FAILED_ERROR,
   withClassificationTag,
   readClassificationTag,
+  containerNotReadyMessage,
+  readContainerNotReadyHint,
+  renderFallbackTag,
+  readRenderFallbackTag,
   isRpc32MiBLimit,
   isMonolithInputTooLarge,
   classifySandboxOutput,
   classifyError,
   classifyServiceTimeout,
   classifyServiceFailure,
+  RENDERER_FALLBACK_REASONS,
+  isRendererFallbackReason,
   rendererFallbackReasonFromBody,
   defaultRetryableForCode,
   defaultActionForCode,
@@ -94,10 +105,19 @@ export {
   proxyErrorPageText,
   PROXY_ERROR_PAGE_MAX_LENGTH,
   PROXY_ERROR_PAGE_REASON,
+  isChallengePage,
+  ACCESS_BLOCKED_REASON,
+  accessBlockedResponse,
+  BROWSER_TOKEN_INVALID_REASON,
 } from './render-content.js';
 
-export type { ArtifactBucket } from './artifacts.js';
-export { storeArtifact } from './artifacts.js';
+export { decodeBase64ToArrayBuffer } from './base64.js';
+
+export type { ArtifactBucket, ArtifactHeadBucket } from './artifacts.js';
+export { storeArtifact, findReusableArtifact } from './artifacts.js';
+
+export type { KindHealthArtifact, KindHealthRow, WorkflowStartedData } from './kind-health.js';
+export { HEALTH_KIND_ARTIFACTS } from './kind-health.js';
 
 export {
   SAFE_ID_RE,

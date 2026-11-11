@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { LEASE_TTL_MS, isLeaseStale } from '@warg/shared';
 import {
+  BROWSER_QUOTA_LIMITS,
   evaluateAcquire,
   type LeaseKind,
   type QuotaLimits,
@@ -39,12 +40,14 @@ interface StoredState {
  * Global browser/sandbox quota management Durable Object.
  *
  * Two independent concurrency pools, plus a launch-rate limiter:
- * - Browser pool (`bindings_launch` + `rest_request`): max 100 concurrent
- *   (platform allows 120/account; 100 leaves headroom for other consumers).
- * - Sandbox pool (`sandbox_exec`, monolith): max 6 concurrent — gates the
+ * - Browser pool (`bindings_launch` + `rest_request`): max 200 concurrent
+ *   (the Browser Run default per account).
+ * - Sandbox pool (`sandbox_exec`, monolith): max 4 concurrent — gates the
  *   Cloudflare Sandbox so a backfill batch can't burst-collapse it.
- * - Launch rate: a token bucket modelling the platform's 1 new-browser/sec
- *   fixed fill, with a small burst. Only `bindings_launch` consumes a token.
+ * - Launch rate: a token bucket at the platform's 3 new browsers/sec, with a
+ *   burst of 3. Only `bindings_launch` consumes a token.
+ *
+ * The numbers and their source live in {@link BROWSER_QUOTA_LIMITS}.
  *
  * Leases auto-expire after the shared LEASE_TTL_MS via alarm. When a
  * sandbox lease expires (its workflow likely crashed before release()), the
@@ -63,12 +66,7 @@ export class BrowserQuotaDO extends DurableObject<Env> {
   private bucket: TokenBucket | undefined;
   private pendingStops: StaleSandboxLease[] = [];
 
-  private readonly limits: QuotaLimits = {
-    maxConcurrent: 100, // platform now 120/account; headroom for other consumers
-    maxSandboxConcurrent: 4, // under monolith container max_instances (5); leaves churn slack
-    launchRatePerSec: 1, // platform: 1 new browser/sec fixed fill
-    launchBurst: 3 // small burst tolerance
-  };
+  private readonly limits: QuotaLimits = BROWSER_QUOTA_LIMITS;
 
   /**
    * Load state from storage (lazy initialization).

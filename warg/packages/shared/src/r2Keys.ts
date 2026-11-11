@@ -21,6 +21,8 @@ export function getR2Key(requestId: string, kind: ArtifactKind): string {
       return `${prefix}/derived/readability.json`;
     case 'readability.md':
       return `${prefix}/derived/readability.md`;
+    case 'ai-markdown.md':
+      return `${prefix}/derived/ai-markdown.md`;
     case 'monolith.html':
       return `${prefix}/derived/monolith.html`;
     case 'manifest.json':

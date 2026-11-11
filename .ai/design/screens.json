@@ -1,0 +1,298 @@
+{
+  "schema": "sdlc/design-screens/v1",
+  "viewports": {
+    "phone": "375x812",
+    "tablet": "768x1024",
+    "desktop": "1280x800"
+  },
+  "areas": [
+    "home",
+    "favourites",
+    "archive",
+    "tags",
+    "shared"
+  ],
+  "screens": {
+    "article-list": {
+      "title": "Article list with tag suggestions",
+      "area": "home",
+      "flow": "review-suggestions",
+      "order": 10,
+      "workflows": [
+        "archive-tagging"
+      ],
+      "slices": [
+        "android-suggestion-ui"
+      ],
+      "created-at": "2026-11-07T21:31:52Z",
+      "updated-at": "2026-11-07T21:45:57Z",
+      "approvals": [
+        {
+          "commit": "b487e9e7fe3c057740a5e21947c9d8cef1833b22",
+          "version": "v1",
+          "at": "2026-11-07T21:39:47Z",
+          "workflow": "archive-tagging"
+        }
+      ]
+    },
+    "suggestion-menu": {
+      "title": "Suggestion menu over the list",
+      "area": "home",
+      "flow": "review-suggestions",
+      "order": 15,
+      "workflows": [
+        "archive-tagging"
+      ],
+      "slices": [
+        "android-suggestion-ui"
+      ],
+      "created-at": "2026-11-07T21:31:52Z",
+      "updated-at": "2026-11-07T21:45:57Z",
+      "approvals": [
+        {
+          "commit": "b487e9e7fe3c057740a5e21947c9d8cef1833b22",
+          "version": "v1",
+          "at": "2026-11-07T21:39:47Z",
+          "workflow": "archive-tagging"
+        }
+      ]
+    },
+    "article-list-reviewed": {
+      "title": "Article list after approve and dismiss",
+      "area": "home",
+      "flow": "review-suggestions",
+      "order": 20,
+      "workflows": [
+        "archive-tagging"
+      ],
+      "slices": [
+        "android-suggestion-ui"
+      ],
+      "created-at": "2026-11-07T21:31:53Z",
+      "updated-at": "2026-11-07T21:45:57Z",
+      "approvals": [
+        {
+          "commit": "b487e9e7fe3c057740a5e21947c9d8cef1833b22",
+          "version": "v1",
+          "at": "2026-11-07T21:39:47Z",
+          "workflow": "archive-tagging"
+        }
+      ]
+    },
+    "tag-sheet": {
+      "title": "Tag sheet with Suggested and auto marks",
+      "area": "home",
+      "flow": "review-suggestions",
+      "order": 25,
+      "workflows": [
+        "archive-tagging"
+      ],
+      "slices": [
+        "android-suggestion-ui"
+      ],
+      "created-at": "2026-11-07T21:31:53Z",
+      "updated-at": "2026-11-07T21:45:57Z",
+      "approvals": [
+        {
+          "commit": "b487e9e7fe3c057740a5e21947c9d8cef1833b22",
+          "version": "v1",
+          "at": "2026-11-07T21:39:47Z",
+          "workflow": "archive-tagging"
+        }
+      ]
+    },
+    "reader-waiting": {
+      "title": "Reader before any text arrives",
+      "area": "home",
+      "flow": "read",
+      "order": 30,
+      "workflows": [
+        "reader-text-pipeline"
+      ],
+      "slices": [],
+      "created-at": "2026-11-08T00:01:53Z",
+      "updated-at": "2026-11-08T00:01:53Z",
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
+    },
+    "reader-first-text": {
+      "title": "First text: the whole-page Markdown",
+      "area": "home",
+      "flow": "read",
+      "order": 40,
+      "workflows": [
+        "reader-text-pipeline"
+      ],
+      "slices": [],
+      "created-at": "2026-11-08T00:01:54Z",
+      "updated-at": "2026-11-08T00:01:54Z",
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
+    },
+    "reader-better-arrived": {
+      "title": "Better text arrives while reading",
+      "area": "home",
+      "flow": "read",
+      "order": 50,
+      "workflows": [
+        "reader-text-pipeline"
+      ],
+      "slices": [],
+      "created-at": "2026-11-08T00:01:54Z",
+      "updated-at": "2026-11-08T00:01:54Z",
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
+    },
+    "reader-next-open": {
+      "title": "Next open: Readability text",
+      "area": "home",
+      "flow": "read",
+      "order": 60,
+      "workflows": [
+        "reader-text-pipeline"
+      ],
+      "slices": [],
+      "created-at": "2026-11-08T00:01:54Z",
+      "updated-at": "2026-11-08T00:01:54Z",
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
+    },
+    "reader-ai-markdown": {
+      "title": "AI Markdown tab, opened by hand",
+      "area": "home",
+      "flow": "read",
+      "order": 70,
+      "workflows": [
+        "reader-text-pipeline"
+      ],
+      "slices": [],
+      "created-at": "2026-11-08T00:01:54Z",
+      "updated-at": "2026-11-08T00:01:54Z",
+      "approvals": [
+        {
+          "commit": "f2cf0c0ff8d555602a70f7aabf15c32008ec4ce8",
+          "version": "v1",
+          "at": "2026-11-08T00:16:48Z",
+          "workflow": "reader-text-pipeline"
+        }
+      ]
+    }
+  },
+  "explore": {},
+  "components": {
+    "app-frame": {
+      "title": "App frame (top bar + bottom navigation)",
+      "code": "android/app/src/main/java/com/jayteealao/trails/screens/TrailScaffold.kt",
+      "name": "TrailScaffold",
+      "workflows": [
+        "archive-tagging"
+      ],
+      "created-at": "2026-11-07T21:25:21Z",
+      "updated-at": "2026-11-07T21:25:21Z"
+    },
+    "article-list-item": {
+      "title": "Article list item",
+      "code": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleListItem.kt",
+      "name": "ArticleListItem",
+      "workflows": [
+        "archive-tagging"
+      ],
+      "created-at": "2026-11-07T21:25:21Z",
+      "updated-at": "2026-11-07T21:25:21Z"
+    },
+    "tag-section": {
+      "title": "Tag row on a list item",
+      "code": "android/app/src/main/java/com/jayteealao/trails/screens/articleList/components/ArticleTags.kt",
+      "name": "TagSection",
+      "workflows": [
+        "archive-tagging"
+      ],
+      "created-at": "2026-11-07T21:25:22Z",
+      "updated-at": "2026-11-07T21:25:22Z"
+    },
+    "tag-sheet": {
+      "title": "Tag management sheet",
+      "code": "android/app/src/main/java/com/jayteealao/trails/screens/tagManagement/TagManagementScreen.kt",
+      "name": "TagManagementScreen",
+      "workflows": [
+        "archive-tagging"
+      ],
+      "created-at": "2026-11-07T21:25:22Z",
+      "updated-at": "2026-11-07T21:25:22Z"
+    },
+    "tag-chip": {
+      "title": "Tag chip (applied, suggested, available, auto)",
+      "code": null,
+      "name": null,
+      "workflows": [
+        "archive-tagging"
+      ],
+      "created-at": "2026-11-07T21:25:22Z",
+      "updated-at": "2026-11-07T21:25:22Z"
+    },
+    "suggestion-menu": {
+      "title": "Suggestion menu (Approve / Dismiss)",
+      "code": null,
+      "name": null,
+      "workflows": [
+        "archive-tagging"
+      ],
+      "created-at": "2026-11-07T21:25:22Z",
+      "updated-at": "2026-11-07T21:25:22Z"
+    },
+    "snackbar": {
+      "title": "Snackbar with Undo",
+      "code": null,
+      "name": null,
+      "workflows": [
+        "archive-tagging"
+      ],
+      "created-at": "2026-11-07T21:34:11Z",
+      "updated-at": "2026-11-07T21:34:11Z"
+    },
+    "archive-tab-row": {
+      "title": "Archive tab row (Reader, Web, archives)",
+      "code": "android/app/src/main/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailScreen.kt",
+      "name": "ArticleDetailTabRow",
+      "workflows": [
+        "reader-text-pipeline"
+      ],
+      "created-at": "2026-11-07T23:58:42Z",
+      "updated-at": "2026-11-07T23:58:42Z"
+    },
+    "reader-text": {
+      "title": "Reader text column (Markdown)",
+      "code": "android/app/src/main/java/com/jayteealao/trails/screens/articleDetail/ArticleDetailScreen.kt",
+      "name": "ArticleMarkdown",
+      "workflows": [
+        "reader-text-pipeline"
+      ],
+      "created-at": "2026-11-07T23:58:42Z",
+      "updated-at": "2026-11-07T23:58:42Z"
+    }
+  }
+}

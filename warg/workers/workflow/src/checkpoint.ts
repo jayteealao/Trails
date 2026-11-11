@@ -24,6 +24,7 @@ const KIND_TO_STEP: Partial<Record<ArtifactKind, CheckpointStep>> = {
   'readability.json': 'readability',
   'readability.md': 'readability',
   'monolith.html': 'monolith',
+  'ai-markdown.md': 'ai-markdown',
 };
 
 const CONTENT_TYPE_BY_KIND: Record<ArtifactKind, string> = {
@@ -35,6 +36,7 @@ const CONTENT_TYPE_BY_KIND: Record<ArtifactKind, string> = {
   'readability.json': 'application/json',
   'readability.md': 'text/markdown',
   'monolith.html': 'text/html',
+  'ai-markdown.md': 'text/markdown',
   'manifest.json': 'application/json',
 };
 
@@ -47,6 +49,7 @@ const DISCOVERABLE_KINDS: readonly ArtifactKind[] = [
   'readability.json',
   'readability.md',
   'monolith.html',
+  'ai-markdown.md',
 ];
 
 function nowIso(): string {
@@ -126,6 +129,7 @@ function isArtifactKind(value: string): value is ArtifactKind {
     value === 'readability.json' ||
     value === 'readability.md' ||
     value === 'monolith.html' ||
+    value === 'ai-markdown.md' ||
     value === 'manifest.json'
   );
 }
@@ -159,7 +163,8 @@ function normalizeCheckpoint(
       producedBy !== 'render' &&
       producedBy !== 'singlefile' &&
       producedBy !== 'readability' &&
-      producedBy !== 'monolith'
+      producedBy !== 'monolith' &&
+      producedBy !== 'ai-markdown'
     ) {
       continue;
     }
@@ -217,6 +222,7 @@ function normalizeCheckpoint(
               src.lastFailure.step === 'singlefile' ||
               src.lastFailure.step === 'readability' ||
               src.lastFailure.step === 'monolith' ||
+              src.lastFailure.step === 'ai-markdown' ||
               src.lastFailure.step === 'persist' ||
               src.lastFailure.step === 'workflow'
                 ? src.lastFailure.step
@@ -502,11 +508,13 @@ export async function discoverArtifactsFromR2(
     Boolean(checkpoint.artifacts['readability.json']) &&
     Boolean(checkpoint.artifacts['readability.md']);
   const hasMonolith = Boolean(checkpoint.artifacts['monolith.html']);
+  const hasAiMarkdown = Boolean(checkpoint.artifacts['ai-markdown.md']);
 
   if (hasRender) markStepSucceeded(checkpoint, 'render', { resumed: true });
   if (hasSinglefile) markStepSucceeded(checkpoint, 'singlefile', { resumed: true });
   if (hasReadability) markStepSucceeded(checkpoint, 'readability', { resumed: true });
   if (hasMonolith) markStepSucceeded(checkpoint, 'monolith', { resumed: true });
+  if (hasAiMarkdown) markStepSucceeded(checkpoint, 'ai-markdown', { resumed: true });
 
   if (discovered.length > 0) {
     touch(checkpoint);
@@ -520,5 +528,6 @@ export const STEP_REQUIRED_ARTIFACTS: Record<CheckpointStep, readonly ArtifactKi
   singlefile: ['singlefile.html'],
   readability: ['readability.json', 'readability.md'],
   monolith: ['monolith.html'],
+  'ai-markdown': ['ai-markdown.md'],
 };
 

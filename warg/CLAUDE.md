@@ -265,8 +265,10 @@ The pipeline is orchestrated with Cloudflare Workflows. Only small JSON travels 
 ### Core services
 Public:
 - `gateway` worker:
-  - `POST /begin` → returns `request_id`
+  - `POST /begin` → `201 { requestId }`
   - `GET /status/:request_id` → returns status + logs + artifact pointers
+  - `GET /status/:request_id/stream` → the request's events as a stream
+  - the full contract (keys, options, error codes) is in README.md → "Gateway API"
 
 Orchestration:
 - `workflow` worker:

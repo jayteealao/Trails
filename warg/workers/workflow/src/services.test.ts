@@ -4,6 +4,8 @@ import {
   callRendererForStep,
   callRendererWith403Fallback,
   callMonolith,
+  callMonolithForStep,
+  monolithRetryDelayMs,
   callSinglefile,
   callSinglefileForStep,
   getRendererFallbackReason,
@@ -11,7 +13,7 @@ import {
   ServiceCallError,
   type ServiceErrorClassification,
 } from './services.js';
-import { PROXY_ERROR_PAGE_REASON, readClassificationTag } from '@warg/shared';
+import { BROWSER_TOKEN_INVALID_REASON, PROXY_ERROR_PAGE_REASON, readClassificationTag, readRenderFallbackTag } from '@warg/shared';
 import type { RendererResponse } from './types.js';
 
 function makeJsonResponse(status: number, body: unknown): Response {
@@ -472,6 +474,85 @@ describe('monolith service classification', () => {
       }),
     ).rejects.toMatchObject({
       classification: { errorCode: 'MONOLITH_RPC_32MIB_LIMIT', retryable: false },
+    });
+  });
+});
+
+describe('rejected credentials', () => {
+  function tokenRejectedBody(status: number, named: boolean = true) {
+    return {
+      error: 'Browser Rendering /content failed',
+      status,
+      details: '{"errors":[{"code":10000,"message":"Authentication error"}]}',
+      ...(named ? { reason: BROWSER_TOKEN_INVALID_REASON } : {}),
+    };
+  }
+
+  function renderError(body: unknown): ServiceCallError {
+    return new ServiceCallError(
+      'Service error 502: { ... }',
+      { errorCode: 'RENDER_SERVICE_ERROR', retryable: true, recommendedAction: 'retry_step' },
+      '/render',
+      502,
+      JSON.stringify(body),
+    );
+  }
+
+  it('falls back from a 403 that names the retired token reason as any Browser Rendering 403', () => {
+    expect(getRendererFallbackReason(renderError(tokenRejectedBody(403)))).toBe('browser_rendering_403');
+  });
+
+  it('gives no fallback for a token rejected with HTTP 401', () => {
+    expect(getRendererFallbackReason(renderError(tokenRejectedBody(401)))).toBeUndefined();
+  });
+
+  it('keeps the 403 fallback reason of a payload without the token reason', () => {
+    expect(getRendererFallbackReason(renderError(tokenRejectedBody(403, false)))).toBe('browser_rendering_403');
+  });
+
+  it('classifies a renderer answer that names a rejected token as BROWSER_TOKEN_INVALID', async () => {
+    const rendererFetch = vi.fn().mockResolvedValueOnce(makeJsonResponse(502, tokenRejectedBody(401)));
+    const hyperrendererFetch = vi.fn();
+
+    await expect(
+      callRendererWith403Fallback(makeEnv(rendererFetch, hyperrendererFetch), {
+        request_id: 'req-token',
+        url: 'https://example.com/post',
+        browser_quota_kind: 'rest_request',
+      }),
+    ).rejects.toMatchObject({
+      classification: { errorCode: 'BROWSER_TOKEN_INVALID', retryable: false, recommendedAction: 'check_api_key' },
+    });
+    expect(hyperrendererFetch).not.toHaveBeenCalled();
+  });
+
+  it('classifies a monolith answer that names a refused R2 handler request under its own code', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(502, {
+        error: 'Internal error',
+        message: 'R2 handler answered 403: curl: (22) The requested URL returned error: 403',
+        code: 'MONOLITH_R2_HANDLER_FAILED',
+        retryable: false,
+      }),
+    );
+
+    const env = {
+      INTERNAL_API_KEY: 'test-internal-key',
+      MONOLITH: { fetch: monolithFetch },
+    } as unknown as Env;
+
+    await expect(
+      callMonolith(env, {
+        request_id: 'req-m4',
+        rendered_html_key: 'archives/req/raw/rendered.html',
+        base_url: 'https://example.com',
+      }),
+    ).rejects.toMatchObject({
+      classification: {
+        errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+        retryable: false,
+        recommendedAction: 'investigate_service',
+      },
     });
   });
 });
@@ -940,6 +1021,28 @@ describe('when the primary renderer and the hyperrenderer both fail', () => {
     expect(error.classification.retryable).toBe(true);
   });
 
+  it('names the fallback and its stealth setting in the error that names both failures', async () => {
+    const rendererFetch = vi.fn(async () =>
+      wrappedContentFailure('dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host'),
+    );
+    const hyperrendererFetch = vi.fn(async () =>
+      makeJsonResponse(500, { error: 'Internal error', message: 'challenge page', stealth: 'auto' }),
+    );
+
+    const error = await catchServiceCallError(
+      callRendererWith403Fallback(makeEnv(rendererFetch, hyperrendererFetch), renderParams),
+    );
+
+    expect(readRenderFallbackTag(error.message)).toEqual({
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackStealth: 'auto',
+    });
+  });
+
+  it('reads no fallback from a render error that names none', () => {
+    expect(readRenderFallbackTag('Service error 500: upstream failure')).toBeUndefined();
+  });
+
   it('keeps the access-blocked classification on the error that names both failures', async () => {
     const rendererFetch = vi.fn(async () => wrappedContentFailure('forbidden', 403));
     const hyperrendererFetch = vi.fn(async () => new Response('Service Unavailable', { status: 503 }));
@@ -953,5 +1056,76 @@ describe('when the primary renderer and the hyperrenderer both fail', () => {
       retryable: false,
       recommendedAction: 'check_access',
     });
+  });
+});
+
+const monolithParams = {
+  request_id: 'req-monolith-step',
+  rendered_html_key: 'archives/req-monolith-step/raw/rendered.html',
+  base_url: 'https://example.com',
+};
+
+function makeMonolithEnv(monolithFetch: ReturnType<typeof vi.fn>): Env {
+  return {
+    INTERNAL_API_KEY: 'test-internal-key',
+    MONOLITH: { fetch: monolithFetch },
+  } as unknown as Env;
+}
+
+/** The monolith step: one first attempt and one retry. */
+function runMonolithStep(env: Env): Promise<unknown> {
+  return runWithRetries(1, () =>
+    callMonolithForStep(env, monolithParams, (m) => new FakeNonRetryableError(m)),
+  );
+}
+
+describe('the wait before the monolith retry', () => {
+  it('waits 6 s after an ordinary failure', () => {
+    expect(monolithRetryDelayMs(new Error('Service error 500: upstream failure'))).toBe(6000);
+  });
+
+  it('adds the container readiness hint, capped at 5 s, when the container was not ready', () => {
+    const notReady = (ms: number) =>
+      new Error(
+        `Service error 503: {"error":"Internal error","message":"Sandbox container not ready (retry after ${ms} ms)","code":"MONOLITH_CONTAINER_UNAVAILABLE","retryable":true}`,
+      );
+    expect(monolithRetryDelayMs(notReady(3000))).toBe(9000);
+    expect(monolithRetryDelayMs(notReady(60000))).toBe(11000);
+  });
+});
+
+describe('monolith step failures', () => {
+  it('fails at once on an input that is too large', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(500, { error: 'Internal error', message: 'Monolith input too large: 40000000 bytes' }),
+    );
+
+    const failure = await runMonolithStep(makeMonolithEnv(monolithFetch)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FakeNonRetryableError);
+    expect(failure instanceof Error ? failure.message : '').toContain('[classified MONOLITH_INPUT_TOO_LARGE final');
+    expect(monolithFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails at once on the 32 MiB RPC limit', async () => {
+    const monolithFetch = vi.fn(async () =>
+      makeJsonResponse(500, {
+        error: 'Internal error',
+        message:
+          'Message length too big: found 33640795 bytes, the max allowed message length is 33554432 bytes',
+      }),
+    );
+
+    const failure = await runMonolithStep(makeMonolithEnv(monolithFetch)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FakeNonRetryableError);
+    expect(failure instanceof Error ? failure.message : '').toContain('[classified MONOLITH_RPC_32MIB_LIMIT final');
+    expect(monolithFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('spends its retry on a monolith worker that answers 503', async () => {
+    const monolithFetch = vi.fn(async () => new Response('upstream failure', { status: 503 }));
+
+    const error = await catchServiceCallError(runMonolithStep(makeMonolithEnv(monolithFetch)));
+    expect(error.classification.retryable).toBe(true);
+    expect(monolithFetch).toHaveBeenCalledTimes(2);
   });
 });

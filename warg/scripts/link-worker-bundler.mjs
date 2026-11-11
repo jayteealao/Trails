@@ -2,7 +2,7 @@
 // workers/* folders, the dashboard Worker (pages/dashboard) and the browser
 // checks' stand-in logger (pages/dashboard/e2e/stub-logger).
 //
-// `cf deploy` and `cf dev` (cf 1.0.0-beta.17, their project-discovery step)
+// `cf deploy` and `cf dev` (cf 1.0.0-beta.28, their project-discovery step)
 // look for the Wrangler bundler and dev server only at
 // `<worker dir>/node_modules/wrangler` and do not walk up to the workspace
 // root. This workspace installs with `node-linker=hoisted`, so pnpm puts

@@ -1,4 +1,4 @@
-import type { ArtifactMeta, ArtifactKind } from '@warg/shared';
+import type { ArtifactMeta, ArtifactKind, RenderStealthMode } from '@warg/shared';
 
 /**
  * Parameters passed to the workflow when starting it.
@@ -21,10 +21,14 @@ export interface RendererResponse {
   meta?: {
     skipped: string[];
     browserApiMs?: number;
+    /** Artifacts listed from an earlier attempt of the same run, not loaded again. */
+    reused?: ArtifactKind[];
     provider?: string;
     hyperbrowserJobId?: string;
     hyperbrowserScrapeMs?: number;
     hyperbrowserPdfMs?: number;
+    /** The stealth setting of the render session; set by the hyperrenderer. */
+    stealth?: RenderStealthMode;
   };
 }
 
@@ -86,6 +90,10 @@ export interface RendererParams {
   include_screenshot?: boolean;
   include_pdf?: boolean;
   include_markdown?: boolean;
+  /** The run whose earlier attempts the renderer may reuse. */
+  reuse_scope?: string;
+  /** True on the first attempt of the render step, when there is nothing to reuse yet. */
+  first_attempt?: boolean;
 }
 
 /**

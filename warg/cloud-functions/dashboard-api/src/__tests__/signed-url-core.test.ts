@@ -111,6 +111,12 @@ test('validateSignedUrlQuery accepts a well-formed query', () => {
   assert.equal(r.ok === true && r.archiveKey, 'readability');
 });
 
+test('validateSignedUrlQuery accepts the AI Markdown archive', () => {
+  const r = validateSignedUrlQuery('item1234', 'ai_markdown');
+  assert.equal(r.ok, true);
+  assert.equal(r.ok === true && r.archiveKey, 'ai_markdown');
+});
+
 // ── resolveAndSignArchive ───────────────────────────────────────────────────
 
 test('signs the object for an owned article and resolves the canonical id', async () => {

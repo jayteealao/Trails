@@ -1,4 +1,4 @@
-import type { ArtifactMeta } from '@warg/shared';
+import type { ArtifactMeta, RenderStealthMode } from '@warg/shared';
 
 export type BrowserQuotaKind = 'bindings_launch' | 'rest_request';
 
@@ -23,6 +23,8 @@ export interface RenderSuccessResponse {
     hyperbrowserJobId?: string;
     hyperbrowserScrapeMs?: number;
     hyperbrowserPdfMs?: number;
+    /** The stealth setting the Hyperbrowser sessions of this render used. */
+    stealth: HyperbrowserStealthMode;
   };
 }
 
@@ -30,6 +32,8 @@ export interface RenderRateLimitedResponse {
   error: 'rate_limited';
   retry_after_ms: number;
   message: string;
+  /** The stealth setting of the failed render, so a failed fallback is logged with it. */
+  stealth: HyperbrowserStealthMode;
 }
 
 export interface RendererOptions {
@@ -38,7 +42,7 @@ export interface RendererOptions {
   includePdf?: boolean;
 }
 
-export type HyperbrowserStealthMode = 'none' | 'auto' | 'ultra';
+export type HyperbrowserStealthMode = RenderStealthMode;
 export type HyperbrowserWaitUntil = 'load' | 'domcontentloaded' | 'networkidle';
 export type HyperbrowserScreenshotFormat = 'png' | 'jpeg' | 'webp';
 export type HyperbrowserScrapeStatus = 'pending' | 'running' | 'completed' | 'failed';

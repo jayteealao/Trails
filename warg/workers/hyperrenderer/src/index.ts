@@ -1,4 +1,4 @@
-import { isProxyErrorPage, readInternalJsonRequest, storeArtifact } from '@warg/shared';
+import { accessBlockedResponse, isChallengePage, isProxyErrorPage, isRenderStealthMode, readInternalJsonRequest, storeArtifact } from '@warg/shared';
 import type { ArtifactMeta } from '@warg/shared';
 import { capturePdfViaCdp } from './cdp-pdf.js';
 import {
@@ -59,11 +59,12 @@ function toWaitUntil(value: string | undefined): HyperbrowserWaitUntil {
   return 'load';
 }
 
-function toStealthMode(value: string | undefined): HyperbrowserStealthMode {
-  if (value === 'none' || value === 'auto' || value === 'ultra') {
-    return value;
-  }
-  return 'auto';
+/**
+ * Stealth is off unless a person sets `HYPERBROWSER_STEALTH` to `auto` or `ultra`.
+ * No value, or an unknown one, means off.
+ */
+export function toStealthMode(value: string | undefined): HyperbrowserStealthMode {
+  return isRenderStealthMode(value) ? value : 'none';
 }
 
 function toScreenshotFormat(value: string | undefined): 'png' | 'jpeg' | 'webp' {
@@ -88,7 +89,7 @@ function getConfig(env: Env): HyperbrowserWorkerConfig {
   };
 }
 
-function buildSessionOptions(stealth: HyperbrowserStealthMode): {
+export function buildSessionOptions(stealth: HyperbrowserStealthMode): {
   useStealth?: boolean;
   useUltraStealth?: boolean;
 } {
@@ -170,6 +171,9 @@ function isValidUrl(input: string): boolean {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // Every answer after the key check names the stealth setting, so the caller
+    // can log a failed fallback with it.
+    const stealth = toStealthMode(env.HYPERBROWSER_STEALTH);
     try {
       const pre = await readInternalJsonRequest(request, env.INTERNAL_API_KEY, ['/render']);
       if (!pre.ok) return pre.response;
@@ -179,17 +183,17 @@ export default {
       const { request_id, url: targetUrl, options_r2_key, browser_quota_kind } = body;
       if (!request_id || !targetUrl || !browser_quota_kind) {
         return Response.json(
-          { error: 'Missing required fields: request_id, url, browser_quota_kind' },
+          { error: 'Missing required fields: request_id, url, browser_quota_kind', stealth },
           { status: 400 },
         );
       }
 
       if (!isValidUrl(targetUrl)) {
-        return Response.json({ error: 'Invalid url' }, { status: 400 });
+        return Response.json({ error: 'Invalid url', stealth }, { status: 400 });
       }
 
       if (!env.HYPERBROWSER_API_KEY) {
-        return Response.json({ error: 'Server misconfigured' }, { status: 500 });
+        return Response.json({ error: 'Server misconfigured', stealth }, { status: 500 });
       }
 
       const config = getConfig(env);
@@ -257,6 +261,10 @@ export default {
         throw new Error(
           `Hyperbrowser returned a proxy/network error page instead of ${targetUrl}`,
         );
+      }
+      if (isChallengePage(html)) {
+        console.warn('[hyperrenderer] Hyperbrowser returned a challenge page:', targetUrl);
+        return accessBlockedResponse(targetUrl, undefined, { stealth });
       }
 
       const htmlData = new TextEncoder().encode(html);
@@ -378,6 +386,7 @@ export default {
           hyperbrowserJobId: startedJob.jobId,
           hyperbrowserScrapeMs: scrapeMs,
           hyperbrowserPdfMs: pdfMs,
+          stealth: config.stealth,
         },
       };
 
@@ -388,6 +397,7 @@ export default {
           error: 'rate_limited',
           retry_after_ms: error.retryAfterMs,
           message: error.message,
+          stealth,
         };
         return Response.json(rateLimited, { status: 429 });
       }
@@ -398,6 +408,7 @@ export default {
             error: 'Hyperbrowser request failed',
             status: error.status,
             details: error.body || error.message,
+            stealth,
           },
           { status: 502 },
         );
@@ -405,7 +416,7 @@ export default {
 
       const message = error instanceof Error ? error.message : String(error);
       console.error('[hyperrenderer] Unhandled error:', message);
-      return Response.json({ error: 'Internal error', message }, { status: 500 });
+      return Response.json({ error: 'Internal error', message, stealth }, { status: 500 });
     }
   },
 };

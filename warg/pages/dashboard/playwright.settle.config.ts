@@ -6,8 +6,9 @@ import { loggerServer, dashboardServer, workflowServer } from './e2e-logger/loca
 
 // The settle check runs one archive request end to end on this machine: the
 // real logger over a fresh local D1, the real workflow worker in mock mode on
-// the local Workflows engine, and the dashboard bound to the logger. It is
-// run on demand (`test:e2e:settle`), not in CI. Its ports differ from the
+// the local Workflows engine, and the dashboard bound to the logger. CI runs
+// it in the dashboard-e2e job after the default checks, as a gate; run it
+// alone with `test:e2e:settle`. Its ports differ from the
 // stats check, but both default the logger to a port near 18897; run one
 // browser check at a time.
 const PAGES_PORT = Number(process.env.E2E_SETTLE_PAGES_PORT ?? '18899');

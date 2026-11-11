@@ -1,18 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ArchiveManifest, ArchiveOptions } from '@warg/shared';
-import { getCheckpointKey, getOptionsKey } from '@warg/shared';
+import type { ArchiveManifest, ArchiveOptions, WorkflowCheckpoint } from '@warg/shared';
+import { getCheckpointKey, getOptionsKey, getR2Key } from '@warg/shared';
 import { createCheckpoint, markArtifactsPersisted, recordArtifacts } from './checkpoint.js';
 import {
   accessBlockedResponse,
   deadHostRenderFailure,
+  derivativeAnswer,
+  echoLinksAsMarkdown,
   errorOf,
   eventsOfType,
   fakeArtifact,
+  FIXTURE_READABILITY_MD,
   makeEvent,
   makeFakeBucket,
   makeFakeEnv,
   makeFakeStep,
   monolithInputTooLarge,
+  renderArtifactsFor,
   resultOf,
   runArchiveWorkflow,
   seedOptions,
@@ -27,6 +31,7 @@ const REQUEST_ID = 'req-exec-0001';
 const URL = 'https://example.com/article';
 
 const ALL_KINDS = [
+  'ai-markdown.md',
   'monolith.html',
   'page.pdf',
   'readability.json',
@@ -91,6 +96,7 @@ describe('ArchiveWorkflow.run', () => {
       'singlefile',
       'readability',
       'monolith-attempt-1',
+      'ai-markdown',
       'write-manifest-manifest.json',
       'update-manifest-key',
       'log-completed',
@@ -100,9 +106,18 @@ describe('ArchiveWorkflow.run', () => {
     // Derivatives read rendered.html, so they come after render; their own order is free.
     expect(run.names.indexOf('render')).toBeLessThan(run.names.indexOf('readability'));
     expect(run.names.indexOf('render')).toBeLessThan(run.names.indexOf('monolith-attempt-1'));
+    // AI Markdown reads the stored Readability JSON, so it comes after readability.
+    expect(run.names.indexOf('readability')).toBeLessThan(run.names.indexOf('ai-markdown'));
+    // The text archives are persisted before SingleFile and Monolith start.
+    for (const textStep of ['readability', 'ai-markdown']) {
+      const persistIndex = run.names.findIndex((name) => name.startsWith(`persist-gcs-${textStep}-`));
+      expect(persistIndex, textStep).toBeGreaterThanOrEqual(0);
+      expect(persistIndex, textStep).toBeLessThan(run.names.indexOf('singlefile'));
+      expect(persistIndex, textStep).toBeLessThan(run.names.indexOf('monolith-attempt-1'));
+    }
 
-    expect(run.names.filter((name) => name.startsWith('persist-gcs-'))).toHaveLength(4);
-    expect(persistedSteps(fake).sort()).toEqual(['monolith', 'readability', 'render', 'singlefile']);
+    expect(run.names.filter((name) => name.startsWith('persist-gcs-'))).toHaveLength(5);
+    expect(persistedSteps(fake).sort()).toEqual(['ai-markdown', 'monolith', 'readability', 'render', 'singlefile']);
 
     const manifest = storedManifest(fake.bucket, result.manifestKey);
     expect(manifest.artifacts.map((artifact) => artifact.kind).sort()).toEqual(ALL_KINDS);
@@ -217,10 +232,104 @@ describe('ArchiveWorkflow.run', () => {
       fallbackUsed: true,
       fallbackReason: 'browser_rendering_dead_host',
     });
+    // This fallback answer carries no stealth setting, so the event logs none.
+    expect(renderCompleted[0]?.data).not.toHaveProperty('fallbackStealth');
 
     // The derivatives read the rendered.html that the fallback produced.
     expect(fake.calls.READABILITY).toHaveLength(1);
     expect(fake.calls.MONOLITH).toHaveLength(1);
+  });
+
+  it('logs the fallback with its provider and stealth setting', async () => {
+    const { fake, outcome } = await runRequest(
+      {},
+      {
+        handlers: {
+          RENDERER: () => deadHostRenderFailure(),
+          HYPERRENDERER: (body) =>
+            Response.json({
+              uses_browser_rendering: true,
+              quota_kind_used: 'rest_request',
+              artifacts: renderArtifactsFor(body),
+              meta: { skipped: [], provider: 'hyperbrowser', stealth: 'none' },
+            }),
+        },
+      }
+    );
+
+    expect(resultOf(outcome).status).toBe('done');
+    const renderCompleted = eventsOfType(fake.logger, 'step.completed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderCompleted).toHaveLength(1);
+    expect(renderCompleted[0]?.data).toMatchObject({
+      fallbackUsed: true,
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackProvider: 'hyperbrowser',
+      fallbackStealth: 'none',
+    });
+  });
+
+  it('logs a fallback that failed with its stealth setting', async () => {
+    const { fake } = await runRequest(
+      { steps: ['render'] },
+      {
+        handlers: {
+          RENDERER: () => deadHostRenderFailure(),
+          HYPERRENDERER: () =>
+            Response.json({ error: 'Internal error', message: 'challenge page', stealth: 'none' }, { status: 500 }),
+        },
+      }
+    );
+
+    const renderFailures = eventsOfType(fake.logger, 'step.failed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderFailures).toHaveLength(1);
+    expect(renderFailures[0]?.data).toMatchObject({
+      fallbackUsed: true,
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackProvider: 'hyperbrowser',
+      fallbackStealth: 'none',
+    });
+  });
+
+  it('logs a fallback answered with a challenge page with its stealth setting', async () => {
+    const { fake } = await runRequest(
+      { steps: ['render'] },
+      {
+        handlers: {
+          RENDERER: () => deadHostRenderFailure(),
+          HYPERRENDERER: () =>
+            Response.json(
+              { stealth: 'none', error: 'Target page blocked access', reason: 'access_blocked', url: 'https://example.com/a' },
+              { status: 403 }
+            ),
+        },
+      }
+    );
+
+    const renderFailures = eventsOfType(fake.logger, 'step.failed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderFailures).toHaveLength(1);
+    expect(renderFailures[0]?.data).toMatchObject({
+      fallbackUsed: true,
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackStealth: 'none',
+    });
+  });
+
+  it('logs no fallback fields when the primary renderer answers', async () => {
+    const { fake, outcome } = await runRequest({});
+
+    expect(resultOf(outcome).status).toBe('done');
+    const renderCompleted = eventsOfType(fake.logger, 'step.completed').filter(
+      (event) => event.data.step === 'render'
+    );
+    expect(renderCompleted).toHaveLength(1);
+    expect(renderCompleted[0]?.data).not.toHaveProperty('fallbackUsed');
+    expect(renderCompleted[0]?.data).not.toHaveProperty('fallbackStealth');
   });
 
   it('logs request.failed once when no requested output is produced', async () => {
@@ -263,7 +372,14 @@ describe('ArchiveWorkflow.run', () => {
       expect(resultOf(second.outcome).manifestKey).toBe(firstResult.manifestKey);
       expect(second.run.names).toEqual(first.run.names);
       expect(second.fake.calls.RENDERER).toHaveLength(0);
-      expect(persistedSteps(second.fake).sort()).toEqual(['monolith', 'readability', 'singlefile']);
+      // Exactly the persists that came after the render persist in the first run run again.
+      const renderPersistEnd = first.run.names.findIndex((name) => name.startsWith('log-persist-complete-render-'));
+      const laterPersists = first.run.names
+        .slice(renderPersistEnd + 1)
+        .filter((name) => name.startsWith('persist-gcs-'))
+        .map((name) => name.slice('persist-gcs-'.length).replace(/-[0-9a-f]{16}_json$/, ''));
+      expect(persistedSteps(second.fake)).not.toContain('render');
+      expect(persistedSteps(second.fake).sort()).toEqual(laterPersists.sort());
     });
 
     it('skips render in a new instance whose stored checkpoint has it persisted', async () => {
@@ -286,7 +402,7 @@ describe('ArchiveWorkflow.run', () => {
       expect(fake.calls.RENDERER).toHaveLength(0);
       expect(run.names).not.toContain('render');
       expect(run.names.filter((name) => name.startsWith('write-manifest-render-'))).toHaveLength(0);
-      expect(persistedSteps(fake).sort()).toEqual(['monolith', 'readability', 'singlefile']);
+      expect(persistedSteps(fake).sort()).toEqual(['ai-markdown', 'monolith', 'readability', 'singlefile']);
       expect(fake.calls.SINGLEFILE).toHaveLength(1);
       expect(fake.calls.READABILITY).toHaveLength(1);
       expect(fake.calls.MONOLITH).toHaveLength(1);
@@ -322,6 +438,111 @@ describe('ArchiveWorkflow.run', () => {
     expect(fake.quota.acquired).toHaveLength(leases);
     expect(new Set(fake.quota.released).size).toBe(fake.quota.released.length);
     expect([...fake.quota.released].sort()).toEqual([...fake.quota.acquired].sort());
+  });
+});
+
+describe('AI Markdown archive', () => {
+  const AI_MARKDOWN_KEY = getR2Key(REQUEST_ID, 'ai-markdown.md');
+
+  function storedCheckpoint(bucket: FakeBucket): WorkflowCheckpoint {
+    const body = bucket.objects.get(getCheckpointKey(REQUEST_ID));
+    if (body === undefined) throw new Error('no checkpoint stored');
+    return JSON.parse(body) as WorkflowCheckpoint;
+  }
+
+  it('stores AI Markdown as a separate artifact and leaves readability.md as Readability wrote it', async () => {
+    const { fake, outcome } = await runRequest({});
+
+    expect(resultOf(outcome)).toMatchObject({ status: 'done', degraded: false });
+    expect(fake.aiCalls).toHaveLength(1);
+    expect(fake.bucket.objects.get(AI_MARKDOWN_KEY)).toBe(
+      echoLinksAsMarkdown(fake.aiCalls[0]?.html ?? '').data
+    );
+
+    expect(fake.bucket.objects.get(getR2Key(REQUEST_ID, 'readability.md'))).toBe(FIXTURE_READABILITY_MD);
+    const checkpoint = storedCheckpoint(fake.bucket);
+    expect(checkpoint.artifacts['readability.md']).toMatchObject({
+      ...fakeArtifact(REQUEST_ID, 'readability.md'),
+      producedBy: 'readability',
+    });
+    expect(checkpoint.artifacts['ai-markdown.md']).toMatchObject({
+      kind: 'ai-markdown.md',
+      r2Key: AI_MARKDOWN_KEY,
+      contentType: 'text/markdown',
+      producedBy: 'ai-markdown',
+      persisted: true,
+    });
+    expect(checkpoint.steps['ai-markdown'].status).toBe('succeeded');
+  });
+
+  it('resolves the relative link and image of the cleaned HTML against the article URL', async () => {
+    const { fake } = await runRequest({});
+
+    const stored = fake.bucket.objects.get(AI_MARKDOWN_KEY) ?? '';
+    expect(stored).toContain('[link](https://example.com/next)');
+    expect(stored).toContain('![image](https://example.com/img/a.png)');
+    expect(fake.aiCalls[0]).toMatchObject({
+      type: 'text/html',
+      options: { conversionOptions: { html: { hostname: URL } } },
+    });
+    expect(fake.aiCalls[0]?.html).not.toContain('href="../next"');
+  });
+
+  it('records a failed conversion for its step only and completes the request', async () => {
+    const { fake, run, outcome } = await runRequest(
+      {},
+      {
+        ai: () => {
+          throw new Error('Workers AI unavailable');
+        },
+      }
+    );
+
+    const result = resultOf(outcome);
+    expect(result).toMatchObject({ status: 'done', degraded: false });
+    expect(result.partialFailures).toEqual([]);
+
+    const checkpoint = storedCheckpoint(fake.bucket);
+    expect(checkpoint.steps['ai-markdown']).toMatchObject({ status: 'failed', error: 'Workers AI unavailable' });
+    expect(checkpoint.artifacts['ai-markdown.md']).toBeUndefined();
+    expect(fake.bucket.objects.has(AI_MARKDOWN_KEY)).toBe(false);
+
+    const failures = eventsOfType(fake.logger, 'step.failed');
+    expect(failures.map((event) => event.data.step)).toEqual(['ai-markdown']);
+
+    expect(persistedSteps(fake).sort()).toEqual(['monolith', 'readability', 'render', 'singlefile']);
+    const kinds = storedManifest(fake.bucket, result.manifestKey).artifacts.map((artifact) => artifact.kind);
+    expect(kinds).not.toContain('ai-markdown.md');
+    expect(kinds).toEqual(
+      expect.arrayContaining(['rendered.html', 'singlefile.html', 'readability.json', 'readability.md', 'monolith.html'])
+    );
+    expect(countOf(run.names, 'log-completed')).toBe(1);
+    expect(fake.logger.settles.map((entry) => entry.body.state)).toEqual(['done']);
+  });
+
+  it('skips the conversion on resume when the checkpoint holds a persisted AI Markdown artifact', async () => {
+    const bucket = makeFakeBucket();
+    const aiMarkdown = fakeArtifact(REQUEST_ID, 'ai-markdown.md');
+    const stored = createCheckpoint(REQUEST_ID, getOptionsKey(REQUEST_ID), true);
+    recordArtifacts(stored, 'ai-markdown', [aiMarkdown]);
+    markArtifactsPersisted(stored, [{ kind: aiMarkdown.kind, gcsPath: `gs://archive/${aiMarkdown.kind}` }]);
+    await bucket.put(getCheckpointKey(REQUEST_ID), JSON.stringify(stored));
+
+    const { fake, run, outcome } = await runRequest({}, { bucket });
+
+    expect(resultOf(outcome).status).toBe('done');
+    expect(fake.calls.READABILITY).toHaveLength(1);
+    expect(fake.aiCalls).toHaveLength(0);
+    expect(run.names).not.toContain('ai-markdown');
+    expect(persistedSteps(fake)).not.toContain('ai-markdown');
+  });
+
+  it('makes no conversion when readability is not requested', async () => {
+    const { fake, run, outcome } = await runRequest({ steps: ['singlefile'] });
+
+    expect(resultOf(outcome).status).toBe('done');
+    expect(fake.aiCalls).toHaveLength(0);
+    expect(run.names).not.toContain('ai-markdown');
   });
 });
 
@@ -415,5 +636,91 @@ describe('settle to the logger', () => {
 
     expect(errorOf(outcome).name).toBe('WorkflowTerminalError');
     expect(eventsOfType(fake.logger, 'request.failed')).toHaveLength(1);
+  });
+});
+
+describe('monolith step retries', () => {
+  const REMOVED_STEPS = ['monolith-attempt-2', 'monolith-backoff-1'];
+  // Monolith reads rendered.html, so the narrowest request renders too.
+  const MONOLITH_ONLY: Omit<ArchiveOptions, 'url'> = { steps: ['render', 'monolith'] };
+
+  function sandboxLeases(ids: string[]): string[] {
+    return ids.filter((id) => id.startsWith('lease-sandbox_exec-'));
+  }
+
+  function manifestKinds(fake: FakeEnv, outcome: Run['outcome']): string[] {
+    return storedManifest(fake.bucket, resultOf(outcome).manifestKey).artifacts.map((artifact) => artifact.kind);
+  }
+
+  it('runs the monolith call as one step with a timeout and a retry policy', async () => {
+    const { run } = await runRequest(MONOLITH_ONLY);
+
+    expect(run.configs.get('monolith-attempt-1')).toEqual({
+      timeout: '2 minutes',
+      retries: { limit: 1, delay: expect.any(Function) },
+    });
+  });
+
+  it('retries a retryable monolith failure inside the one step and succeeds', async () => {
+    let calls = 0;
+    const succeed = derivativeAnswer('monolith.html');
+    const { fake, run, outcome } = await runRequest(
+      MONOLITH_ONLY,
+      { handlers: { MONOLITH: (body) => (++calls === 1 ? serviceError(503) : succeed(body)) } }
+    );
+
+    expect(fake.calls.MONOLITH).toHaveLength(2);
+    expect(run.attempts.get('monolith-attempt-1')).toBe(2);
+    expect(countOf(run.names, 'monolith-attempt-1')).toBe(1);
+    for (const removed of REMOVED_STEPS) expect(run.names).not.toContain(removed);
+
+    const result = resultOf(outcome);
+    expect(result.status).toBe('done');
+    expect(result.degraded ?? false).toBe(false);
+    expect(manifestKinds(fake, outcome)).toContain('monolith.html');
+
+    expect(sandboxLeases(fake.quota.acquired)).toHaveLength(1);
+    expect(sandboxLeases(fake.quota.released)).toEqual(sandboxLeases(fake.quota.acquired));
+  });
+
+  it('fails a deterministic monolith failure at once, with no retry', async () => {
+    const { fake, run } = await runRequest(
+      MONOLITH_ONLY,
+      { handlers: { MONOLITH: () => monolithInputTooLarge() } }
+    );
+
+    expect(fake.calls.MONOLITH).toHaveLength(1);
+    expect(run.attempts.get('monolith-attempt-1')).toBe(1);
+    const monolithFailures = eventsOfType(fake.logger, 'step.failed').filter(
+      (event) => event.data.step === 'monolith'
+    );
+    expect(monolithFailures.map((event) => event.data.errorCode)).toContain('MONOLITH_INPUT_TOO_LARGE');
+  });
+
+  it('replays a cached monolith result without calling the monolith worker again', async () => {
+    const seeded = makeFakeStep(
+      new Map([['monolith-attempt-1#1', { artifact: fakeArtifact(REQUEST_ID, 'monolith.html') }]])
+    );
+    const { fake, run, outcome } = await runRequest(MONOLITH_ONLY, {}, seeded);
+
+    expect(fake.calls.MONOLITH).toHaveLength(0);
+    expect(resultOf(outcome).status).toBe('done');
+    expect(manifestKinds(fake, outcome)).toContain('monolith.html');
+    for (const removed of REMOVED_STEPS) expect(run.names).not.toContain(removed);
+  });
+
+  it('replays a cached monolith failure to the same degraded end state', async () => {
+    const seeded = makeFakeStep(new Map(), {
+      failed: new Map([['monolith-attempt-1#1', new Error('Service error 503: upstream failure 503')]]),
+    });
+    const { fake, run, outcome } = await runRequest({}, {}, seeded);
+
+    expect(fake.calls.MONOLITH).toHaveLength(0);
+    const result = resultOf(outcome);
+    expect(result.degraded).toBe(true);
+    expect(result.partialFailures?.map((failure) => failure.step)).toEqual(['monolith']);
+    for (const removed of REMOVED_STEPS) expect(run.names).not.toContain(removed);
+    expect(sandboxLeases(fake.quota.acquired)).toHaveLength(1);
+    expect(sandboxLeases(fake.quota.released)).toEqual(sandboxLeases(fake.quota.acquired));
   });
 });

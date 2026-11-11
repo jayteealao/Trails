@@ -27,6 +27,31 @@
             android:exported="true"
             android:theme="@style/Theme.Trails" />
 
+        <!-- Debug only: makes a better text source arrive while the Reader is open.
+             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED
+             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_ARRIVE
+             with the string extra itemId, for example text-first-r1, stores the Readability archive for
+             that article instead, so the first text arrives while the Reader waits.
+             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_EMPTY
+             with the string extra itemId, for example text-first-a1 (an XML comment cannot hold a double hyphen).
+             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES
+             stores an article with every local archive, so the detail screen shows every tab.
+             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_WORST
+             stores the worst article for the reading column: a five-line title, a broken image,
+             a long unbroken URL and a body of over 20,000 words. -->
+        <receiver
+            android:name="com.jayteealao.trails.debug.ReaderFixtureReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.jayteealao.trails.debug.READER_SEED" />
+                <action android:name="com.jayteealao.trails.debug.READER_ARRIVE" />
+                <action android:name="com.jayteealao.trails.debug.READER_SEED_EMPTY" />
+                <action android:name="com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES" />
+                <action android:name="com.jayteealao.trails.debug.READER_SEED_WORST" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"

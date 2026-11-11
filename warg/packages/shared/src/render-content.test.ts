@@ -1,25 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { isDeadHostErrorText, isProxyErrorPage, PROXY_ERROR_PAGE_MAX_LENGTH, proxyErrorPageText } from './render-content.js';
-
-// Byte-exact copy of the 275-byte stub archived by the 2026-09-04 canary:
-// Chrome's plain-text rendering of the proxy's DNS failure, served as HTTP 200.
-// The trailing empty, hidden <div> is part of the real page and must not
-// defeat the "nothing but a <pre>" structural test — an earlier fixture
-// dropped it, which hid the fact that the real page was still being archived.
-const DEAD_HOST_STUB =
-  '<html><head><meta name="color-scheme" content="light dark"></head>' +
-  '<body><pre style="word-wrap: break-word; white-space: pre-wrap;">' +
-  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host\n' +
-  '</pre><div id="header-bqq3lsboese" style="display: none;"></div>' +
-  '</body></html>';
-
-// The same page without the trailing empty node, kept as its own case so a
-// future change to the empty-element strip cannot silently regress either shape.
-const DEAD_HOST_STUB_NO_TRAILING_NODE =
-  '<html><head><meta name="color-scheme" content="light dark"></head>' +
-  '<body><pre style="word-wrap: break-word; white-space: pre-wrap;">' +
-  'dial tcp: lookup www.explorminate.net on 1.1.1.1:53: no such host' +
-  '</pre></body></html>';
+import {
+  isChallengePage,
+  isDeadHostErrorText,
+  isProxyErrorPage,
+  PROXY_ERROR_PAGE_MAX_LENGTH,
+  proxyErrorPageText,
+} from './render-content.js';
+import {
+  ARTICLE_ABOUT_CHALLENGES,
+  CLOUDFLARE_CHALLENGE_PAGE,
+  DATADOME_CHALLENGE_PAGE,
+  LONG_PAGE_WITH_VENDOR_SENSOR,
+  NORMAL_ARTICLE_PAGE,
+  PERIMETERX_CHALLENGE_PAGE,
+  THIN_PAGE_WITH_CLOUDFLARE_SCRIPT,
+  THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT,
+  DEAD_HOST_STUB,
+  DEAD_HOST_STUB_NO_TRAILING_NODE,
+} from './challenge-page.fixtures.js';
 
 describe('isProxyErrorPage', () => {
   it('rejects the observed dead-host proxy stub, trailing empty node and all', () => {
@@ -100,6 +98,120 @@ describe('isProxyErrorPage', () => {
       '<html><body><!-- proxy --><style>pre{color:red}</style>' +
       '<pre>no such host</pre></body></html>';
     expect(isProxyErrorPage(page)).toBe(true);
+  });
+});
+
+describe('isChallengePage', () => {
+  it('flags the Cloudflare managed challenge page', () => {
+    expect(isChallengePage(CLOUDFLARE_CHALLENGE_PAGE)).toBe(true);
+  });
+
+  it('flags the DataDome challenge page', () => {
+    expect(isChallengePage(DATADOME_CHALLENGE_PAGE)).toBe(true);
+  });
+
+  it('flags the PerimeterX challenge page, which has no visible text', () => {
+    expect(isChallengePage(PERIMETERX_CHALLENGE_PAGE)).toBe(true);
+  });
+
+  it('accepts an article that quotes the challenge words and markers as text', () => {
+    expect(isChallengePage(ARTICLE_ABOUT_CHALLENGES)).toBe(false);
+  });
+
+  it('accepts a thin real page that only carries the Cloudflare bot-score injector', () => {
+    expect(isChallengePage(THIN_PAGE_WITH_CLOUDFLARE_SCRIPT)).toBe(false);
+  });
+
+  it('accepts a thin real page whose Cloudflare injector uses the versioned /h/ path', () => {
+    expect(isChallengePage(THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT)).toBe(false);
+  });
+
+  it('accepts a long article whose site loads vendor bot sensors', () => {
+    expect(isChallengePage(LONG_PAGE_WITH_VENDOR_SENSOR)).toBe(false);
+  });
+
+  it('accepts a plain article with no vendor markup', () => {
+    expect(isChallengePage(NORMAL_ARTICLE_PAGE)).toBe(false);
+  });
+
+  it.each(['<script ', '<style ', '<!--', '<noscript ', '<a'])(
+    'answers in linear time on 1 MB of unclosed %s tokens',
+    (token) => {
+      const filler = token.repeat(Math.floor(1_000_000 / token.length));
+      const hostile = `<html><body><p>window._cf_chl_opt</p><div data-x="${filler}"></div></body></html>`;
+      const start = Date.now();
+      isChallengePage(hostile);
+      expect(Date.now() - start).toBeLessThan(1_000);
+    }
+  );
+
+  it('does not scan a large page for a proxy error', () => {
+    const filler = '<div></div>'.repeat(Math.ceil(PROXY_ERROR_PAGE_MAX_LENGTH / '<div></div>'.length));
+    expect(isProxyErrorPage('<html><body><pre>dial tcp: no such host</pre>' + filler + '</body></html>')).toBe(false);
+  });
+
+  it('leaves every recorded page to this check rather than the proxy-error check', () => {
+    const pages = [
+      CLOUDFLARE_CHALLENGE_PAGE,
+      DATADOME_CHALLENGE_PAGE,
+      PERIMETERX_CHALLENGE_PAGE,
+      ARTICLE_ABOUT_CHALLENGES,
+      THIN_PAGE_WITH_CLOUDFLARE_SCRIPT,
+      THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT,
+      LONG_PAGE_WITH_VENDOR_SENSOR,
+      NORMAL_ARTICLE_PAGE,
+    ];
+    for (const page of pages) expect(isProxyErrorPage(page)).toBe(false);
+  });
+});
+
+// The differences a serialization taken after the page's scripts ran can add
+// to the same page: a doctype, script-set attributes on <html> and <body>, an
+// empty node injected at the end of the body, and newlines between tags.
+function asSnapshotSerialization(html: string): string {
+  const withDoctype = /^<!doctype/i.test(html) ? html : `<!DOCTYPE html>${html}`;
+  const withAttributes = withDoctype
+    .replace(/<html\b/i, '<html class="js"')
+    .replace(/<body\b/i, '<body data-loaded="true"');
+  const injected = /<\/body>/i.test(withAttributes)
+    ? withAttributes.replace(/<\/body>/i, '<div id="injected-root"></div></body>')
+    : `${withAttributes}<div id="injected-root"></div>`;
+  return injected.replace(/></g, '>\n<');
+}
+
+const SHORT_LEGITIMATE_PAGE =
+  '<html><head><title>Note</title></head><body>' +
+  '<h1>XCOM 2</h1><p>A short post, but a real one.</p>' +
+  '</body></html>';
+
+const bareNetworkError = (message: string): string => `<html><body><pre>${message}</pre></body></html>`;
+
+describe('detector verdicts on snapshot HTML', () => {
+  const rows: Array<[string, string, { proxy: boolean; challenge: boolean }]> = [
+    ['dead-host stub', DEAD_HOST_STUB, { proxy: true, challenge: false }],
+    ['dead-host stub without its trailing node', DEAD_HOST_STUB_NO_TRAILING_NODE, { proxy: true, challenge: false }],
+    ['connection refused error', bareNetworkError('net::ERR_CONNECTION_REFUSED'), { proxy: true, challenge: false }],
+    ['connection reset error', bareNetworkError('connection reset by peer'), { proxy: true, challenge: false }],
+    ['i/o timeout error', bareNetworkError('dial tcp 10.0.0.1:443: i/o timeout'), { proxy: true, challenge: false }],
+    ['connection closed error', bareNetworkError('read tcp: connection closed'), { proxy: true, challenge: false }],
+    ['Cloudflare challenge', CLOUDFLARE_CHALLENGE_PAGE, { proxy: false, challenge: true }],
+    ['DataDome challenge', DATADOME_CHALLENGE_PAGE, { proxy: false, challenge: true }],
+    ['PerimeterX challenge', PERIMETERX_CHALLENGE_PAGE, { proxy: false, challenge: true }],
+    ['thin page with the Cloudflare script', THIN_PAGE_WITH_CLOUDFLARE_SCRIPT, { proxy: false, challenge: false }],
+    ['thin page with the versioned Cloudflare script', THIN_PAGE_WITH_VERSIONED_CLOUDFLARE_SCRIPT, { proxy: false, challenge: false }],
+    ['long page with a vendor sensor', LONG_PAGE_WITH_VENDOR_SENSOR, { proxy: false, challenge: false }],
+    ['article about challenges', ARTICLE_ABOUT_CHALLENGES, { proxy: false, challenge: false }],
+    ['normal article', NORMAL_ARTICLE_PAGE, { proxy: false, challenge: false }],
+    ['short legitimate page', SHORT_LEGITIMATE_PAGE, { proxy: false, challenge: false }],
+  ];
+
+  it.each(rows)('%s gets the same verdict as /content HTML and as snapshot HTML', (_name, html, expected) => {
+    const snapshot = asSnapshotSerialization(html);
+    expect(snapshot).not.toBe(html);
+    const fromContent = { proxy: isProxyErrorPage(html), challenge: isChallengePage(html) };
+    const fromSnapshot = { proxy: isProxyErrorPage(snapshot), challenge: isChallengePage(snapshot) };
+    expect(fromContent).toEqual(expected);
+    expect(fromSnapshot).toEqual(fromContent);
   });
 });
 

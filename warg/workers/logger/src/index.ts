@@ -7,7 +7,8 @@ import type {
   RequestFieldsPatch,
   RequestDiagnostics,
   RequestErrorCode,
-  RequestSettle
+  RequestSettle,
+  KindHealthRow
 } from '@warg/shared';
 import {
   defaultActionForCode,
@@ -27,7 +28,8 @@ import {
   type StatsCountRow,
   type StatsListRow,
 } from './stats-query.js';
-import { asString, asNumber, asBoolean, asRecord } from './value-helpers.js';
+import { asString, asNumber, asBoolean } from './value-helpers.js';
+import { applyRenderFallbackDiagnostics } from './render-fallback-diagnostics.js';
 
 export { LoggerDO };
 
@@ -99,6 +101,7 @@ interface LoggerStub {
     cursor?: number,
     limit?: number
   ): Promise<{ events: LogEvent[]; nextCursor?: number } | null> | { events: LogEvent[]; nextCursor?: number } | null;
+  getKindHealthRows(sinceIso: string): Promise<KindHealthRow[]> | KindHealthRow[];
   settleRequest(requestId: string, settle: RequestSettle): Promise<SettleResult>;
 }
 
@@ -165,28 +168,9 @@ function recomputeDiagnosticsFromEvents(events: LogEvent[]): RequestDiagnostics 
         if (step === 'render' || step === 'singlefile') diagnostics.renderMs = durationMs;
         else if (step === 'derivatives' || step === 'readability' || step === 'monolith') diagnostics.deriveMs = durationMs;
       }
-
-      if (step === 'render') {
-        const fallbackUsed = asBoolean(data?.['fallbackUsed']);
-        if (fallbackUsed !== undefined) diagnostics.renderFallbackUsed = fallbackUsed;
-        const fallbackReason = asString(data?.['fallbackReason']);
-        if (fallbackReason) diagnostics.renderFallbackReason = fallbackReason;
-
-        const meta = asRecord(data?.['meta']);
-        const provider = asString(data?.['fallbackProvider']) ?? asString(meta?.['provider']);
-        if (provider === 'hyperbrowser') {
-          diagnostics.renderProvider = 'hyperbrowser';
-        } else if (provider === 'browser-rendering' || provider === 'browser_rendering') {
-          diagnostics.renderProvider = 'browser-rendering';
-        } else if (provider) {
-          diagnostics.renderProvider = 'unknown';
-        } else if (fallbackUsed === false) {
-          diagnostics.renderProvider = 'browser-rendering';
-        } else if (fallbackUsed === true) {
-          diagnostics.renderProvider = 'hyperbrowser';
-        }
-      }
     }
+
+    applyRenderFallbackDiagnostics(diagnostics, event);
 
     if (event.type === 'persist.completed') {
       const durationMs = asNumber(data?.['duration_ms']);
@@ -642,6 +626,30 @@ async function handleBackfillDiagnostics(
 }
 
 /**
+ * GET /health/kinds handler — the rows of the daily archive health check:
+ * every request created in the last `hours` hours, with its requested steps
+ * and the creation time of each primary artifact. Reads only the hour buckets
+ * that D1 lists; pre-bucket per-request instances are not read.
+ */
+async function handleGetKindHealth(env: LoggerServiceEnv, params: URLSearchParams): Promise<Response> {
+  const raw = params.get('hours');
+  const hours = raw === null ? 49 : Number(raw);
+  if (!Number.isInteger(hours) || hours < 1 || hours > 72) {
+    return Response.json({ error: 'hours must be an integer from 1 to 72' }, { status: 400 });
+  }
+  const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+  const { results } = await env.INDEX_DB.prepare(
+    'SELECT DISTINCT substr(created_at, 1, 13) AS hour FROM requests_index WHERE created_at >= ?'
+  )
+    .bind(since)
+    .all<{ hour: string }>();
+  const perBucket = await Promise.all(
+    results.map(({ hour }) => getStubForKey(env, bucketKeyForTs(`${hour}:00:00Z`)).getKindHealthRows(since))
+  );
+  return Response.json({ since, buckets: results.length, rows: perBucket.flat() });
+}
+
+/**
  * Parse URL pathname and params.
  */
 function parseRoute(
@@ -653,7 +661,8 @@ function parseRoute(
   // Literal routes take priority over parameterized ones
   if (path === '/request/init' || path === '/event' || path === '/events/batch' ||
       path === '/artifact' || path === '/stats' || path === '/requests' ||
-      path === '/requests/batch' || path === '/maintenance/backfill-diagnostics') {
+      path === '/requests/batch' || path === '/maintenance/backfill-diagnostics' ||
+      path === '/health/kinds') {
     return { path, params };
   }
 
@@ -872,6 +881,11 @@ export default {
       // GET /stats - Aggregate metrics from D1 index
       if (method === 'GET' && path === '/stats') {
         return handleGetStats(env);
+      }
+
+      // GET /health/kinds - Rows of the daily archive health check
+      if (method === 'GET' && path === '/health/kinds') {
+        return handleGetKindHealth(env, params);
       }
 
       // POST /requests/batch - Batch fetch request summaries from D1 index

@@ -20,7 +20,9 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -119,6 +121,7 @@ class ArchiveServiceObserveTest {
             articleDao = articleDao,
             application = application,
             ioDispatcher = UnconfinedTestDispatcher(),
+            appScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher()),
         )
     }
 
@@ -298,6 +301,94 @@ class ArchiveServiceObserveTest {
     @Test
     fun `cancelling removes both listener registrations`() = runTest(UnconfinedTestDispatcher()) {
         val job = launch { service.observeRemoteArchives("item1").toList(mutableListOf()) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+
+        job.cancel()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { userRegistrations.single().remove() }
+        verify(exactly = 1) { sharedRegistrations.getValue("shared1").single().remove() }
+    }
+
+    // --- The status of the shared article ---
+
+    private fun statusSnapshot(status: String?, exists: Boolean = true): DocumentSnapshot {
+        val snapshot = mockk<DocumentSnapshot>()
+        every { snapshot.exists() } returns exists
+        every { snapshot.getString("status") } returns status
+        return snapshot
+    }
+
+    @Test
+    fun `the status follows the own itemId when there is no canonicalId`() = runTest(UnconfinedTestDispatcher()) {
+        val emitted = mutableListOf<String?>()
+        val job = launch { service.observeArticleStatus("item1").toList(emitted) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot(null), null)
+        advanceUntilIdle()
+        assertEquals(listOf("item1"), sharedIdsAttached())
+
+        sharedListeners.single().second.onEvent(statusSnapshot("failed"), null)
+        advanceUntilIdle()
+        assertEquals("failed", emitted.last())
+        job.cancel()
+    }
+
+    @Test
+    fun `the status follows canonicalId to the shared article`() = runTest(UnconfinedTestDispatcher()) {
+        val emitted = mutableListOf<String?>()
+        val job = launch { service.observeArticleStatus("item1").toList(emitted) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+        assertEquals(listOf("shared1"), sharedIdsAttached())
+
+        sharedListeners.single().second.onEvent(statusSnapshot("complete"), null)
+        advanceUntilIdle()
+        assertEquals("complete", emitted.last())
+        job.cancel()
+    }
+
+    @Test
+    fun `a missing shared article gives no status`() = runTest(UnconfinedTestDispatcher()) {
+        val emitted = mutableListOf<String?>()
+        val job = launch { service.observeArticleStatus("item1").toList(emitted) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+        sharedListeners.single().second.onEvent(statusSnapshot("failed", exists = false), null)
+        advanceUntilIdle()
+
+        assertEquals(listOf<String?>(null), emitted)
+        job.cancel()
+    }
+
+    @Test
+    fun `a status listener error gives no status`() = runTest(UnconfinedTestDispatcher()) {
+        val emitted = mutableListOf<String?>()
+        val job = launch { service.observeArticleStatus("item1").toList(emitted) }
+        advanceUntilIdle()
+
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+        sharedListeners.single().second.onEvent(statusSnapshot("processing"), null)
+        advanceUntilIdle()
+        sharedListeners.single().second.onEvent(null, unavailable)
+        advanceUntilIdle()
+
+        assertEquals(listOf("processing", null), emitted)
+        job.cancel()
+    }
+
+    @Test
+    fun `cancelling the status removes both listener registrations`() = runTest(UnconfinedTestDispatcher()) {
+        val job = launch { service.observeArticleStatus("item1").toList(mutableListOf()) }
         advanceUntilIdle()
 
         userListeners.single().onEvent(userSnapshot("shared1"), null)

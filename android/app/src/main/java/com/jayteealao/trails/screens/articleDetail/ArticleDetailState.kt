@@ -14,9 +14,22 @@ data class ArticleDetailState(
     val isLoading: Boolean = false,
     val remoteArchives: Map<String, ArchiveStatus> = emptyMap(),
     val localArchives: List<LocalArchive> = emptyList(),
-    val archiveSyncing: Boolean = false,
+    /** The archive keys that have a tab: on the phone, or ready on the server and on their way. */
+    val tabArchiveKeys: List<String> = emptyList(),
+    /** The tab archives that are not on the phone yet. */
+    val pendingArchiveKeys: Set<String> = emptySet(),
+    /** The pending tab archives whose download failed. */
+    val failedArchiveKeys: Set<String> = emptySet(),
+    /** A text archive is downloading to the phone; a heavy download does not count. */
+    val textDownloading: Boolean = false,
     val textSource: String = "",
     val selectedArchiveContent: String? = null,
+    val online: Boolean = true,
+    val articleStatus: String? = null,
+    /** The selected text archive tab could not read its file. */
+    val selectedArchiveLoadFailed: Boolean = false,
+    /** What the Reader tab shows: the text, the skeleton, or a quiet notice. */
+    val readerBody: ReaderBody = ReaderBody.Loading,
 )
 
 /**

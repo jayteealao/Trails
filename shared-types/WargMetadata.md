@@ -3,8 +3,10 @@
 This is the field-name contract of the article documents in Firestore: the
 `metadata` block of the shared article `articles/{itemId}` that Warg writes and
 Trails reads, the other fields the server writes on the shared article and the
-user article `users/{uid}/articles/{id}`, and the user article fields the app
-writes and the server reads. It is enforced by `shared-types/check-drift.ts`,
+user article `users/{uid}/articles/{id}`, the user article fields the app
+writes and the server reads, and the archive kinds: the archive key each stored
+artifact kind gets on the shared article, and the order a run stores them in.
+It is enforced by `shared-types/check-drift.ts`,
 which runs in CI through `.github/workflows/shared-types-drift.yml` on changes
 under `android/`, `warg/` and `shared-types/`.
 
@@ -108,6 +110,14 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 | `archives.rendered.compression_ratio` | `articles/{id}` | as `archives.rendered` | written on finalize |
 | `archives.rendered.started_at` | `articles/{id}` | as `archives.rendered` | an ISO string, written on upload start |
 | `archives.rendered.created_at` | `articles/{id}` | as `archives.rendered` | an ISO string, written on finalize |
+| `archives.ai_markdown` | `articles/{id}` | journalSharedArticleUploads, finalizeSharedArticleArchives | the archive gateway entry of that artifact kind |
+| `archives.ai_markdown.status` | `articles/{id}` | as `archives.ai_markdown` | `uploading` or `success`; an entry kept whole when it is already a `success` with a `gcs_path` |
+| `archives.ai_markdown.gcs_path` | `articles/{id}` | as `archives.ai_markdown` | `gs://<bucket>/archives/<id>/<folder>/<file>` |
+| `archives.ai_markdown.gcs_bucket` | `articles/{id}` | as `archives.ai_markdown` |  |
+| `archives.ai_markdown.compressed_size` | `articles/{id}` | as `archives.ai_markdown` | written on finalize |
+| `archives.ai_markdown.compression_ratio` | `articles/{id}` | as `archives.ai_markdown` | written on finalize |
+| `archives.ai_markdown.started_at` | `articles/{id}` | as `archives.ai_markdown` | an ISO string, written on upload start |
+| `archives.ai_markdown.created_at` | `articles/{id}` | as `archives.ai_markdown` | an ISO string, written on finalize |
 | `pocket` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill | built from the user article only by `projectPocket` of `@warg/article-writer` (a create by the re-derive pass stores an empty map) |
 | `pocket.favorite` | `articles/{id}` | as `pocket` | |
 | `pocket.resolved_id` | `articles/{id}` | as `pocket` | |
@@ -166,6 +176,59 @@ the row then).
 | ----- | ------------ | ------ |
 | `published_time` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | the app does not show it yet; Warg-only |
 | `site_name` | `android/app/src/main/java/com/jayteealao/trails/data/archive/ArchiveService.kt` | the app does not show it yet; Warg-only |
+
+## Archive kinds
+
+The archive key each stored artifact kind gets under `archives` of the shared
+article, where the archive is stored (`gs://<bucket>/archives/<id>/<path>`),
+whether it is a text source the app can read as the article text, the order a
+run stores it in, and whether the app names the key (`yes`, or `no:` with the
+reason). The drift check fails when a key or a kind of this table is not a
+string literal in each list below (the app's list only for an App `yes` row),
+and when the archive gateway maps a kind that is not a row here.
+
+| Archive key | Artifact kind | GCS path | Text | Persist order | App |
+| ----------- | ------------- | -------- | ---- | ------------- | --- |
+| `readability` | `readability.md` | `readability/output.md.gz` | yes | 1 (text) | yes |
+| `ai_markdown` | `ai-markdown.md` | `ai-markdown/output.md.gz` | yes | 1 (text) | yes |
+| `rendered` | `rendered.html` | `rendered/output.html.gz` | no | 2 (page) | yes |
+| `markdown` | `rendered.md` | `rendered/output.md.gz` | yes | 2 (page) | yes |
+| `screenshot` | `screenshot.png` | `screenshot/output.png` | no | 2 (page) | no: the app does not store it; it is only the image fallback |
+| `pdf` | `page.pdf` | `pdf/output.pdf` | no | 2 (page) | no: the app does not store it |
+| `singlefile` | `singlefile.html` | `singlefile/output.html.gz` | no | 3 | yes |
+| `monolith` | `monolith.html` | `monolith/output.html.gz` | no | 4 | yes |
+
+`readability.json` has no archive entry: it feeds `metadata`. `manifest.json`
+is not stored in GCS.
+
+A run stores and finalizes its text archives (order 1) before every other
+archive, then the page archives of the render (2), then `singlefile` (3), then
+`monolith` (4). Each persist finalizes its own entries, so the text entries of a
+run read `success` before the others, and a failed later upload leaves the text
+entries as they are. The text sources are, in the app's order: `readability`,
+then `ai_markdown`, then `markdown`. The order is proved by
+`warg/workers/workflow/src/text-first-persist.test.ts`, not by the drift check.
+
+### Adding an archive kind
+
+1. Add a row to the table above.
+2. Add the artifact kind to `ArtifactKind` in `warg/packages/shared/src/types.ts`
+   (and its copy in `warg/cloud-functions/archive-gateway/src/types.ts`).
+3. Add the archive key to the four lists: `KIND_TO_ARCHIVE_KEY` in
+   `warg/cloud-functions/archive-gateway/src/types.ts`, `GATEWAY_ARCHIVE_KEYS`
+   in `warg/packages/article-writer/src/fields.ts` (with its eight
+   `archives.<key>` rows in "Articles document fields" above),
+   `ALL_ARCHIVE_KEYS` in `warg/cloud-functions/dashboard-api/src/types.ts`, and
+   `ArchiveType.kt` in `android/app/src/main/java/com/jayteealao/trails/data/archive/`
+   (an enum entry, or a key constant while the app has no tab for it), unless
+   the row's App column is `no:`.
+   The dashboard proxy serves a text or HTML archive only when its key is in
+   `VALID_ARCHIVE_KEYS` (and `TEXT_ARCHIVES` or `HTML_ARCHIVES`) of
+   `warg/pages/dashboard/functions/api/archive-content.ts`; add it there, and
+   to `ARCHIVE_KEY_TO_STEP` in `warg/pages/dashboard/public/modules/state.js`.
+4. Change both stacks in one commit, and run
+   `node --experimental-strip-types shared-types/check-drift.ts`.
+5. Deploy the archive gateway before the workers that store the new kind.
 
 ## User article fields read by the server
 

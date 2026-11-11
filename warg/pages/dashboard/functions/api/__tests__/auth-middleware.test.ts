@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { timingSafeEqual as nodeTimingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { listRoutes } from './route-inventory';
-import { onRequest } from '../../_middleware';
+import { onRequest, resetGuessCounts } from '../../_middleware';
 
 const API_DIR = fileURLToPath(new URL('..', import.meta.url));
 const routes = listRoutes(API_DIR);
@@ -202,3 +202,83 @@ function toBuffer(value: ArrayBuffer | ArrayBufferView): Buffer {
     ? Buffer.from(value.buffer, value.byteOffset, value.byteLength)
     : Buffer.from(new Uint8Array(value));
 }
+
+describe('refused sign-ins are logged without the credential', () => {
+  it('logs a wrong credential, a missing secret and a cross-site write, and never the credential', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await run('/api/inbox', 'GET', basic('e2e-user:wrong-guess'));
+      await run('/api/inbox', 'GET', basic(SECRET), UNSET);
+      await run('/api/begin', 'POST', basic(SECRET), SECRET, { 'Sec-Fetch-Site': 'cross-site' });
+      await run('/api/inbox', 'GET');
+
+      const reasons = [...warn.mock.calls, ...error.mock.calls].map(([line]) => (line as { reason: string }).reason);
+      expect(reasons.sort()).toEqual(['bad_credential', 'cross_site_write', 'not_configured']);
+      expect(error.mock.calls.map(([line]) => (line as { reason: string }).reason)).toEqual(['not_configured']);
+      const logged = JSON.stringify([...warn.mock.calls, ...error.mock.calls]);
+      expect(logged).not.toContain('wrong-guess');
+      expect(logged).not.toContain('e2e-pass');
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+});
+
+describe('repeated wrong credentials from one address', () => {
+  it('stop being checked after ten in a minute, for that address only', async () => {
+    resetGuessCounts();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const from = (ip: string) => ({ 'CF-Connecting-IP': ip });
+      for (let i = 0; i < 10; i++) {
+        const { response } = await run('/api/inbox', 'GET', basic('e2e-user:guess' + i), SECRET, from('203.0.113.7'));
+        expect(response.status).toBe(401);
+      }
+      const blocked = await run('/api/inbox', 'GET', basic('e2e-user:guess10'), SECRET, from('203.0.113.7'));
+      expect(blocked.response.status).toBe(429);
+      expect(blocked.next).not.toHaveBeenCalled();
+      const other = await run('/api/inbox', 'GET', basic('e2e-user:guess11'), SECRET, from('198.51.100.2'));
+      expect(other.response.status).toBe(401);
+    } finally {
+      warn.mockRestore();
+      resetGuessCounts();
+    }
+  });
+
+  it('never refuse the right credential, even from an address that is out of guesses', async () => {
+    resetGuessCounts();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const from = { 'CF-Connecting-IP': '203.0.113.7' };
+      for (let i = 0; i < 10; i++) {
+        await run('/api/inbox', 'GET', basic('e2e-user:guess' + i), SECRET, from);
+      }
+      const right = await run('/api/inbox', 'GET', basic(SECRET), SECRET, from);
+      expect(right.response.status).toBe(299);
+      expect(right.next).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      resetGuessCounts();
+    }
+  });
+
+  it('are not counted from a loopback address', async () => {
+    resetGuessCounts();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const ip of ['127.0.0.1', '::1']) {
+        for (let i = 0; i < 11; i++) {
+          const { response } = await run('/api/inbox', 'GET', basic('e2e-user:guess' + i), SECRET, {
+            'CF-Connecting-IP': ip,
+          });
+          expect(response.status).toBe(401);
+        }
+      }
+    } finally {
+      warn.mockRestore();
+      resetGuessCounts();
+    }
+  });
+});

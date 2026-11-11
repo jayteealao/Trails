@@ -11,6 +11,7 @@ import type {
   ArtifactKind,
   ArtifactMeta,
   EventType,
+  ReadabilityResult,
 } from '@warg/shared';
 import { getOptionsKey, getR2Key } from '@warg/shared';
 import { ArchiveWorkflow } from '../index.js';
@@ -23,10 +24,12 @@ import type {
   WorkflowResult,
 } from '../types.js';
 
-type StepCallback = () => Promise<unknown>;
+/** The step context the workflow reads: the attempt number, 1 on the first try. */
+type StepCallback = (ctx: { attempt: number }) => Promise<unknown>;
 
 interface StepConfig {
-  retries?: { limit: number };
+  retries?: { limit: number; delay?: unknown; backoff?: string };
+  timeout?: unknown;
 }
 
 export interface FakeStep {
@@ -38,6 +41,33 @@ export interface FakeStep {
   sleeps: Array<[string, unknown]>;
   /** Step results by `name#occurrence`, in the order they completed. */
   cache: Map<string, unknown>;
+  /** The config of the last step.do call of each name (undefined when it had none). */
+  configs: Map<string, StepConfig | undefined>;
+}
+
+/** Thrown by a fake step once its instance has stopped: no later step runs or records a result. */
+export class InstanceStopped extends Error {
+  constructor(at: string) {
+    super(`instance stopped before step ${at}`);
+    this.name = 'InstanceStopped';
+  }
+}
+
+export interface FakeStepOptions {
+  /**
+   * Stops the instance when a step.do or step.sleep of this name is reached,
+   * as an engine that goes away mid-run: that step and every later one throw
+   * InstanceStopped without running, and a callback still in flight records no result.
+   */
+  haltBefore?: string;
+  /** Called once, synchronously, at the moment the instance stops. */
+  onHalt?: () => void;
+  /**
+   * Cached failures by `name#occurrence`: that step throws its error at once
+   * without running the callback and adds no attempt, as the engine replays a
+   * step that failed after its retries.
+   */
+  failed?: Map<string, Error>;
 }
 
 /**
@@ -45,25 +75,43 @@ export interface FakeStep {
  * a result is cached by step name and occurrence (deep-cloned, as the engine
  * serializes it), so a run against a seeded cache replays it; a throwing
  * callback is re-run up to `retries.limit` extra times, and at once stops on a
- * NonRetryableError. A step without a config is not retried. Sleeps return at once.
+ * NonRetryableError. A step without a config is not retried. A seeded failure
+ * replays as a throw. The config of each step is recorded. Sleeps return at once.
  */
-export function makeFakeStep(seed: Map<string, unknown> = new Map()): FakeStep {
+export function makeFakeStep(
+  seed: Map<string, unknown> = new Map(),
+  options: FakeStepOptions = {}
+): FakeStep {
   const cache = new Map(seed);
   const names: string[] = [];
   const attempts = new Map<string, number>();
+  const configs = new Map<string, StepConfig | undefined>();
   const sleeps: Array<[string, unknown]> = [];
   const seen = new Map<string, number>();
+  let stoppedAt: string | undefined;
+
+  const stopIfHalted = (name: string): void => {
+    if (stoppedAt === undefined && name === options.haltBefore) {
+      stoppedAt = name;
+      options.onHalt?.();
+    }
+    if (stoppedAt !== undefined) throw new InstanceStopped(stoppedAt);
+  };
 
   const fake = {
     async do(name: string, configOrFn: StepConfig | StepCallback, fn?: StepCallback): Promise<unknown> {
+      stopIfHalted(name);
       names.push(name);
       const occurrence = (seen.get(name) ?? 0) + 1;
       seen.set(name, occurrence);
       const key = `${name}#${occurrence}`;
+      const config = typeof configOrFn === 'function' ? undefined : configOrFn;
+      configs.set(name, config);
       if (cache.has(key)) return structuredClone(cache.get(key));
+      const cachedFailure = options.failed?.get(key);
+      if (cachedFailure) throw cachedFailure;
 
       const callback = typeof configOrFn === 'function' ? configOrFn : fn;
-      const config = typeof configOrFn === 'function' ? undefined : configOrFn;
       if (!callback) throw new Error(`step ${name} has no callback`);
 
       const maxAttempts = (config?.retries?.limit ?? 0) + 1;
@@ -71,10 +119,12 @@ export function makeFakeStep(seed: Map<string, unknown> = new Map()): FakeStep {
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         attempts.set(name, (attempts.get(name) ?? 0) + 1);
         try {
-          const value = await callback();
+          const value = await callback({ attempt });
+          if (stoppedAt !== undefined) throw new InstanceStopped(stoppedAt);
           cache.set(key, structuredClone(value));
           return value;
         } catch (error) {
+          if (stoppedAt !== undefined) throw new InstanceStopped(stoppedAt);
           lastError = error;
           if (error instanceof NonRetryableError) break;
         }
@@ -82,19 +132,20 @@ export function makeFakeStep(seed: Map<string, unknown> = new Map()): FakeStep {
       throw lastError;
     },
     async sleep(name: string, duration: unknown): Promise<void> {
+      stopIfHalted(name);
       sleeps.push([name, duration]);
     },
   };
 
   // The fake implements only the step.do and step.sleep surface the workflow uses.
-  return { step: fake as unknown as WorkflowStep, names, attempts, sleeps, cache };
+  return { step: fake as unknown as WorkflowStep, names, attempts, sleeps, cache, configs };
 }
 
-/** An R2 bucket fake: string bodies in a map. */
+/** An R2 bucket fake: bodies in a map, binary bodies decoded as UTF-8 text. */
 export interface FakeBucket {
   objects: Map<string, string>;
   get(key: string): Promise<{ json(): Promise<unknown>; text(): Promise<string> } | null>;
-  put(key: string, body: string): Promise<null>;
+  put(key: string, body: string | ArrayBuffer | ArrayBufferView): Promise<null>;
   head(key: string): Promise<{ size: number; httpEtag: string; httpMetadata: { contentType?: string } } | null>;
 }
 
@@ -111,7 +162,7 @@ export function makeFakeBucket(): FakeBucket {
       };
     },
     async put(key, body) {
-      objects.set(key, body);
+      objects.set(key, typeof body === 'string' ? body : new TextDecoder().decode(body));
       return null;
     },
     async head(key) {
@@ -147,8 +198,32 @@ const CONTENT_TYPES: Record<ArtifactKind, string> = {
   'readability.json': 'application/json',
   'readability.md': 'text/markdown',
   'monolith.html': 'text/html',
+  'ai-markdown.md': 'text/markdown',
   'manifest.json': 'application/json',
 };
+
+/** The cleaned HTML the default readability fake stores: one relative link, one relative image. */
+export const FIXTURE_READABILITY_HTML =
+  '<h1>Fixture title</h1><p>Read <a href="../next">the next post</a>.</p><img src="img/a.png" alt="A figure">';
+
+/** The readability.md body the default readability fake stores. */
+export const FIXTURE_READABILITY_MD = '# Fixture title\n\nRead the next post.\n';
+
+function fixtureReadabilityResult(): ReadabilityResult {
+  return {
+    title: 'Fixture title',
+    byline: null,
+    dir: null,
+    lang: 'en',
+    content: FIXTURE_READABILITY_HTML,
+    textContent: 'Fixture title Read the next post.',
+    length: 33,
+    excerpt: null,
+    siteName: null,
+    publishedTime: null,
+    leadImage: null,
+  };
+}
 
 /** A deterministic artifact: no clock or random input, so persist step names repeat. */
 export function fakeArtifact(requestId: string, kind: ArtifactKind): ArtifactMeta {
@@ -178,6 +253,52 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
+/** The default success answer of the singlefile and monolith workers: one artifact of `kind`. */
+export function derivativeAnswer(kind: ArtifactKind): ServiceHandler {
+  return (body) => {
+    const response: DerivativeResponse = { artifact: fakeArtifact(String(body.request_id), kind) };
+    return jsonResponse(response);
+  };
+}
+
+export interface HeldResponse {
+  /** The handler to install for a binding; every call waits until `release`. */
+  handler: ServiceHandler;
+  /** Resolves when the first call arrives. */
+  started: Promise<void>;
+  /** The number of calls that have been answered. */
+  answered(): number;
+  /** Answers every waiting and later call, with `response` or the binding's normal answer. */
+  release(response?: Response): void;
+}
+
+/**
+ * A service that hangs: each call is recorded and answered only after
+ * `release`, with `answer` (the binding's normal success answer) by default.
+ */
+export function holdResponse(answer: ServiceHandler): HeldResponse {
+  let markStarted: () => void = () => undefined;
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+  let releaseAll: (response: Response | undefined) => void = () => undefined;
+  const released = new Promise<Response | undefined>((resolve) => {
+    releaseAll = resolve;
+  });
+  let answeredCount = 0;
+  return {
+    handler: async (body) => {
+      markStarted();
+      const response = await released;
+      answeredCount += 1;
+      return response?.clone() ?? (await answer(body));
+    },
+    started,
+    answered: () => answeredCount,
+    release: (response) => releaseAll(response),
+  };
+}
+
 function defaultHandlers(bucket: FakeBucket): Record<ServiceBinding, ServiceHandler> {
   const render: ServiceHandler = (body) => {
     const response: RendererResponse = {
@@ -187,39 +308,42 @@ function defaultHandlers(bucket: FakeBucket): Record<ServiceBinding, ServiceHand
     };
     return jsonResponse(response);
   };
-  const derivative = (kind: ArtifactKind): ServiceHandler => (body) => {
-    const response: DerivativeResponse = { artifact: fakeArtifact(String(body.request_id), kind) };
-    return jsonResponse(response);
-  };
   return {
     RENDERER: render,
     HYPERRENDERER: render,
-    SINGLEFILE: derivative('singlefile.html'),
-    MONOLITH: derivative('monolith.html'),
-    READABILITY: (body) => {
+    SINGLEFILE: derivativeAnswer('singlefile.html'),
+    MONOLITH: derivativeAnswer('monolith.html'),
+    // Stores the JSON and Markdown bodies, as the readability worker does.
+    READABILITY: async (body) => {
       const requestId = String(body.request_id);
+      await bucket.put(getR2Key(requestId, 'readability.json'), JSON.stringify(fixtureReadabilityResult()));
+      await bucket.put(getR2Key(requestId, 'readability.md'), FIXTURE_READABILITY_MD);
       const response: ReadabilityResponse = {
         json: fakeArtifact(requestId, 'readability.json'),
         md: fakeArtifact(requestId, 'readability.md'),
       };
       return jsonResponse(response);
     },
-    // Answers from the manifest the workflow wrote, as the GCS worker does.
-    GCS: async (body) => {
-      const stored = await bucket.get(String(body.manifest_key));
-      if (!stored) return new Response('manifest not found', { status: 404 });
-      const manifest = (await stored.json()) as ArchiveManifest;
-      const response: GcsResponse = {
-        success: true,
-        firestore_doc_id: 'doc-1',
-        uploaded: manifest.artifacts.length,
-        artifacts: manifest.artifacts.map((artifact) => ({
-          kind: artifact.kind,
-          gcs_path: `gs://archive/${manifest.requestId}/${artifact.kind}`,
-        })),
-      };
-      return jsonResponse(response);
-    },
+    GCS: gcsAnswer(bucket),
+  };
+}
+
+/** The default GCS answer: answers from the manifest the workflow wrote, as the GCS worker does. */
+export function gcsAnswer(bucket: FakeBucket): ServiceHandler {
+  return async (body) => {
+    const stored = await bucket.get(String(body.manifest_key));
+    if (!stored) return new Response('manifest not found', { status: 404 });
+    const manifest = (await stored.json()) as ArchiveManifest;
+    const response: GcsResponse = {
+      success: true,
+      firestore_doc_id: 'doc-1',
+      uploaded: manifest.artifacts.length,
+      artifacts: manifest.artifacts.map((artifact) => ({
+        kind: artifact.kind,
+        gcs_path: `gs://archive/${manifest.requestId}/${artifact.kind}`,
+      })),
+    };
+    return jsonResponse(response);
   };
 }
 
@@ -240,6 +364,46 @@ export interface FakeLogger {
 /** Answers one settle call; it may also throw, as a timed-out fetch does. */
 export type SettleHandler = (body: Record<string, unknown>) => Response | Promise<Response>;
 
+/** Answers one Workers AI conversion; it may throw, as a failed binding call does. */
+export type AiHandler = (html: string) => ConversionResponse | Promise<ConversionResponse>;
+
+/** One recorded Workers AI conversion call. */
+export interface AiCall {
+  name: string;
+  html: string;
+  type: string;
+  options?: ConversionRequestOptions;
+}
+
+/**
+ * The default conversion: a heading, then one Markdown link or image per
+ * `href`/`src` the HTML holds, so a test can read the URLs the binding received.
+ */
+export function echoLinksAsMarkdown(html: string): Exclude<ConversionResponse, { format: 'error' }> {
+  const lines = ['# Fixture title', ''];
+  for (const [, name, value] of html.matchAll(/\s(href|src)="([^"]*)"/g)) {
+    lines.push(name === 'src' ? `![image](${value})` : `[link](${value})`);
+  }
+  return {
+    id: 'conversion-1',
+    name: 'article.html',
+    mimeType: 'text/html',
+    format: 'markdown',
+    tokens: lines.length,
+    data: `${lines.join('\n')}\n`,
+  };
+}
+
+function makeAiFake(handler: AiHandler, calls: AiCall[]) {
+  return {
+    async toMarkdown(document: MarkdownDocument, options?: ConversionRequestOptions): Promise<ConversionResponse> {
+      const html = await document.blob.text();
+      calls.push({ name: document.name, html, type: document.blob.type, options });
+      return await handler(html);
+    },
+  };
+}
+
 export interface FakeQuota {
   acquired: string[];
   released: string[];
@@ -254,6 +418,8 @@ export interface FakeEnvOptions {
   settle?: SettleHandler;
   /** Runs the mock pipeline (MOCK_PIPELINE 'true'). */
   mockPipeline?: boolean;
+  /** Replaces the default Workers AI conversion (echoLinksAsMarkdown). */
+  ai?: AiHandler;
 }
 
 export interface FakeEnv {
@@ -262,6 +428,8 @@ export interface FakeEnv {
   calls: Record<ServiceBinding, Array<Record<string, unknown>>>;
   logger: FakeLogger;
   quota: FakeQuota;
+  /** Every Workers AI toMarkdown call, in order. */
+  aiCalls: AiCall[];
 }
 
 interface FakeFetcher {
@@ -356,6 +524,7 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
   };
   const logger: FakeLogger = { events: [], patches: [], settles: [] };
   const quota: FakeQuota = { acquired: [], released: [] };
+  const aiCalls: AiCall[] = [];
 
   const services = Object.fromEntries(
     SERVICE_BINDINGS.map((binding) => [binding, makeServiceFetcher(handlers[binding], calls[binding])])
@@ -365,12 +534,13 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
     ARCHIVE_BUCKET: bucket,
     LOGGER: makeLoggerFetcher(logger, options.settle),
     BROWSER_QUOTA: makeQuotaNamespace(quota),
+    AI: makeAiFake(options.ai ?? echoLinksAsMarkdown, aiCalls),
     MOCK_PIPELINE: options.mockPipeline ? 'true' : 'false',
     INTERNAL_API_KEY: 'test-key',
   };
   // The fakes implement only the binding methods the workflow calls; the Env
-  // types (R2Bucket, Fetcher, DurableObjectNamespace) are far wider.
-  return { env: fake as unknown as Env, bucket, calls, logger, quota };
+  // types (R2Bucket, Fetcher, DurableObjectNamespace, Ai) are far wider.
+  return { env: fake as unknown as Env, bucket, calls, logger, quota, aiCalls };
 }
 
 /** A fixed start time, so nothing in an event depends on the clock. */

@@ -1107,3 +1107,26 @@ describe('begin refuses a request id owned by another caller', () => {
     expect(workflowFetch).not.toHaveBeenCalled();
   });
 });
+
+describe('a refused request is logged with the id it returns', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('logs the id, status and code of an unauthorized request, which the body and header carry too', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { env } = createEnv({ workflowReply: () => jsonResponse({ started: true }, 201) });
+
+    const response = await gateway.fetch(
+      new Request('https://gateway.example.com/status/req-ok-1', { method: 'GET' }),
+      env,
+      {} as ExecutionContext
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { id: string; code: string };
+    expect(response.headers.get('X-Request-Id')).toBe(body.id);
+    const logged = warnSpy.mock.calls.map((args) => JSON.stringify(args));
+    expect(logged.some((line) => line.includes(body.id) && line.includes('401') && line.includes(body.code))).toBe(true);
+  });
+});

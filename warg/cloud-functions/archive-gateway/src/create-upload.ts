@@ -8,7 +8,7 @@ import {
   type GatewayArchiveEntries,
   type GatewayArchiveEntry
 } from '@warg/article-writer';
-import { extractHostname, getGcsPath } from '@warg/shared/archive-ids';
+import { LEGACY_SAFE_ID_RE, extractHostname, getGcsPath } from '@warg/shared/archive-ids';
 import type {
   CreateUploadRequest,
   CreateUploadResponse,
@@ -36,6 +36,11 @@ export async function handleCreateUpload(
       res.status(400).json({
         error: 'Missing required fields: request_id, url, artifacts'
       });
+      return;
+    }
+    // The id names a Firestore document and the storage paths, so it must be one safe segment.
+    if (typeof body.request_id !== 'string' || !LEGACY_SAFE_ID_RE.test(body.request_id)) {
+      res.status(400).json({ error: 'Invalid request_id' });
       return;
     }
 

@@ -24,7 +24,9 @@ import io.mockk.mockk
 import io.mockk.Runs
 import io.mockk.spyk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -99,6 +101,7 @@ class LeadImageBylineRowsTest {
             articleDao = dao,
             application = RuntimeEnvironment.getApplication(),
             ioDispatcher = UnconfinedTestDispatcher(),
+            appScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher()),
         )
     }
 

@@ -606,13 +606,19 @@ describe('inbox proxy', () => {
     expect(data.counts.completedToday).toBe(0);
   });
 
-  it('fails the inbox when the completed-today call fails', async () => {
-    const { env } = setupInbox(() => errorResponse('boom', 500));
+  it('fails the inbox when the completed-today call fails, logging the upstream answer and not sending it', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { env } = setupInbox(() => errorResponse('boom', 500));
 
-    const response = await runInbox(env);
+      const response = await runInbox(env);
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: 'boom' });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: 'Completed-today lookup failed' });
+      expect(JSON.stringify(error.mock.calls)).toContain('boom');
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it('fails the inbox when the completed-today answer has no count', async () => {
@@ -865,6 +871,12 @@ describe('archive-content proxy', () => {
       expect(csp).not.toContain('allow-scripts');
     });
 
+    it('serves the AI Markdown archive as text', async () => {
+      const response = await serveArchive('archiveKey=ai_markdown', 'application/octet-stream');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
+    });
+
     it.each(['singlefile', 'monolith', 'readability', 'markdown', 'screenshot'])(
       'sandboxes the %s archive served under its inferred type',
       async (archiveKey) => {
@@ -895,6 +907,16 @@ describe('archive-content proxy', () => {
     it('sandboxes HTML served under the pdf key', async () => {
       const response = await serveArchive('archiveKey=pdf', 'text/html');
       expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+    });
+
+    it('keeps the sandbox on another archive whose stored type says PDF', async () => {
+      const response = await serveArchive('archiveKey=rendered', 'application/pdf');
+      expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+    });
+
+    it.each(['rendered', 'pdf', 'readability'])('tells the browser not to sniff the %s archive', async (archiveKey) => {
+      const response = await serveArchive(`archiveKey=${archiveKey}`, 'application/octet-stream');
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
     });
   });
 });

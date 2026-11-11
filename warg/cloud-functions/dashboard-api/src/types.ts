@@ -26,6 +26,7 @@ export const ALL_ARCHIVE_KEYS = [
   'monolith',
   'pdf',
   'screenshot',
+  'ai_markdown',
 ] as const;
 
 /**

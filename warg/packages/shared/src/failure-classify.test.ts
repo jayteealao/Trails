@@ -12,6 +12,12 @@ import {
   inferLegacyErrorCode,
   isRpc32MiBLimit,
   readClassificationTag,
+  RENDERER_FALLBACK_REASONS,
+  containerNotReadyMessage,
+  readContainerNotReadyHint,
+  readRenderFallbackTag,
+  renderFallbackTag,
+  isRendererFallbackReason,
   rendererFallbackReasonFromBody,
   withClassificationTag,
 } from './failure-classify.js';
@@ -106,6 +112,11 @@ describe('classifyError on a tagged step failure', () => {
 // --- (c) the step-message classifier -------------------------------------------
 
 describe('classifyError', () => {
+  it('gives an AI Markdown step failure its own codes, so its failures group apart', () => {
+    expect(classifyError('ai-markdown', 'The operation timed out').errorCode).toBe('AI_MARKDOWN_TIMEOUT');
+    expect(classifyError('ai-markdown', 'Service error 503: Workers AI').errorCode).toBe('AI_MARKDOWN_SERVICE_ERROR');
+  });
+
   it('classifies monolith timeout signatures on request-level errors', () => {
     const classified = classifyError(
       'request',
@@ -301,6 +312,26 @@ describe('rendererFallbackReasonFromBody', () => {
 
 // --- (f) the sandbox output classifier -----------------------------------------
 
+describe('a monolith container that is not ready', () => {
+  const body = JSON.stringify({
+    error: 'Internal error',
+    message: 'Sandbox container not ready (retry after 3000 ms)',
+    code: 'MONOLITH_CONTAINER_UNAVAILABLE',
+    retryable: true,
+  });
+
+  it('is classified under its own code, worth a retry', () => {
+    expect(classifyServiceFailure('/monolith', 503, body)).toEqual({
+      errorCode: 'MONOLITH_CONTAINER_UNAVAILABLE',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    });
+    expect(classifyError('monolith', `Service error 503: ${body}`).errorCode).toBe(
+      'MONOLITH_CONTAINER_UNAVAILABLE'
+    );
+  });
+});
+
 describe('classifySandboxOutput', () => {
   it.each([
     ['Serialized RPC arguments are limited to 32MiB', '', { errorCode: 'MONOLITH_RPC_32MIB_LIMIT', retryable: false }],
@@ -309,8 +340,47 @@ describe('classifySandboxOutput', () => {
     // The sandbox has no `abort` timeout word, unlike the service and message rules.
     ['request aborted', '', { errorCode: 'MONOLITH_SANDBOX_500', retryable: true }],
     ['boom', '', { errorCode: 'MONOLITH_SANDBOX_500', retryable: true }],
+    [
+      'curl: (22) The requested URL returned error: 403',
+      '',
+      { errorCode: 'MONOLITH_R2_HANDLER_FAILED', retryable: false, handlerStatus: 403 },
+    ],
+    [
+      'curl: (22) The requested URL returned error: 502',
+      '',
+      { errorCode: 'MONOLITH_R2_HANDLER_FAILED', retryable: true, handlerStatus: 502 },
+    ],
   ])('classifies stderr %j stdout %j', (stderr, stdout, expected) => {
     expect(classifySandboxOutput(stderr, stdout)).toEqual(expected);
+  });
+});
+
+describe('a failed R2 handler answer of the monolith Worker', () => {
+  const body = (retryable: boolean) =>
+    JSON.stringify({
+      error: 'Internal error',
+      message: 'R2 handler answered 403: curl: (22) The requested URL returned error: 403',
+      code: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable,
+    });
+
+  it('keeps the code and the retry judgement of the answer', () => {
+    expect(classifyServiceFailure('/monolith', 502, body(false))).toEqual({
+      errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable: false,
+      recommendedAction: 'investigate_service',
+    });
+    expect(classifyServiceFailure('/monolith', 502, body(true))).toEqual({
+      errorCode: 'MONOLITH_R2_HANDLER_FAILED',
+      retryable: true,
+      recommendedAction: 'retry_step',
+    });
+  });
+
+  it('reads the code from the step failure message', () => {
+    expect(classifyError('monolith', `Service error 502: ${body(true)}`).errorCode).toBe(
+      'MONOLITH_R2_HANDLER_FAILED'
+    );
   });
 });
 
@@ -366,9 +436,15 @@ describe('the default retry and action of each error code', () => {
     MONOLITH_SANDBOX_500: [true, 'retry_step'],
     MONOLITH_RPC_32MIB_LIMIT: [false, 'investigate_service'],
     MONOLITH_INPUT_TOO_LARGE: [false, 'investigate_service'],
+    MONOLITH_R2_HANDLER_FAILED: [true, 'retry_step'],
+    MONOLITH_CONTAINER_UNAVAILABLE: [true, 'retry_step'],
     PERSIST_SERVICE_ERROR: [true, 'investigate_service'],
     ACCESS_BLOCKED: [false, 'check_access'],
+    R2_CREDENTIAL_INVALID: [false, 'check_api_key'],
+    BROWSER_TOKEN_INVALID: [false, 'check_api_key'],
     UNKNOWN_ERROR: [true, 'investigate_service'],
+    AI_MARKDOWN_TIMEOUT: [true, 'retry_step'],
+    AI_MARKDOWN_SERVICE_ERROR: [true, 'retry_step'],
   };
 
   it.each(REQUEST_ERROR_CODES.map((code) => [code] as const))('gives %s its default', (code) => {
@@ -408,5 +484,38 @@ describe('fixed behaviour', () => {
     );
     expect(classifyError('render', 'Forbidden').retryable).toBe(false);
     expect(defaultRetryableForCode('ACCESS_BLOCKED')).toBe(false);
+  });
+});
+
+describe('isRendererFallbackReason', () => {
+  it('accepts every fallback reason and nothing else', () => {
+    for (const reason of RENDERER_FALLBACK_REASONS) expect(isRendererFallbackReason(reason)).toBe(true);
+    expect(isRendererFallbackReason('browser_rendering_404')).toBe(false);
+    expect(isRendererFallbackReason(undefined)).toBe(false);
+  });
+
+  it('names every reason the primary-renderer body can give', () => {
+    const body = JSON.stringify({ reason: PROXY_ERROR_PAGE_REASON });
+    const reason = rendererFallbackReasonFromBody(body);
+    expect(reason !== undefined && isRendererFallbackReason(reason)).toBe(true);
+  });
+});
+
+describe('step message contracts', () => {
+  it('reads back the readiness hint that the container-not-ready message carries', () => {
+    expect(readContainerNotReadyHint(`Service error 503: ${containerNotReadyMessage(3000)}`)).toBe(3000);
+    expect(readContainerNotReadyHint('Service error 503: upstream failure')).toBeUndefined();
+  });
+
+  it('reads back the fallback that a render fallback tag names', () => {
+    const tag = renderFallbackTag({ fallbackReason: 'browser_rendering_dead_host', fallbackStealth: 'none' });
+    expect(readRenderFallbackTag(`Renderer failed ${tag}. primary=x`)).toEqual({
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackStealth: 'none',
+    });
+    expect(readRenderFallbackTag(renderFallbackTag({ fallbackReason: 'browser_rendering_403' }))).toEqual({
+      fallbackReason: 'browser_rendering_403',
+    });
+    expect(readRenderFallbackTag('Service error 500: upstream failure')).toBeUndefined();
   });
 });

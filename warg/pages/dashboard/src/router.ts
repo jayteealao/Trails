@@ -3,6 +3,12 @@ import { compileRoute, type PathParams } from './path-match';
 // The Pages Functions router, run inside the dashboard Worker so the handlers
 // in functions/ keep their `onRequest(context)` shape unchanged.
 //
+// This emulation is deliberate and temporary: it let the dashboard move from
+// Pages to a Worker without touching a handler. Until the handlers become a
+// plain `fetch` router (and the router, path-match.ts and the Pages folder
+// names go), routes.ts lists each function file by hand, and
+// src/__tests__/router.test.ts fails when that list and functions/ differ.
+//
 // This is a port of the router Pages itself runs: wrangler's
 // templates/pages-template-worker.ts (wrangler 4.148.0), with the route
 // order of its generateConfigFromFileTree/compareRoutes, and a path matcher

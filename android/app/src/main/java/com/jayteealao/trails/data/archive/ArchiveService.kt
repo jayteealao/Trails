@@ -11,6 +11,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.jayteealao.trails.BuildConfig
+import com.jayteealao.trails.common.di.ApplicationScope
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.local.LocalFolders
@@ -20,17 +21,15 @@ import com.jayteealao.trails.di.DEFAULT_DASHBOARD_API_URL
 import com.jayteealao.trails.network.ArchiveUrlService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -44,7 +43,11 @@ import java.util.zip.GZIPOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class ArchiveStatus(val status: String, val gcsPath: String?)
+/** One archive of the shared article on the server: its [status] and, once written, its [gcsPath]. */
+data class ArchiveStatus(val status: String, val gcsPath: String?) {
+    /** The archive is written on the server, so the app downloads it. */
+    val isReady: Boolean get() = status == "success" && gcsPath != null
+}
 
 data class WargMetadata(
     val title: String?,
@@ -85,12 +88,13 @@ class ArchiveService @Inject constructor(
     private val articleDao: ArticleDao,
     private val application: Application,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
+    @ApplicationScope private val appScope: CoroutineScope,
 ) {
     private val archivesDir: File
         get() = File(application.filesDir, LocalFolders.ARCHIVES_DIR)
 
-    /** Limit concurrent archive downloads to cap peak memory from parallel decompress. */
-    private val downloadSemaphore = Semaphore(3)
+    /** The downloads of the archives, each on its own in the app scope. */
+    private val downloads = ArchiveDownloadScheduler(appScope)
 
     // ── Shared-article id resolver ──────────────────────────────────────
     //
@@ -196,6 +200,35 @@ class ArchiveService @Inject constructor(
         }
     }
 
+    /**
+     * Live status of the shared article that the user's article [itemId] is linked to, following
+     * `canonicalId` as [observeRemoteArchives] does: `pending`, `processing`, `complete`,
+     * `partial`, `failed` or `abandoned` (`shared-types/WargMetadata.md`). Null when the doc is
+     * missing, has no status, or cannot be read.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeArticleStatus(itemId: String): Flow<String?> =
+        observeCanonicalId(itemId)
+            .distinctUntilChanged()
+            .flatMapLatest { raw ->
+                observeSharedStatus(itemId, raw?.takeIf { it.isNotBlank() } ?: itemId)
+            }
+            .distinctUntilChanged()
+
+    /** Snapshot listener on the `status` of articles/{sharedId}; any error logs and sends null. */
+    private fun observeSharedStatus(itemId: String, sharedId: String): Flow<String?> = callbackFlow {
+        val registration = firestore.collection("articles").document(sharedId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Timber.e(error, "observeArticleStatus($itemId) — shared id $sharedId listener error (${error.code}), no status")
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+                trySend(snapshot?.takeIf { it.exists() }?.getString("status"))
+            }
+        awaitClose { registration.remove() }
+    }
+
     // ── b) Download archive from GCS → store locally ────────────────────
 
     suspend fun downloadAndStoreArchive(
@@ -271,10 +304,17 @@ class ArchiveService @Inject constructor(
 
     // ── d) Download all available archives for an article ───────────────
 
+    /**
+     * Start a download for each archive of [itemId] that is ready on the server and
+     * not on disk. Each archive downloads and is stored on its own: every text archive
+     * at once, then the heavy ones once the text downloads have ended; the call does
+     * not wait for any download, so a large archive never holds back the text. Watch
+     * the running and failed downloads with [observeDownloads].
+     */
     suspend fun syncArchives(
         itemId: String,
         remoteArchives: Map<String, ArchiveStatus>,
-    ) = supervisorScope {
+    ) {
         Timber.d("syncArchives($itemId) — evaluating ${remoteArchives.size} remote archives")
         remoteArchives.mapNotNull { (key, status) ->
             val type = ArchiveType.fromArchiveKey(key)
@@ -282,7 +322,7 @@ class ArchiveService @Inject constructor(
                 Timber.d("syncArchives($itemId) — skip $key (not in ArchiveType enum)")
                 return@mapNotNull null
             }
-            if (status.status != "success" || status.gcsPath == null) {
+            if (!status.isReady) {
                 Timber.d("syncArchives($itemId) — skip ${type.archiveKey} (status=${status.status}, hasPath=${status.gcsPath != null})")
                 return@mapNotNull null
             }
@@ -298,19 +338,19 @@ class ArchiveService @Inject constructor(
                 Timber.d("syncArchives($itemId) — ${type.archiveKey} in Room but file missing, re-downloading")
             }
 
-            Timber.d("syncArchives($itemId) — queuing download for ${type.archiveKey}")
-            async {
-                downloadSemaphore.withPermit {
-                    try {
-                        downloadAndStoreArchive(itemId, type)
-                    } catch (e: Exception) {
-                        Timber.e(e, "Failed to download ${type.archiveKey} for $itemId")
-                    }
+            type
+        }.sortedByDescending { it.providesText }.forEach { type ->
+            downloads.start(itemId, type) {
+                val start = System.nanoTime()
+                downloadAndStoreArchive(itemId, type).also {
+                    Timber.d("syncArchives($itemId) — ${type.archiveKey} ${if (it != null) "stored" else "failed"} after ${(System.nanoTime() - start) / 1_000_000} ms")
                 }
             }
-        }.forEach { it.await() }
-        Timber.d("syncArchives($itemId) — all downloads complete")
+        }
     }
+
+    /** Downloads of [itemId] that are running or failed, by archive key. A stored archive is absent. */
+    fun observeDownloads(itemId: String): Flow<Map<String, ArchiveDownload>> = downloads.observe(itemId)
 
     // ── One-shot shared article read ────────────────────────────────────
 
@@ -534,14 +574,21 @@ class ArchiveService @Inject constructor(
             ?: remoteConfig.getString(ARCHIVE_SIGNED_URL_BASE_KEY).ifBlank { DEFAULT_DASHBOARD_API_URL }
         val endpoint = "$base/app/signed-url"
 
+        val linkStart = System.nanoTime()
         val signedUrl = try {
             archiveUrlService.getSignedUrl(endpoint, "Bearer $token", itemId, archiveKey).url
         } catch (e: Exception) {
             Timber.w(e, "downloadArchive($itemId, $archiveKey) — signed-URL request failed")
             return null
         }
-
-        return withContext(ioDispatcher) { fetchObjectBytes(signedUrl) }
+        val fetchStart = System.nanoTime()
+        val bytes = withContext(ioDispatcher) { fetchObjectBytes(signedUrl) }
+        // Where the time of one archive goes: the signed link, then the object itself.
+        Timber.d(
+            "downloadArchive($itemId, $archiveKey) — link ${(fetchStart - linkStart) / 1_000_000} ms, " +
+                "fetch ${(System.nanoTime() - fetchStart) / 1_000_000} ms, ${bytes?.size ?: 0} bytes",
+        )
+        return bytes
     }
 
     /**

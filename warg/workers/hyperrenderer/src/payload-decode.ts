@@ -1,25 +1,9 @@
+import { decodeBase64ToArrayBuffer } from '@warg/shared';
+
 export interface DecodedBinary {
   data: ArrayBuffer;
   contentType: string;
   source: 'data_url' | 'base64' | 'url';
-}
-
-function normalizeBase64(input: string): string {
-  const noWhitespace = input.replace(/\s+/g, '');
-  const normalized = noWhitespace.replace(/-/g, '+').replace(/_/g, '/');
-  const padding = normalized.length % 4;
-  if (padding === 0) return normalized;
-  return normalized + '='.repeat(4 - padding);
-}
-
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const normalized = normalizeBase64(base64);
-  const binary = atob(normalized);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
 }
 
 function parseDataUrl(dataUrl: string): { contentType: string; payload: string } {
@@ -54,7 +38,7 @@ export async function decodeBinaryPayload(
     return {
       source: 'data_url',
       contentType,
-      data: base64ToArrayBuffer(data),
+      data: decodeBase64ToArrayBuffer(data),
     };
   }
 
@@ -75,10 +59,6 @@ export async function decodeBinaryPayload(
   return {
     source: 'base64',
     contentType: 'application/octet-stream',
-    data: base64ToArrayBuffer(payload),
+    data: decodeBase64ToArrayBuffer(payload),
   };
-}
-
-export function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
-  return base64ToArrayBuffer(base64);
 }

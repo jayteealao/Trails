@@ -42,6 +42,12 @@ describe('getR2Key', () => {
     );
   });
 
+  it('generates correct key for ai-markdown.md', () => {
+    expect(getR2Key(requestId, 'ai-markdown.md')).toBe(
+      'archives/abc123/derived/ai-markdown.md'
+    );
+  });
+
   it('generates correct key for monolith.html', () => {
     expect(getR2Key(requestId, 'monolith.html')).toBe(
       'archives/abc123/derived/monolith.html'

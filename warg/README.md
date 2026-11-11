@@ -34,7 +34,9 @@ pnpm format:check
 
 ```bash
 pnpm --filter @warg/shared test
-pnpm -r --if-present run test        # every package's unit tests (what CI runs)
+pnpm -r --if-present run test               # every package's unit tests (what CI runs); the gateway and workflow also run workerd tests
+pnpm --filter @warg/gateway test:runtime    # only the gateway runtime tests (workerd)
+pnpm --filter @warg/workflow test:runtime   # only the workflow runtime tests (workerd)
 ```
 
 The dashboard also has browser checks (Playwright, Chromium) of the sign-in,
@@ -88,6 +90,9 @@ dev values in `pages/dashboard/.dev.vars` (copy `.dev.vars.example`).
 
 `scripts/deploy.sh` is the only deploy path; its header lists every flag, the
 secrets each worker needs, and how each target is verified.
+
+Deploy with Node 22.23+ or 24.22+, the range the `cf` CLI requires (CI uses
+Node 22). `warg/.nvmrc` names 24.22.2; with fnm, run `fnm use` in `warg/`.
 
 1. Commit your work. The script refuses a tree with uncommitted or untracked
    files unless you pass `--allow-dirty`, and then every label ends in `-dirty`.
@@ -158,12 +163,20 @@ secrets each worker needs, and how each target is verified.
    `--with-dashboard` from when the dashboard was a Pages project; it does the
    same.
 
-First deploy of a new worker: the secret check cannot list secrets of a worker
-that does not exist yet, so pass the flag for that worker only, then set its
-secrets and deploy again without it:
+First deploy of a new worker: each worker declares its required secrets in
+`cloudflare.config.ts` and `wrangler.jsonc`, and cf refuses to deploy a worker
+whose declared secret is not set. A worker that does not exist yet has no
+secrets, so the script cannot deploy it the first time. The
+`--allow-missing-secrets <worker>` flag skips only the script's own secret
+listing for that worker; it does not get past cf. Deploy the new worker once by
+hand from its folder, with its secret values in a local file that is never
+committed, then deploy through the script as usual:
 
 ```bash
-pnpm run deploy -- --allow-missing-secrets <worker>
+cd workers/<worker>
+../../node_modules/.bin/cf deploy --secrets-file <file>
+cd ../..
+pnpm run deploy
 ```
 
 Cloud Function bundles: each function deploys as one esbuild bundle. The
@@ -247,6 +260,14 @@ Then rotate `DASHBOARD_API_KEY` and `BACKFILL_STATUS_KEY` with the two steps of
 [Rotating the function keys](#rotating-the-function-keys-two-steps), so the
 copies the old project held stop working.
 
+The compatibility date of all nine workers lives in
+`workers/compatibility-date.mjs`. Each `cloudflare.config.ts` imports it and
+each `wrangler.jsonc` repeats it as a literal, because JSONC cannot import; the
+same check fails when a file differs from it or quotes its own date. The
+renderer may not go below 2026-03-24, the first date with `quickAction()` on
+the browser binding. Raise the date on purpose: read the compatibility flags
+the new date turns on, then run each worker's tests and `wrangler dev`.
+
 Two configs per worker: `cloudflare.config.ts` is what `cf deploy` and
 `cf dev` read, and `wrangler.jsonc` still serves `wrangler types`, the logger's
 Workers-pool unit tests, and the `wrangler dev` runs that cf dev cannot do yet
@@ -264,6 +285,186 @@ logger gets one too. After an install with
 deploying. Remove the script and the `postinstall` entry once cf finds the
 bundler through the normal Node module lookup, or the workspace stops using the
 hoisted linker.
+
+Archive health email: once a day at 08:00 UTC the gateway checks each archive
+kind and, when one is below 80% success in the last 24 hours (with at least 5
+requests) or had at least one request in the last 24 hours and no success for
+48 hours, sends one email through its `HEALTH_EMAIL` binding. A kind with no
+request in the last 24 hours does not alert. A request of the last hour is not counted
+yet, since it may still be running. Before the first deploy that carries it, set
+`HEALTH_ALERT_FROM` and `HEALTH_ALERT_TO` on the `gateway` worker with
+`pnpm exec cf workers secrets update <NAME> --worker gateway --type secret_text --text "$VALUE"`
+(read the value with `read -rs VALUE` first); the deploy refuses the gateway without them. The
+recipient must be a verified destination address in Email Routing, and the
+sender must be on a domain of the account with email sending enabled. The
+deploy checks only that the two secrets exist, so after the first deploy that
+carries the binding, and after any change of either address, send the test
+email below and confirm it arrived; the deploy summary prints a reminder when
+the gateway deployed. To send a real test email when any kind had a request in
+the last 24 hours, run:
+
+```bash
+curl -sS -X POST "$GATEWAY_URL/internal/health-check" \
+  -H "X-Internal-API-Key: $INTERNAL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"thresholds":{"staleAfterHours":0}}'
+```
+
+The answer is the run summary: `alertKinds` lists the kinds it alerted on and
+`emailed` says whether the email went out. A `401` means a wrong internal key,
+a `400` an out-of-range threshold. The route exists only for this test and for
+re-measuring after an alert; it needs the internal key, and its thresholds apply
+to that one call, while the daily cron always uses 80%, 5 requests and 48
+hours. The optional thresholds are `minRatio` (0 to
+1), `minRequests` (integer, 1 to 1000) and `staleAfterHours` (integer, 0 to 48).
+
+### When the health email arrives
+
+The email names each kind that needs attention, its success count and its last
+success. Look in this order:
+
+1. The dashboard overview: the stage counts and the error codes of recent
+   requests. `R2_CREDENTIAL_INVALID` means a dead credential, `ACCESS_BLOCKED`
+   means sites refuse the fetch. `BROWSER_TOKEN_INVALID` appears only on
+   requests from before the renderer moved to its browser binding, which needs
+   no token.
+2. The gateway logs, from `workers/gateway`:
+   `pnpm exec wrangler tail gateway --search "kind health"` while you re-measure
+   (step 3). The `[gateway] kind health:` line holds the numbers of each kind.
+3. Re-measure with the default thresholds. This sends the email again when a
+   kind still needs attention:
+
+   ```bash
+   curl -sS -X POST "$GATEWAY_URL/internal/health-check" \
+     -H "X-Internal-API-Key: $INTERNAL_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{}'
+   ```
+
+An email with the subject `Warg archive health: the daily check failed` means
+the check itself could not run (for example the logger did not answer); its
+text holds the error.
+
+### Reading one archive's trace
+
+The six Workers an archive passes through (gateway, workflow, renderer,
+hyperrenderer, singlefile and readability) emit Cloudflare Workers traces: both
+config files of each set `observability.traces.enabled`, and
+`scripts/check-worker-configs.mjs` fails when the two files differ or when one
+of the six drops it. Logger, monolith and gcs are not traced; a call into them
+shows as a fetch span of the Worker that calls them. Every Worker of an archive
+calls the logger for each event, so tracing it would multiply the spans of each
+archive without adding a hop. To follow a failure inside one of the three,
+read its Workers Logs, or add `traces: { enabled: true }` to both of its config
+files and its name to `TRACED_WORKERS`. Every request is sampled
+(the platform default). Traces are kept for seven days, and from 2026-12-01
+they count toward Cloudflare Observability usage.
+
+Each archive makes several spans: the gateway request, the workflow start and
+each step, every service-binding call to a render Worker, each fetch those
+Workers make, and each call to the logger, more when a step retries. The
+gateway's crons and `GET /status` polling are traced too. Before 2026-12-01,
+read the Observability usage in the dashboard after a week of traffic. To trace
+fewer requests, set `head_sampling_rate` under `observability.traces` in
+`wrangler.jsonc` and `headSamplingRate` in `cloudflare.config.ts` to the same
+value below 1 in both files of each traced Worker; the check fails when the two
+differ.
+
+Fetch spans record the full URL of each request and each outbound fetch,
+query string included (`url.full`, `url.query`). A render Worker that fetches a
+saved page therefore stores that page's URL in the trace for seven days, so a
+token or personal data in a saved URL's query string is readable by anyone with
+Observability access to the account. Keep that access to the people who may
+read the logs.
+
+The runtime emits the spans; no code creates them. Cloudflare documents spans
+for fetch calls, R2, D1 and Durable Object binding calls, RPC calls and the
+fetch and scheduled handlers, and documents linking a span across Workers for
+RPC calls only. Warg's hops are a service-binding fetch (gateway to workflow,
+workflow to each render Worker) and an asynchronous Workflow instance, so one
+archive may appear as more than one trace. No span is known to carry the
+`request_id`: the code adds no span attribute, and the request id travels in
+request bodies, not URLs. Two things do carry it: the Workflow instance id is
+the `request_id` (characters other than letters, digits, `_` and `-` become
+`_`), and `GET /status/<requestId>` lists the logger's events with their times.
+
+To read one archive:
+
+1. Submit one URL and note the `requestId` of the response:
+
+   ```bash
+   curl -sS -X POST "$GATEWAY_URL/begin" \
+     -H "X-API-Key: $PUBLIC_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"url":"https://example.com/"}'
+   ```
+
+2. Poll `GET /status/<requestId>` (same header) until it is done or failed.
+3. Open Workers → Observability → Traces in the Cloudflare dashboard for the
+   last 15 minutes and filter by `$metadata.service` (gateway, workflow,
+   renderer). From a shell in `warg/`, the same 15 minutes of traces (the query
+   needs the dataset; without it the API answers 400):
+
+   ```bash
+   pnpm exec cf o11y telemetry query --query-id one-archive --view traces \
+     --preview --limit 20 --parameters-datasets cloudflare-workers \
+     --timeframe-from $(( ($(date +%s) - 900) * 1000 )) \
+     --timeframe-to $(( $(date +%s) * 1000 ))
+   ```
+
+   Each trace in the output names its Workers in `$metadata.service`.
+4. Note each trace id and which Workers' spans it holds. Join the traces of one
+   archive by the Workflow instance id and by the event times of
+   `GET /status/<requestId>`. If a span attribute or log field turns out to hold
+   the `request_id`, name it here.
+
+### Retiring the renderer's Browser Rendering token (two steps)
+
+The renderer reaches Browser Rendering through its `BROWSER` binding and no
+longer reads `BR_API_TOKEN` or `CF_ACCOUNT_ID`. The deploy does not remove the
+two secrets from the live worker, so remove them by hand, in this order:
+
+1. Deploy, then keep both secrets until archives through the binding have run
+   clean in production. Until then, a `wrangler rollback` of the renderer to a
+   version that still calls the REST API works with no further step.
+2. From `warg/`, delete both secrets and revoke the API token behind
+   `BR_API_TOKEN` in the Cloudflare dashboard (My Profile → API Tokens):
+
+   ```bash
+   pnpm exec cf workers secrets delete BR_API_TOKEN --worker renderer
+   pnpm exec cf workers secrets delete CF_ACCOUNT_ID --worker renderer
+   ```
+
+   A rollback to a REST version after this step needs both secrets set again
+   (`read -rs VALUE && pnpm exec cf workers secrets update <NAME> --worker renderer --type secret_text --text "$VALUE"`)
+   and a token that is not revoked.
+
+### Retiring the monolith Worker's R2 keys (two steps)
+
+The monolith container reaches R2 through the Worker's R2 handler and the
+`ARCHIVE_BUCKET` binding, and the Worker no longer reads `R2_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID` or `R2_SECRET_ACCESS_KEY`. The deploy does not remove the
+three secrets from the live worker, so remove them by hand, in this order.
+Until they are gone, every deploy that includes monolith ends with
+`WARNING: monolith still holds secret(s) it no longer reads: …`.
+
+1. Deploy, then keep all three secrets until one real archive shows
+   `archives.monolith` with status `success` and `derived/monolith.html` is in
+   R2 (read the `[monolith] r2 handler` lines in the monolith Worker logs).
+   Until then, a `wrangler rollback` of monolith to a version that still signs
+   R2 URLs works with no further step.
+2. From `warg/`, delete the three secrets and revoke the R2 API token behind
+   them in the Cloudflare dashboard (R2 → Manage R2 API Tokens):
+
+   ```bash
+   pnpm exec cf workers secrets delete R2_ACCESS_KEY_ID --worker monolith
+   pnpm exec cf workers secrets delete R2_SECRET_ACCESS_KEY --worker monolith
+   pnpm exec cf workers secrets delete R2_ACCOUNT_ID --worker monolith
+   ```
+
+   A rollback to a signing version after this step needs the three secrets set
+   again (`read -rs VALUE && pnpm exec cf workers secrets update <NAME> --worker monolith --type secret_text --text "$VALUE"`)
+   and an R2 API token that is not revoked.
 
 ### Rotating the function keys (two steps)
 
@@ -588,12 +789,59 @@ new app release on the phone:
 5. Send a request with the old shared key to archive-gateway, as step 6 of the
    key rotation describes. It must get 401.
 
+## Gateway API
+
+The `gateway` worker is the only public entry. Every error answer has the same
+shape, `{ "error": "<message>", "code": "<code>", "id": "<id>" }`, and the same
+id in the `X-Request-Id` header; the gateway logs each refusal with that id, so
+an id a caller quotes matches a log line. The codes are `GATEWAY_ERROR_CODES`
+in `workers/gateway/src/errors.ts`.
+
+| Route | Key | Answers |
+|---|---|---|
+| `POST /begin` | `X-Internal-API-Key` (the operator) or `X-API-Key` (public); the internal key wins when both are sent | `201 { requestId }` |
+| `GET /status/:id` | `X-API-Key` | the status, the events and the artifact pointers |
+| `GET /status/:id/stream` | `X-API-Key` | the events as server-sent events, held open at most 60 s (`PUBLIC_STATUS_STREAM_MAX_MS`); send `Last-Event-ID` to resume |
+| `POST /internal/log`, `/internal/sweep-orphan-queued`, `/internal/health-check` | `X-Internal-API-Key` | operator and worker calls |
+
+`POST /begin` takes a JSON object: `url` (required), an optional `request_id`
+(letters, digits, `_` and `-`, at most 40), and the archive options
+(`includeScreenshot`, `includePdf` and the others of
+`workers/gateway/src/archive-options.ts`). An option of the wrong type is
+refused; an unknown key is dropped and its name logged. Only the internal key
+may send `dryRun` and `steps`. A `request_id` may be started again only by the
+caller that first started it, or by the internal key.
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `INVALID_JSON` | the body is not JSON |
+| 400 | `INVALID_OPTIONS` | the body is not an object, or an option has the wrong type |
+| 400 | `INVALID_REQUEST_ID` | the `request_id`, or the id in a `/status/` path, is not a request id |
+| 400 | `REQUEST_ID_REQUIRED` | `/status/` with no id |
+| 400 | `INVALID_INPUT_URL` | the `url` cannot be archived |
+| 401 | `UNAUTHORIZED` | the key is missing or wrong |
+| 403 | `OPTION_NOT_ALLOWED` | the public key sent `dryRun` or `steps` |
+| 404 | `REQUEST_NOT_FOUND` / `NOT_FOUND` | no such request / no such route |
+| 409 | `REQUEST_ID_CONFLICT` | the `request_id` belongs to another caller (a caller should not retry it) |
+| 413 | `INVALID_OPTIONS` | the body is over 64 KiB (`MAX_BEGIN_BODY_BYTES`) |
+| 502 | `WORKFLOW_TRIGGER_FAILED` | the archive could not start; only the internal key sees the workflow's own `workflowError` |
+| 5xx | `STATUS_LOOKUP_FAILED` / `INTERNAL_ERROR` | a status read or the gateway failed; a 500 carries the fixed message `Internal error` |
+
+Changes (2026-11): the error shape and its codes, the `/status/:id/stream`
+route, the 403, 409 and 413 refusals, the dropping of unknown option keys, and
+the 400 for a `/status/` path that is not a request id are new. Before, a
+wrong-typed option was stored as sent, a 500 carried the exception text, and
+any `/status/` path reached the logger. The gateway has no version marker; the
+callers in this repository (the backfill scheduler, the save trigger and the
+dashboard) handle every answer above.
+
 ## Structure
 
 - `workers/` - Cloudflare Workers
-  - `gateway/` - Public API (POST /begin, GET /status/:id) + cron sweeps
+  - `gateway/` - Public API (POST /begin, GET /status/:id) + cron sweeps + the daily archive health email
   - `workflow/` - Orchestration workflow + browser/sandbox quota DO
   - `renderer/` - Browser rendering
+  - `hyperrenderer/` - Fallback renderer (Hyperbrowser) for pages the renderer cannot reach, with stealth off by default (`HYPERBROWSER_STEALTH=none`; see `workers/hyperrenderer/README.md`)
   - `singlefile/` - SingleFile HTML extraction
   - `readability/` - Readability extraction
   - `monolith/` - Monolith HTML extraction (sandbox container, stopped per job — see its README)

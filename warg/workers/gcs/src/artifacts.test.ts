@@ -14,6 +14,7 @@ describe('COMPRESSIBLE_KINDS', () => {
     expect(COMPRESSIBLE_KINDS.has('rendered.html')).toBe(true);
     expect(COMPRESSIBLE_KINDS.has('rendered.md')).toBe(true);
     expect(COMPRESSIBLE_KINDS.has('readability.md')).toBe(true);
+    expect(COMPRESSIBLE_KINDS.has('ai-markdown.md')).toBe(true);
   });
 
   it('excludes binary and JSON kinds', () => {
@@ -107,6 +108,24 @@ describe('toUploadInfo', () => {
     });
     expect(info).not.toHaveProperty('compressed');
     expect(info.filename.endsWith('.gz')).toBe(false);
+  });
+
+  it('gzips the AI Markdown artifact under its own filename', () => {
+    const artifact: ArtifactMeta = {
+      kind: 'ai-markdown.md',
+      r2Key: 'archives/req-xyz/derived/ai-markdown.md',
+      bytes: 4000,
+      sha256: 'hash-ai',
+      contentType: 'text/markdown'
+    };
+    expect(toUploadInfo(requestId, artifact)).toEqual({
+      kind: 'ai-markdown.md',
+      filename: 'output.md.gz',
+      bytes: 4000,
+      contentType: 'text/markdown',
+      sha256: 'hash-ai',
+      compressed: true
+    });
   });
 
   it('keeps readability.json uncompressed with non-gz filename', () => {

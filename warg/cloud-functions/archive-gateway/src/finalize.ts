@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { LEGACY_SAFE_ID_RE } from '@warg/shared/archive-ids';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import {
   buildArchiveFinalizePatch,
@@ -28,6 +29,17 @@ export async function handleFinalize(
       res.status(400).json({
         error: 'Missing required fields: request_id, firestore_doc_id, uploaded'
       });
+      return;
+    }
+
+    // Both ids name a Firestore document or the storage paths, so each must be one safe segment.
+    if (
+      typeof body.request_id !== 'string' ||
+      typeof body.firestore_doc_id !== 'string' ||
+      !LEGACY_SAFE_ID_RE.test(body.request_id) ||
+      !LEGACY_SAFE_ID_RE.test(body.firestore_doc_id)
+    ) {
+      res.status(400).json({ error: 'Invalid request_id or firestore_doc_id' });
       return;
     }
 

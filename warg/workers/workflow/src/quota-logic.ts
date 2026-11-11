@@ -30,15 +30,40 @@ export interface QuotaSnapshot {
 }
 
 export interface QuotaLimits {
-  /** Max concurrent browser instances (platform: 120/account). */
+  /** Max concurrent browser instances (Browser Run default: 200 per account). */
   maxConcurrent: number;
   /** Max concurrent Cloudflare Sandbox execs (monolith). */
   maxSandboxConcurrent: number;
-  /** Sustained new-browser launch rate (platform: 1/sec fixed fill). */
+  /** Sustained new-browser launch rate (Browser Run default: 3 new browsers/sec). */
   launchRatePerSec: number;
   /** Burst tolerance on top of the sustained rate. */
   launchBurst: number;
 }
+
+/**
+ * The limits {@link BrowserQuotaDO} enforces.
+ *
+ * The browser numbers are the Workers Paid Browser Run defaults: 200 concurrent
+ * browsers per account and 3 new browsers per second
+ * (developers.cloudflare.com/browser-rendering/limits/, read 2026-11-07). They
+ * are fixed values: the browser binding reports a concurrency cap but no launch
+ * rate, and the workflow worker holds no browser binding. The burst equals one
+ * second of launches. The sandbox cap stays under the monolith container's
+ * `max_instances` (5), which leaves churn slack.
+ *
+ * One render takes one launch token, although a render with a PDF makes two
+ * page loads (the snapshot and the PDF). That is deliberate: the renderer's
+ * loads are quick actions, which the platform limits by a separate request
+ * rate (30 per second) far above these 3 launches, and a platform 429 comes
+ * back to the render step as a retryable rate limit. The bucket paces renders;
+ * it does not count every page load.
+ */
+export const BROWSER_QUOTA_LIMITS: QuotaLimits = {
+  maxConcurrent: 200,
+  maxSandboxConcurrent: 4,
+  launchRatePerSec: 3,
+  launchBurst: 3
+};
 
 export interface AcquireDecision {
   granted: boolean;
@@ -78,7 +103,7 @@ export function refillBucket(
  * - `sandbox_exec`: gated only by a separate concurrency cap (Sandbox has no
  *   documented per-second launch limit).
  * - `bindings_launch`: gated by the browser concurrency cap *and* the launch
- *   token bucket (models the platform's 1 new-browser/sec fixed fill).
+ *   token bucket (models the platform's 3 new browsers/sec).
  * - `rest_request`: never gated itself — it counts toward the browser pool but
  *   does not launch a new browser. Preserves prior DO behavior.
  */

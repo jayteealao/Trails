@@ -1,4 +1,4 @@
-import type { ArtifactMeta } from '@warg/shared';
+import type { ArtifactKind, ArtifactMeta } from '@warg/shared';
 
 /**
  * Browser Rendering quota kind.
@@ -16,6 +16,17 @@ export interface RenderRequest {
   include_screenshot?: boolean;
   include_pdf?: boolean;
   include_markdown?: boolean;
+  /**
+   * The run whose earlier attempts may be reused: an artifact that an earlier
+   * attempt of this run stored is listed again instead of being loaded again.
+   */
+  reuse_scope?: string;
+  /**
+   * True on the first attempt of the step: no earlier attempt can have stored
+   * anything, so the renderer skips the reuse lookups. Artifacts are still
+   * marked with `reuse_scope` for a later attempt.
+   */
+  first_attempt?: boolean;
 }
 
 /**
@@ -28,6 +39,8 @@ export interface RenderSuccessResponse {
   meta?: {
     skipped: string[];
     browserApiMs?: number;
+    /** Artifacts listed from an earlier attempt of the same run, not loaded again. */
+    reused?: ArtifactKind[];
   };
 }
 

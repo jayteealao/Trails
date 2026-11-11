@@ -18,7 +18,9 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -93,6 +95,7 @@ class ArchiveServiceTest {
             articleDao = articleDao,
             application = application,
             ioDispatcher = UnconfinedTestDispatcher(),
+            appScope = CoroutineScope(SupervisorJob() + UnconfinedTestDispatcher()),
         )
     }
 

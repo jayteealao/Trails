@@ -1,7 +1,7 @@
 import { getSandbox, Sandbox as BaseSandbox, ContainerUnavailableError } from '@cloudflare/sandbox';
 import {
   classifySandboxOutput,
-  getR2Key,
+  containerNotReadyMessage,
   readInternalJsonRequest,
   storeArtifact,
   type ArtifactMeta,
@@ -14,10 +14,9 @@ import {
   buildMonolithUrlCommand,
   buildUploadAndHashCommand,
   parseUploadOutput,
-  redactSignedUrlParams,
   SANDBOX_OUTPUT_PATH
 } from './monolith-command.js';
-import { presignR2GetUrl, presignR2PutUrl, type R2PresignConfig } from './r2-presign.js';
+import { handleR2Outbound, monolithKeys, R2_HANDLER_HOST, r2HandlerUrl } from './r2-outbound.js';
 
 /**
  * Sandbox DO binding with a 5m `sleepAfter` backstop (the upstream default
@@ -34,6 +33,30 @@ export class Sandbox extends BaseSandbox {
   override sleepAfter: string | number = '5m';
 }
 
+/**
+ * The container reaches R2 only through this handler, on one internal host,
+ * against the Worker's own ARCHIVE_BUCKET binding. Every other host stays on
+ * the container's own network.
+ *
+ * Registered by assignment, not as a `static` class field: the build targets
+ * ES2022, whose class fields define a new property that would hide the base
+ * class's setter and leave the handler unregistered. It is static on purpose:
+ * a runtime override (`setOutboundByHost`) switches the container to
+ * intercepting every host.
+ */
+Sandbox.outboundByHost = {
+  [R2_HANDLER_HOST]: (request, env, ctx) =>
+    handleR2Outbound(request, {
+      bucket: env.ARCHIVE_BUCKET,
+      containerId: ctx.containerId,
+      containerIdForRequest: id => env.Sandbox.idFromName(normalizeSandboxId(id)).toString(),
+      knownLength: (body, bytes) => body.pipeThrough(new FixedLengthStream(bytes))
+    })
+};
+
+// The platform hands intercepted container requests to this entrypoint.
+export { ContainerProxy } from '@cloudflare/sandbox';
+
 class MonolithServiceError extends Error {
   readonly code: string;
   readonly status: number;
@@ -48,8 +71,9 @@ class MonolithServiceError extends Error {
   }
 }
 
-function shortDeterministicHash(input: string): string {
-  let hash = 2166136261;
+/** A 32-bit FNV-1a hash of `input` from `seed`, as 8 hex digits. */
+function fnv1a32(input: string, seed: number): string {
+  let hash = seed;
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
@@ -57,36 +81,84 @@ function shortDeterministicHash(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+/** A deterministic 64-bit hash of `input`, as 16 hex digits (two seeded FNV-1a passes). */
+function deterministicHash64(input: string): string {
+  return fnv1a32(input, 2166136261) + fnv1a32(input, 0x5bd1e995);
+}
+
+/** The suffix a sandbox id carries when it is not the request id itself. */
+const HASH_SUFFIX = /-[0-9a-f]{16}$/;
+
 /**
  * Sandbox IDs have stricter constraints than request IDs.
  * Keep request_id unchanged for artifact keys/joins and normalize a separate sandbox id.
+ *
+ * Two request ids never share a sandbox id: an id that is already a valid
+ * sandbox id (and does not end like a hash suffix) is kept as it is; any other
+ * id gets a hash of the exact request id. The R2 handler's per-request check
+ * compares sandbox ids, so it rests on this.
  */
-function normalizeSandboxId(requestId: string): string {
+export function normalizeSandboxId(requestId: string): string {
   const lower = requestId.trim().toLowerCase();
   const sanitized = lower.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
   const prefixed = /^[a-z]/.test(sanitized) ? sanitized : `s-${sanitized || 'request'}`;
 
-  // Keep room for deterministic hash suffix when truncating.
-  if (prefixed.length <= 63) return prefixed;
+  if (prefixed === requestId && prefixed.length <= 63 && !HASH_SUFFIX.test(prefixed)) return prefixed;
 
-  const suffix = shortDeterministicHash(requestId);
+  const suffix = deterministicHash64(requestId);
   const maxBaseLength = 63 - suffix.length - 1;
-  const base = prefixed.slice(0, Math.max(1, maxBaseLength)).replace(/-+$/g, '');
+  const base = prefixed.slice(0, maxBaseLength).replace(/-+$/g, '');
   return `${base}-${suffix}`;
 }
 
-const SANDBOX_FAILURE_MESSAGES: Record<Exclude<SandboxFailureCode, 'MONOLITH_SANDBOX_500'>, string> = {
+/**
+ * The sandbox container is not ready yet. Answered with 503 and retryable: the
+ * job fails at once instead of waiting here, and the workflow step's retry
+ * delay does the waiting before the next attempt.
+ */
+function containerUnavailableError(retryAfterMs: number): MonolithServiceError {
+  return new MonolithServiceError(
+    containerNotReadyMessage(retryAfterMs),
+    'MONOLITH_CONTAINER_UNAVAILABLE',
+    503,
+    true
+  );
+}
+
+const SANDBOX_FAILURE_MESSAGES: Record<
+  Exclude<SandboxFailureCode, 'MONOLITH_SANDBOX_500' | 'MONOLITH_R2_HANDLER_FAILED'>,
+  string
+> = {
   MONOLITH_RPC_32MIB_LIMIT: 'Monolith sandbox payload exceeded RPC size limit',
   MONOLITH_TIMEOUT: 'Sandbox timed out while processing monolith output'
 };
 
 function classifySandboxFailure(stderr: string, stdout: string): MonolithServiceError {
-  const { errorCode, retryable } = classifySandboxOutput(stderr, stdout);
+  const { errorCode, retryable, handlerStatus } = classifySandboxOutput(stderr, stdout);
+  if (errorCode === 'MONOLITH_R2_HANDLER_FAILED') {
+    // The Worker's own R2 handler refused or failed the container's request:
+    // answered 502 so it is not read as a monolith crash.
+    return new MonolithServiceError(
+      `R2 handler answered ${handlerStatus ?? 'an error'}: ${stderr || stdout}`,
+      errorCode,
+      502,
+      retryable
+    );
+  }
   const message =
     errorCode === 'MONOLITH_SANDBOX_500'
       ? `Sandbox execution failed: ${stderr || stdout || 'unknown sandbox error'}`
       : SANDBOX_FAILURE_MESSAGES[errorCode];
   return new MonolithServiceError(message, errorCode, 500, retryable);
+}
+
+/**
+ * A container that is not ready is an expected cold-start condition: the job
+ * answers 503 and the workflow step retries it. execInSandbox logs it once as a
+ * warning, so the catch sites do not log it again as an error.
+ */
+function isContainerNotReady(error: unknown): boolean {
+  return error instanceof MonolithServiceError && error.code === 'MONOLITH_CONTAINER_UNAVAILABLE';
 }
 
 function isRetryableSandboxError(error: unknown): boolean {
@@ -122,70 +194,52 @@ function validateBaseUrl(url: string): string {
 /**
  * Normalized result of a single sandbox exec. Exec RPC failures are folded into
  * a failed outcome (not thrown) so the caller can attempt the curl fallback.
- *
- * `retryAfterMs` is set when the failure was a ContainerUnavailableError — the
- * SDK-signalled backoff hint before the container will be ready for a retry.
  */
 interface ExecOutcome {
   success: boolean;
   exitCode: number;
   stdout: string;
   stderr: string;
-  /** Set when the exec threw ContainerUnavailableError; caller should wait this long before retrying. */
-  retryAfterMs?: number;
 }
 
 type SandboxHandle = ReturnType<typeof getSandbox>;
 
+/**
+ * Run one command in the sandbox. A container that is not ready
+ * (ContainerUnavailableError with its retry hint) fails the job retryable at
+ * any exec: no fallback can reach a container that is not there, and the
+ * workflow step's retry delay does the waiting.
+ */
 async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<ExecOutcome> {
   try {
     const result = await sandbox.exec(command);
     return {
       success: result.success,
       exitCode: result.exitCode,
-      stdout: redactSignedUrlParams(result.stdout),
-      stderr: redactSignedUrlParams(result.stderr)
+      stdout: result.stdout,
+      stderr: result.stderr
     };
   } catch (error) {
-    const message = redactSignedUrlParams(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
     const retryAfterMs = error instanceof ContainerUnavailableError ? error.retryAfterMs : undefined;
     if (retryAfterMs !== undefined) {
       console.warn('[monolith] ContainerUnavailableError: container not ready', { retryAfterMs, message });
+      throw containerUnavailableError(retryAfterMs);
     }
-    return { success: false, exitCode: -1, stdout: '', stderr: `Sandbox exec failed: ${message}`, retryAfterMs };
+    return { success: false, exitCode: -1, stdout: '', stderr: `Sandbox exec failed: ${message}` };
   }
-}
-
-/**
- * Assemble + validate the R2 presign config from worker secrets.
- * Throws a clear, non-retryable config error if any secret is missing.
- */
-function getPresignConfig(env: Env): R2PresignConfig {
-  const { R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID, R2_BUCKET_NAME } = env;
-  if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ACCOUNT_ID || !R2_BUCKET_NAME) {
-    throw new MonolithServiceError(
-      'R2 presign not configured (need R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID, R2_BUCKET_NAME)',
-      'MONOLITH_CONFIG',
-      500,
-      false
-    );
-  }
-  return {
-    accessKeyId: R2_ACCESS_KEY_ID,
-    secretAccessKey: R2_SECRET_ACCESS_KEY,
-    accountId: R2_ACCOUNT_ID,
-    bucket: R2_BUCKET_NAME
-  };
 }
 
 /**
  * Execute monolith in the sandbox and return processed HTML.
  *
- * Input is delivered over the container's own network via a presigned R2 GET
- * URL (B1b) — monolith fetches it directly. If that fails (e.g. monolith's
- * URL-fetch or `-b` override misbehaves), fall back to `curl`-to-file, which
- * writes inside the container (normal fs) and feeds monolith a local path.
- * Neither path uses the host→container `writeFile` RPC that was 500ing.
+ * The container reads its input from, and writes its output to, the Worker's
+ * R2 handler host; monolith fetches the input URL directly.
+ *
+ * If that fails (e.g. monolith's URL-fetch or `-b` override misbehaves), fall
+ * back to `curl`-to-file, which writes inside the container (normal fs) and
+ * feeds monolith a local path. Neither path uses the host→container
+ * `writeFile` RPC that was 500ing.
  */
 export async function runMonolithInSandbox(
   env: Env,
@@ -194,6 +248,17 @@ export async function runMonolithInSandbox(
   baseUrl: string
 ): Promise<{ artifact: ArtifactMeta; sandboxId: string }> {
   const normalizedBaseUrl = validateBaseUrl(baseUrl);
+  // The R2 handler serves only this request's deterministic keys, so any other
+  // input key would be refused inside the container; refuse it here instead.
+  const keys = monolithKeys(requestId);
+  if (renderedHtmlKey !== keys.input) {
+    throw new MonolithServiceError(
+      `rendered_html_key must be ${keys.input}`,
+      'INVALID_INPUT_KEY',
+      400,
+      false
+    );
+  }
   const sandboxId = normalizeSandboxId(requestId);
   console.log('[monolith] Getting sandbox for request:', requestId, 'sandbox:', sandboxId);
   const sandbox = getSandbox(env.Sandbox, sandboxId, { transport: 'rpc' });
@@ -205,12 +270,11 @@ export async function runMonolithInSandbox(
     // this just closes the success-but-stale edge.
     const cleanOut = `rm -f ${SANDBOX_OUTPUT_PATH}`;
 
-    // Mint a short-lived presigned GET URL for the rendered HTML. Never logged —
-    // it grants read access to the object for its TTL.
-    const documentUrl = await presignR2GetUrl(getPresignConfig(env), renderedHtmlKey);
+    // The rendered HTML, served by the Worker's R2 handler.
+    const documentUrl = r2HandlerUrl(keys.input);
 
     // Primary: monolith fetches the URL directly (no curl dependency).
-    console.log('[monolith] Executing monolith via presigned URL fetch...');
+    console.log('[monolith] Executing monolith via R2 handler fetch...');
     let result = await execInSandbox(
       sandbox,
       `${cleanOut}; ${buildMonolithUrlCommand(documentUrl, normalizedBaseUrl)}`
@@ -218,15 +282,6 @@ export async function runMonolithInSandbox(
 
     // Fallback: curl the URL into a local file, then monolith reads the file.
     if (!result.success) {
-      // If the container signalled it isn't ready yet, honour its backoff hint
-      // before burning the retry budget against an unavailable container.
-      const retryAfterMs = result.retryAfterMs;
-      if (retryAfterMs !== undefined) {
-        console.warn('[monolith] Container unavailable; waiting before curl fallback', {
-          retryAfterMs
-        });
-        await new Promise<void>(resolve => setTimeout(resolve, Math.min(retryAfterMs, 5000)));
-      }
       console.warn('[monolith] URL-fetch path failed, trying curl-to-file fallback', {
         exitCode: result.exitCode,
         stderr: result.stderr.slice(0, 500)
@@ -242,6 +297,9 @@ export async function runMonolithInSandbox(
           exitCode: curl.exitCode,
           stderr: curl.stderr.slice(0, 500)
         });
+        // When curl names an R2 handler answer, that says more than monolith's own failure.
+        const curlFailure = classifySandboxFailure(curl.stderr, curl.stdout);
+        if (curlFailure.code === 'MONOLITH_R2_HANDLER_FAILED') throw curlFailure;
       }
     }
 
@@ -254,13 +312,13 @@ export async function runMonolithInSandbox(
       throw classifySandboxFailure(result.stderr, result.stdout);
     }
 
-    // Upload the output straight to R2 via a presigned PUT URL, then read back its
+    // Upload the output to R2 through the Worker's R2 handler, then read back its
     // sha256 + byte size from stdout. Routing the bytes over the container network
     // sidesteps the 32 MiB `readFile` RPC ceiling that heavy (base64-inlined)
     // pages would otherwise overflow.
     console.log('[monolith] Execution complete, uploading output to R2...');
-    const r2Key = getR2Key(requestId, 'monolith.html');
-    const putUrl = await presignR2PutUrl(getPresignConfig(env), r2Key);
+    const r2Key = keys.output;
+    const putUrl = r2HandlerUrl(r2Key);
     const upload = await execInSandbox(sandbox, buildUploadAndHashCommand(putUrl));
     if (!upload.success) {
       console.error('[monolith] Output upload failed:', {
@@ -390,7 +448,7 @@ export default {
       }
 
       // Validate the rendered HTML exists in R2 without reading it into the
-      // worker — the Sandbox fetches it directly via a presigned URL.
+      // worker — the Sandbox fetches it through the Worker's R2 handler.
       const htmlHead = await env.ARCHIVE_BUCKET.head(rendered_html_key);
       if (!htmlHead) {
         return Response.json(
@@ -423,7 +481,7 @@ export default {
         artifact = sandboxResult.artifact;
         sandboxId = sandboxResult.sandboxId;
       } catch (sandboxError) {
-        console.error('[monolith] Sandbox execution failed:', sandboxError);
+        if (!isContainerNotReady(sandboxError)) console.error('[monolith] Sandbox execution failed:', sandboxError);
 
         if (env.MONOLITH_SERVICE_URL && isRetryableSandboxError(sandboxError)) {
           console.log('[monolith] Trying HTTP fallback...');
@@ -459,7 +517,7 @@ export default {
       };
       return Response.json(response);
     } catch (err) {
-      console.error('[monolith] Unhandled error:', err);
+      if (!isContainerNotReady(err)) console.error('[monolith] Unhandled error:', err);
       if (err instanceof MonolithServiceError) {
         return Response.json(
           {

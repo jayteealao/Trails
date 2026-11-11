@@ -24,6 +24,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import com.jayteealao.trails.common.di.ApplicationScope
 import com.jayteealao.trails.data.local.database.computeNormalizedUrl
+import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.archive.WargMetadata
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
@@ -40,6 +41,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -88,7 +91,11 @@ interface ArticleRepository: Syncable {
 
     fun restoreFromFirestore()
 
-    suspend fun updateArticleText(itemId: String, text: String, source: String)
+    /**
+     * Stores [text] from the archive [source] as the article text only when it ranks above
+     * the stored text, per [TextSourceRank.shouldReplace]. Returns whether it stored it.
+     */
+    suspend fun offerArticleText(itemId: String, text: String, source: String): Boolean
 
     suspend fun backfillMetadata(itemId: String, metadata: WargMetadata)
 
@@ -295,9 +302,17 @@ class ArticleRepositoryImpl @Inject constructor(
             .enqueue()
     }
 
-    override suspend fun updateArticleText(itemId: String, text: String, source: String) {
-        articleDao.updateTextWithSource(itemId, text, source)
-    }
+    /** Serialises the read and the write of [offerArticleText], so two offers cannot interleave. */
+    private val textWriteLock = Mutex()
+
+    override suspend fun offerArticleText(itemId: String, text: String, source: String): Boolean =
+        textWriteLock.withLock {
+            val article = articleDao.getArticleById(itemId) ?: return@withLock false
+            val replace = TextSourceRank.shouldReplace(article.text, article.textSource, source, text)
+            Timber.d("offerArticleText($itemId) — $source over '${article.textSource}': ${if (replace) "stored" else "kept"}")
+            if (replace) articleDao.updateTextWithSource(itemId, text, source)
+            replace
+        }
 
     override suspend fun backfillMetadata(itemId: String, metadata: WargMetadata) {
         val article = articleDao.getArticleById(itemId) ?: return

@@ -2,16 +2,19 @@ package com.jayteealao.trails.screens.articleDetail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jayteealao.trails.common.NetworkMonitor
 import com.jayteealao.trails.common.UrlModifier
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
+import com.jayteealao.trails.data.archive.ArchiveDownload
 import com.jayteealao.trails.data.archive.ArchiveService
 import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.ArchiveType
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.archive.LocalArchiveDao
+import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -44,10 +47,21 @@ private data class ArticleGroup(
 private data class ArchiveGroup(
     val remoteArchives: Map<String, ArchiveStatus>,
     val localArchives: List<LocalArchive>,
-    val archiveSyncing: Boolean,
+    val textDownloading: Boolean,
     val textSource: String,
     val selectedArchiveContent: String?,
 )
+
+private data class NoticeGroup(
+    val online: Boolean,
+    val articleStatus: String?,
+    val textDownloadFailed: Boolean,
+    val localText: LocalText,
+    val selectedArchiveLoadFailed: Boolean,
+)
+
+/** What the last read of the ranked local text archives found. */
+private enum class LocalText { NONE, READABLE, BLANK, UNREADABLE }
 
 @HiltViewModel
 class ArticleDetailViewModel @Inject constructor(
@@ -56,6 +70,7 @@ class ArticleDetailViewModel @Inject constructor(
     private val archiveService: ArchiveService,
     private val localArchiveDao: LocalArchiveDao,
     private val urlModifier: UrlModifier,
+    private val networkMonitor: NetworkMonitor,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel(), Store<ArticleDetailState, ArticleDetailEvent> {
 
@@ -69,11 +84,19 @@ class ArticleDetailViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     private val _remoteArchives = MutableStateFlow<Map<String, ArchiveStatus>>(emptyMap())
     private val _localArchives = MutableStateFlow<List<LocalArchive>>(emptyList())
-    private val _archiveSyncing = MutableStateFlow(false)
+    private val _textDownloading = MutableStateFlow(false)
     private val _textSource = MutableStateFlow("")
     private val _selectedArchiveContent = MutableStateFlow<String?>(null)
+    private val _articleStatus = MutableStateFlow<String?>(null)
+    private val _textDownloadFailed = MutableStateFlow(false)
+    private val _localText = MutableStateFlow(LocalText.NONE)
+    private val _selectedArchiveLoadFailed = MutableStateFlow(false)
+    private val _downloadStates = MutableStateFlow<Map<String, ArchiveDownload>>(emptyMap())
 
     private var archiveObserverJob: Job? = null
+
+    /** The text archives (key and download time) the last [offerBestText] read; null before one. */
+    private var lastReadTextArchives: Set<Pair<String, Long>>? = null
     private var currentArticleId: String? = null
 
     private val useFreediumFlow = sharedPreferencesManager.preferenceChangesFlow()
@@ -95,23 +118,39 @@ class ArticleDetailViewModel @Inject constructor(
     }
 
     private val archiveGroupFlow = combine(
-        _remoteArchives, _localArchives, _archiveSyncing, _textSource, _selectedArchiveContent
+        _remoteArchives, _localArchives, _textDownloading, _textSource, _selectedArchiveContent
     ) { remote, local, syncing, textSrc, selectedContent ->
         ArchiveGroup(remote, local, syncing, textSrc, selectedContent)
     }
 
+    private val noticeGroupFlow = combine(
+        networkMonitor.isOnline, _articleStatus, _textDownloadFailed, _localText, _selectedArchiveLoadFailed
+    ) { online, status, downloadFailed, localText, loadFailed ->
+        NoticeGroup(online, status, downloadFailed, localText, loadFailed)
+    }
+
     // Tartlet Store implementation - Consolidated state
-    private val _state = combine(articleGroupFlow, archiveGroupFlow) { ag, arc ->
+    private val _state = combine(articleGroupFlow, archiveGroupFlow, noticeGroupFlow, _downloadStates) { ag, arc, ng, downloads ->
+        val localKeys = arc.localArchives.map { it.archiveKey }.toSet()
+        val tabKeys = tabArchiveKeys(localKeys, arc.remoteArchives)
+        val pending = tabKeys.filterNot { it in localKeys }.toSet()
         ArticleDetailState(
+            tabArchiveKeys = tabKeys,
+            pendingArchiveKeys = pending,
+            failedArchiveKeys = pending.filter { downloads[it] == ArchiveDownload.FAILED }.toSet(),
             article = ag.article,
             selectedTabIndex = ag.selectedTabIndex,
             useFreedium = ag.useFreedium,
             isLoading = ag.isLoading,
             remoteArchives = arc.remoteArchives,
             localArchives = arc.localArchives,
-            archiveSyncing = arc.archiveSyncing,
+            textDownloading = arc.textDownloading,
             textSource = arc.textSource,
             selectedArchiveContent = arc.selectedArchiveContent,
+            online = ng.online,
+            articleStatus = ng.articleStatus,
+            selectedArchiveLoadFailed = ng.selectedArchiveLoadFailed,
+            readerBody = readerBodyFor(readerSignals(ag, arc, ng)),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -125,8 +164,19 @@ class ArticleDetailViewModel @Inject constructor(
 
     // Actions
     fun getArticle(itemId: String) {
-        // Skip if already loaded and observer is still running
+        // The same article opens again: read the stored text once more, so a better source
+        // that arrived while it was open shows now. Keep a running observer.
         if (currentArticleId == itemId && _article.value?.itemId == itemId) {
+            viewModelScope.launch(ioDispatcher) {
+                try {
+                    publishArticle(itemId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e, "getArticle($itemId) — reopen read failed")
+                    _event.emit(ArticleDetailEvent.ShowError(e))
+                }
+            }
             // Re-attach observer only if the previous one completed or was cancelled
             if (archiveObserverJob?.isActive != true) {
                 loadArchives(itemId)
@@ -142,23 +192,23 @@ class ArticleDetailViewModel @Inject constructor(
             _selectedArchiveContent.value = null
             _selectedTabIndex.value = 1
             _textSource.value = ""
+            _articleStatus.value = null
+            _textDownloadFailed.value = false
+            _localText.value = LocalText.NONE
+            _selectedArchiveLoadFailed.value = false
+            _downloadStates.value = emptyMap()
             archiveObserverJob?.cancel()
         }
         currentArticleId = itemId
 
         viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
-            Timber.d("getArticle($itemId) — fetching from Room")
             try {
-                var articleFetched = articleRepository.getArticleById(itemId)
-                Timber.d("getArticle($itemId) — found=${articleFetched != null}, hasText=${articleFetched?.text?.take(30)}, textSource=${articleFetched?.textSource}")
-                if (useFreediumFlow.value && articleFetched != null) {
-                    articleFetched = articleFetched.copy(
-                        url = urlModifier.modifyUrl(articleFetched.url ?: articleFetched.givenUrl!!)
-                    )
-                }
-                _article.value = articleFetched
-                _textSource.value = articleFetched?.textSource ?: ""
+                // Rank the local text archives first, so the one read below gets the best text.
+                val archives = localArchiveDao.getArchivesForArticle(itemId)
+                _localText.value = offerBestText(itemId, archives)
+                lastReadTextArchives = textArchivesOf(archives)
+                publishArticle(itemId)
 
                 // Start archive observation
                 loadArchives(itemId)
@@ -174,12 +224,12 @@ class ArticleDetailViewModel @Inject constructor(
     fun setSelectedTab(index: Int) {
         _selectedTabIndex.value = index
         _selectedArchiveContent.value = null
+        _selectedArchiveLoadFailed.value = false
 
-        // If selecting an archive tab (index >= 2), load its content
-        val archiveTabs = getAvailableArchiveTypes()
-        val archiveIndex = index - 2
-        if (archiveIndex >= 0 && archiveIndex < archiveTabs.size) {
-            val archiveType = archiveTabs[archiveIndex]
+        // An archive tab loads its file; a tab whose archive is still on its way loads it when
+        // the download lands (see the local archive collector).
+        val archiveType = getAvailableArchiveTypes().getOrNull(index - FIRST_ARCHIVE_TAB_INDEX) ?: return
+        if (_localArchives.value.any { it.archiveKey == archiveType.archiveKey }) {
             loadArchiveContent(archiveType)
         }
     }
@@ -203,19 +253,72 @@ class ArticleDetailViewModel @Inject constructor(
             val existingArchives = localArchiveDao.getArchivesForArticle(itemId)
             if (existingArchives.isNotEmpty()) {
                 Timber.d("loadArchives($itemId) — ${existingArchives.size} local archives, showing immediately")
+                keepSelectionOnItsArchive(tabArchiveKeys(existingArchives.map { it.archiveKey }, _remoteArchives.value))
                 _localArchives.value = existingArchives
-                autoPopulateText(itemId, existingArchives)
             }
 
-            // Always observe for new/updated archives (syncArchives deduplicates)
+            // Syncing while a text archive downloads; a large archive never holds the Reader.
+            launch {
+                archiveService.observeDownloads(itemId).collect { states ->
+                    _downloadStates.value = states
+                    _textDownloading.value = states.any { (key, state) ->
+                        state == ArchiveDownload.DOWNLOADING && ArchiveType.fromArchiveKey(key)?.providesText == true
+                    }
+                    val textStates = states.filterKeys { ArchiveType.fromArchiveKey(it)?.providesText == true }.values
+                    _textDownloadFailed.value =
+                        ArchiveDownload.FAILED in textStates && ArchiveDownload.DOWNLOADING !in textStates
+                }
+            }
+
+            // The status of the shared article tells a failed archive from one still on its way.
+            launch {
+                archiveService.observeArticleStatus(itemId).collect { _articleStatus.value = it }
+            }
+
+            // Back online: download what failed or waited while offline.
+            launch {
+                var wasOnline: Boolean? = null
+                networkMonitor.isOnline.collect { online ->
+                    val remote = _remoteArchives.value
+                    if (online && wasOnline == false && remote.isNotEmpty()) {
+                        try {
+                            archiveService.syncArchives(itemId, remote)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Timber.e(e, "Failed to sync archives for $itemId after reconnecting")
+                        }
+                    }
+                    wasOnline = online
+                }
+            }
+
+            // Always observe for new/updated archives (syncArchives skips an archive on disk or downloading)
             launch {
                 localArchiveDao.observeArchives(itemId).collect { archives ->
                     Timber.d("loadArchives($itemId) — local emit: ${archives.size} archives [${archives.map { it.archiveKey }}]")
+                    // A better source changes the stored text; the text on screen stays
+                    // until the next open, unless there was none. The text is read before the
+                    // new archives show, so the Reader never shows a notice for text it has.
+                    // Only a change of the text archives is read again; a heavy archive row
+                    // that lands leaves the text as it was.
+                    val textArchives = textArchivesOf(archives)
+                    if (textArchives != lastReadTextArchives) {
+                        _localText.value = offerBestText(itemId, archives)
+                        lastReadTextArchives = textArchives
+                    }
+                    if (_article.value?.text.isNullOrBlank()) {
+                        publishArticle(itemId)
+                    }
+                    val selected = selectedArchiveType()
+                    val wasLocal = selected != null && _localArchives.value.any { it.archiveKey == selected.archiveKey }
+                    keepSelectionOnItsArchive(tabArchiveKeys(archives.map { it.archiveKey }, _remoteArchives.value))
                     _localArchives.value = archives
-
-                    val article = _article.value
-                    if (article != null && article.text.isNullOrBlank()) {
-                        autoPopulateText(itemId, archives)
+                    // The selected tab was waiting for its archive, and the download landed.
+                    if (selected != null && !wasLocal && selectedArchiveType() == selected &&
+                        archives.any { it.archiveKey == selected.archiveKey }
+                    ) {
+                        loadArchiveContent(selected)
                     }
                 }
             }
@@ -224,17 +327,17 @@ class ArticleDetailViewModel @Inject constructor(
                 Timber.d("loadArchives($itemId) — remote observer started")
                 archiveService.observeRemoteArchives(itemId).collect { remoteMap ->
                     Timber.d("loadArchives($itemId) — remote emit: ${remoteMap.size} archives")
+                    keepSelectionOnItsArchive(tabArchiveKeys(_localArchives.value.map { it.archiveKey }, remoteMap))
                     _remoteArchives.value = remoteMap
 
                     if (remoteMap.isNotEmpty()) {
-                        _archiveSyncing.value = true
                         try {
                             archiveService.syncArchives(itemId, remoteMap)
-                            Timber.d("loadArchives($itemId) — syncArchives completed")
+                            Timber.d("loadArchives($itemId) — downloads started")
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             Timber.e(e, "Failed to sync archives for $itemId")
-                        } finally {
-                            _archiveSyncing.value = false
                         }
                         try {
                             archiveService.applyWargMetadata(itemId)
@@ -249,37 +352,79 @@ class ArticleDetailViewModel @Inject constructor(
         }
     }
 
-    private suspend fun autoPopulateText(itemId: String, archives: List<LocalArchive>) {
-        // Prefer readability over markdown
-        val textArchive = archives.firstOrNull { it.archiveKey == ArchiveType.READABILITY.archiveKey }
-            ?: archives.firstOrNull { it.archiveKey == ArchiveType.MARKDOWN.archiveKey }
-        if (textArchive == null) {
-            Timber.d("autoPopulateText($itemId) — no text archive available in [${archives.map { it.archiveKey }}]")
-            return
+    /** Reads the article from Room and puts it, with its text, on screen. */
+    private suspend fun publishArticle(itemId: String) {
+        var article = articleRepository.getArticleById(itemId)
+        Timber.d("publishArticle($itemId) — found=${article != null}, textSource=${article?.textSource}")
+        if (useFreediumFlow.value && article != null) {
+            article = article.copy(url = urlModifier.modifyUrl(article.url ?: article.givenUrl!!))
         }
+        _article.value = article
+        _textSource.value = article?.textSource ?: ""
+    }
 
-        val type = ArchiveType.fromArchiveKey(textArchive.archiveKey) ?: return
-        Timber.d("autoPopulateText($itemId) — reading ${type.archiveKey} from local file")
-        val text = archiveService.readArchiveText(itemId, type)
-        if (text == null) {
-            Timber.w("autoPopulateText($itemId) — readArchiveText returned null for ${type.archiveKey}")
-            return
-        }
-
-        Timber.d("autoPopulateText($itemId) — got ${text.length} chars from ${type.archiveKey}, saving to Room")
-        articleRepository.updateArticleText(itemId, text, type.archiveKey)
-        _textSource.value = type.archiveKey
-
-        // Refresh article from DB
-        val updated = articleRepository.getArticleById(itemId)
-        if (updated != null) {
-            _article.value = if (useFreediumFlow.value) {
-                updated.copy(url = urlModifier.modifyUrl(updated.url ?: updated.givenUrl!!))
-            } else {
-                updated
+    /**
+     * Offers the best-ranked text archive of [archives] that has words as the stored text, per
+     * [TextSourceRank]. A blank or unreadable archive gives way to the next one down, and so
+     * does a run-together one while a text with paragraphs is below it. Returns what the read
+     * found; the caller puts it in the notice state.
+     */
+    private suspend fun offerBestText(itemId: String, archives: List<LocalArchive>): LocalText {
+        val keys = archives.map { it.archiveKey }
+        val ranked = TextSourceRank.ORDER.filter { it in keys }
+        var sawBlank = false
+        var runTogether: Pair<String, String>? = null
+        for (key in ranked) {
+            val type = ArchiveType.fromArchiveKey(key) ?: continue
+            val text = archiveService.readArchiveText(itemId, type)
+            if (text == null) {
+                Timber.w("offerBestText($itemId) — readArchiveText returned null for $key")
+                continue
             }
-            Timber.d("autoPopulateText($itemId) — article refreshed, text length=${updated.text?.length}")
+            if (text.isBlank()) {
+                sawBlank = true
+                continue
+            }
+            if (TextSourceRank.isRunTogether(text)) {
+                if (runTogether == null) runTogether = key to text
+                continue
+            }
+            articleRepository.offerArticleText(itemId, text, key)
+            return LocalText.READABLE
         }
+        runTogether?.let { (key, text) ->
+            articleRepository.offerArticleText(itemId, text, key)
+            return LocalText.READABLE
+        }
+        return when {
+            ranked.isEmpty() -> LocalText.NONE
+            sawBlank -> LocalText.BLANK
+            else -> LocalText.UNREADABLE
+        }
+    }
+
+    private fun textArchivesOf(archives: List<LocalArchive>): Set<Pair<String, Long>> =
+        archives.filter { TextSourceRank.rankOf(it.archiveKey) != null }
+            .map { it.archiveKey to it.downloadedAt }
+            .toSet()
+
+    /** What the Reader body is decided from; see [readerBodyFor]. */
+    private fun readerSignals(ag: ArticleGroup, arc: ArchiveGroup, ng: NoticeGroup): ReaderSignals {
+        val localKeys = arc.localArchives.map { it.archiveKey }.toSet()
+        fun isText(key: String) = ArchiveType.fromArchiveKey(key)?.providesText == true
+        return ReaderSignals(
+            hasText = !ag.article?.text.isNullOrBlank(),
+            loaded = !ag.isLoading && ag.article != null,
+            online = ng.online,
+            textDownloading = arc.textDownloading,
+            textDownloadFailed = ng.textDownloadFailed,
+            remoteTextPending = arc.remoteArchives.keys.any { isText(it) && it !in localKeys },
+            localTextArchive = localKeys.any(::isText),
+            localTextBlank = ng.localText == LocalText.BLANK,
+            localTextUnreadable = ng.localText == LocalText.UNREADABLE,
+            articleStatus = ng.articleStatus,
+            savedLongAgo = savedLongAgo(ag.article?.timeAdded ?: 0L, System.currentTimeMillis()),
+        )
     }
 
     private fun loadArchiveContent(type: ArchiveType) {
@@ -289,26 +434,42 @@ class ArticleDetailViewModel @Inject constructor(
             val content = archiveService.readArchiveText(itemId, type)
             Timber.d("loadArchiveContent($itemId, ${type.archiveKey}) — got ${content?.length ?: 0} chars")
             _selectedArchiveContent.value = content
+            _selectedArchiveLoadFailed.value = content == null
 
-            // If this is a text-providing archive, also update article.text
-            if (type.providesText && content != null && type.archiveKey != _textSource.value) {
-                Timber.d("loadArchiveContent($itemId) — switching text source to ${type.archiveKey}")
-                articleRepository.updateArticleText(itemId, content, type.archiveKey)
-                _textSource.value = type.archiveKey
-                val updated = articleRepository.getArticleById(itemId)
-                if (updated != null) {
-                    _article.value = if (useFreediumFlow.value) {
-                        updated.copy(url = urlModifier.modifyUrl(updated.url ?: updated.givenUrl!!))
-                    } else {
-                        updated
-                    }
+            // A picked text tab goes through the same rank; the Reader text stays unless it was empty.
+            if (type.providesText && content != null) {
+                articleRepository.offerArticleText(itemId, content, type.archiveKey)
+                if (_article.value?.text.isNullOrBlank()) {
+                    publishArticle(itemId)
                 }
             }
         }
     }
 
-    fun getAvailableArchiveTypes(): List<ArchiveType> {
-        return _localArchives.value.mapNotNull { ArchiveType.fromArchiveKey(it.archiveKey) }
+    /** The archive types that have a tab, in tab order: on the phone, or on their way to it. */
+    fun getAvailableArchiveTypes(): List<ArchiveType> =
+        archiveTypesOf(tabArchiveKeys(_localArchives.value.map { it.archiveKey }, _remoteArchives.value))
+
+    private fun archiveTypesOf(tabKeys: List<String>): List<ArchiveType> =
+        detailTabsFor(tabKeys).mapNotNull { it.archiveType }
+
+    private fun selectedArchiveType(): ArchiveType? =
+        getAvailableArchiveTypes().getOrNull(_selectedTabIndex.value - FIRST_ARCHIVE_TAB_INDEX)
+
+    /**
+     * Tabs follow a fixed order, so an archive that arrives can take a place before the selected
+     * one. Moves the selected archive tab to its archive's new place, or to the Reader tab when
+     * its archive is gone. The Reader and Web tabs never move.
+     */
+    private fun keepSelectionOnItsArchive(newTabKeys: List<String>) {
+        val selected = selectedArchiveType() ?: return
+        val newPlace = archiveTypesOf(newTabKeys).indexOf(selected)
+        if (newPlace >= 0) {
+            _selectedTabIndex.value = FIRST_ARCHIVE_TAB_INDEX + newPlace
+        } else {
+            _selectedTabIndex.value = READER_TAB_INDEX
+            _selectedArchiveContent.value = null
+        }
     }
 
     override fun onCleared() {

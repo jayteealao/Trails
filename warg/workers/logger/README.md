@@ -55,6 +55,22 @@ request. It is idempotent.
 | `GET /request/:id/stream` | SSE, 3s poll, 2-minute cap (dual-read) |
 | `GET /requests`, `GET /stats`, `POST /requests/batch` | served from D1 index |
 | `POST /maintenance/backfill-diagnostics` | recompute legacy diagnostics (dual-read) |
+| `GET /health/kinds?hours=<1..72>` | requests of the last hours (default 49) with their requested steps and primary-artifact creation times, for the gateway's daily health check |
+
+## Stages and the stats rates
+
+A request ends at one of three stages:
+
+- `done`: every requested step succeeded.
+- `incomplete`: the run finished, and at least one requested step failed or
+  degraded (any step, not only `monolith`).
+- `failed`: no requested step produced its output.
+
+`GET /stats` counts all three as finished: `successRate`, `failureRate` and
+`incompleteRate` are each stage's share of the finished requests, and sum to 1.
+`activeCount` counts only requests that have not finished. Rows written before
+this rule keep their old stage: a request with a degraded non-monolith step from
+that time reads `done`.
 
 `GET /stats` reads the index in two queries: the counts per stage, then the top domains and the newest failures.
 

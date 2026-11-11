@@ -1,4 +1,5 @@
 import { bindings, defineConfig, exports } from "cf/config";
+import { COMPATIBILITY_DATE } from "../compatibility-date.mjs";
 
 /**
  * Secret-like files were detected but not read or migrated: .dev.vars.example. Only `secrets.required` entries are migrated.
@@ -8,14 +9,20 @@ import { bindings, defineConfig, exports } from "cf/config";
 export default defineConfig({
 	worker: {
 		name: "workflow",
-		compatibilityDate: "2025-01-01",
+		compatibilityDate: COMPATIBILITY_DATE,
 		entrypoint: "src/index.ts",
 		workersDev: false,
+		// Workers tracing: the runtime emits the spans; enabled alone turns on logs only.
 		observability: {
 			enabled: true,
+			traces: { enabled: true },
 		},
 		env: {
+			// Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
+			INTERNAL_API_KEY: bindings.secret(),
 			MOCK_PIPELINE: bindings.text("false"),
+			// Workers AI: converts the cleaned Readability HTML to the AI Markdown artifact
+			AI: bindings.ai(),
 			ARCHIVE_BUCKET: bindings.r2({
 				name: "warg-archives",
 			}),

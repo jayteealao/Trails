@@ -6,8 +6,9 @@ import { loggerServer, dashboardServer } from './e2e-logger/local-servers';
 
 // The stats panel check runs the dashboard against the real logger worker
 // under `wrangler dev`, over a fresh local D1 that holds the rows of
-// e2e-logger/seed.sql. It is run on demand (`test:e2e:logger`), not in CI;
-// the specs of e2e/ keep the stub logger of playwright.config.ts. Both
+// e2e-logger/seed.sql. CI runs it in the dashboard-e2e job after the default
+// checks, as a gate; run it alone with `test:e2e:logger`. The specs of e2e/
+// keep the stub logger of playwright.config.ts. Both
 // configs use the same ports, so run one at a time.
 const PAGES_PORT = Number(process.env.E2E_PAGES_PORT ?? '18799');
 const LOGGER_PORT = Number(process.env.E2E_LOGGER_PORT ?? '18797');

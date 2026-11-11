@@ -1,4 +1,5 @@
 import { bindings, defineConfig, exports } from "cf/config";
+import { COMPATIBILITY_DATE } from "../compatibility-date.mjs";
 
 /**
  * Secret-like files were detected but not read or migrated: .dev.vars.example. Only `secrets.required` entries are migrated.
@@ -8,13 +9,15 @@ import { bindings, defineConfig, exports } from "cf/config";
 export default defineConfig({
 	worker: {
 		name: "logger",
-		compatibilityDate: "2025-01-01",
+		compatibilityDate: COMPATIBILITY_DATE,
 		entrypoint: "src/index.ts",
 		workersDev: false,
 		observability: {
 			enabled: true,
 		},
 		env: {
+			// Required secrets, set with `cf workers secrets update`; scripts/deploy.sh checks the same names.
+			INTERNAL_API_KEY: bindings.secret(),
 			INDEX_DB: bindings.d1({
 				name: "warg-requests-index",
 				id: "ff077e87-293b-4434-ad9e-ab669c9cbabb",

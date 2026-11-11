@@ -10,13 +10,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cloudflare/sandbox": "^0.12.3",
-    "@warg/shared": "workspace:*",
-    "aws4fetch": "^1.0.20"
+    "@cloudflare/sandbox": "0.12.14",
+    "@warg/shared": "workspace:*"
   },
   "devDependencies": {
-    "cf": "1.0.0-beta.17",
+    "cf": "1.0.0-beta.28",
     "vitest": "4.1.10",
-    "wrangler": "4.148.0"
+    "wrangler": "4.158.0"
   }
 }

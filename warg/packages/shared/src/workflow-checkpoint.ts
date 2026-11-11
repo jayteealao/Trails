@@ -1,4 +1,4 @@
-import type { ArtifactKind, ArtifactMeta, WorkflowStep } from './types.js';
+import type { ArtifactKind, ArtifactMeta } from './types.js';
 
 export const CHECKPOINT_VERSION = 1 as const;
 
@@ -7,7 +7,8 @@ export const CHECKPOINT_STEPS = [
   'singlefile',
   'readability',
   'monolith',
-] as const satisfies readonly WorkflowStep[];
+  'ai-markdown',
+] as const;
 
 export type CheckpointStep = (typeof CHECKPOINT_STEPS)[number];
 

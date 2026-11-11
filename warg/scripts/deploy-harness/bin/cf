@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Stub of the cf CLI for scripts/deploy-harness/run.sh. Answers with the JSON
-# shapes cf 1.0.0-beta.17 prints, with synthetic ids. Scenario variables hold
+# shapes cf 1.0.0-beta.28 prints, with synthetic ids. Scenario variables hold
 # space-separated lists:
 #   H_SECRETS_FAIL=<w>             `workers secrets list` exits 1
 #   H_SECRETS_MISSING=<w>:<NAME>   the listing omits that secret
+#   H_SECRETS_EXTRA=<w>:<NAME>     the listing also holds that secret
 #   H_NO_DEPLOYMENTS=<w>           `workers deployments list` exits 1 until a deploy
 #   H_SAME_IDS=<w>                 the deployment list never shows a new id
 #   H_FOREIGN_ID=<w>               the new deployment holds an id this run did not make
@@ -45,6 +46,11 @@ case "${1:-} ${2:-} ${3:-}" in
     for n in $names; do
       in_list "${H_SECRETS_MISSING:-}" "$w:$n" && continue
       out="$out$sep{\"name\":\"$n\",\"type\":\"secret_text\"}"
+      sep=","
+    done
+    for extra in ${H_SECRETS_EXTRA:-}; do
+      [ "${extra%%:*}" = "$w" ] || continue
+      out="$out$sep{\"name\":\"${extra#*:}\",\"type\":\"secret_text\"}"
       sep=","
     done
     echo "[$out]"
