@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
 import type { Firestore } from 'firebase-admin/firestore';
-import { COMPLETED_TODAY_TTL_MS, handleCompletedToday, startOfUtcDay } from '../completed-today.js';
+import {
+  COMPLETED_TODAY_STALE_MS,
+  COMPLETED_TODAY_TTL_MS,
+  handleCompletedToday,
+  startOfUtcDay,
+} from '../completed-today.js';
 import { dashboardApi } from '../index.js';
 import { makeFakeDb } from './fake-firestore.js';
 import { MAX_FILTERED_ARTICLES } from '../list-articles.js';
@@ -116,14 +121,42 @@ test('a count is reused for a short while, then read again', async () => {
   assert.equal(log.getAllCalls, 1);
   for (const body of bodies) assert.deepEqual(body, { completedToday: 1, since: TODAY, truncated: false });
 
-  // Once the time is up, the next load reads again.
+  // Once the time is up, the next load gets the last count at once and reads again behind it.
   now += 1;
-  await call();
+  assert.deepEqual(await call(), { completedToday: 1, since: TODAY, truncated: false });
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(log.getAllCalls, 2);
 
   // A new UTC day reads again at once, with the new day start.
   now = Date.parse('2026-11-09T00:00:01Z');
   assert.deepEqual(await call(), { completedToday: 0, since: '2026-11-09T00:00:00.000Z', truncated: false });
+  assert.equal(log.getAllCalls, 3);
+});
+
+test('an expired count of the day is served without waiting, until it is too old', async () => {
+  const { db, log } = makeFakeDb({
+    userArticles: { a: userDoc('a') },
+    articles: { a: complete([TODAY, TODAY, TODAY, TODAY]) },
+  });
+  const cache = new Map();
+  let now = NOW.getTime();
+  const call = async () => {
+    const { res, captured } = captureResponse();
+    await handleCompletedToday({} as Request, res, { db, userId: 'u', now: () => new Date(now), cache });
+    return captured.body;
+  };
+  await call();
+  assert.equal(log.getAllCalls, 1);
+
+  // Two loads after the time is up start one read behind the served count.
+  now += COMPLETED_TODAY_TTL_MS + 1;
+  await Promise.all([call(), call()]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(log.getAllCalls, 2);
+
+  // A count older than the stale window is read again before it is served.
+  now += COMPLETED_TODAY_TTL_MS + COMPLETED_TODAY_STALE_MS + 1;
+  await call();
   assert.equal(log.getAllCalls, 3);
 });
 
