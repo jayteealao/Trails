@@ -17,6 +17,12 @@ data class ArticleDetailState(
     val archiveSyncing: Boolean = false,
     val textSource: String = "",
     val selectedArchiveContent: String? = null,
+    val online: Boolean = true,
+    val articleStatus: String? = null,
+    /** The selected text archive tab could not read its file. */
+    val selectedArchiveLoadFailed: Boolean = false,
+    /** What the Reader tab shows: the text, the skeleton, or a quiet notice. */
+    val readerBody: ReaderBody = ReaderBody.Loading,
 )
 
 /**
