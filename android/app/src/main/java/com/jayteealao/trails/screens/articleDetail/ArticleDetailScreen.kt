@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SecondaryScrollableTabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.Text
@@ -240,6 +241,101 @@ private fun ArticleDetailTabRowDarkPreview() {
 
 private val PREVIEW_ALL_ARCHIVE_KEYS =
     listOf("singlefile", "monolith", "readability", "markdown", "rendered", "ai_markdown")
+
+/** A Reader body on the theme's background, as the article screen draws it. */
+@Composable
+private fun ReaderBodyPreview(body: ReaderBody, darkTheme: Boolean = false) {
+    TrailsTheme(darkTheme = darkTheme) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            ReaderBodyView(body = body, text = "")
+        }
+    }
+}
+
+@Preview(name = "Reader notice • waiting • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderWaitingLightPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true))
+}
+
+@Preview(
+    name = "Reader notice • waiting • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ReaderWaitingDarkPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true), darkTheme = true)
+}
+
+@Preview(name = "Reader notice • offline • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderOfflinePreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.OFFLINE))
+}
+
+@Preview(name = "Reader notice • failed • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderFailedLightPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.FAILED))
+}
+
+@Preview(
+    name = "Reader notice • failed • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ReaderFailedDarkPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.FAILED), darkTheme = true)
+}
+
+@Preview(name = "Reader notice • no text • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderNoTextPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.NO_TEXT))
+}
+
+@Preview(name = "Text tab notice • empty • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderEmptyPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.EMPTY))
+}
+
+@Preview(name = "Text tab notice • could not be opened • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderUnreadablePreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.UNREADABLE))
+}
+
+@Preview(name = "Reader skeleton • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ReaderSkeletonLightPreview() {
+    ReaderBodyPreview(ReaderBody.Loading)
+}
+
+@Preview(
+    name = "Reader skeleton • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ReaderSkeletonDarkPreview() {
+    ReaderBodyPreview(ReaderBody.Loading, darkTheme = true)
+}
+
+/** On a tablet the notice stays centred in the 680 dp reading column. */
+@Preview(name = "Reader notice • waiting • tablet", showBackground = true, widthDp = 900, heightDp = 900)
+@Composable
+private fun ReaderWaitingTabletPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true))
+}
 
 /**
  * The bottom row of the article detail screen: one labelled tab per entry of [tabs], on the
