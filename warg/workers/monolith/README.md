@@ -55,8 +55,11 @@ never passes through the Worker.
   `404` for a missing input, `411` for an upload without `Content-Length`,
   `502` when R2 itself fails.
 - Each request logs one line, `[monolith] r2 handler`, with the method, host,
-  request id, key and status (and the R2 error when R2 failed): a warning for
-  a `403` or `411`, an error for a `5xx`, plain log otherwise.
+  calling container id, request id, key and status (and the R2 error when R2
+  failed): a warning for a `403` or `411`, an error for a `5xx`, plain log
+  otherwise. A `403` line names the rule that refused it in `reason`: `host`,
+  `bad_encoding`, `key_shape`, `method_or_key` or `foreign_container` (a key
+  of another request's container).
 
 The handler is registered as a static `outboundByHost` entry on the `Sandbox`
 class, and the Worker exports `ContainerProxy`, which the platform needs to
@@ -72,7 +75,8 @@ The request diagnostics name the monolith failure by code. First checks:
   hint, and check the container capacity of the `Sandbox` binding.
 - `MONOLITH_R2_HANDLER_FAILED` — the R2 handler refused (`403`, `404`, `411`)
   or R2 failed (`5xx`). Search the logs for `[monolith] r2 handler` lines of
-  that request id: the status and, for a `5xx`, the R2 error.
+  that request id: the status, the `reason` of a `403` and, for a `5xx`, the
+  R2 error.
 - `MONOLITH_SANDBOX_500` — monolith itself failed inside the container; the
   Worker log `[monolith] Execution failed` holds its stderr.
 

@@ -50,29 +50,44 @@ function decodeKey(pathname: string): string | undefined {
   }
 }
 
+/** Why the handler refused a request: the rule that refused it. */
+export type R2RefusalReason = 'host' | 'bad_encoding' | 'key_shape' | 'method_or_key' | 'foreign_container';
+
 /**
- * Whether the method and key are the one read or the one write that the
- * calling container's own request allows.
+ * The rule that refuses the request, or undefined when the method and key are
+ * the one read or the one write that the calling container's own request allows.
  */
-function isAllowed(method: string, key: string | undefined, deps: R2OutboundDeps): key is string {
-  if (key === undefined) return false;
+function refusalReason(
+  host: string,
+  method: string,
+  key: string | undefined,
+  deps: R2OutboundDeps
+): R2RefusalReason | undefined {
+  if (host !== R2_HANDLER_HOST) return 'host';
+  if (key === undefined) return 'bad_encoding';
   const match = KEY_PATTERN.exec(key);
   const requestId = match?.[1];
-  if (requestId === undefined || requestId === '.' || requestId === '..') return false;
+  if (requestId === undefined || requestId === '.' || requestId === '..') return 'key_shape';
   const { input, output } = monolithKeys(requestId);
   const allowed = (method === 'GET' && key === input) || (method === 'PUT' && key === output);
-  return allowed && deps.containerIdForRequest(requestId) === deps.containerId;
+  if (!allowed) return 'method_or_key';
+  if (deps.containerIdForRequest(requestId) !== deps.containerId) return 'foreign_container';
+  return undefined;
 }
 
-/** The longest key a log line carries for a request that did not name an allowed key. */
+/** The longest value a log line carries for a field the container chose (key, host, method). */
 const LOGGED_KEY_LIMIT = 200;
 
 interface HandlerLogLine {
   method: string;
   host: string;
+  /** The container that sent the request. */
+  containerId: string;
   requestId?: string;
   key?: string;
   status: number;
+  /** The rule that refused the request (403 only). */
+  reason?: R2RefusalReason;
   error?: string;
 }
 
@@ -111,23 +126,27 @@ async function serve(request: Request, key: string, deps: R2OutboundDeps): Promi
 
 /**
  * Answer one request of the container to the R2 handler host. Logs one line
- * per request with the method, host, request id, key and status, plus the R2
- * error when R2 failed (never a body or secret).
+ * per request with the method, host, calling container, request id, key and
+ * status, plus the refusal rule of a 403 and the R2 error when R2 failed
+ * (never a body or secret).
  */
 export async function handleR2Outbound(request: Request, deps: R2OutboundDeps): Promise<Response> {
   const url = new URL(request.url);
   const key = decodeKey(url.pathname);
   const requestId = key === undefined ? undefined : KEY_PATTERN.exec(key)?.[1];
   const line: HandlerLogLine = {
-    method: request.method,
-    host: url.hostname,
+    method: request.method.slice(0, LOGGED_KEY_LIMIT),
+    host: url.hostname.slice(0, LOGGED_KEY_LIMIT),
+    containerId: deps.containerId,
     ...(requestId === undefined ? {} : { requestId }),
     // A key outside the allowed shape comes from the container: keep the line short.
     ...(key === undefined ? {} : { key: requestId === undefined ? key.slice(0, LOGGED_KEY_LIMIT) : key }),
     status: 0
   };
   let response: Response;
-  if (url.hostname !== R2_HANDLER_HOST || !isAllowed(request.method, key, deps)) {
+  const refused = refusalReason(url.hostname, request.method, key, deps);
+  if (refused !== undefined || key === undefined) {
+    line.reason = refused ?? 'bad_encoding';
     response = new Response('Forbidden', { status: 403 });
   } else {
     try {

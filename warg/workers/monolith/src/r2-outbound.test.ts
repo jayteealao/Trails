@@ -68,26 +68,30 @@ function makeDeps(object?: ReturnType<typeof streamingObject>) {
 const { input, output } = monolithKeys(REQUEST_ID);
 
 describe('handleR2Outbound refusals', () => {
-  const cases: Array<[string, string, string, string]> = [
-    ['another request\'s key', 'GET', r2HandlerUrl(monolithKeys('req-2').input), CONTAINER],
-    ['the right key from the wrong container', 'GET', r2HandlerUrl(input), 'container-of-req-2'],
-    ['a PUT to the input', 'PUT', r2HandlerUrl(input), CONTAINER],
-    ['a GET of the output', 'GET', r2HandlerUrl(output), CONTAINER],
-    ['an unrelated key', 'GET', r2HandlerUrl('archives/req-1/manifest.json'), CONTAINER],
-    ['a path traversal', 'GET', `http://${R2_HANDLER_HOST}/archives/req-1/../req-2/raw/rendered.html`, CONTAINER],
-    ['an encoded slash in the id', 'GET', `http://${R2_HANDLER_HOST}/archives/req-2%2Fx/raw/rendered.html`, CONTAINER],
-    ['a dot-dot request id', 'GET', `http://${R2_HANDLER_HOST}/archives/%2E%2E/raw/rendered.html`, CONTAINER],
-    ['an invalid escape', 'GET', `http://${R2_HANDLER_HOST}/archives/%E0%A4%A/raw/rendered.html`, CONTAINER],
-    ['another host', 'GET', `http://example.com/${input}`, CONTAINER]
+  const cases: Array<[string, string, string, string, string]> = [
+    ['another request\'s key', 'GET', r2HandlerUrl(monolithKeys('req-2').input), CONTAINER, 'foreign_container'],
+    ['the right key from the wrong container', 'GET', r2HandlerUrl(input), 'container-of-req-2', 'foreign_container'],
+    ['a PUT to the input', 'PUT', r2HandlerUrl(input), CONTAINER, 'method_or_key'],
+    ['a GET of the output', 'GET', r2HandlerUrl(output), CONTAINER, 'method_or_key'],
+    ['an unrelated key', 'GET', r2HandlerUrl('archives/req-1/manifest.json'), CONTAINER, 'key_shape'],
+    ['a path traversal', 'GET', `http://${R2_HANDLER_HOST}/archives/req-1/../req-2/raw/rendered.html`, CONTAINER, 'foreign_container'],
+    ['an encoded slash in the id', 'GET', `http://${R2_HANDLER_HOST}/archives/req-2%2Fx/raw/rendered.html`, CONTAINER, 'key_shape'],
+    ['a dot-dot request id', 'GET', `http://${R2_HANDLER_HOST}/archives/%2E%2E/raw/rendered.html`, CONTAINER, 'key_shape'],
+    ['an invalid escape', 'GET', `http://${R2_HANDLER_HOST}/archives/%E0%A4%A/raw/rendered.html`, CONTAINER, 'bad_encoding'],
+    ['another host', 'GET', `http://example.com/${input}`, CONTAINER, 'host']
   ];
 
-  it.each(cases)('answers 403 to %s and reads no object', async (_name, method, url, containerId) => {
+  it.each(cases)('answers 403 to %s and reads no object', async (_name, method, url, containerId, reason) => {
     const { deps, get, put } = makeDeps(streamingObject(10));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const init: RequestInit = method === 'PUT' ? { method, body: 'x', headers: { 'content-length': '1' } } : { method };
     const response = await handleR2Outbound(new Request(url, init), { ...deps, containerId });
     expect(response.status).toBe(403);
     expect(get).not.toHaveBeenCalled();
     expect(put).not.toHaveBeenCalled();
+    // The warning names the rule that refused the request and the container that sent it.
+    expect(warn).toHaveBeenCalledWith('[monolith] r2 handler', expect.objectContaining({ status: 403, reason, containerId }));
+    warn.mockRestore();
   });
 });
 
@@ -193,6 +197,7 @@ describe('handleR2Outbound log', () => {
     expect(log).toHaveBeenCalledWith('[monolith] r2 handler', {
       method: 'GET',
       host: R2_HANDLER_HOST,
+      containerId: CONTAINER,
       requestId: REQUEST_ID,
       key: input,
       status: 200
@@ -207,8 +212,9 @@ describe('handleR2Outbound log', () => {
     await handleR2Outbound(new Request(`http://${R2_HANDLER_HOST}/${longKey}`), deps);
     expect(log).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledTimes(1);
-    const [, line] = warn.mock.calls[0] as [string, { key: string; status: number }];
+    const [, line] = warn.mock.calls[0] as [string, { key: string; status: number; reason: string }];
     expect(line.status).toBe(403);
+    expect(line.reason).toBe('key_shape');
     expect(line.key).toHaveLength(200);
   });
 
