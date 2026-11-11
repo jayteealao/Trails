@@ -71,11 +71,15 @@ export {
 
 export { sha256, timingSafeEqual } from './crypto.js';
 
-export type { ErrorClassification, RendererFallbackReason, SandboxFailureCode } from './failure-classify.js';
+export type { ErrorClassification, RenderFallbackFailure, RendererFallbackReason, SandboxFailureCode } from './failure-classify.js';
 export {
   RENDERER_CONTENT_FAILED_ERROR,
   withClassificationTag,
   readClassificationTag,
+  containerNotReadyMessage,
+  readContainerNotReadyHint,
+  renderFallbackTag,
+  readRenderFallbackTag,
   isRpc32MiBLimit,
   isMonolithInputTooLarge,
   classifySandboxOutput,

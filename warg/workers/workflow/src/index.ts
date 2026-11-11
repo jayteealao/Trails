@@ -14,7 +14,7 @@ import type {
   WorkflowStartedData,
   WorkflowStep as WorkflowStepType,
 } from '@warg/shared';
-import { WORKFLOW_STEPS, getR2Key, storeArtifact } from '@warg/shared';
+import { WORKFLOW_STEPS, getR2Key, readRenderFallbackTag, storeArtifact } from '@warg/shared';
 import { convertArticleToMarkdown } from './ai-markdown.js';
 import { BrowserQuotaDO } from './BrowserQuotaDO.js';
 import { acquireQuotaWithSleep } from './quota-acquire.js';
@@ -29,8 +29,7 @@ import {
   callSinglefileForStep,
   callReadability,
   callMonolithForStep,
-  monolithRetryDelayMs,
-  readRenderFallbackFailure
+  monolithRetryDelayMs
 } from './services.js';
 import {
   logEvent,
@@ -417,7 +416,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         );
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
         // A fallback that ran and failed is logged with its stealth setting too.
-        const fallbackFailure = readRenderFallbackFailure(renderError.message);
+        const fallbackFailure = readRenderFallbackTag(renderError.message);
         await logStepFailed(
           this.env,
           request_id,

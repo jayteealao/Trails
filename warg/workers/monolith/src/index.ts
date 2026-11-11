@@ -1,6 +1,7 @@
 import { getSandbox, Sandbox as BaseSandbox, ContainerUnavailableError } from '@cloudflare/sandbox';
 import {
   classifySandboxOutput,
+  containerNotReadyMessage,
   readInternalJsonRequest,
   storeArtifact,
   type ArtifactMeta,
@@ -117,7 +118,7 @@ export function normalizeSandboxId(requestId: string): string {
  */
 function containerUnavailableError(retryAfterMs: number): MonolithServiceError {
   return new MonolithServiceError(
-    `Sandbox container not ready (retry after ${retryAfterMs} ms)`,
+    containerNotReadyMessage(retryAfterMs),
     'MONOLITH_CONTAINER_UNAVAILABLE',
     503,
     true

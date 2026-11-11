@@ -13,6 +13,10 @@ import {
   isRpc32MiBLimit,
   readClassificationTag,
   RENDERER_FALLBACK_REASONS,
+  containerNotReadyMessage,
+  readContainerNotReadyHint,
+  readRenderFallbackTag,
+  renderFallbackTag,
   isRendererFallbackReason,
   rendererFallbackReasonFromBody,
   withClassificationTag,
@@ -494,5 +498,24 @@ describe('isRendererFallbackReason', () => {
     const body = JSON.stringify({ reason: PROXY_ERROR_PAGE_REASON });
     const reason = rendererFallbackReasonFromBody(body);
     expect(reason !== undefined && isRendererFallbackReason(reason)).toBe(true);
+  });
+});
+
+describe('step message contracts', () => {
+  it('reads back the readiness hint that the container-not-ready message carries', () => {
+    expect(readContainerNotReadyHint(`Service error 503: ${containerNotReadyMessage(3000)}`)).toBe(3000);
+    expect(readContainerNotReadyHint('Service error 503: upstream failure')).toBeUndefined();
+  });
+
+  it('reads back the fallback that a render fallback tag names', () => {
+    const tag = renderFallbackTag({ fallbackReason: 'browser_rendering_dead_host', fallbackStealth: 'none' });
+    expect(readRenderFallbackTag(`Renderer failed ${tag}. primary=x`)).toEqual({
+      fallbackReason: 'browser_rendering_dead_host',
+      fallbackStealth: 'none',
+    });
+    expect(readRenderFallbackTag(renderFallbackTag({ fallbackReason: 'browser_rendering_403' }))).toEqual({
+      fallbackReason: 'browser_rendering_403',
+    });
+    expect(readRenderFallbackTag('Service error 500: upstream failure')).toBeUndefined();
   });
 });

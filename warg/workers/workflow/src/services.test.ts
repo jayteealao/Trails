@@ -3,7 +3,6 @@ import {
   callRenderer,
   callRendererForStep,
   callRendererWith403Fallback,
-  readRenderFallbackFailure,
   callMonolith,
   callMonolithForStep,
   monolithRetryDelayMs,
@@ -14,7 +13,7 @@ import {
   ServiceCallError,
   type ServiceErrorClassification,
 } from './services.js';
-import { BROWSER_TOKEN_INVALID_REASON, PROXY_ERROR_PAGE_REASON, readClassificationTag } from '@warg/shared';
+import { BROWSER_TOKEN_INVALID_REASON, PROXY_ERROR_PAGE_REASON, readClassificationTag, readRenderFallbackTag } from '@warg/shared';
 import type { RendererResponse } from './types.js';
 
 function makeJsonResponse(status: number, body: unknown): Response {
@@ -1034,14 +1033,14 @@ describe('when the primary renderer and the hyperrenderer both fail', () => {
       callRendererWith403Fallback(makeEnv(rendererFetch, hyperrendererFetch), renderParams),
     );
 
-    expect(readRenderFallbackFailure(error.message)).toEqual({
+    expect(readRenderFallbackTag(error.message)).toEqual({
       fallbackReason: 'browser_rendering_dead_host',
       fallbackStealth: 'auto',
     });
   });
 
   it('reads no fallback from a render error that names none', () => {
-    expect(readRenderFallbackFailure('Service error 500: upstream failure')).toBeUndefined();
+    expect(readRenderFallbackTag('Service error 500: upstream failure')).toBeUndefined();
   });
 
   it('keeps the access-blocked classification on the error that names both failures', async () => {

@@ -14,7 +14,8 @@ import {
   classifyServiceFailure,
   classifyServiceTimeout,
   isRenderStealthMode,
-  isRendererFallbackReason,
+  readContainerNotReadyHint,
+  renderFallbackTag,
   rendererFallbackReasonFromBody,
   withClassificationTag,
 } from '@warg/shared';
@@ -189,8 +190,6 @@ export interface RendererCallOutcome {
 const MONOLITH_RETRY_DELAY_MS = 6000;
 /** The longest extra wait a container-not-ready hint adds (the Worker once waited up to 5 s in place). */
 const MONOLITH_CONTAINER_WAIT_CAP_MS = 5000;
-/** The monolith Worker's container-not-ready answer: "Sandbox container not ready (retry after 3000 ms)". */
-const CONTAINER_NOT_READY = /container not ready \(retry after (\d+) ms\)/i;
 
 /**
  * The delay before the monolith step's retry: 6 s, plus the container's own
@@ -198,39 +197,9 @@ const CONTAINER_NOT_READY = /container not ready \(retry after (\d+) ms\)/i;
  * cold start gets the time the old in-place wait gave it.
  */
 export function monolithRetryDelayMs(error: Error): number {
-  const hint = CONTAINER_NOT_READY.exec(error.message)?.[1];
+  const hint = readContainerNotReadyHint(error.message);
   if (hint === undefined) return MONOLITH_RETRY_DELAY_MS;
-  return MONOLITH_RETRY_DELAY_MS + Math.min(Number(hint), MONOLITH_CONTAINER_WAIT_CAP_MS);
-}
-
-/** A fallback render that ran and failed: why it ran, and the stealth setting it used when its answer said. */
-export interface RenderFallbackFailure {
-  fallbackReason: RendererFallbackReason;
-  fallbackStealth?: RenderStealthMode;
-}
-
-/**
- * The tag a failed fallback leaves in the render error message. The message is
- * what survives the workflow step boundary, so the step's failure log reads the
- * fallback back from it with readRenderFallbackFailure.
- */
-const RENDER_FALLBACK_TAG = /\[render fallback reason=([a-z0-9_]+)(?: stealth=([a-z]+))?\]/;
-
-function renderFallbackTag(failure: RenderFallbackFailure): string {
-  const stealth = failure.fallbackStealth ? ` stealth=${failure.fallbackStealth}` : '';
-  return `[render fallback reason=${failure.fallbackReason}${stealth}]`;
-}
-
-/** The fallback that a render error message names, or undefined when no fallback ran. */
-export function readRenderFallbackFailure(message: string): RenderFallbackFailure | undefined {
-  const match = RENDER_FALLBACK_TAG.exec(message);
-  const reason = match?.[1];
-  if (reason === undefined || !isRendererFallbackReason(reason)) return undefined;
-  const stealth = match?.[2];
-  return {
-    fallbackReason: reason,
-    ...(isRenderStealthMode(stealth) ? { fallbackStealth: stealth } : {}),
-  };
+  return MONOLITH_RETRY_DELAY_MS + Math.min(hint, MONOLITH_CONTAINER_WAIT_CAP_MS);
 }
 
 /** The stealth setting a hyperrenderer error answer reports, if any. */

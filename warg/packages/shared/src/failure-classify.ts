@@ -1,6 +1,6 @@
-import { credentialFailure, isCredentialErrorCode, isRequestErrorCode, isUserActionHint, R2_KEY_ERROR_NAMES } from './dashboard.js';
+import { credentialFailure, isCredentialErrorCode, isRenderStealthMode, isRequestErrorCode, isUserActionHint, R2_KEY_ERROR_NAMES } from './dashboard.js';
 import { BROWSER_TOKEN_INVALID_REASON, isDeadHostErrorText, PROXY_ERROR_PAGE_REASON } from './render-content.js';
-import type { RequestErrorCode, UserActionHint } from './dashboard.js';
+import type { RenderStealthMode, RequestErrorCode, UserActionHint } from './dashboard.js';
 
 /**
  * The `error` text of the renderer's answer when Browser Run fails to load the page
@@ -41,6 +41,53 @@ export function readClassificationTag(message: string): ErrorClassification | un
     }
   }
   return found;
+}
+
+/**
+ * The message of the monolith Worker's answer when its sandbox container is not
+ * ready. The workflow reads the hint back with readContainerNotReadyHint to
+ * wait that much longer before the step's retry.
+ */
+export function containerNotReadyMessage(retryAfterMs: number): string {
+  return `Sandbox container not ready (retry after ${retryAfterMs} ms)`;
+}
+
+const CONTAINER_NOT_READY = /container not ready \(retry after (\d+) ms\)/i;
+
+/** The readiness hint, in ms, that a containerNotReadyMessage carries, or undefined. */
+export function readContainerNotReadyHint(message: string): number | undefined {
+  const hint = CONTAINER_NOT_READY.exec(message)?.[1];
+  return hint === undefined ? undefined : Number(hint);
+}
+
+/** A fallback render that ran and failed: why it ran, and the stealth setting it used when its answer said. */
+export interface RenderFallbackFailure {
+  fallbackReason: RendererFallbackReason;
+  fallbackStealth?: RenderStealthMode;
+}
+
+/**
+ * The tag a failed fallback leaves in the render error message. The message is
+ * what survives the workflow step boundary, so the step's failure log reads the
+ * fallback back from it with readRenderFallbackTag.
+ */
+const RENDER_FALLBACK_TAG = /\[render fallback reason=([a-z0-9_]+)(?: stealth=([a-z]+))?\]/;
+
+export function renderFallbackTag(failure: RenderFallbackFailure): string {
+  const stealth = failure.fallbackStealth ? ` stealth=${failure.fallbackStealth}` : '';
+  return `[render fallback reason=${failure.fallbackReason}${stealth}]`;
+}
+
+/** The fallback that a render error message names, or undefined when no fallback ran. */
+export function readRenderFallbackTag(message: string): RenderFallbackFailure | undefined {
+  const match = RENDER_FALLBACK_TAG.exec(message);
+  const reason = match?.[1];
+  if (reason === undefined || !isRendererFallbackReason(reason)) return undefined;
+  const stealth = match?.[2];
+  return {
+    fallbackReason: reason,
+    ...(isRenderStealthMode(stealth) ? { fallbackStealth: stealth } : {}),
+  };
 }
 
 // --- Monolith text rules -----------------------------------------------------
