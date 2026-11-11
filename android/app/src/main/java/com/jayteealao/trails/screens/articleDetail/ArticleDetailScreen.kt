@@ -158,6 +158,62 @@ private fun ArticleDetailArchivePreview() {
     }
 }
 
+/** The reading column on a phone: the reading heading scale, a 16 dp gutter, a broken image. */
+@Preview(name = "Reader text • phone • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ArticleMarkdownPhoneLightPreview() {
+    TrailsTheme(darkTheme = false) {
+        ArticleMarkdown(PREVIEW_READER_MARKDOWN)
+    }
+}
+
+@Preview(
+    name = "Reader text • phone • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ArticleMarkdownPhoneDarkPreview() {
+    TrailsTheme(darkTheme = true) {
+        ArticleMarkdown(PREVIEW_READER_MARKDOWN)
+    }
+}
+
+/** On a tablet the column stops at 680 dp and is centred. */
+@Preview(name = "Reader text • tablet • light", showBackground = true, widthDp = 900, heightDp = 900)
+@Composable
+private fun ArticleMarkdownTabletPreview() {
+    TrailsTheme(darkTheme = false) {
+        ArticleMarkdown(PREVIEW_READER_MARKDOWN)
+    }
+}
+
+// Synthetic sample text, written for the previews; not from a real site. The image link uses a
+// reserved domain that never resolves, so the broken-image placeholder draws.
+private val PREVIEW_READER_MARKDOWN = """
+    # Counting the street trees of a small city
+
+    *By Mara Ellison*
+
+    The survey began with a question nobody at the council could answer: how many trees line our streets?
+
+    ## How the count worked
+
+    Forty volunteers split the city into 212 blocks. Each pair walked one block an evening.
+
+    ![A map of the 212 survey blocks](https://images.example.invalid/street-trees/survey-blocks-map.png)
+
+    - 212 blocks, two walkers each
+    - Trunk girth at chest height
+    - Species, bark state and verge width
+
+    ### Planting from the survey
+
+    The council now plants 300 trees a year, chosen from the survey. The spreadsheet is on the [council's open data page](https://data.example.org/street-trees).
+""".trimIndent()
+
 /** Every tab of an article with all six local archives, the AI Markdown tab selected. */
 @Preview(name = "Tab row • all tabs • light", showBackground = true, widthDp = 375)
 @Composable
