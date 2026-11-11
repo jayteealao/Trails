@@ -14,6 +14,7 @@ import {
   classifyServiceFailure,
   classifyServiceTimeout,
   isRenderStealthMode,
+  isRendererFallbackReason,
   rendererFallbackReasonFromBody,
   withClassificationTag,
 } from '@warg/shared';
@@ -230,18 +231,6 @@ export function readRenderFallbackFailure(message: string): RenderFallbackFailur
     fallbackReason: reason,
     ...(isRenderStealthMode(stealth) ? { fallbackStealth: stealth } : {}),
   };
-}
-
-const RENDERER_FALLBACK_REASONS: readonly RendererFallbackReason[] = [
-  'browser_rendering_403',
-  'browser_rendering_5006',
-  'browser_rendering_6000',
-  'browser_rendering_proxy_error_page',
-  'browser_rendering_dead_host',
-];
-
-function isRendererFallbackReason(value: string): value is RendererFallbackReason {
-  return RENDERER_FALLBACK_REASONS.some((reason) => reason === value);
 }
 
 /** The stealth setting a hyperrenderer error answer reports, if any. */

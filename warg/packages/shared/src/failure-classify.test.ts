@@ -12,6 +12,8 @@ import {
   inferLegacyErrorCode,
   isRpc32MiBLimit,
   readClassificationTag,
+  RENDERER_FALLBACK_REASONS,
+  isRendererFallbackReason,
   rendererFallbackReasonFromBody,
   withClassificationTag,
 } from './failure-classify.js';
@@ -478,5 +480,19 @@ describe('fixed behaviour', () => {
     );
     expect(classifyError('render', 'Forbidden').retryable).toBe(false);
     expect(defaultRetryableForCode('ACCESS_BLOCKED')).toBe(false);
+  });
+});
+
+describe('isRendererFallbackReason', () => {
+  it('accepts every fallback reason and nothing else', () => {
+    for (const reason of RENDERER_FALLBACK_REASONS) expect(isRendererFallbackReason(reason)).toBe(true);
+    expect(isRendererFallbackReason('browser_rendering_404')).toBe(false);
+    expect(isRendererFallbackReason(undefined)).toBe(false);
+  });
+
+  it('names every reason the primary-renderer body can give', () => {
+    const body = JSON.stringify({ reason: PROXY_ERROR_PAGE_REASON });
+    const reason = rendererFallbackReasonFromBody(body);
+    expect(reason !== undefined && isRendererFallbackReason(reason)).toBe(true);
   });
 });

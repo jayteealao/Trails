@@ -636,12 +636,20 @@ function containsRendererNetworkClosed5006(details: unknown): boolean {
   });
 }
 
-export type RendererFallbackReason =
-  | 'browser_rendering_403'
-  | 'browser_rendering_5006'
-  | 'browser_rendering_6000'
-  | 'browser_rendering_proxy_error_page'
-  | 'browser_rendering_dead_host';
+/** Why the workflow called the fallback renderer after a primary-renderer failure. */
+export const RENDERER_FALLBACK_REASONS = [
+  'browser_rendering_403',
+  'browser_rendering_5006',
+  'browser_rendering_6000',
+  'browser_rendering_proxy_error_page',
+  'browser_rendering_dead_host',
+] as const;
+
+export type RendererFallbackReason = (typeof RENDERER_FALLBACK_REASONS)[number];
+
+export function isRendererFallbackReason(value: unknown): value is RendererFallbackReason {
+  return RENDERER_FALLBACK_REASONS.some((reason) => reason === value);
+}
 
 /**
  * The fallback reason a failed primary-renderer answer body gives: an access-blocked,

@@ -82,6 +82,8 @@ export {
   classifyError,
   classifyServiceTimeout,
   classifyServiceFailure,
+  RENDERER_FALLBACK_REASONS,
+  isRendererFallbackReason,
   rendererFallbackReasonFromBody,
   defaultRetryableForCode,
   defaultActionForCode,
