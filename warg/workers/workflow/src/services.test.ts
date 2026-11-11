@@ -6,6 +6,7 @@ import {
   readRenderFallbackFailure,
   callMonolith,
   callMonolithForStep,
+  monolithRetryDelayMs,
   callSinglefile,
   callSinglefileForStep,
   getRendererFallbackReason,
@@ -1078,6 +1079,21 @@ function runMonolithStep(env: Env): Promise<unknown> {
     callMonolithForStep(env, monolithParams, (m) => new FakeNonRetryableError(m)),
   );
 }
+
+describe('the wait before the monolith retry', () => {
+  it('waits 6 s after an ordinary failure', () => {
+    expect(monolithRetryDelayMs(new Error('Service error 500: upstream failure'))).toBe(6000);
+  });
+
+  it('adds the container readiness hint, capped at 5 s, when the container was not ready', () => {
+    const notReady = (ms: number) =>
+      new Error(
+        `Service error 503: {"error":"Internal error","message":"Sandbox container not ready (retry after ${ms} ms)","code":"MONOLITH_CONTAINER_UNAVAILABLE","retryable":true}`,
+      );
+    expect(monolithRetryDelayMs(notReady(3000))).toBe(9000);
+    expect(monolithRetryDelayMs(notReady(60000))).toBe(11000);
+  });
+});
 
 describe('monolith step failures', () => {
   it('fails at once on an input that is too large', async () => {

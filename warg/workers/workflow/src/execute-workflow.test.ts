@@ -631,7 +631,7 @@ describe('monolith step retries', () => {
 
     expect(run.configs.get('monolith-attempt-1')).toEqual({
       timeout: '2 minutes',
-      retries: { limit: 1, delay: '6 seconds', backoff: 'exponential' },
+      retries: { limit: 1, delay: expect.any(Function) },
     });
   });
 

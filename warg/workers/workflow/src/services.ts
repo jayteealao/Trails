@@ -184,6 +184,24 @@ export interface RendererCallOutcome {
   fallbackReason?: RendererFallbackReason;
 }
 
+/** The wait before the monolith step's retry. */
+const MONOLITH_RETRY_DELAY_MS = 6000;
+/** The longest extra wait a container-not-ready hint adds (the Worker once waited up to 5 s in place). */
+const MONOLITH_CONTAINER_WAIT_CAP_MS = 5000;
+/** The monolith Worker's container-not-ready answer: "Sandbox container not ready (retry after 3000 ms)". */
+const CONTAINER_NOT_READY = /container not ready \(retry after (\d+) ms\)/i;
+
+/**
+ * The delay before the monolith step's retry: 6 s, plus the container's own
+ * readiness hint (capped at 5 s) when the container was not ready, so a slow
+ * cold start gets the time the old in-place wait gave it.
+ */
+export function monolithRetryDelayMs(error: Error): number {
+  const hint = CONTAINER_NOT_READY.exec(error.message)?.[1];
+  if (hint === undefined) return MONOLITH_RETRY_DELAY_MS;
+  return MONOLITH_RETRY_DELAY_MS + Math.min(Number(hint), MONOLITH_CONTAINER_WAIT_CAP_MS);
+}
+
 /** A fallback render that ran and failed: why it ran, and the stealth setting it used when its answer said. */
 export interface RenderFallbackFailure {
   fallbackReason: RendererFallbackReason;

@@ -29,6 +29,7 @@ import {
   callSinglefileForStep,
   callReadability,
   callMonolithForStep,
+  monolithRetryDelayMs,
   readRenderFallbackFailure
 } from './services.js';
 import {
@@ -894,7 +895,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     try {
       // The step keeps the name `monolith-attempt-1` so a running instance
       // replays its cached result. The budget is as before: 2 attempts of 2
-      // minutes with a 6 s wait between them, which the runtime owns. A
+      // minutes with a 6 s wait between them, which the runtime owns; a
+      // container that was not ready adds its readiness hint to the wait. A
       // deterministic failure fails the step at once.
       // One-time cost of this change: an instance that cached a failed
       // `monolith-attempt-1` under the old two-step loop replays that failure
@@ -903,7 +905,7 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         'monolith-attempt-1',
         {
           timeout: '2 minutes',
-          retries: { limit: 1, delay: '6 seconds', backoff: 'exponential' }
+          retries: { limit: 1, delay: ({ error }) => monolithRetryDelayMs(error) }
         },
         async () =>
           await callMonolithForStep(
