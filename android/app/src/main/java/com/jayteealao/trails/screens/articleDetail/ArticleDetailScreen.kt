@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.constraintlayout.compose.ConstraintLayout
+import androidx.constraintlayout.compose.Dimension
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.accompanist.web.AccompanistWebViewClient
 import com.google.accompanist.web.LoadingState
@@ -82,9 +83,7 @@ fun ArticleDetailScreen(
     val tabs = detailTabsFor(viewStore.state.localArchives.map { it.archiveKey })
 
     ConstraintLayout(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 56.dp)
+        modifier = Modifier.fillMaxSize()
     ) {
         val (tabRow, detailView) = createRefs()
 
@@ -94,6 +93,7 @@ fun ArticleDetailScreen(
                 bottom.linkTo(tabRow.top)
                 start.linkTo(parent.start)
                 end.linkTo(parent.end)
+                height = Dimension.fillToConstraints
             },
             selectedTabIndex = viewStore.state.selectedTabIndex,
             article = currentArticle,
