@@ -126,7 +126,8 @@ internal val DONE_STATUSES = setOf("complete", "partial")
 fun readerBodyFor(s: ReaderSignals): ReaderBody = when {
     s.hasText -> ReaderBody.Text
     !s.loaded -> ReaderBody.Loading
-    s.textDownloading -> if (s.online) ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true) else offline()
+    // The notice alone, as drawn: the skeleton lines are the first read of an open, not a download.
+    s.textDownloading -> if (s.online) ReaderBody.Notice(ReaderNoticeKind.WAITING) else offline()
     s.articleStatus in FAILED_STATUSES -> ReaderBody.Notice(ReaderNoticeKind.FAILED)
     // A failed text download keeps its key in the server list, so it is told apart before the
     // pending check, which would otherwise say the text is on its way.

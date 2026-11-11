@@ -680,13 +680,13 @@ class ArticleDetailViewModelTest {
     }
 
     @Test
-    fun readerBody_textArchiveDownloading_showsTheWaitingNoticeWithSkeletonLines() = runTest(scheduler) {
+    fun readerBody_textArchiveDownloading_showsTheWaitingNoticeAlone() = runTest(scheduler) {
         every { archiveService.observeDownloads("a1") } returns
             MutableStateFlow(mapOf("readability" to ArchiveDownload.DOWNLOADING))
 
         val viewModel = openWithoutText()
 
-        assertEquals(ReaderBody.Notice(ReaderNoticeKind.WAITING, skeleton = true), viewModel.state.value.readerBody)
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.WAITING), viewModel.state.value.readerBody)
     }
 
     @Test

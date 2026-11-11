@@ -29,8 +29,8 @@ class ReaderNoticesTest {
     // --- The Reader body ---
 
     @Test
-    fun `a text archive downloading shows the waiting notice with skeleton lines`() {
-        assertEquals(Notice(WAITING, skeleton = true), body(base.copy(textDownloading = true)))
+    fun `a text archive downloading shows the waiting notice alone`() {
+        assertEquals(Notice(WAITING), body(base.copy(textDownloading = true)))
     }
 
     @Test
