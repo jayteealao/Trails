@@ -64,6 +64,29 @@ function isAllowed(method: string, key: string | undefined, deps: R2OutboundDeps
   return allowed && deps.containerIdForRequest(requestId) === deps.containerId;
 }
 
+/** The longest key a log line carries for a request that did not name an allowed key. */
+const LOGGED_KEY_LIMIT = 200;
+
+interface HandlerLogLine {
+  method: string;
+  host: string;
+  requestId?: string;
+  key?: string;
+  status: number;
+  error?: string;
+}
+
+/**
+ * One log line per request, at a level that follows the status: a refusal
+ * (403, 411) is a warning and an R2 failure (5xx) an error, so neither hides
+ * among routine reads and writes.
+ */
+function logHandlerRequest(line: HandlerLogLine): void {
+  if (line.status >= 500) console.error('[monolith] r2 handler', line);
+  else if (line.status === 403 || line.status === 411) console.warn('[monolith] r2 handler', line);
+  else console.log('[monolith] r2 handler', line);
+}
+
 async function serve(request: Request, key: string, deps: R2OutboundDeps): Promise<Response> {
   if (request.method === 'GET') {
     const object = await deps.bucket.get(key);
@@ -88,11 +111,21 @@ async function serve(request: Request, key: string, deps: R2OutboundDeps): Promi
 
 /**
  * Answer one request of the container to the R2 handler host. Logs one line
- * per request with the method, host, key and status (never a body or secret).
+ * per request with the method, host, request id, key and status, plus the R2
+ * error when R2 failed (never a body or secret).
  */
 export async function handleR2Outbound(request: Request, deps: R2OutboundDeps): Promise<Response> {
   const url = new URL(request.url);
   const key = decodeKey(url.pathname);
+  const requestId = key === undefined ? undefined : KEY_PATTERN.exec(key)?.[1];
+  const line: HandlerLogLine = {
+    method: request.method,
+    host: url.hostname,
+    ...(requestId === undefined ? {} : { requestId }),
+    // A key outside the allowed shape comes from the container: keep the line short.
+    ...(key === undefined ? {} : { key: requestId === undefined ? key.slice(0, LOGGED_KEY_LIMIT) : key }),
+    status: 0
+  };
   let response: Response;
   if (url.hostname !== R2_HANDLER_HOST || !isAllowed(request.method, key, deps)) {
     response = new Response('Forbidden', { status: 403 });
@@ -100,19 +133,10 @@ export async function handleR2Outbound(request: Request, deps: R2OutboundDeps): 
     try {
       response = await serve(request, key, deps);
     } catch (error) {
-      console.error('[monolith] r2 handler failed', {
-        method: request.method,
-        key,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      line.error = error instanceof Error ? error.message : String(error);
       response = new Response('R2 request failed', { status: 502 });
     }
   }
-  console.log('[monolith] r2 handler', {
-    method: request.method,
-    host: url.hostname,
-    key,
-    status: response.status
-  });
+  logHandlerRequest({ ...line, status: response.status });
   return response;
 }

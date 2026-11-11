@@ -55,7 +55,8 @@ never passes through the Worker.
   `404` for a missing input, `411` for an upload without `Content-Length`,
   `502` when R2 itself fails.
 - Each request logs one line, `[monolith] r2 handler`, with the method, host,
-  key and status.
+  request id, key and status (and the R2 error when R2 failed): a warning for
+  a `403` or `411`, an error for a `5xx`, plain log otherwise.
 
 The handler is registered as a static `outboundByHost` entry on the `Sandbox`
 class, and the Worker exports `ContainerProxy`, which the platform needs to

@@ -173,23 +173,53 @@ describe('handleR2Outbound answers', () => {
 
 describe('handleR2Outbound log', () => {
   let log: ReturnType<typeof vi.spyOn>;
+  let warn: ReturnType<typeof vi.spyOn>;
+  let error: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
   afterEach(() => {
     log.mockRestore();
+    warn.mockRestore();
+    error.mockRestore();
   });
 
-  it('logs one line naming the method, host, key and status', async () => {
+  it('logs one line naming the method, host, request id, key and status', async () => {
     const { deps } = makeDeps(streamingObject(10));
     await handleR2Outbound(new Request(r2HandlerUrl(input)), deps);
     expect(log).toHaveBeenCalledTimes(1);
     expect(log).toHaveBeenCalledWith('[monolith] r2 handler', {
       method: 'GET',
       host: R2_HANDLER_HOST,
+      requestId: REQUEST_ID,
       key: input,
       status: 200
     });
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('logs a refusal as one warning with a bounded key', async () => {
+    const { deps } = makeDeps();
+    const longKey = `archives/${'x'.repeat(500)}`;
+    await handleR2Outbound(new Request(`http://${R2_HANDLER_HOST}/${longKey}`), deps);
+    expect(log).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [, line] = warn.mock.calls[0] as [string, { key: string; status: number }];
+    expect(line.status).toBe(403);
+    expect(line.key).toHaveLength(200);
+  });
+
+  it('logs an R2 failure as one error line that carries the R2 error', async () => {
+    const { deps } = makeDeps();
+    const bucket = { get: vi.fn(async () => { throw new Error('r2 down'); }), put: vi.fn() };
+    // Test boundary: a fake bucket with the two methods the handler calls.
+    await handleR2Outbound(new Request(r2HandlerUrl(input)), { ...deps, bucket: bucket as unknown as R2OutboundDeps['bucket'] });
+    expect(log).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith('[monolith] r2 handler', expect.objectContaining({ status: 502, error: 'r2 down', requestId: REQUEST_ID }));
   });
 });
 
