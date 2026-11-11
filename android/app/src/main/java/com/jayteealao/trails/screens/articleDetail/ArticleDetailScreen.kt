@@ -81,7 +81,7 @@ fun ArticleDetailScreen(
     }
 
     val currentArticle = viewStore.state.article ?: article
-    val tabs = detailTabsFor(viewStore.state.localArchives.map { it.archiveKey })
+    val tabs = detailTabsFor(viewStore.state.tabArchiveKeys)
 
     ConstraintLayout(
         modifier = Modifier.fillMaxSize()
@@ -102,6 +102,9 @@ fun ArticleDetailScreen(
             selectedArchiveContent = viewStore.state.selectedArchiveContent,
             readerBody = viewStore.state.readerBody,
             selectedArchiveLoadFailed = viewStore.state.selectedArchiveLoadFailed,
+            pendingArchiveKeys = viewStore.state.pendingArchiveKeys,
+            failedArchiveKeys = viewStore.state.failedArchiveKeys,
+            online = viewStore.state.online,
         )
 
         ArticleDetailTabRow(
@@ -418,6 +421,9 @@ fun ArticleDetails(
     selectedArchiveContent: String? = null,
     readerBody: ReaderBody = ReaderBody.Loading,
     selectedArchiveLoadFailed: Boolean = false,
+    pendingArchiveKeys: Set<String> = emptySet(),
+    failedArchiveKeys: Set<String> = emptySet(),
+    online: Boolean = true,
 ) {
     AnimatedContent(
         targetState = selectedTabIndex,
@@ -432,7 +438,16 @@ fun ArticleDetails(
             else -> {
                 val archiveType = tabs.getOrNull(targetIndex)?.archiveType
                 if (archiveType != null) {
-                    if (archiveType.providesText) {
+                    if (archiveType.archiveKey in pendingArchiveKeys) {
+                        // The archive is still on its way to the phone.
+                        ReaderBodyView(
+                            body = pendingArchiveBodyFor(
+                                downloadFailed = archiveType.archiveKey in failedArchiveKeys,
+                                online = online,
+                            ),
+                            text = "",
+                        )
+                    } else if (archiveType.providesText) {
                         ReaderBodyView(
                             body = archiveTabBodyFor(selectedArchiveContent, selectedArchiveLoadFailed),
                             text = selectedArchiveContent.orEmpty(),

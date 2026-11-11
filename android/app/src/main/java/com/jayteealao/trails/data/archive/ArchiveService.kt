@@ -43,7 +43,11 @@ import java.util.zip.GZIPOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class ArchiveStatus(val status: String, val gcsPath: String?)
+/** One archive of the shared article on the server: its [status] and, once written, its [gcsPath]. */
+data class ArchiveStatus(val status: String, val gcsPath: String?) {
+    /** The archive is written on the server, so the app downloads it. */
+    val isReady: Boolean get() = status == "success" && gcsPath != null
+}
 
 data class WargMetadata(
     val title: String?,
@@ -317,7 +321,7 @@ class ArchiveService @Inject constructor(
                 Timber.d("syncArchives($itemId) — skip $key (not in ArchiveType enum)")
                 return@mapNotNull null
             }
-            if (status.status != "success" || status.gcsPath == null) {
+            if (!status.isReady) {
                 Timber.d("syncArchives($itemId) — skip ${type.archiveKey} (status=${status.status}, hasPath=${status.gcsPath != null})")
                 return@mapNotNull null
             }

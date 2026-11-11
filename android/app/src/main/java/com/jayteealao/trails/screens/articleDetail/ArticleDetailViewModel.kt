@@ -91,6 +91,7 @@ class ArticleDetailViewModel @Inject constructor(
     private val _textDownloadFailed = MutableStateFlow(false)
     private val _localText = MutableStateFlow(LocalText.NONE)
     private val _selectedArchiveLoadFailed = MutableStateFlow(false)
+    private val _downloadStates = MutableStateFlow<Map<String, ArchiveDownload>>(emptyMap())
 
     private var archiveObserverJob: Job? = null
 
@@ -129,8 +130,14 @@ class ArticleDetailViewModel @Inject constructor(
     }
 
     // Tartlet Store implementation - Consolidated state
-    private val _state = combine(articleGroupFlow, archiveGroupFlow, noticeGroupFlow) { ag, arc, ng ->
+    private val _state = combine(articleGroupFlow, archiveGroupFlow, noticeGroupFlow, _downloadStates) { ag, arc, ng, downloads ->
+        val localKeys = arc.localArchives.map { it.archiveKey }.toSet()
+        val tabKeys = tabArchiveKeys(localKeys, arc.remoteArchives)
+        val pending = tabKeys.filterNot { it in localKeys }.toSet()
         ArticleDetailState(
+            tabArchiveKeys = tabKeys,
+            pendingArchiveKeys = pending,
+            failedArchiveKeys = pending.filter { downloads[it] == ArchiveDownload.FAILED }.toSet(),
             article = ag.article,
             selectedTabIndex = ag.selectedTabIndex,
             useFreedium = ag.useFreedium,
@@ -189,6 +196,7 @@ class ArticleDetailViewModel @Inject constructor(
             _textDownloadFailed.value = false
             _localText.value = LocalText.NONE
             _selectedArchiveLoadFailed.value = false
+            _downloadStates.value = emptyMap()
             archiveObserverJob?.cancel()
         }
         currentArticleId = itemId
@@ -218,11 +226,10 @@ class ArticleDetailViewModel @Inject constructor(
         _selectedArchiveContent.value = null
         _selectedArchiveLoadFailed.value = false
 
-        // If selecting an archive tab (index >= 2), load its content
-        val archiveTabs = getAvailableArchiveTypes()
-        val archiveIndex = index - 2
-        if (archiveIndex >= 0 && archiveIndex < archiveTabs.size) {
-            val archiveType = archiveTabs[archiveIndex]
+        // An archive tab loads its file; a tab whose archive is still on its way loads it when
+        // the download lands (see the local archive collector).
+        val archiveType = getAvailableArchiveTypes().getOrNull(index - FIRST_ARCHIVE_TAB_INDEX) ?: return
+        if (_localArchives.value.any { it.archiveKey == archiveType.archiveKey }) {
             loadArchiveContent(archiveType)
         }
     }
@@ -246,13 +253,14 @@ class ArticleDetailViewModel @Inject constructor(
             val existingArchives = localArchiveDao.getArchivesForArticle(itemId)
             if (existingArchives.isNotEmpty()) {
                 Timber.d("loadArchives($itemId) — ${existingArchives.size} local archives, showing immediately")
-                keepSelectionOnItsArchive(existingArchives)
+                keepSelectionOnItsArchive(tabArchiveKeys(existingArchives.map { it.archiveKey }, _remoteArchives.value))
                 _localArchives.value = existingArchives
             }
 
             // Syncing while a text archive downloads; a large archive never holds the Reader.
             launch {
                 archiveService.observeDownloads(itemId).collect { states ->
+                    _downloadStates.value = states
                     _textDownloading.value = states.any { (key, state) ->
                         state == ArchiveDownload.DOWNLOADING && ArchiveType.fromArchiveKey(key)?.providesText == true
                     }
@@ -302,8 +310,16 @@ class ArticleDetailViewModel @Inject constructor(
                     if (_article.value?.text.isNullOrBlank()) {
                         publishArticle(itemId)
                     }
-                    keepSelectionOnItsArchive(archives)
+                    val selected = selectedArchiveType()
+                    val wasLocal = selected != null && _localArchives.value.any { it.archiveKey == selected.archiveKey }
+                    keepSelectionOnItsArchive(tabArchiveKeys(archives.map { it.archiveKey }, _remoteArchives.value))
                     _localArchives.value = archives
+                    // The selected tab was waiting for its archive, and the download landed.
+                    if (selected != null && !wasLocal && selectedArchiveType() == selected &&
+                        archives.any { it.archiveKey == selected.archiveKey }
+                    ) {
+                        loadArchiveContent(selected)
+                    }
                 }
             }
 
@@ -311,6 +327,7 @@ class ArticleDetailViewModel @Inject constructor(
                 Timber.d("loadArchives($itemId) — remote observer started")
                 archiveService.observeRemoteArchives(itemId).collect { remoteMap ->
                     Timber.d("loadArchives($itemId) — remote emit: ${remoteMap.size} archives")
+                    keepSelectionOnItsArchive(tabArchiveKeys(_localArchives.value.map { it.archiveKey }, remoteMap))
                     _remoteArchives.value = remoteMap
 
                     if (remoteMap.isNotEmpty()) {
@@ -419,21 +436,24 @@ class ArticleDetailViewModel @Inject constructor(
         }
     }
 
-    fun getAvailableArchiveTypes(): List<ArchiveType> = archiveTypesOf(_localArchives.value)
+    /** The archive types that have a tab, in tab order: on the phone, or on their way to it. */
+    fun getAvailableArchiveTypes(): List<ArchiveType> =
+        archiveTypesOf(tabArchiveKeys(_localArchives.value.map { it.archiveKey }, _remoteArchives.value))
 
-    private fun archiveTypesOf(archives: List<LocalArchive>): List<ArchiveType> =
-        detailTabsFor(archives.map { it.archiveKey }).mapNotNull { it.archiveType }
+    private fun archiveTypesOf(tabKeys: List<String>): List<ArchiveType> =
+        detailTabsFor(tabKeys).mapNotNull { it.archiveType }
+
+    private fun selectedArchiveType(): ArchiveType? =
+        getAvailableArchiveTypes().getOrNull(_selectedTabIndex.value - FIRST_ARCHIVE_TAB_INDEX)
 
     /**
      * Tabs follow a fixed order, so an archive that arrives can take a place before the selected
      * one. Moves the selected archive tab to its archive's new place, or to the Reader tab when
      * its archive is gone. The Reader and Web tabs never move.
      */
-    private fun keepSelectionOnItsArchive(newArchives: List<LocalArchive>) {
-        val index = _selectedTabIndex.value
-        if (index < FIRST_ARCHIVE_TAB_INDEX) return
-        val selected = getAvailableArchiveTypes().getOrNull(index - FIRST_ARCHIVE_TAB_INDEX) ?: return
-        val newPlace = archiveTypesOf(newArchives).indexOf(selected)
+    private fun keepSelectionOnItsArchive(newTabKeys: List<String>) {
+        val selected = selectedArchiveType() ?: return
+        val newPlace = archiveTypesOf(newTabKeys).indexOf(selected)
         if (newPlace >= 0) {
             _selectedTabIndex.value = FIRST_ARCHIVE_TAB_INDEX + newPlace
         } else {

@@ -820,4 +820,54 @@ class ArticleDetailViewModelTest {
 
         assertEquals(ReaderBody.Notice(ReaderNoticeKind.WAITING), viewModel.state.value.readerBody)
     }
+
+    // ----- A tab shows for an archive that is ready on the server and still on its way -----
+
+    @Test
+    fun readyRemoteArchives_haveTabsBeforeTheyLand_andAPickedOneLoadsWhenItLands() = runTest(scheduler) {
+        every { archiveService.observeRemoteArchives("a1") } returns flowOf(
+            mapOf(
+                "readability" to ArchiveStatus("success", "gs://x/readability"),
+                "singlefile" to ArchiveStatus("success", "gs://x/singlefile"),
+                "monolith" to ArchiveStatus("processing", null),
+            ),
+        )
+        val localFlow = MutableSharedFlow<List<LocalArchive>>(replay = 1)
+        localFlow.tryEmit(emptyList())
+        val viewModel = openWithoutText(localFlow = localFlow) { "${it.archiveKey} text" }
+
+        // Readability and SingleFile are ready on the server: their tabs show now, in the fixed
+        // order; Monolith is still being made and has no tab yet.
+        assertEquals(listOf(ArchiveType.READABILITY, ArchiveType.SINGLEFILE), viewModel.getAvailableArchiveTypes())
+        assertEquals(setOf("readability", "singlefile"), viewModel.state.value.pendingArchiveKeys)
+        assertEquals(
+            listOf("Reader", "Web", "Readability", "SingleFile"),
+            detailTabsFor(viewModel.state.value.tabArchiveKeys).map { it.label },
+        )
+
+        // Picking a tab whose archive is on its way reads nothing yet.
+        viewModel.setSelectedTab(FIRST_ARCHIVE_TAB_INDEX)
+        advanceUntilIdle()
+        coVerify(exactly = 0) { archiveService.readArchiveText("a1", ArchiveType.READABILITY) }
+        assertNull(viewModel.state.value.selectedArchiveContent)
+
+        // The download lands: the tab stays selected and shows its archive.
+        localFlow.tryEmit(listOf(localArchive("a1", ArchiveType.READABILITY)))
+        advanceUntilIdle()
+        assertEquals(FIRST_ARCHIVE_TAB_INDEX, viewModel.state.value.selectedTabIndex)
+        assertEquals("readability text", viewModel.state.value.selectedArchiveContent)
+        assertEquals(setOf("singlefile"), viewModel.state.value.pendingArchiveKeys)
+    }
+
+    @Test
+    fun aPendingArchiveWhoseDownloadFailed_isMarkedFailed() = runTest(scheduler) {
+        every { archiveService.observeRemoteArchives("a1") } returns
+            flowOf(mapOf("singlefile" to ArchiveStatus("success", "gs://x/singlefile")))
+        every { archiveService.observeDownloads("a1") } returns
+            flowOf(mapOf("singlefile" to ArchiveDownload.FAILED))
+
+        val viewModel = openWithoutText()
+
+        assertEquals(setOf("singlefile"), viewModel.state.value.failedArchiveKeys)
+    }
 }

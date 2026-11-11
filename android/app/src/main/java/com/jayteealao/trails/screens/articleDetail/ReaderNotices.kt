@@ -188,6 +188,17 @@ fun archiveTabBodyFor(content: String?, loadFailed: Boolean): ReaderBody = when 
     else -> ReaderBody.Text
 }
 
+/**
+ * The body of an archive tab whose archive is still on its way to the phone: the skeleton while
+ * it downloads, the offline notice while the phone is offline, the could-not-open notice when
+ * its download failed. The tab shows its archive once the download lands.
+ */
+fun pendingArchiveBodyFor(downloadFailed: Boolean, online: Boolean): ReaderBody = when {
+    downloadFailed -> ReaderBody.Notice(ReaderNoticeKind.UNREADABLE)
+    !online -> ReaderBody.Notice(ReaderNoticeKind.OFFLINE)
+    else -> ReaderBody.Loading
+}
+
 /** The 24-unit outline icons of the notices, in the stroke of the tab icons. */
 object ReaderNoticeIcons {
     /** An hourglass: the text is on its way. */

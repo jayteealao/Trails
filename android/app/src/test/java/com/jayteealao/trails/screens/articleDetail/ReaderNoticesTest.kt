@@ -220,6 +220,13 @@ class ReaderNoticesTest {
     }
 
     @Test
+    fun `a tab whose archive is on its way shows the skeleton, offline the offline notice, failed the could-not-open notice`() {
+        assertEquals(ReaderBody.Loading, pendingArchiveBodyFor(downloadFailed = false, online = true))
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.OFFLINE), pendingArchiveBodyFor(downloadFailed = false, online = false))
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.UNREADABLE), pendingArchiveBodyFor(downloadFailed = true, online = true))
+    }
+
+    @Test
     fun `the article body draws no progress indicator`() {
         val screen = source("ArticleDetailScreen.kt")
         val details = screen.substringAfter("fun ArticleDetails(", missingDelimiterValue = "")

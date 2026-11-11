@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.articleDetail
 
+import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.ArchiveType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -52,6 +53,19 @@ class ArticleDetailTabsTest {
             assertEquals(tab.archiveType!!.displayName, tab.label)
             assertEquals(tab.archiveType!!.icon, tab.icon)
         }
+    }
+
+    @Test
+    fun `an archive ready on the server has a tab before it lands, one still being made has none`() {
+        val remote = mapOf(
+            "readability" to ArchiveStatus("success", "gs://x/readability"),
+            "markdown" to ArchiveStatus("success", "gs://x/markdown"),
+            "monolith" to ArchiveStatus("processing", null),
+            "singlefile" to ArchiveStatus("success", null),
+        )
+        val keys = tabArchiveKeys(localKeys = listOf("markdown"), remote = remote)
+        assertEquals(listOf("markdown", "readability"), keys)
+        assertEquals(listOf("Reader", "Web", "Readability", "Markdown"), labels(keys))
     }
 
     @Test
