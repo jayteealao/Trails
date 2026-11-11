@@ -194,7 +194,7 @@ class ArticleDetailViewModel @Inject constructor(
             _isLoading.value = true
             try {
                 // Rank the local text archives first, so the one read below gets the best text.
-                offerBestText(itemId, localArchiveDao.getArchivesForArticle(itemId))
+                _localText.value = offerBestText(itemId, localArchiveDao.getArchivesForArticle(itemId))
                 publishArticle(itemId)
 
                 // Start archive observation
@@ -287,7 +287,7 @@ class ArticleDetailViewModel @Inject constructor(
                     // A better source changes the stored text; the text on screen stays
                     // until the next open, unless there was none. The text is read before the
                     // new archives show, so the Reader never shows a notice for text it has.
-                    offerBestText(itemId, archives)
+                    _localText.value = offerBestText(itemId, archives)
                     if (_article.value?.text.isNullOrBlank()) {
                         publishArticle(itemId)
                     }
@@ -338,9 +338,9 @@ class ArticleDetailViewModel @Inject constructor(
     /**
      * Offers the best-ranked text archive of [archives] that has words as the stored text, per
      * [TextSourceRank]. A blank or unreadable archive gives way to the next one down. Returns
-     * whether the stored text changed.
+     * what the read found; the caller puts it in the notice state.
      */
-    private suspend fun offerBestText(itemId: String, archives: List<LocalArchive>): Boolean {
+    private suspend fun offerBestText(itemId: String, archives: List<LocalArchive>): LocalText {
         val keys = archives.map { it.archiveKey }
         val ranked = TextSourceRank.ORDER.filter { it in keys }
         var sawBlank = false
@@ -355,15 +355,14 @@ class ArticleDetailViewModel @Inject constructor(
                 sawBlank = true
                 continue
             }
-            _localText.value = LocalText.READABLE
-            return articleRepository.offerArticleText(itemId, text, key)
+            articleRepository.offerArticleText(itemId, text, key)
+            return LocalText.READABLE
         }
-        _localText.value = when {
+        return when {
             ranked.isEmpty() -> LocalText.NONE
             sawBlank -> LocalText.BLANK
             else -> LocalText.UNREADABLE
         }
-        return false
     }
 
     /** What the Reader body is decided from; see [readerBodyFor]. */
