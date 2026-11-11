@@ -112,6 +112,20 @@ function r2CredentialError(): MonolithServiceError {
   );
 }
 
+/**
+ * The sandbox container is not ready yet. Answered with 503 and retryable: the
+ * job fails at once instead of waiting here, and the workflow step's retry
+ * delay does the waiting before the next attempt.
+ */
+function containerUnavailableError(retryAfterMs: number): MonolithServiceError {
+  return new MonolithServiceError(
+    `Sandbox container not ready (retry after ${retryAfterMs} ms)`,
+    'MONOLITH_CONTAINER_UNAVAILABLE',
+    503,
+    true
+  );
+}
+
 const SANDBOX_FAILURE_MESSAGES: Record<Exclude<SandboxFailureCode, 'MONOLITH_SANDBOX_500'>, string> = {
   MONOLITH_RPC_32MIB_LIMIT: 'Monolith sandbox payload exceeded RPC size limit',
   MONOLITH_TIMEOUT: 'Sandbox timed out while processing monolith output'
@@ -163,14 +177,15 @@ function validateBaseUrl(url: string): string {
  * a failed outcome (not thrown) so the caller can attempt the curl fallback.
  *
  * `retryAfterMs` is set when the failure was a ContainerUnavailableError — the
- * SDK-signalled backoff hint before the container will be ready for a retry.
+ * SDK-signalled hint before the container will be ready. The job then fails
+ * retryable; it does not wait.
  */
 interface ExecOutcome {
   success: boolean;
   exitCode: number;
   stdout: string;
   stderr: string;
-  /** Set when the exec threw ContainerUnavailableError; caller should wait this long before retrying. */
+  /** Set when the exec threw ContainerUnavailableError; the job fails retryable and does not wait. */
   retryAfterMs?: number;
 }
 
@@ -243,17 +258,14 @@ export async function runMonolithInSandbox(
       `${cleanOut}; ${buildMonolithUrlCommand(documentUrl, normalizedBaseUrl)}`
     );
 
+    // A container that is not ready fails the job retryable; the curl fallback
+    // would hit the same container. execInSandbox has logged the hint.
+    if (result.retryAfterMs !== undefined) {
+      throw containerUnavailableError(result.retryAfterMs);
+    }
+
     // Fallback: curl the URL into a local file, then monolith reads the file.
     if (!result.success) {
-      // If the container signalled it isn't ready yet, honour its backoff hint
-      // before burning the retry budget against an unavailable container.
-      const retryAfterMs = result.retryAfterMs;
-      if (retryAfterMs !== undefined) {
-        console.warn('[monolith] Container unavailable; waiting before curl fallback', {
-          retryAfterMs
-        });
-        await new Promise<void>(resolve => setTimeout(resolve, Math.min(retryAfterMs, 5000)));
-      }
       console.warn('[monolith] URL-fetch path failed, trying curl-to-file fallback', {
         exitCode: result.exitCode,
         stderr: result.stderr.slice(0, 500)
