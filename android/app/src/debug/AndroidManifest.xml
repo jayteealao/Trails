@@ -31,7 +31,9 @@
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_ARRIVE
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_EMPTY
-             with the string extra itemId, for example text-first-a1 (an XML comment cannot hold a double hyphen). -->
+             with the string extra itemId, for example text-first-a1 (an XML comment cannot hold a double hyphen).
+             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES
+             stores an article with every local archive, so the detail screen shows every tab. -->
         <receiver
             android:name="com.jayteealao.trails.debug.ReaderFixtureReceiver"
             android:exported="true">
@@ -39,6 +41,7 @@
                 <action android:name="com.jayteealao.trails.debug.READER_SEED" />
                 <action android:name="com.jayteealao.trails.debug.READER_ARRIVE" />
                 <action android:name="com.jayteealao.trails.debug.READER_SEED_EMPTY" />
+                <action android:name="com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES" />
             </intent-filter>
         </receiver>
 
