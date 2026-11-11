@@ -306,9 +306,10 @@ class ArchiveService @Inject constructor(
 
     /**
      * Start a download for each archive of [itemId] that is ready on the server and
-     * not on disk. Each archive downloads and is stored on its own, text archives
-     * first; the call does not wait for any download, so a large archive never holds
-     * back the text. Watch the running and failed downloads with [observeDownloads].
+     * not on disk. Each archive downloads and is stored on its own: every text archive
+     * at once, then the heavy ones once the text downloads have ended; the call does
+     * not wait for any download, so a large archive never holds back the text. Watch
+     * the running and failed downloads with [observeDownloads].
      */
     suspend fun syncArchives(
         itemId: String,
@@ -339,7 +340,12 @@ class ArchiveService @Inject constructor(
 
             type
         }.sortedByDescending { it.providesText }.forEach { type ->
-            downloads.start(itemId, type) { downloadAndStoreArchive(itemId, type) }
+            downloads.start(itemId, type) {
+                val start = System.nanoTime()
+                downloadAndStoreArchive(itemId, type).also {
+                    Timber.d("syncArchives($itemId) — ${type.archiveKey} ${if (it != null) "stored" else "failed"} after ${(System.nanoTime() - start) / 1_000_000} ms")
+                }
+            }
         }
     }
 
@@ -568,14 +574,21 @@ class ArchiveService @Inject constructor(
             ?: remoteConfig.getString(ARCHIVE_SIGNED_URL_BASE_KEY).ifBlank { DEFAULT_DASHBOARD_API_URL }
         val endpoint = "$base/app/signed-url"
 
+        val linkStart = System.nanoTime()
         val signedUrl = try {
             archiveUrlService.getSignedUrl(endpoint, "Bearer $token", itemId, archiveKey).url
         } catch (e: Exception) {
             Timber.w(e, "downloadArchive($itemId, $archiveKey) — signed-URL request failed")
             return null
         }
-
-        return withContext(ioDispatcher) { fetchObjectBytes(signedUrl) }
+        val fetchStart = System.nanoTime()
+        val bytes = withContext(ioDispatcher) { fetchObjectBytes(signedUrl) }
+        // Where the time of one archive goes: the signed link, then the object itself.
+        Timber.d(
+            "downloadArchive($itemId, $archiveKey) — link ${(fetchStart - linkStart) / 1_000_000} ms, " +
+                "fetch ${(System.nanoTime() - fetchStart) / 1_000_000} ms, ${bytes?.size ?: 0} bytes",
+        )
+        return bytes
     }
 
     /**

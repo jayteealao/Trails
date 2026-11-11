@@ -12,6 +12,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -184,6 +185,48 @@ class ArchiveServiceSyncTest {
         assertNotNull(dao.getArchive("item1", "readability"))
         assertNotNull(dao.getArchive("item1", "markdown"))
         assertEquals(2, dao.getArchivesForArticle("item1").size)
+    }
+
+    @Test
+    fun `every text archive of an article downloads at once`() = runTest {
+        val service = service()
+        val gate = CompletableDeferred<Unit>()
+        listOf("readability", "ai_markdown", "markdown").forEach { key ->
+            coEvery { service.downloadArchive("item1", key) } coAnswers { gate.await(); text }
+        }
+
+        service.syncArchives("item1", ready("readability", "ai_markdown", "markdown"))
+        advanceUntilIdle()
+
+        // All three are fetching together; none waits for a permit behind another.
+        listOf("readability", "ai_markdown", "markdown").forEach { key ->
+            coVerify(exactly = 1) { service.downloadArchive("item1", key) }
+        }
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(3, dao.getArchivesForArticle("item1").size)
+    }
+
+    @Test
+    fun `a heavy archive starts once the text downloads of its article have ended`() = runTest {
+        val service = service()
+        val gate = CompletableDeferred<Unit>()
+        coEvery { service.downloadArchive("item1", "readability") } coAnswers { gate.await(); text }
+        coEvery { service.downloadArchive("item1", "singlefile") } returns "<html></html>".toByteArray()
+
+        service.syncArchives("item1", ready("singlefile", "readability"))
+        advanceUntilIdle()
+
+        // The heavy archive waits, shown as downloading, while the text has the connection.
+        coVerify(exactly = 0) { service.downloadArchive("item1", "singlefile") }
+        assertEquals(ArchiveDownload.DOWNLOADING, service.observeDownloads("item1").first()["singlefile"])
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { service.downloadArchive("item1", "singlefile") }
+        assertNotNull(dao.getArchive("item1", "readability"))
+        assertNotNull(dao.getArchive("item1", "singlefile"))
     }
 
     @Test

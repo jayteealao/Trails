@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -12,17 +13,24 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import timber.log.Timber
 
+/** The number of archive kinds that carry text. */
+private val TEXT_KINDS = ArchiveType.entries.count { it.providesText }
+
 /** State of an archive download on this device; a stored archive has none. */
 enum class ArchiveDownload { DOWNLOADING, FAILED }
 
 /**
  * Runs the archive downloads of the app and keeps their state. Each archive downloads on its
  * own in [scope], so a text archive never waits for a heavy one: text archives and heavy
- * archives have their own permits.
+ * archives have their own permits, and a heavy archive of an article starts only once the text
+ * downloads of that article have ended, so the text has the connection to itself.
  */
 class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
-    /** Permits of the text archives, apart from the heavy ones: a text download never waits for a heavy one. */
-    private val textPermits = Semaphore(2)
+    /**
+     * Permits of the text archives, apart from the heavy ones: a text download never waits for a
+     * heavy one, and every text kind of an article downloads at once.
+     */
+    private val textPermits = Semaphore(TEXT_KINDS)
 
     /** Permits of the heavy archives; the cap bounds peak memory from parallel decompress. */
     private val heavyPermits = Semaphore(3)
@@ -53,6 +61,7 @@ class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
         val permits = if (type.providesText) textPermits else heavyPermits
         scope.launch {
             val stored = try {
+                if (!type.providesText) awaitTextDownloads(itemId)
                 permits.withPermit { download() }
             } catch (e: CancellationException) {
                 throw e
@@ -62,6 +71,15 @@ class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
             }
             set(itemId, key, if (stored == null) ArchiveDownload.FAILED else null)
         }.invokeOnCompletion { cause -> if (cause != null) set(itemId, key, null) }
+    }
+
+    /** Suspends until no text archive of [itemId] is downloading. */
+    private suspend fun awaitTextDownloads(itemId: String) {
+        downloads.first { all ->
+            all[itemId].orEmpty().none { (key, state) ->
+                state == ArchiveDownload.DOWNLOADING && ArchiveType.fromArchiveKey(key)?.providesText == true
+            }
+        }
     }
 
     private fun set(itemId: String, key: String, state: ArchiveDownload?) {
