@@ -163,6 +163,20 @@ for (const [name, body] of BAD_UPLOAD_BODIES) {
   });
 }
 
+for (const id of ['../other', 'a/b', 'x'.repeat(41), 7]) {
+  test(`create-upload with the request_id ${JSON.stringify(id)} answers 400 and touches nothing`, async () => {
+    const out = await send(gatewayRequest({ path: '/create-upload', key: KEY, body: uploadBody({ request_id: id }) }));
+    assert.deepEqual(out, { status: 400, body: { error: 'Invalid request_id' } });
+    assertNothingTouched();
+  });
+
+  test(`finalize with the firestore_doc_id ${JSON.stringify(id)} answers 400 and touches nothing`, async () => {
+    const out = await send(gatewayRequest({ path: '/finalize', key: KEY, body: finalizeBody({ firestore_doc_id: id }) }));
+    assert.deepEqual(out, { status: 400, body: { error: 'Invalid request_id or firestore_doc_id' } });
+    assertNothingTouched();
+  });
+}
+
 const TS = `<ts:${NOW}>`;
 const ISO = new Date(NOW).toISOString();
 const EXPIRES = new Date(NOW + 15 * 60_000);
