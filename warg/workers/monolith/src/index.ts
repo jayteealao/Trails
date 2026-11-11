@@ -1,7 +1,6 @@
 import { getSandbox, Sandbox as BaseSandbox, ContainerUnavailableError } from '@cloudflare/sandbox';
 import {
   classifySandboxOutput,
-  isR2CredentialRejection,
   readInternalJsonRequest,
   storeArtifact,
   type ArtifactMeta,
@@ -14,7 +13,6 @@ import {
   buildMonolithUrlCommand,
   buildUploadAndHashCommand,
   parseUploadOutput,
-  redactSignedUrlParams,
   SANDBOX_OUTPUT_PATH
 } from './monolith-command.js';
 import { handleR2Outbound, monolithKeys, R2_HANDLER_HOST, r2HandlerUrl } from './r2-outbound.js';
@@ -100,19 +98,6 @@ function normalizeSandboxId(requestId: string): string {
 }
 
 /**
- * R2 refused the worker's storage key. Answered with 502, not 401/403, which
- * would read as a blocked target page; not retryable, as a retry cannot fix a key.
- */
-function r2CredentialError(): MonolithServiceError {
-  return new MonolithServiceError(
-    'R2 rejected the storage credential of the presigned URL (HTTP 403)',
-    'R2_CREDENTIAL_INVALID',
-    502,
-    false
-  );
-}
-
-/**
  * The sandbox container is not ready yet. Answered with 503 and retryable: the
  * job fails at once instead of waiting here, and the workflow step's retry
  * delay does the waiting before the next attempt.
@@ -132,8 +117,6 @@ const SANDBOX_FAILURE_MESSAGES: Record<Exclude<SandboxFailureCode, 'MONOLITH_SAN
 };
 
 function classifySandboxFailure(stderr: string, stdout: string): MonolithServiceError {
-  if (isR2CredentialRejection(`${stderr}\n${stdout}`)) return r2CredentialError();
-
   const { errorCode, retryable } = classifySandboxOutput(stderr, stdout);
   const message =
     errorCode === 'MONOLITH_SANDBOX_500'
@@ -197,11 +180,11 @@ async function execInSandbox(sandbox: SandboxHandle, command: string): Promise<E
     return {
       success: result.success,
       exitCode: result.exitCode,
-      stdout: redactSignedUrlParams(result.stdout),
-      stderr: redactSignedUrlParams(result.stderr)
+      stdout: result.stdout,
+      stderr: result.stderr
     };
   } catch (error) {
-    const message = redactSignedUrlParams(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
     const retryAfterMs = error instanceof ContainerUnavailableError ? error.retryAfterMs : undefined;
     if (retryAfterMs !== undefined) {
       console.warn('[monolith] ContainerUnavailableError: container not ready', { retryAfterMs, message });
@@ -281,7 +264,6 @@ export async function runMonolithInSandbox(
           exitCode: curl.exitCode,
           stderr: curl.stderr.slice(0, 500)
         });
-        if (isR2CredentialRejection(curl.stderr)) throw r2CredentialError();
       }
     }
 
