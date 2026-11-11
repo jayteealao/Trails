@@ -552,6 +552,31 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
     // storage, and the article's archive list, before them.
     if (renderPersistReason) await persistStepArtifacts('render', renderPersistReason);
 
+    // Monolith needs only the rendered page. Its call starts here, after the
+    // text is persisted, and runs beside SingleFile; its result is recorded and
+    // persisted at step 9. Nothing here saves the checkpoint: SingleFile's
+    // saves carry the start.
+    const monolithMode = resolveStepMode(checkpoint, 'monolith', {
+      requested: wantMonolith,
+      resumeEnabled,
+      requiredKinds: [...STEP_REQUIRED_ARTIFACTS.monolith]
+    });
+    const renderedArtifact = getArtifact(checkpoint, 'rendered.html');
+    const sizeGateError = this.monolithSizeGateError(renderedArtifact?.bytes);
+    let monolithRun:
+      | Promise<
+          | { ok: true; value: Awaited<ReturnType<ArchiveWorkflow['runMonolithOnly']>> }
+          | { ok: false; error: unknown }
+        >
+      | undefined;
+    if (monolithMode === 'run' && renderedHtmlKey && !sizeGateError) {
+      markCheckpointStepStarted(checkpoint, 'monolith', { resumed: resumeEnabled });
+      monolithRun = this.runMonolithOnly(step, request_id, renderedHtmlKey, url).then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error })
+      );
+    }
+
     // Step 8: Singlefile (run/persist-only/skip)
     const singlefileMode = resolveStepMode(checkpoint, 'singlefile', {
       requested: shouldRun('singlefile'),
@@ -593,14 +618,8 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
       markRequestedStepSucceeded('singlefile');
     }
 
-    // Step 9: Monolith (run/persist-only/skip), behind the rendered HTML size gate
-    const monolithMode = resolveStepMode(checkpoint, 'monolith', {
-      requested: wantMonolith,
-      resumeEnabled,
-      requiredKinds: [...STEP_REQUIRED_ARTIFACTS.monolith]
-    });
-    const renderedArtifact = getArtifact(checkpoint, 'rendered.html');
-    const sizeGateError = this.monolithSizeGateError(renderedArtifact?.bytes);
+    // Step 9: Monolith (run/persist-only/skip), behind the rendered HTML size gate;
+    // a run started before the text steps is awaited here.
 
     if (wantMonolith && monolithMode === 'skip') {
       markRequestedStepSucceeded('monolith');
@@ -617,12 +636,13 @@ export class ArchiveWorkflow extends WorkflowEntrypoint<Env, WorkflowParams> {
         maxAllowedBytes: ArchiveWorkflow.MONOLITH_MAX_RENDERED_HTML_BYTES,
       });
       recordPartialFailure('monolith', sizeGateError.message);
-    } else if (monolithMode === 'run') {
+    } else if (monolithMode === 'run' && monolithRun) {
       try {
-        markCheckpointStepStarted(checkpoint, 'monolith', { resumed: resumeEnabled });
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
 
-        const { monolith } = await this.runMonolithOnly(step, request_id, renderedHtmlKey, url);
+        const settled = await monolithRun;
+        if (!settled.ok) throw settled.error;
+        const { monolith } = settled.value;
         recordArtifacts(checkpoint, 'monolith', monolith ? [monolith] : []);
         await saveCheckpoint(this.env.ARCHIVE_BUCKET, checkpoint);
         markRequestedStepSucceeded('monolith');
