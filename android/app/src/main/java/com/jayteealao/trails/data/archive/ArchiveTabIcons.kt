@@ -69,7 +69,7 @@ object ArchiveTabIcons {
         )
     }
 
-    private fun outlineIcon(name: String, vararg paths: String): ImageVector =
+    internal fun outlineIcon(name: String, vararg paths: String): ImageVector =
         paths.fold(ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)) { builder, path ->
             builder.outlinePath(path, strokeWidth = 2f)
         }.build()
