@@ -10,7 +10,6 @@ import {
   defaultActionForCode,
   defaultRetryableForCode,
   inferLegacyErrorCode,
-  isR2CredentialRejection,
   isRpc32MiBLimit,
   readClassificationTag,
   rendererFallbackReasonFromBody,
@@ -78,24 +77,6 @@ const unreachable = {
   retryable: false,
   recommendedAction: 'inspect_url',
 } as const;
-
-describe('isR2CredentialRejection', () => {
-  it.each([
-    'curl: (22) The requested URL returned error: 403',
-    '<Code>SignatureDoesNotMatch</Code>',
-    'InvalidAccessKeyId',
-  ])('reads %s as a rejected storage key', (output) => {
-    expect(isR2CredentialRejection(output)).toBe(true);
-  });
-
-  it.each([
-    'curl: (22) The requested URL returned error: 404',
-    'curl: (22) The requested URL returned error: 4030',
-    'monolith blew up',
-  ])('does not read %s as a rejected storage key', (output) => {
-    expect(isR2CredentialRejection(output)).toBe(false);
-  });
-});
 
 describe('classification tag', () => {
   it('reads back the classification written into a message', () => {

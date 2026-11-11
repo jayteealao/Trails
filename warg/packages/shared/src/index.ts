@@ -77,7 +77,6 @@ export {
   withClassificationTag,
   readClassificationTag,
   isRpc32MiBLimit,
-  isR2CredentialRejection,
   isMonolithInputTooLarge,
   classifySandboxOutput,
   classifyError,
