@@ -570,11 +570,11 @@ describe('LoggerDO', () => {
 
     it('records the fallback with its stealth setting and drops an unknown setting', async () => {
       const stub = getStub('bucket:2026060912');
-      const renderEvent = (fallbackStealth: string) => ({
+      const renderEvent = (fallbackStealth: string): LogEvent => ({
         ts: new Date().toISOString(),
         source: 'workflow',
-        type: 'step.completed' as const,
-        level: 'info' as const,
+        type: 'step.completed',
+        level: 'info',
         message: 'Step completed: render',
         data: {
           step: 'render',
