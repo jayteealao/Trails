@@ -33,7 +33,10 @@
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_EMPTY
              with the string extra itemId, for example text-first-a1 (an XML comment cannot hold a double hyphen).
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES
-             stores an article with every local archive, so the detail screen shows every tab. -->
+             stores an article with every local archive, so the detail screen shows every tab.
+             adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_WORST
+             stores the worst article for the reading column: a five-line title, a broken image,
+             a long unbroken URL and a body of over 20,000 words. -->
         <receiver
             android:name="com.jayteealao.trails.debug.ReaderFixtureReceiver"
             android:exported="true">
@@ -42,6 +45,7 @@
                 <action android:name="com.jayteealao.trails.debug.READER_ARRIVE" />
                 <action android:name="com.jayteealao.trails.debug.READER_SEED_EMPTY" />
                 <action android:name="com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES" />
+                <action android:name="com.jayteealao.trails.debug.READER_SEED_WORST" />
             </intent-filter>
         </receiver>
 
