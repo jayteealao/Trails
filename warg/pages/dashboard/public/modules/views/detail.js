@@ -224,6 +224,10 @@ function renderDetailView() {
               <span class="detail-meta-value">${escapeHtml(diagnosis.renderFallbackReason || '--')}</span>
             </div>
             <div class="detail-meta-item">
+              <span class="detail-meta-label">Fallback Stealth</span>
+              <span class="detail-meta-value">${escapeHtml(diagnosis.renderFallbackStealth || '--')}</span>
+            </div>
+            <div class="detail-meta-item">
               <span class="detail-meta-label">Degraded</span>
               <span class="detail-meta-value">${diagnosis.degraded === true ? 'Yes' : 'No'}</span>
             </div>
