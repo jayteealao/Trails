@@ -37,12 +37,12 @@ object ArchiveTabIcons {
         )
     }
 
-    /** A page marked with "M" and a down arrow: the AI Markdown archive. */
+    /**
+     * A page marked with "M" and a down arrow: the AI Markdown archive. The mark is in the same
+     * 2-unit stroke as every other tab icon, as the approved row draws it.
+     */
     val AiMarkdown: ImageVector by lazy {
-        ImageVector.Builder("AiMarkdown", 24.dp, 24.dp, 24f, 24f)
-            .outlinePath("M6 3h8l4 4v14H6z", strokeWidth = 2f)
-            .outlinePath("M9 16v-5l2 2.5 2-2.5v5M15.5 12v4m-1.5-1.5 1.5 1.5 1.5-1.5", strokeWidth = 1.6f)
-            .build()
+        outlineIcon("AiMarkdown", "M6 3h8l4 4v14H6z", "M9 16v-5l2 2.5 2-2.5v5M15.5 12v4m-1.5-1.5 1.5 1.5 1.5-1.5")
     }
 
     /** A hash sign: the renderer's Markdown archive. */
