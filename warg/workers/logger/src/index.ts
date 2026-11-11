@@ -28,7 +28,8 @@ import {
   type StatsCountRow,
   type StatsListRow,
 } from './stats-query.js';
-import { asString, asNumber, asBoolean, asRecord, asRenderStealth } from './value-helpers.js';
+import { asString, asNumber, asBoolean } from './value-helpers.js';
+import { applyRenderFallbackDiagnostics } from './render-fallback-diagnostics.js';
 
 export { LoggerDO };
 
@@ -169,29 +170,7 @@ function recomputeDiagnosticsFromEvents(events: LogEvent[]): RequestDiagnostics 
       }
     }
 
-    // A fallback render is recorded whether it answered (step.completed) or failed (step.failed).
-    if ((event.type === 'step.completed' || event.type === 'step.failed') && asString(data?.['step']) === 'render') {
-      const fallbackUsed = asBoolean(data?.['fallbackUsed']);
-      if (fallbackUsed !== undefined) diagnostics.renderFallbackUsed = fallbackUsed;
-      const fallbackReason = asString(data?.['fallbackReason']);
-      if (fallbackReason) diagnostics.renderFallbackReason = fallbackReason;
-      const fallbackStealth = asRenderStealth(data?.['fallbackStealth']);
-      if (fallbackStealth) diagnostics.renderFallbackStealth = fallbackStealth;
-
-      const meta = asRecord(data?.['meta']);
-      const provider = asString(data?.['fallbackProvider']) ?? asString(meta?.['provider']);
-      if (provider === 'hyperbrowser') {
-        diagnostics.renderProvider = 'hyperbrowser';
-      } else if (provider === 'browser-rendering' || provider === 'browser_rendering') {
-        diagnostics.renderProvider = 'browser-rendering';
-      } else if (provider) {
-        diagnostics.renderProvider = 'unknown';
-      } else if (fallbackUsed === false) {
-        diagnostics.renderProvider = 'browser-rendering';
-      } else if (fallbackUsed === true) {
-        diagnostics.renderProvider = 'hyperbrowser';
-      }
-    }
+    applyRenderFallbackDiagnostics(diagnostics, event);
 
     if (event.type === 'persist.completed') {
       const durationMs = asNumber(data?.['duration_ms']);
