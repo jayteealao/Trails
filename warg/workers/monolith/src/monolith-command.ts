@@ -71,15 +71,6 @@ export function buildUploadAndHashCommand(
   );
 }
 
-/**
- * Remove every SigV4 query value from sandbox output before it reaches a log or
- * an error message. curl and monolith can echo the presigned URL they were
- * given, and that URL grants access to the object for its TTL.
- */
-export function redactSignedUrlParams(text: string): string {
-  return text.replace(/(X-Amz-[A-Za-z0-9-]+=)[^\s&'"]*/gi, '$1[redacted]');
-}
-
 export interface UploadResult {
   sha256: string;
   bytes: number;

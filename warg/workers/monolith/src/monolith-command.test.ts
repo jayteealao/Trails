@@ -5,7 +5,6 @@ import {
   buildMonolithUrlCommand,
   buildUploadAndHashCommand,
   parseUploadOutput,
-  redactSignedUrlParams,
   shellQuote,
   SANDBOX_INPUT_PATH,
   SANDBOX_OUTPUT_PATH
@@ -25,7 +24,7 @@ describe('shellQuote', () => {
   });
 
   it('keeps URL query strings intact inside the quotes', () => {
-    const url = 'https://acct.r2.cloudflarestorage.com/b/k?X-Amz-Signature=abc&X-Amz-Expires=900';
+    const url = 'http://r2.monolith.internal/archives/req/raw/rendered.html?a=1&b=2';
     expect(shellQuote(url)).toBe(`'${url}'`);
   });
 });
@@ -70,27 +69,6 @@ describe('buildUploadAndHashCommand', () => {
     expect(cmd).toContain('sha256sum');
     expect(cmd).toContain('stat -c %s');
     expect(cmd).toContain('SHA256=%s');
-  });
-});
-
-describe('redactSignedUrlParams', () => {
-  it('removes every SigV4 value and keeps the host and the object key', () => {
-    const line =
-      "curl: (22) 'https://acct.r2.cloudflarestorage.com/b/k?X-Amz-Algorithm=AWS4-HMAC-SHA256" +
-      "&X-Amz-Credential=key-id%2F20261106%2Fauto%2Fs3%2Faws4_request&X-Amz-Signature=abc123' failed";
-    expect(redactSignedUrlParams(line)).toBe(
-      "curl: (22) 'https://acct.r2.cloudflarestorage.com/b/k?X-Amz-Algorithm=[redacted]" +
-        "&X-Amz-Credential=[redacted]&X-Amz-Signature=[redacted]' failed"
-    );
-  });
-
-  it('matches a lower-case parameter name', () => {
-    expect(redactSignedUrlParams('x-amz-signature=abc123')).toBe('x-amz-signature=[redacted]');
-  });
-
-  it('leaves the upload markers unchanged', () => {
-    const stdout = `SHA256=${'a'.repeat(64)}\nBYTES=10\n`;
-    expect(redactSignedUrlParams(stdout)).toBe(stdout);
   });
 });
 
