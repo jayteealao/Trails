@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -275,7 +277,8 @@ fun ReaderBodyView(body: ReaderBody, text: String, modifier: Modifier = Modifier
     when (body) {
         ReaderBody.Text -> ArticleMarkdown(text, modifier)
         ReaderBody.Loading -> ReaderSkeleton(modifier.fillMaxSize())
-        is ReaderBody.Notice -> Column(modifier.fillMaxSize()) {
+        // The notice scrolls, so a large font or a short window never hides its words.
+        is ReaderBody.Notice -> Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             ReaderNotice(body.kind)
         }
     }

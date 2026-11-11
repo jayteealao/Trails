@@ -330,6 +330,13 @@ private fun ReaderSkeletonDarkPreview() {
     ReaderBodyPreview(ReaderBody.Loading, darkTheme = true)
 }
 
+/** At twice the font size the notice scrolls rather than hiding its line. */
+@Preview(name = "Reader notice • failed • large font", showBackground = true, widthDp = 411, heightDp = 600, fontScale = 2f)
+@Composable
+private fun ReaderFailedLargeFontPreview() {
+    ReaderBodyPreview(ReaderBody.Notice(ReaderNoticeKind.FAILED))
+}
+
 /** On a tablet the notice stays centred in the 680 dp reading column. */
 @Preview(name = "Reader notice • waiting • tablet", showBackground = true, widthDp = 900, heightDp = 900)
 @Composable
