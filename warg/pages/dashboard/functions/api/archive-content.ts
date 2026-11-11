@@ -157,9 +157,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     const headers = new Headers();
     const contentType = inferContentType(archiveKey, upstream.headers.get('Content-Type'));
     headers.set('Content-Type', contentType);
-    if (!isPdfMediaType(contentType)) {
+    // Only the archive the dashboard asked for as a PDF goes unsandboxed; a stored
+    // header alone cannot lift the sandbox from another archive.
+    if (!(archiveKey === 'pdf' && isPdfMediaType(contentType))) {
       headers.set('Content-Security-Policy', ARCHIVE_SANDBOX_CSP);
     }
+    headers.set('X-Content-Type-Options', 'nosniff');
     headers.set('Cache-Control', 'no-store');
     headers.set('X-Archive-Source-Key', signed.archive_source_key ?? archiveKey);
 

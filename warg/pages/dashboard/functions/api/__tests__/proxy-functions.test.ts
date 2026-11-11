@@ -896,6 +896,16 @@ describe('archive-content proxy', () => {
       const response = await serveArchive('archiveKey=pdf', 'text/html');
       expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
     });
+
+    it('keeps the sandbox on another archive whose stored type says PDF', async () => {
+      const response = await serveArchive('archiveKey=rendered', 'application/pdf');
+      expect(response.headers.get('Content-Security-Policy')).toContain('sandbox');
+    });
+
+    it.each(['rendered', 'pdf', 'readability'])('tells the browser not to sniff the %s archive', async (archiveKey) => {
+      const response = await serveArchive(`archiveKey=${archiveKey}`, 'application/octet-stream');
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
   });
 });
 
