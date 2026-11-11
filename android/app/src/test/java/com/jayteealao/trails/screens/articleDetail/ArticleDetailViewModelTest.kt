@@ -527,4 +527,117 @@ class ArticleDetailViewModelTest {
         assertFalse(viewModel.state.value.archiveSyncing)
         collectJob.cancel()
     }
+
+    // ----- The archive tabs keep the fixed order by kind; the selection follows its archive -----
+
+    /**
+     * Opens [itemId] with Readability text stored and [initial] local archives, in that (database)
+     * order. Each archive reads as "<key> text". Returns the view model and the local archive flow.
+     */
+    private fun TestScope.openWithArchives(
+        itemId: String,
+        initial: List<ArchiveType>,
+    ): Pair<ArticleDetailViewModel, MutableSharedFlow<List<LocalArchive>>> {
+        storeArticle(itemId, "readability text", "readability")
+        ArchiveType.entries.forEach { type ->
+            coEvery { archiveService.readArchiveText(itemId, type) } returns "${type.archiveKey} text"
+        }
+        val archives = initial.map { localArchive(itemId, it) }
+        val localFlow = MutableSharedFlow<List<LocalArchive>>(replay = 1)
+        localFlow.tryEmit(archives)
+        coEvery { localArchiveDao.getArchivesForArticle(itemId) } returns archives
+        every { localArchiveDao.observeArchives(itemId) } returns localFlow
+
+        val viewModel = buildViewModel()
+        viewModel.state.onEach { }.launchIn(backgroundScope)
+        viewModel.getArticle(itemId)
+        advanceUntilIdle()
+        return viewModel to localFlow
+    }
+
+    private fun MutableSharedFlow<List<LocalArchive>>.arrive(itemId: String, vararg types: ArchiveType) {
+        val archives = types.map { localArchive(itemId, it) }
+        coEvery { localArchiveDao.getArchivesForArticle(itemId) } returns archives
+        tryEmit(archives)
+    }
+
+    @Test
+    fun archiveTabs_followTheFixedOrder_andTheAiMarkdownTabShowsItsText() = runTest(scheduler) {
+        val (viewModel, _) = openWithArchives(
+            "a15", listOf(ArchiveType.MARKDOWN, ArchiveType.READABILITY, ArchiveType.AI_MARKDOWN),
+        )
+
+        assertEquals(
+            listOf(ArchiveType.READABILITY, ArchiveType.AI_MARKDOWN, ArchiveType.MARKDOWN),
+            viewModel.getAvailableArchiveTypes(),
+        )
+
+        viewModel.setSelectedTab(3)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { archiveService.readArchiveText("a15", ArchiveType.AI_MARKDOWN) }
+        assertEquals("ai_markdown text", viewModel.state.value.selectedArchiveContent)
+    }
+
+    @Test
+    fun newArchiveBeforeTheSelectedOne_theSelectionStaysOnItsArchive() = runTest(scheduler) {
+        val (viewModel, localFlow) = openWithArchives("a16", listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN))
+        viewModel.setSelectedTab(3)
+        advanceUntilIdle()
+        assertEquals("markdown text", viewModel.state.value.selectedArchiveContent)
+
+        localFlow.arrive("a16", ArchiveType.READABILITY, ArchiveType.MARKDOWN, ArchiveType.AI_MARKDOWN)
+        advanceUntilIdle()
+
+        assertEquals(4, viewModel.state.value.selectedTabIndex)
+        assertEquals("markdown text", viewModel.state.value.selectedArchiveContent)
+    }
+
+    @Test
+    fun newArchiveArrives_theReaderAndWebTabsDoNotMove() = runTest(scheduler) {
+        listOf(READER_TAB_INDEX, WEB_TAB_INDEX).forEachIndexed { i, tab ->
+            val itemId = "a17-$i"
+            val (viewModel, localFlow) = openWithArchives(itemId, listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN))
+            viewModel.setSelectedTab(tab)
+            advanceUntilIdle()
+
+            localFlow.arrive(itemId, ArchiveType.READABILITY, ArchiveType.MARKDOWN, ArchiveType.AI_MARKDOWN)
+            advanceUntilIdle()
+
+            assertEquals(tab, viewModel.state.value.selectedTabIndex)
+        }
+    }
+
+    @Test
+    fun selectedArchiveLeavesTheList_theSelectionMovesToReader() = runTest(scheduler) {
+        val (viewModel, localFlow) = openWithArchives("a18", listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN))
+        viewModel.setSelectedTab(3)
+        advanceUntilIdle()
+
+        localFlow.arrive("a18", ArchiveType.READABILITY)
+        advanceUntilIdle()
+
+        assertEquals(READER_TAB_INDEX, viewModel.state.value.selectedTabIndex)
+        assertNull(viewModel.state.value.selectedArchiveContent)
+    }
+
+    @Test
+    fun aiMarkdownAndMarkdown_aiMarkdownIsOfferedFirst() = runTest(scheduler) {
+        storeArticle("a19", null, "")
+        val archives = listOf(localArchive("a19", ArchiveType.MARKDOWN), localArchive("a19", ArchiveType.AI_MARKDOWN))
+        coEvery { localArchiveDao.getArchivesForArticle("a19") } returns archives
+        every { localArchiveDao.observeArchives("a19") } returns flowOf(archives)
+        coEvery { archiveService.readArchiveText("a19", ArchiveType.AI_MARKDOWN) } returns "ai markdown text"
+        coEvery { archiveService.readArchiveText("a19", ArchiveType.MARKDOWN) } returns "markdown text"
+
+        val viewModel = buildViewModel()
+        viewModel.state.onEach { }.launchIn(backgroundScope)
+        viewModel.getArticle("a19")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { articleRepository.offerArticleText("a19", any(), "markdown") }
+        coVerify(atLeast = 1) { articleRepository.offerArticleText("a19", "ai markdown text", "ai_markdown") }
+        assertEquals("ai markdown text", viewModel.state.value.article?.text)
+        assertEquals("ai_markdown", viewModel.state.value.textSource)
+    }
 }
