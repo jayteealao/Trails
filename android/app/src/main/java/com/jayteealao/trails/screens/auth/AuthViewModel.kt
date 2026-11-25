@@ -1,10 +1,14 @@
 package com.jayteealao.trails.screens.auth
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.AuthCredential
+import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseUser
+import com.jayteealao.trails.common.NetworkMonitor
 import com.jayteealao.trails.data.AuthRepository
+import com.jayteealao.trails.data.account.GoogleSignIn
 import com.jayteealao.trails.data.account.LocalDataOwner
 import com.jayteealao.trails.data.account.OwnerDecision
 import com.jayteealao.trails.data.account.PushThenWipe
@@ -16,14 +20,18 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -32,6 +40,8 @@ class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val localDataOwner: LocalDataOwner,
     private val pushThenWipe: PushThenWipe,
+    private val googleSignIn: GoogleSignIn,
+    private val networkMonitor: NetworkMonitor,
 ) : ViewModel(), Store<AuthUiState, AuthEvent> {
 
     // Tartlet Store implementation - Event handling
@@ -133,17 +143,127 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Signs in with the Google account that the person picks. [activity] shows the picker and
+     * is not kept. A cancel in the picker shows what was there before.
+     */
+    fun signInWithGoogle(activity: Context) {
+        val before = _uiState.value
+        startAttempt { current ->
+            var email: String? = null
+            val user = try {
+                val account = googleSignIn.account(activity)
+                email = account.email
+                firebaseSignIn(current) { authRepository.signInWithGoogle(account.idToken) } ?: return@startAttempt
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Google sign-in failed")
+                _uiState.value = when (val message = googleSignInErrorOf(e, networkMonitor.isOnline.first())) {
+                    null -> before.takeIf { it.isRestful() } ?: AuthUiState.SignedOut
+                    ErrorMessage.GOOGLE_NO_ACCOUNT -> AuthUiState.NoGoogleAccount
+                    ErrorMessage.GOOGLE_FAILED -> AuthUiState.Error(message, account = email)
+                    else -> AuthUiState.Error(message)
+                }
+                return@startAttempt
+            }
+            handOver(user)
+        }
+    }
+
     fun signInAnonymously() {
-        viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading()
-            try {
-                val result = authRepository.signInAnonymously()
-                completeSignIn(result.user!!)
+        startAttempt { current ->
+            val user = try {
+                firebaseSignIn(current) { authRepository.signInAnonymously() } ?: return@startAttempt
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 signInFailed(e)
+                return@startAttempt
             }
+            handOver(user)
+        }
+    }
+
+    /**
+     * Stops a sign-in that can still be stopped: the picker closes and the screen is signed out
+     * at once. An account that Firebase still signs in for it is signed out again.
+     */
+    fun cancelSignIn() {
+        val current = attempt ?: return
+        val state = _uiState.value
+        if (state !is AuthUiState.Loading || !state.canCancel) return
+        current.cancelled = true
+        current.job?.cancel()
+        _uiState.value = AuthUiState.SignedOut
+    }
+
+    /** The phone's account settings closed: offer Google again. */
+    fun accountSettingsClosed() {
+        if (_uiState.value == AuthUiState.NoGoogleAccount) _uiState.value = AuthUiState.SignedOut
+    }
+
+    /** One sign-in at a time; [cancelled] marks one that the person stopped. */
+    private class Attempt {
+        var job: Job? = null
+        var cancelled = false
+    }
+
+    private var attempt: Attempt? = null
+
+    /**
+     * Runs [block] as the one sign-in. A call while another runs is ignored. A stopped attempt
+     * may still be waiting for Firebase, so the next one waits for it first: it cannot then
+     * sign out the newer account.
+     */
+    private fun startAttempt(block: suspend (Attempt) -> Unit) {
+        val previous = attempt
+        if (previous != null && !previous.cancelled) return
+        val current = Attempt()
+        attempt = current
+        _uiState.value = AuthUiState.Loading()
+        current.job = viewModelScope.launch {
+            try {
+                previous?.job?.join()
+                block(current)
+            } finally {
+                if (attempt === current) attempt = null
+            }
+        }
+    }
+
+    /**
+     * Runs the Firebase sign-in to its end even when the attempt is stopped, because stopping
+     * the wait does not stop Firebase. A stopped attempt signs its account out again and gives
+     * null; a failure of a stopped one says nothing. Otherwise the hand-over starts at once and
+     * can no longer be stopped.
+     */
+    private suspend fun firebaseSignIn(current: Attempt, call: suspend () -> AuthResult): FirebaseUser? =
+        withContext(NonCancellable) {
+            val user = try {
+                call().user ?: throw IllegalStateException("Firebase gave no user")
+            } catch (e: Exception) {
+                if (current.cancelled) return@withContext null
+                throw e
+            }
+            if (current.cancelled) {
+                authRepository.signOut()
+                null
+            } else {
+                _uiState.value = AuthUiState.Loading(canCancel = false)
+                user
+            }
+        }
+
+    /** Hands the library to [user]; a failure here signs nobody in. */
+    private suspend fun handOver(user: FirebaseUser) {
+        try {
+            completeSignIn(user)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "Sign-in hand-over failed")
+            _uiState.value = AuthUiState.Error(ErrorMessage.SIGN_IN_FAILED)
         }
     }
 
@@ -175,6 +295,10 @@ class AuthViewModel @Inject constructor(
         }
     }
 }
+
+/** A state with no sign-in running, which a cancelled picker goes back to. */
+private fun AuthUiState.isRestful(): Boolean =
+    this == AuthUiState.SignedOut || this == AuthUiState.NoGoogleAccount || this is AuthUiState.Error
 
 sealed interface AuthUiState {
     /** A sign-in runs; [canCancel] is false once the library is being handed over. */

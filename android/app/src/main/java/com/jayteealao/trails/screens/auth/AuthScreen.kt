@@ -57,6 +57,8 @@ import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.GoogleAuthProvider
 import com.jayteealao.trails.R
 import com.jayteealao.trails.screens.components.ErrorMessage
+import com.jayteealao.trails.screens.components.findActivity
+import com.jayteealao.trails.screens.components.rememberAddGoogleAccount
 import com.jayteealao.trails.screens.settings.UnsyncedChangesDialog
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.Danger
@@ -73,117 +75,27 @@ fun AuthScreen(
 ) {
     val context = LocalContext.current
     val unsyncedChangesDialog by authViewModel.unsyncedChangesDialog.collectAsState()
+    val addGoogleAccount = rememberAddGoogleAccount(
+        onClosed = { viewStore.action { accountSettingsClosed() } },
+    )
+    val state = viewStore.state
 
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                // Throws when Google did not sign the person in.
-                val account = task.getResult(ApiException::class.java)
-                val credential = GoogleAuthProvider.getCredential(account.idToken, null)
-                viewStore.action { signInWithCredential(credential) }
-            } catch (e: Exception) {
-                viewStore.action { signInFailed(e) }
-            }
-        }
+    if (state is AuthUiState.SignedIn) {
+        LaunchedEffect(state) { onLoginSuccess() }
     }
 
-    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-        .requestIdToken(context.getString(R.string.default_web_client_id))
-        .requestEmail()
-        .build()
-
-    val googleSignInClient = GoogleSignIn.getClient(context, gso)
-
-    // Render different UI based on state with animations
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        AnimatedContent(
-            targetState = viewStore.state,
-            transitionSpec = {
-                fadeIn(animationSpec = tween(300)) togetherWith
-                        fadeOut(animationSpec = tween(300))
-            },
-            label = "auth_state_animation"
-        ) { state ->
-            when (state) {
-                AuthUiState.SignedOut, AuthUiState.NoGoogleAccount -> {
-                    SignedOutContent(
-                        onGoogleSignInClick = {
-                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                        },
-                        onGuestSignInClick = {
-                            viewStore.action { signInAnonymously() }
-                        },
-                        onSkipLoginClick = {
-                            // Skip authentication entirely - just navigate to app
-                            onLoginSuccess()
-                        }
-                    )
-                }
-                is AuthUiState.SignedIn -> {
-                    // Use LaunchedEffect to handle navigation as a side effect
-                    // Key on the actual state change to prevent re-triggering on recomposition
-                    LaunchedEffect(state) {
-                        onLoginSuccess()
-                    }
-                    // Show a brief success state
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-                is AuthUiState.Loading -> {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                            contentDescription = "Trails Logo",
-                            modifier = Modifier.size(120.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-
-                        Text(
-                            text = "Trails",
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(48.dp),
-                            strokeWidth = 4.dp
-                        )
-
-                        Text(
-                            text = "Signing you in...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                is AuthUiState.Error -> {
-                    AuthErrorContent(
-                        message = state.message,
-                        onRetryGoogle = {
-                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                        },
-                        onContinueAsGuest = { viewStore.action { signInAnonymously() } },
-                    )
-                }
-            }
-        }
-    }
+    SignInPanel(
+        state = state,
+        onGoogle = {
+            context.findActivity()?.let { activity -> viewStore.action { signInWithGoogle(activity) } }
+        },
+        onGuest = { viewStore.action { signInAnonymously() } },
+        // Skip opens what is on this phone with no account.
+        onSkip = onLoginSuccess,
+        onCancel = { viewStore.action { cancelSignIn() } },
+        onAddAccount = addGoogleAccount,
+        modifier = modifier,
+    )
 
     // Shown while another account's library is cleared, before this sign-in completes.
     UnsyncedChangesDialog(

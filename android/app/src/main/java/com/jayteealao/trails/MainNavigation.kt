@@ -116,7 +116,9 @@ fun MainNavigation(
                 AuthScreen(
                     onLoginSuccess = {
                         appBackStack.login()
-                    }
+                    },
+                    // The activity's own view model: its state picks the first route.
+                    authViewModel = authViewModel,
                 )
             }
             entry<Screen.ArticleList>(
