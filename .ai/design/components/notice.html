@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="notice">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="tone=quiet|error">
+<meta name="wf:states" content="default">
+<title>Notice (empty, waiting, error)</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="tone=quiet state=default"><div class="notice" data-component="notice" data-variant="tone=quiet" role="status"><svg class="notice__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1zM12 6v14" fill="none" stroke="currentColor" stroke-width="2"/></svg><h2 class="notice__title">Nothing saved yet</h2><p class="notice__text">Share a link from any app to save it here.</p></div></div>
+<div data-spec="tone=error state=default"><div class="notice" data-component="notice" data-variant="tone=error" role="status"><svg class="notice__icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-280q17 0 28.500-11.500T520-320q0-17-11.500-28.500T480-360q-17 0-28.500 11.500T440-320q0 17 11.500 28.500T480-280Zm-40-160h80v-240h-80v240ZM480-80q-83 0-156-31.500T197-197q-54-54-85.500-127T80-480q0-83 31.500-156T197-763q54-54 127-85.500T480-880q83 0 156 31.500T763-763q54 54 85.500 127T880-480q0 83-31.500 156T763-197q-54 54-127 85.500T480-80Z"/></svg><h2 class="notice__title">The list did not load</h2><p class="notice__text">Check the connection, then try again.</p></div></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

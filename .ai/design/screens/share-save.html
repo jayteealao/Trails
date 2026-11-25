@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:screen" content="share-save">
+<title>Save from the share sheet</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  /* Placement only: arrange with the l-* primitives of layout.css and the components; every value is a token. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  body [data-state] { display: none; }
+  html[data-state="default"] [data-state~="default"], html[data-state="empty"] [data-state~="empty"],
+  html[data-state="loading"] [data-state~="loading"], html[data-state="error"] [data-state~="error"],
+  html[data-state="worst"] [data-state~="worst"] { display: block; }
+</style>
+<!-- The only script of the page: the canvas then draws the page with no frame. A control that opens, closes or switches a part changes a class, a data value or a state attribute in an inline handler: onclick="this.closest('.shell').classList.toggle('open')". -->
+<script>
+  // The canvas and the checks open a state with ?state=<name>.
+  document.documentElement.dataset.state = new URLSearchParams(location.search).get('state') || 'default';
+</script>
+</head>
+<body>
+<section data-state="default"><div class="overlay" data-component="overlay" data-variant="place=bottom"><a class="overlay__scrim" href="#" aria-label="Close"></a><div class="save-sheet" data-component="save-sheet" data-variant="tone=saved" role="dialog" aria-label="Save to Trails"><p class="save-sheet__state" role="status"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg><span>Saved</span></p><h2 class="save-sheet__title">Counting the street trees of a small city</h2><p class="save-sheet__host">example.org</p><div class="save-sheet__actions"><a class="button" data-component="button" data-variant="tone=text" href="share-save.html?state=loading" role="button">Undo</a></div></div></div></section>
+<section data-state="empty"><div class="overlay" data-component="overlay" data-variant="place=bottom"><a class="overlay__scrim" href="#" aria-label="Close"></a><div class="save-sheet" data-component="save-sheet" data-variant="tone=failed" role="dialog" aria-label="Save to Trails"><p class="save-sheet__state" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M12 7v6M12 16.5v.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>No link to save</span></p><h2 class="save-sheet__title">The shared text has no web address</h2><p class="save-sheet__host">Share a page or a link that starts with http.</p><div class="save-sheet__actions"><a class="button" data-component="button" data-variant="tone=text" href="#" role="button">Close</a></div></div></div></section>
+<section data-state="loading"><div class="overlay" data-component="overlay" data-variant="place=bottom"><a class="overlay__scrim" href="#" aria-label="Close"></a><div class="save-sheet" data-component="save-sheet" data-variant="tone=saving" role="dialog" aria-label="Save to Trails"><p class="save-sheet__state" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Saving…</span></p><h2 class="save-sheet__title">Counting the street trees of a small city</h2><p class="save-sheet__host">example.org</p><div class="save-sheet__actions"><a class="button" data-component="button" data-variant="tone=text" href="#" role="button">Close</a></div></div></div></section>
+<section data-state="error"><div class="overlay" data-component="overlay" data-variant="place=bottom"><a class="overlay__scrim" href="#" aria-label="Close"></a><div class="save-sheet" data-component="save-sheet" data-variant="tone=failed" role="dialog" aria-label="Save to Trails"><p class="save-sheet__state" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M12 7v6M12 16.5v.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Not saved</span></p><h2 class="save-sheet__title">Counting the street trees of a small city</h2><p class="save-sheet__host">This phone could not store the article. Try again.</p><div class="save-sheet__actions"><a class="button" data-component="button" data-variant="tone=text" href="#" role="button">Close</a><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button">Try again</a></div></div></div></section>
+<section data-state="worst"><div class="overlay" data-component="overlay" data-variant="place=bottom"><a class="overlay__scrim" href="#" aria-label="Close"></a><div class="save-sheet" data-component="save-sheet" data-variant="tone=saved" role="dialog" aria-label="Save to Trails"><p class="save-sheet__state" role="status"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg><span>Already in your library</span></p><h2 class="save-sheet__title">Benachrichtigungseinstellungen and other compound words: how Aleksandra Wiśniewska-Kowalczyk rebuilt a forty-year-old newsletter in one very long summer</h2><p class="save-sheet__host">reading-room.archive.the-longest-subdomain-in-the-list.example.org</p><div class="save-sheet__actions"><a class="button" data-component="button" data-variant="tone=text" href="#" role="button">Close</a></div></div></div></section>
+</body>
+</html>

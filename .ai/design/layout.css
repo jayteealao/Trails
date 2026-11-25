@@ -1,0 +1,23 @@
+/* The layout primitives of the surface, from the space tokens of DESIGN.md. wf.mjs design tokens writes this file; do not edit it. */
+.l-stack { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.l-row { display: flex; flex-direction: row; align-items: center; gap: var(--space-2); min-width: 0; }
+.l-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.l-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--l-min, 16rem), 100%), 1fr)); gap: var(--space-2); }
+.l-split { display: flex; gap: var(--space-2); min-width: 0; min-height: 0; }
+.l-split > * { min-width: 0; }
+.l-fill { flex: 1 1 0; min-width: 0; min-height: 0; }
+.l-scroll { overflow: auto; min-height: 0; overscroll-behavior: contain; }
+.l-center { display: grid; place-items: center; }
+.l-push { margin-inline-start: auto; }
+.l-layer { position: relative; }
+.l-layer > .l-over { position: absolute; inset: 0; }
+.l-start { align-items: flex-start; } .l-end { align-items: flex-end; } .l-between { justify-content: space-between; }
+[data-gap="0"] { gap: 0; } [data-pad="0"] { padding: 0; }
+[data-gap="1"] { gap: var(--space-1); } [data-pad="1"] { padding: var(--space-1); }
+[data-gap="2"] { gap: var(--space-2); } [data-pad="2"] { padding: var(--space-2); }
+[data-gap="3"] { gap: var(--space-3); } [data-pad="3"] { padding: var(--space-3); }
+[data-gap="4"] { gap: var(--space-4); } [data-pad="4"] { padding: var(--space-4); }
+[data-gap="5"] { gap: var(--space-5); } [data-pad="5"] { padding: var(--space-5); }
+[data-gap="6"] { gap: var(--space-6); } [data-pad="6"] { padding: var(--space-6); }
+[data-gap="7"] { gap: var(--space-7); } [data-pad="7"] { padding: var(--space-7); }
+[data-gap="8"] { gap: var(--space-8); } [data-pad="8"] { padding: var(--space-8); }

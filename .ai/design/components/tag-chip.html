@@ -1,8 +1,62 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="wf:component" content="tag-chip"><title>Tag chip (applied, suggested, available, auto)</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../components.css"><style>body{padding:16px}section{margin-bottom:24px}h2{margin:0 0 8px;font-size:16px;font-weight:600}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.note{font-size:13px;color:var(--text-secondary);margin:4px 0 0}</style><script>if(new URLSearchParams(location.search).get("theme")==="dark")document.documentElement.dataset.theme="dark"</script></head><body>
-<section><h2>Applied (list)</h2><div class="row"><a href="#" class="tag-chip tag-chip--applied" data-component="tag-chip"><span class="tag-chip__label">algorithms</span></a><a href="#" class="tag-chip tag-chip--applied" data-component="tag-chip"><span class="tag-chip__label">database</span></a></div><p class="note">Manual and auto-added look identical on the list (D-020).</p></section>
-<section><h2>Suggested (existing tag at 0.5–0.7, or a new tag at ≥0.9)</h2><div class="row"><a href="#" class="tag-chip tag-chip--suggested" data-component="tag-chip" aria-label="Suggested tag: zig. Tap to approve or dismiss"><span class="tag-chip__label">zig</span></a><a href="#" class="tag-chip tag-chip--suggested" data-component="tag-chip" aria-label="Suggested tag: performance. Tap to approve or dismiss"><span class="tag-chip__label">performance</span></a></div></section>
-<section><h2>Selected (sheet), manual and auto</h2><div class="row"><a href="#" class="tag-chip tag-chip--selected" data-component="tag-chip"><span class="tag-chip__label">database</span></a><a href="#" class="tag-chip tag-chip--selected" data-component="tag-chip" aria-label="algorithms, added automatically"><span class="tag-chip__label">algorithms</span><span class="tag-chip__auto" title="Added automatically"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-80q0-83-31.5-156T363-363q-54-54-127-85.5T80-480q83 0 156-31.5T363-597q54-54 85.5-127T480-880q0 83 31.5 156T597-597q54 54 127 85.5T880-480q-83 0-156 31.5T597-363q-54 54-85.5 127T480-80Z"/></svg></span></a></div><p class="note">The "auto" mark shows only in the sheet (D-020).</p></section>
-<section><h2>Available (sheet)</h2><div class="row"><a href="#" class="tag-chip tag-chip--available" data-component="tag-chip"><span class="tag-chip__label">android dev</span></a><a href="#" class="tag-chip tag-chip--available" data-component="tag-chip"><span class="tag-chip__label">architecture</span></a></div></section>
-<section><h2>Add</h2><div class="row"><a href="#" class="tag-chip tag-chip--add" data-component="tag-chip" aria-label="Add tag"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg></a></div></section>
-<section><h2>States: focus, disabled, long label</h2><div class="row" style="max-width:240px"><a href="#" class="tag-chip tag-chip--applied" data-component="tag-chip" style="outline:2px solid var(--focus);outline-offset:2px"><span class="tag-chip__label">focused</span></a><a class="tag-chip tag-chip--applied" data-component="tag-chip" aria-disabled="true"><span class="tag-chip__label">disabled</span></a><a href="#" class="tag-chip tag-chip--suggested" data-component="tag-chip"><span class="tag-chip__label">distributed systems and consensus protocols</span></a></div></section>
-</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="tag-chip">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="tone=applied|suggested|selected|available|add">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Tag chip</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="tone=applied state=default"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=applied"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=suggested state=default"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=suggested"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=selected state=default"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=available state=default"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=add state=default"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=add" aria-label="Add tag"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg></a></div>
+<div data-spec="tone=applied state=hover"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=applied" data-ui="hover"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=suggested state=hover"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=suggested" data-ui="hover"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=selected state=hover"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected" data-ui="hover"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=available state=hover"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available" data-ui="hover"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=add state=hover"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=add" data-ui="hover" aria-label="Add tag"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg></a></div>
+<div data-spec="tone=applied state=pressed"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=applied" data-ui="pressed"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=suggested state=pressed"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=suggested" data-ui="pressed"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=selected state=pressed"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected" data-ui="pressed"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=available state=pressed"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available" data-ui="pressed"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=add state=pressed"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=add" data-ui="pressed" aria-label="Add tag"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg></a></div>
+<div data-spec="tone=applied state=focus"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=applied" data-ui="focus"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=suggested state=focus"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=suggested" data-ui="focus"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=selected state=focus"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected" data-ui="focus"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=available state=focus"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available" data-ui="focus"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=add state=focus"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=add" data-ui="focus" aria-label="Add tag"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg></a></div>
+<div data-spec="tone=applied state=disabled"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=applied" data-ui="disabled" aria-disabled="true"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=suggested state=disabled"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=suggested" data-ui="disabled" aria-disabled="true"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=selected state=disabled"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected" data-ui="disabled" aria-disabled="true"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=available state=disabled"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available" data-ui="disabled" aria-disabled="true"><span class="tag-chip__label">databases</span></a></div>
+<div data-spec="tone=add state=disabled"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=add" data-ui="disabled" aria-disabled="true" aria-label="Add tag"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M440-440H200v-80h240v-240h80v240h240v80H520v240h-80v-240Z"/></svg></a></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

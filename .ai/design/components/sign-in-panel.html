@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="sign-in-panel">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Sign-in panel</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="state=default"><div class="sign-in-panel" data-component="sign-in-panel"><svg class="sign-in-panel__mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1zM12 6v14" fill="none" stroke="currentColor" stroke-width="1.500" stroke-linejoin="round"/></svg><h1 class="sign-in-panel__name">Trails</h1><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button">Continue with Google</a><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button">Continue as guest</a></div></div>
+<div data-spec="state=hover"><div class="sign-in-panel" data-component="sign-in-panel"><svg class="sign-in-panel__mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1zM12 6v14" fill="none" stroke="currentColor" stroke-width="1.500" stroke-linejoin="round"/></svg><h1 class="sign-in-panel__name">Trails</h1><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button" data-ui="hover">Continue with Google</a><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button">Continue as guest</a></div></div>
+<div data-spec="state=pressed"><div class="sign-in-panel" data-component="sign-in-panel"><svg class="sign-in-panel__mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1zM12 6v14" fill="none" stroke="currentColor" stroke-width="1.500" stroke-linejoin="round"/></svg><h1 class="sign-in-panel__name">Trails</h1><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button" data-ui="pressed">Continue with Google</a><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button">Continue as guest</a></div></div>
+<div data-spec="state=focus"><div class="sign-in-panel" data-component="sign-in-panel"><svg class="sign-in-panel__mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1zM12 6v14" fill="none" stroke="currentColor" stroke-width="1.500" stroke-linejoin="round"/></svg><h1 class="sign-in-panel__name">Trails</h1><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button" data-ui="focus">Continue with Google</a><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button">Continue as guest</a></div></div>
+<div data-spec="state=disabled"><div class="sign-in-panel" data-component="sign-in-panel"><svg class="sign-in-panel__mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5c3-1 6-1 8 1 2-2 5-2 8-1v14c-3-1-6-1-8 1-2-2-5-2-8-1zM12 6v14" fill="none" stroke="currentColor" stroke-width="1.500" stroke-linejoin="round"/></svg><h1 class="sign-in-panel__name">Trails</h1><button class="button" data-component="button" data-variant="tone=filled" data-ui="disabled" disabled>Continue with Google</button><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button">Continue as guest</a></div></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

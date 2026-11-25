@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="setting-row">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="control=switch|value|action">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Setting row</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="control=switch state=default"><div class="setting-row" data-component="setting-row" data-variant="control=switch"><div class="setting-row__text"><span>Card layout</span><span class="setting-row__hint">Display articles as cards</span></div><button class="setting-row__switch" role="switch" aria-checked="true" aria-label="Card layout"></button></div></div>
+<div data-spec="control=value state=default"><div class="setting-row" data-component="setting-row" data-variant="control=value"><div class="setting-row__text"><span>Account</span></div><span class="setting-row__value">Guest</span></div></div>
+<div data-spec="control=action state=default"><div class="setting-row" data-component="setting-row" data-variant="control=action"><div class="setting-row__text"><span>Full account</span><span class="setting-row__hint">Keep your articles on every device</span></div><span class="setting-row__value"><a class="button" data-component="button" data-variant="tone=tonal" href="#" role="button">Upgrade</a></span></div></div>
+<div data-spec="control=switch state=hover"><div class="setting-row" data-component="setting-row" data-variant="control=switch"><div class="setting-row__text"><span>Card layout</span><span class="setting-row__hint">Display articles as cards</span></div><button class="setting-row__switch" role="switch" aria-checked="true" aria-label="Card layout" data-ui="hover"></button></div></div>
+<div data-spec="control=value state=hover"><div class="setting-row" data-component="setting-row" data-variant="control=value"><div class="setting-row__text"><span>Account</span></div><span class="setting-row__value">Guest</span></div></div>
+<div data-spec="control=action state=hover"><div class="setting-row" data-component="setting-row" data-variant="control=action"><div class="setting-row__text"><span>Full account</span><span class="setting-row__hint">Keep your articles on every device</span></div><span class="setting-row__value"><a class="button" data-component="button" data-variant="tone=tonal" href="#" role="button" data-ui="hover">Upgrade</a></span></div></div>
+<div data-spec="control=switch state=pressed"><div class="setting-row" data-component="setting-row" data-variant="control=switch"><div class="setting-row__text"><span>Card layout</span><span class="setting-row__hint">Display articles as cards</span></div><button class="setting-row__switch" role="switch" aria-checked="true" aria-label="Card layout" data-ui="pressed"></button></div></div>
+<div data-spec="control=value state=pressed"><div class="setting-row" data-component="setting-row" data-variant="control=value"><div class="setting-row__text"><span>Account</span></div><span class="setting-row__value">Guest</span></div></div>
+<div data-spec="control=action state=pressed"><div class="setting-row" data-component="setting-row" data-variant="control=action"><div class="setting-row__text"><span>Full account</span><span class="setting-row__hint">Keep your articles on every device</span></div><span class="setting-row__value"><a class="button" data-component="button" data-variant="tone=tonal" href="#" role="button" data-ui="pressed">Upgrade</a></span></div></div>
+<div data-spec="control=switch state=focus"><div class="setting-row" data-component="setting-row" data-variant="control=switch"><div class="setting-row__text"><span>Card layout</span><span class="setting-row__hint">Display articles as cards</span></div><button class="setting-row__switch" role="switch" aria-checked="true" aria-label="Card layout" data-ui="focus"></button></div></div>
+<div data-spec="control=value state=focus"><div class="setting-row" data-component="setting-row" data-variant="control=value"><div class="setting-row__text"><span>Account</span></div><span class="setting-row__value">Guest</span></div></div>
+<div data-spec="control=action state=focus"><div class="setting-row" data-component="setting-row" data-variant="control=action"><div class="setting-row__text"><span>Full account</span><span class="setting-row__hint">Keep your articles on every device</span></div><span class="setting-row__value"><a class="button" data-component="button" data-variant="tone=tonal" href="#" role="button" data-ui="focus">Upgrade</a></span></div></div>
+<div data-spec="control=switch state=disabled"><div class="setting-row" data-component="setting-row" data-variant="control=switch"><div class="setting-row__text"><span>Card layout</span><span class="setting-row__hint">Display articles as cards</span></div><button class="setting-row__switch" role="switch" aria-checked="true" aria-label="Card layout" data-ui="disabled"></button></div></div>
+<div data-spec="control=value state=disabled"><div class="setting-row" data-component="setting-row" data-variant="control=value"><div class="setting-row__text"><span>Account</span></div><span class="setting-row__value">Guest</span></div></div>
+<div data-spec="control=action state=disabled"><div class="setting-row" data-component="setting-row" data-variant="control=action"><div class="setting-row__text"><span>Full account</span><span class="setting-row__hint">Keep your articles on every device</span></div><span class="setting-row__value"><button class="button" data-component="button" data-variant="tone=tonal" data-ui="disabled" disabled>Upgrade</button></span></div></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

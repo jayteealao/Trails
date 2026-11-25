@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="theme-choice">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="theme=system|light|dark">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Theme choice</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="theme=system state=default"><div class="theme-choice" data-component="theme-choice" data-variant="theme=system" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="false">Dark</button></div></div>
+<div data-spec="theme=light state=default"><div class="theme-choice" data-component="theme-choice" data-variant="theme=light" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Light</button><button class="theme-choice__item" role="radio" aria-checked="false">Dark</button></div></div>
+<div data-spec="theme=dark state=default"><div class="theme-choice" data-component="theme-choice" data-variant="theme=dark" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Dark</button></div></div>
+<div data-spec="theme=system state=hover"><div class="theme-choice" data-component="theme-choice" data-variant="theme=system" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="false" data-ui="hover">Dark</button></div></div>
+<div data-spec="theme=light state=hover"><div class="theme-choice" data-component="theme-choice" data-variant="theme=light" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Light</button><button class="theme-choice__item" role="radio" aria-checked="false" data-ui="hover">Dark</button></div></div>
+<div data-spec="theme=dark state=hover"><div class="theme-choice" data-component="theme-choice" data-variant="theme=dark" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="true" data-ui="hover"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Dark</button></div></div>
+<div data-spec="theme=system state=pressed"><div class="theme-choice" data-component="theme-choice" data-variant="theme=system" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="false" data-ui="pressed">Dark</button></div></div>
+<div data-spec="theme=light state=pressed"><div class="theme-choice" data-component="theme-choice" data-variant="theme=light" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Light</button><button class="theme-choice__item" role="radio" aria-checked="false" data-ui="pressed">Dark</button></div></div>
+<div data-spec="theme=dark state=pressed"><div class="theme-choice" data-component="theme-choice" data-variant="theme=dark" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="true" data-ui="pressed"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Dark</button></div></div>
+<div data-spec="theme=system state=focus"><div class="theme-choice" data-component="theme-choice" data-variant="theme=system" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="false" data-ui="focus">Dark</button></div></div>
+<div data-spec="theme=light state=focus"><div class="theme-choice" data-component="theme-choice" data-variant="theme=light" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Light</button><button class="theme-choice__item" role="radio" aria-checked="false" data-ui="focus">Dark</button></div></div>
+<div data-spec="theme=dark state=focus"><div class="theme-choice" data-component="theme-choice" data-variant="theme=dark" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="true" data-ui="focus"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Dark</button></div></div>
+<div data-spec="theme=system state=disabled"><div class="theme-choice" data-component="theme-choice" data-variant="theme=system" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="false" data-ui="disabled" disabled>Dark</button></div></div>
+<div data-spec="theme=light state=disabled"><div class="theme-choice" data-component="theme-choice" data-variant="theme=light" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="true"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Light</button><button class="theme-choice__item" role="radio" aria-checked="false" data-ui="disabled" disabled>Dark</button></div></div>
+<div data-spec="theme=dark state=disabled"><div class="theme-choice" data-component="theme-choice" data-variant="theme=dark" role="radiogroup" aria-label="Theme"><button class="theme-choice__item" role="radio" aria-checked="false">System</button><button class="theme-choice__item" role="radio" aria-checked="false">Light</button><button class="theme-choice__item" role="radio" aria-checked="true" data-ui="disabled" disabled><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>Dark</button></div></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

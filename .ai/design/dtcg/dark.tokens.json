@@ -1,0 +1,933 @@
+{
+  "color": {
+    "ground": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0,
+          0.067,
+          0.122
+        ],
+        "alpha": 1,
+        "hex": "#00111f"
+      },
+      "$description": "page background (`background`, Cloud / Ink)",
+      "$extensions": {
+        "dev.sdlc.css": "#00111F"
+      }
+    },
+    "surface": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0,
+          0.106,
+          0.2
+        ],
+        "alpha": 1,
+        "hex": "#001b33"
+      },
+      "$description": "cards, list items, the bottom bars (`surface`)",
+      "$extensions": {
+        "dev.sdlc.css": "#001B33"
+      }
+    },
+    "raised": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.059,
+          0.165,
+          0.271
+        ],
+        "alpha": 1,
+        "hex": "#0f2a45"
+      },
+      "$description": "dialog containers (`surfaceContainerHigh`)",
+      "$extensions": {
+        "dev.sdlc.css": "#0F2A45"
+      }
+    },
+    "surface-variant": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.059,
+          0.165,
+          0.271
+        ],
+        "alpha": 1,
+        "hex": "#0f2a45"
+      },
+      "$description": "unselected chips, quiet containers (`surfaceVariant`)",
+      "$extensions": {
+        "dev.sdlc.css": "#0F2A45"
+      }
+    },
+    "text": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.792,
+          0.941,
+          0.973
+        ],
+        "alpha": 1,
+        "hex": "#caf0f8"
+      },
+      "$description": "body text and titles (`onSurface`)",
+      "$extensions": {
+        "dev.sdlc.css": "#CAF0F8"
+      }
+    },
+    "text-secondary": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.718,
+          0.8,
+          0.878
+        ],
+        "alpha": 1,
+        "hex": "#b7cce0"
+      },
+      "$description": "domains, secondary labels (`onSurfaceVariant`)",
+      "$extensions": {
+        "dev.sdlc.css": "#B7CCE0"
+      }
+    },
+    "accent": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0,
+          0.706,
+          0.847
+        ],
+        "alpha": 1,
+        "hex": "#00b4d8"
+      },
+      "$description": "primary action, current selection, applied tag label (`primary`)",
+      "$extensions": {
+        "dev.sdlc.css": "#00B4D8"
+      }
+    },
+    "accent-text": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.012,
+          0.016,
+          0.369
+        ],
+        "alpha": 1,
+        "hex": "#03045e"
+      },
+      "$description": "text on a filled accent button (`onPrimary`)",
+      "$extensions": {
+        "dev.sdlc.css": "#03045E"
+      }
+    },
+    "accent-container": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0,
+          0.365,
+          0.522
+        ],
+        "alpha": 1,
+        "hex": "#005d85"
+      },
+      "$description": "selected nav item pill, selected segment, tonal button (`primaryContainer`)",
+      "$extensions": {
+        "dev.sdlc.css": "#005D85"
+      }
+    },
+    "inverse-surface": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.792,
+          0.941,
+          0.973
+        ],
+        "alpha": 1,
+        "hex": "#caf0f8"
+      },
+      "$description": "snackbar container (`inverseSurface`)",
+      "$extensions": {
+        "dev.sdlc.css": "#CAF0F8"
+      }
+    },
+    "inverse-text": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0,
+          0.067,
+          0.122
+        ],
+        "alpha": 1,
+        "hex": "#00111f"
+      },
+      "$description": "snackbar text (`inverseOnSurface`)",
+      "$extensions": {
+        "dev.sdlc.css": "#00111F"
+      }
+    },
+    "inverse-accent": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.008,
+          0.243,
+          0.541
+        ],
+        "alpha": 1,
+        "hex": "#023e8a"
+      },
+      "$description": "snackbar action (`inversePrimary`)",
+      "$extensions": {
+        "dev.sdlc.css": "#023E8A"
+      }
+    },
+    "chip-applied": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0,
+          0.204,
+          0.302
+        ],
+        "alpha": 1,
+        "hex": "#00344d"
+      },
+      "$description": "applied tag chip fill: primary at 16% on surface",
+      "$extensions": {
+        "dev.sdlc.css": "#00344D"
+      }
+    },
+    "border": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.125,
+          0.216,
+          0.306
+        ],
+        "alpha": 1,
+        "hex": "#20374e"
+      },
+      "$description": "dividers and chip outlines (`outlineVariant`)",
+      "$extensions": {
+        "dev.sdlc.css": "#20374E"
+      }
+    },
+    "outline": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.318,
+          0.439,
+          0.541
+        ],
+        "alpha": 1,
+        "hex": "#51708a"
+      },
+      "$description": "field and segment outlines, unchecked switch (`outline`)",
+      "$extensions": {
+        "dev.sdlc.css": "#51708A"
+      }
+    },
+    "focus": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.337,
+          0.78,
+          0.898
+        ],
+        "alpha": 1,
+        "hex": "#56c7e5"
+      },
+      "$description": "focus ring",
+      "$extensions": {
+        "dev.sdlc.css": "#56C7E5"
+      }
+    },
+    "scrim": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0,
+          0.067,
+          0.122
+        ],
+        "alpha": 0.6,
+        "hex": "#00111f"
+      },
+      "$description": "scrim behind a sheet, a dialog or a menu",
+      "$extensions": {
+        "dev.sdlc.css": "#00111F99"
+      }
+    },
+    "error": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          1,
+          0.706,
+          0.671
+        ],
+        "alpha": 1,
+        "hex": "#ffb4ab"
+      },
+      "$description": "error state (`error`)",
+      "$extensions": {
+        "dev.sdlc.css": "#FFB4AB"
+      }
+    },
+    "warning": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          1,
+          0.725,
+          0.361
+        ],
+        "alpha": 1,
+        "hex": "#ffb95c"
+      },
+      "$description": "warning state; no product use yet",
+      "$extensions": {
+        "dev.sdlc.css": "#FFB95C"
+      }
+    },
+    "success": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.525,
+          0.851,
+          0.627
+        ],
+        "alpha": 1,
+        "hex": "#86d9a0"
+      },
+      "$description": "success state; no product use yet",
+      "$extensions": {
+        "dev.sdlc.css": "#86D9A0"
+      }
+    },
+    "info": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.337,
+          0.78,
+          0.898
+        ],
+        "alpha": 1,
+        "hex": "#56c7e5"
+      },
+      "$description": "info state; no product use yet",
+      "$extensions": {
+        "dev.sdlc.css": "#56C7E5"
+      }
+    }
+  },
+  "font": {
+    "font-body": {
+      "$type": "fontFamily",
+      "$value": [
+        "Roboto",
+        "system-ui",
+        "sans-serif"
+      ],
+      "$description": "body text, labels, chips",
+      "$extensions": {
+        "dev.sdlc.css": "Roboto, system-ui, sans-serif"
+      }
+    },
+    "font-display": {
+      "$type": "fontFamily",
+      "$value": [
+        "Piazzolla",
+        "Georgia",
+        "serif"
+      ],
+      "$description": "article titles, sheet, empty and error headings",
+      "$extensions": {
+        "dev.sdlc.css": "Piazzolla, Georgia, serif"
+      }
+    },
+    "font-script": {
+      "$type": "fontFamily",
+      "$value": [
+        "Norican",
+        "cursive"
+      ],
+      "$description": "the app name in the top bar and sign-in",
+      "$extensions": {
+        "dev.sdlc.css": "Norican, cursive"
+      }
+    }
+  },
+  "type": {
+    "text-xs": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      },
+      "$description": "captions",
+      "$extensions": {
+        "dev.sdlc.css": "12px"
+      }
+    },
+    "text-sm": {
+      "$type": "dimension",
+      "$value": {
+        "value": 13,
+        "unit": "px"
+      },
+      "$description": "chips, domains",
+      "$extensions": {
+        "dev.sdlc.css": "13px"
+      }
+    },
+    "text-md": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "body, buttons, menu items",
+      "$extensions": {
+        "dev.sdlc.css": "16px"
+      }
+    },
+    "text-h3": {
+      "$type": "dimension",
+      "$value": {
+        "value": 19,
+        "unit": "px"
+      },
+      "$description": "reader heading 3",
+      "$extensions": {
+        "dev.sdlc.css": "19px"
+      }
+    },
+    "text-lg": {
+      "$type": "dimension",
+      "$value": {
+        "value": 20,
+        "unit": "px"
+      },
+      "$description": "article titles in the list, sheet title",
+      "$extensions": {
+        "dev.sdlc.css": "20px"
+      }
+    },
+    "text-bar": {
+      "$type": "dimension",
+      "$value": {
+        "value": 22,
+        "unit": "px"
+      },
+      "$description": "top bar title of a detail screen",
+      "$extensions": {
+        "dev.sdlc.css": "22px"
+      }
+    },
+    "text-h2": {
+      "$type": "dimension",
+      "$value": {
+        "value": 23,
+        "unit": "px"
+      },
+      "$description": "reader heading 2",
+      "$extensions": {
+        "dev.sdlc.css": "23px"
+      }
+    },
+    "text-xl": {
+      "$type": "dimension",
+      "$value": {
+        "value": 28,
+        "unit": "px"
+      },
+      "$description": "app name, reader heading 1",
+      "$extensions": {
+        "dev.sdlc.css": "28px"
+      }
+    }
+  },
+  "weight": {
+    "weight-regular": {
+      "$type": "fontWeight",
+      "$value": 400,
+      "$description": "body",
+      "$extensions": {
+        "dev.sdlc.css": "400"
+      }
+    },
+    "weight-medium": {
+      "$type": "fontWeight",
+      "$value": 500,
+      "$description": "labels, buttons",
+      "$extensions": {
+        "dev.sdlc.css": "500"
+      }
+    },
+    "weight-semibold": {
+      "$type": "fontWeight",
+      "$value": 600,
+      "$description": "titles",
+      "$extensions": {
+        "dev.sdlc.css": "600"
+      }
+    }
+  },
+  "leading": {
+    "leading-tight": {
+      "$type": "number",
+      "$value": 1.3,
+      "$description": "headings",
+      "$extensions": {
+        "dev.sdlc.css": "1.3"
+      }
+    },
+    "leading-body": {
+      "$type": "number",
+      "$value": 1.5,
+      "$description": "body text",
+      "$extensions": {
+        "dev.sdlc.css": "1.5"
+      }
+    }
+  },
+  "space": {
+    "space-1": {
+      "$type": "dimension",
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      },
+      "$description": "chip gaps, icon-to-label",
+      "$extensions": {
+        "dev.sdlc.css": "4px"
+      }
+    },
+    "space-2": {
+      "$type": "dimension",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      },
+      "$description": "inside chips, between rows of chips",
+      "$extensions": {
+        "dev.sdlc.css": "8px"
+      }
+    },
+    "space-3": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      },
+      "$description": "inside list items",
+      "$extensions": {
+        "dev.sdlc.css": "12px"
+      }
+    },
+    "space-4": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "screen gutters, between sections",
+      "$extensions": {
+        "dev.sdlc.css": "16px"
+      }
+    },
+    "space-5": {
+      "$type": "dimension",
+      "$value": {
+        "value": 24,
+        "unit": "px"
+      },
+      "$description": "button sides, list indents, dialog padding",
+      "$extensions": {
+        "dev.sdlc.css": "24px"
+      }
+    },
+    "space-6": {
+      "$type": "dimension",
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      },
+      "$description": "between groups",
+      "$extensions": {
+        "dev.sdlc.css": "32px"
+      }
+    },
+    "space-7": {
+      "$type": "dimension",
+      "$value": {
+        "value": 64,
+        "unit": "px"
+      },
+      "$description": "above an empty state",
+      "$extensions": {
+        "dev.sdlc.css": "64px"
+      }
+    },
+    "space-8": {
+      "$type": "dimension",
+      "$value": {
+        "value": 96,
+        "unit": "px"
+      },
+      "$description": "above a reader notice",
+      "$extensions": {
+        "dev.sdlc.css": "96px"
+      }
+    }
+  },
+  "size": {
+    "size-icon-sm": {
+      "$type": "dimension",
+      "$value": {
+        "value": 18,
+        "unit": "px"
+      },
+      "$description": "icon in a chip",
+      "$extensions": {
+        "dev.sdlc.css": "18px"
+      }
+    },
+    "size-icon": {
+      "$type": "dimension",
+      "$value": {
+        "value": 24,
+        "unit": "px"
+      },
+      "$description": "icon",
+      "$extensions": {
+        "dev.sdlc.css": "24px"
+      }
+    },
+    "size-icon-lg": {
+      "$type": "dimension",
+      "$value": {
+        "value": 40,
+        "unit": "px"
+      },
+      "$description": "icon of a notice",
+      "$extensions": {
+        "dev.sdlc.css": "40px"
+      }
+    },
+    "size-chip": {
+      "$type": "dimension",
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      },
+      "$description": "chip and nav pill height",
+      "$extensions": {
+        "dev.sdlc.css": "32px"
+      }
+    },
+    "size-control": {
+      "$type": "dimension",
+      "$value": {
+        "value": 40,
+        "unit": "px"
+      },
+      "$description": "button height",
+      "$extensions": {
+        "dev.sdlc.css": "40px"
+      }
+    },
+    "size-target": {
+      "$type": "dimension",
+      "$value": {
+        "value": 48,
+        "unit": "px"
+      },
+      "$description": "smallest touch target, menu row",
+      "$extensions": {
+        "dev.sdlc.css": "48px"
+      }
+    },
+    "size-field": {
+      "$type": "dimension",
+      "$value": {
+        "value": 56,
+        "unit": "px"
+      },
+      "$description": "text field height",
+      "$extensions": {
+        "dev.sdlc.css": "56px"
+      }
+    },
+    "size-tab": {
+      "$type": "dimension",
+      "$value": {
+        "value": 64,
+        "unit": "px"
+      },
+      "$description": "archive tab height, nav pill width",
+      "$extensions": {
+        "dev.sdlc.css": "64px"
+      }
+    },
+    "size-tab-min": {
+      "$type": "dimension",
+      "$value": {
+        "value": 90,
+        "unit": "px"
+      },
+      "$description": "narrowest archive tab",
+      "$extensions": {
+        "dev.sdlc.css": "90px"
+      }
+    },
+    "size-thumb": {
+      "$type": "dimension",
+      "$value": {
+        "value": 112,
+        "unit": "px"
+      },
+      "$description": "list thumbnail",
+      "$extensions": {
+        "dev.sdlc.css": "112px"
+      }
+    },
+    "size-menu": {
+      "$type": "dimension",
+      "$value": {
+        "value": 280,
+        "unit": "px"
+      },
+      "$description": "widest menu",
+      "$extensions": {
+        "dev.sdlc.css": "280px"
+      }
+    },
+    "size-dialog": {
+      "$type": "dimension",
+      "$value": {
+        "value": 360,
+        "unit": "px"
+      },
+      "$description": "widest dialog",
+      "$extensions": {
+        "dev.sdlc.css": "360px"
+      }
+    },
+    "size-measure": {
+      "$type": "dimension",
+      "$value": {
+        "value": 680,
+        "unit": "px"
+      },
+      "$description": "reading measure",
+      "$extensions": {
+        "dev.sdlc.css": "680px"
+      }
+    },
+    "size-column": {
+      "$type": "dimension",
+      "$value": {
+        "value": 720,
+        "unit": "px"
+      },
+      "$description": "single column on wide screens",
+      "$extensions": {
+        "dev.sdlc.css": "720px"
+      }
+    }
+  },
+  "shadow": {
+    "shadow-raised": {
+      "$type": "shadow",
+      "$value": {
+        "color": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0.067,
+            0.122
+          ],
+          "alpha": 0.2,
+          "hex": "#00111f"
+        },
+        "offsetX": {
+          "value": 0,
+          "unit": "px"
+        },
+        "offsetY": {
+          "value": 2,
+          "unit": "px"
+        },
+        "blur": {
+          "value": 8,
+          "unit": "px"
+        },
+        "spread": {
+          "value": 0,
+          "unit": "px"
+        }
+      },
+      "$description": "menus and snackbars",
+      "$extensions": {
+        "dev.sdlc.css": "0 2px 8px #00111F33"
+      }
+    },
+    "shadow-overlay": {
+      "$type": "shadow",
+      "$value": {
+        "color": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0.067,
+            0.122
+          ],
+          "alpha": 0.2,
+          "hex": "#00111f"
+        },
+        "offsetX": {
+          "value": 0,
+          "unit": "px"
+        },
+        "offsetY": {
+          "value": 2,
+          "unit": "px"
+        },
+        "blur": {
+          "value": 8,
+          "unit": "px"
+        },
+        "spread": {
+          "value": 0,
+          "unit": "px"
+        }
+      },
+      "$description": "sheets and dialogs",
+      "$extensions": {
+        "dev.sdlc.css": "0 2px 8px #00111F33"
+      }
+    }
+  },
+  "layer": {
+    "layer-overlay": {
+      "$type": "number",
+      "$value": 5,
+      "$description": "scrim",
+      "$extensions": {
+        "dev.sdlc.css": "5"
+      }
+    },
+    "layer-sheet": {
+      "$type": "number",
+      "$value": 6,
+      "$description": "sheet, dialog, menu",
+      "$extensions": {
+        "dev.sdlc.css": "6"
+      }
+    },
+    "layer-toast": {
+      "$type": "number",
+      "$value": 7,
+      "$description": "snackbar over an overlay",
+      "$extensions": {
+        "dev.sdlc.css": "7"
+      }
+    }
+  },
+  "radius": {
+    "radius-xs": {
+      "$type": "dimension",
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      },
+      "$description": "fields, snackbars",
+      "$extensions": {
+        "dev.sdlc.css": "4px"
+      }
+    },
+    "radius-sm": {
+      "$type": "dimension",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      },
+      "$description": "chips, menus",
+      "$extensions": {
+        "dev.sdlc.css": "8px"
+      }
+    },
+    "radius-md": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      },
+      "$description": "thumbnails, cards",
+      "$extensions": {
+        "dev.sdlc.css": "16px"
+      }
+    },
+    "radius-lg": {
+      "$type": "dimension",
+      "$value": {
+        "value": 28,
+        "unit": "px"
+      },
+      "$description": "sheets and dialogs",
+      "$extensions": {
+        "dev.sdlc.css": "28px"
+      }
+    },
+    "radius-full": {
+      "$type": "dimension",
+      "$value": {
+        "value": 999,
+        "unit": "px"
+      },
+      "$description": "buttons, pills",
+      "$extensions": {
+        "dev.sdlc.css": "999px"
+      }
+    }
+  }
+}

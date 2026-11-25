@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="status-row">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="tone=processing|failed">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Archive status row</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="tone=processing state=default"><div class="status-row" data-component="status-row" data-variant="tone=processing" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">Still archiving this page</span></div></div>
+<div data-spec="tone=failed state=default"><div class="status-row" data-component="status-row" data-variant="tone=failed" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M12 7v6M12 16.5v.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">The archive failed. This text is kept.</span><a class="button" data-component="button" data-variant="tone=text" href="#" role="button">Try again</a></div></div>
+<div data-spec="tone=processing state=hover"><div class="status-row" data-component="status-row" data-variant="tone=processing" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">Still archiving this page</span></div></div>
+<div data-spec="tone=failed state=hover"><div class="status-row" data-component="status-row" data-variant="tone=failed" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M12 7v6M12 16.5v.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">The archive failed. This text is kept.</span><a class="button" data-component="button" data-variant="tone=text" href="#" role="button" data-ui="hover">Try again</a></div></div>
+<div data-spec="tone=processing state=pressed"><div class="status-row" data-component="status-row" data-variant="tone=processing" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">Still archiving this page</span></div></div>
+<div data-spec="tone=failed state=pressed"><div class="status-row" data-component="status-row" data-variant="tone=failed" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M12 7v6M12 16.5v.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">The archive failed. This text is kept.</span><a class="button" data-component="button" data-variant="tone=text" href="#" role="button" data-ui="pressed">Try again</a></div></div>
+<div data-spec="tone=processing state=focus"><div class="status-row" data-component="status-row" data-variant="tone=processing" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">Still archiving this page</span></div></div>
+<div data-spec="tone=failed state=focus"><div class="status-row" data-component="status-row" data-variant="tone=failed" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M12 7v6M12 16.5v.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">The archive failed. This text is kept.</span><a class="button" data-component="button" data-variant="tone=text" href="#" role="button" data-ui="focus">Try again</a></div></div>
+<div data-spec="tone=processing state=disabled"><div class="status-row" data-component="status-row" data-variant="tone=processing" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">Still archiving this page</span></div></div>
+<div data-spec="tone=failed state=disabled"><div class="status-row" data-component="status-row" data-variant="tone=failed" role="status"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M12 7v6M12 16.5v.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="status-row__text">The archive failed. This text is kept.</span><button class="button" data-component="button" data-variant="tone=text" data-ui="disabled" disabled>Try again</button></div></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

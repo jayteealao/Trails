@@ -1,8 +1,42 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="wf:component" content="tag-sheet"><title>Tag management sheet</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../components.css"><style>section{margin-bottom:24px}h2{margin:16px;font-size:16px;font-weight:600}</style><script>if(new URLSearchParams(location.search).get("theme")==="dark")document.documentElement.dataset.theme="dark"</script></head><body>
-<section><h2>With suggestions and an auto-added tag</h2>
-<div class="tag-sheet" data-component="tag-sheet"><div class="tag-sheet__handle"></div><h2 class="tag-sheet__title" style="margin:0 0 16px">Manage tags</h2>
-<div class="tag-sheet__add"><input class="tag-sheet__field" placeholder="New tag" aria-label="New tag"><button class="tag-sheet__btn">Add</button></div>
-<div class="tag-sheet__section">Suggested</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip tag-chip--suggested" data-component="tag-chip" aria-label="Suggested tag: zig"><span class="tag-chip__label">zig</span></a><a href="#" class="tag-chip tag-chip--suggested" data-component="tag-chip" aria-label="Suggested tag: performance"><span class="tag-chip__label">performance</span></a></div>
-<div class="tag-sheet__section">Selected tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip tag-chip--selected" data-component="tag-chip" aria-label="database, added automatically"><span class="tag-chip__label">database</span><span class="tag-chip__auto" title="Added automatically"><svg class="icon-sm" viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-80q0-83-31.5-156T363-363q-54-54-127-85.5T80-480q83 0 156-31.5T363-597q54-54 85.5-127T480-880q0 83 31.5 156T597-597q54 54 127 85.5T880-480q-83 0-156 31.5T597-363q-54 54-85.5 127T480-80Z"/></svg></span></a></div>
-<div class="tag-sheet__section">Available tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip tag-chip--available" data-component="tag-chip"><span class="tag-chip__label">algorithms</span></a><a href="#" class="tag-chip tag-chip--available" data-component="tag-chip"><span class="tag-chip__label">architecture</span></a><a href="#" class="tag-chip tag-chip--available" data-component="tag-chip"><span class="tag-chip__label">c++</span></a></div></div></section>
-</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="tag-sheet">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Tag management sheet</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="state=default"><div class="tag-sheet" data-component="tag-sheet"><div class="tag-sheet__handle"></div><h2 class="tag-sheet__title">Manage tags</h2><div class="tag-sheet__add"><input class="tag-sheet__field" placeholder="New tag" aria-label="New tag"><button class="tag-sheet__btn">Add</button></div><div class="tag-sheet__section">Selected tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected"><span class="tag-chip__label">databases</span></a></div><div class="tag-sheet__section">Available tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available"><span class="tag-chip__label">android</span></a></div></div></div>
+<div data-spec="state=hover"><div class="tag-sheet" data-component="tag-sheet"><div class="tag-sheet__handle"></div><h2 class="tag-sheet__title">Manage tags</h2><div class="tag-sheet__add"><input class="tag-sheet__field" placeholder="New tag" aria-label="New tag"><button class="tag-sheet__btn" data-ui="hover">Add</button></div><div class="tag-sheet__section">Selected tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected"><span class="tag-chip__label">databases</span></a></div><div class="tag-sheet__section">Available tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available"><span class="tag-chip__label">android</span></a></div></div></div>
+<div data-spec="state=pressed"><div class="tag-sheet" data-component="tag-sheet"><div class="tag-sheet__handle"></div><h2 class="tag-sheet__title">Manage tags</h2><div class="tag-sheet__add"><input class="tag-sheet__field" placeholder="New tag" aria-label="New tag"><button class="tag-sheet__btn" data-ui="pressed">Add</button></div><div class="tag-sheet__section">Selected tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected"><span class="tag-chip__label">databases</span></a></div><div class="tag-sheet__section">Available tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available"><span class="tag-chip__label">android</span></a></div></div></div>
+<div data-spec="state=focus"><div class="tag-sheet" data-component="tag-sheet"><div class="tag-sheet__handle"></div><h2 class="tag-sheet__title">Manage tags</h2><div class="tag-sheet__add"><input class="tag-sheet__field" placeholder="New tag" aria-label="New tag" data-ui="focus"><button class="tag-sheet__btn" data-ui="focus">Add</button></div><div class="tag-sheet__section">Selected tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected"><span class="tag-chip__label">databases</span></a></div><div class="tag-sheet__section">Available tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available"><span class="tag-chip__label">android</span></a></div></div></div>
+<div data-spec="state=disabled"><div class="tag-sheet" data-component="tag-sheet"><div class="tag-sheet__handle"></div><h2 class="tag-sheet__title">Manage tags</h2><div class="tag-sheet__add"><input class="tag-sheet__field" placeholder="New tag" aria-label="New tag" data-ui="disabled"><button class="tag-sheet__btn" data-ui="disabled" disabled>Add</button></div><div class="tag-sheet__section">Selected tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=selected"><span class="tag-chip__label">databases</span></a></div><div class="tag-sheet__section">Available tags</div><div class="tag-section" data-component="tag-section"><a href="#" class="tag-chip" data-component="tag-chip" data-variant="tone=available"><span class="tag-chip__label">android</span></a></div></div></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

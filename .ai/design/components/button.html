@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="button">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="tone=filled|tonal|outlined|text">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Button</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="tone=filled state=default"><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button">Try again</a></div>
+<div data-spec="tone=tonal state=default"><a class="button" data-component="button" data-variant="tone=tonal" href="#" role="button">Try again</a></div>
+<div data-spec="tone=outlined state=default"><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button">Try again</a></div>
+<div data-spec="tone=text state=default"><a class="button" data-component="button" data-variant="tone=text" href="#" role="button">Try again</a></div>
+<div data-spec="tone=filled state=hover"><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button" data-ui="hover">Try again</a></div>
+<div data-spec="tone=tonal state=hover"><a class="button" data-component="button" data-variant="tone=tonal" href="#" role="button" data-ui="hover">Try again</a></div>
+<div data-spec="tone=outlined state=hover"><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button" data-ui="hover">Try again</a></div>
+<div data-spec="tone=text state=hover"><a class="button" data-component="button" data-variant="tone=text" href="#" role="button" data-ui="hover">Try again</a></div>
+<div data-spec="tone=filled state=pressed"><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button" data-ui="pressed">Try again</a></div>
+<div data-spec="tone=tonal state=pressed"><a class="button" data-component="button" data-variant="tone=tonal" href="#" role="button" data-ui="pressed">Try again</a></div>
+<div data-spec="tone=outlined state=pressed"><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button" data-ui="pressed">Try again</a></div>
+<div data-spec="tone=text state=pressed"><a class="button" data-component="button" data-variant="tone=text" href="#" role="button" data-ui="pressed">Try again</a></div>
+<div data-spec="tone=filled state=focus"><a class="button" data-component="button" data-variant="tone=filled" href="#" role="button" data-ui="focus">Try again</a></div>
+<div data-spec="tone=tonal state=focus"><a class="button" data-component="button" data-variant="tone=tonal" href="#" role="button" data-ui="focus">Try again</a></div>
+<div data-spec="tone=outlined state=focus"><a class="button" data-component="button" data-variant="tone=outlined" href="#" role="button" data-ui="focus">Try again</a></div>
+<div data-spec="tone=text state=focus"><a class="button" data-component="button" data-variant="tone=text" href="#" role="button" data-ui="focus">Try again</a></div>
+<div data-spec="tone=filled state=disabled"><button class="button" data-component="button" data-variant="tone=filled" data-ui="disabled" disabled>Try again</button></div>
+<div data-spec="tone=tonal state=disabled"><button class="button" data-component="button" data-variant="tone=tonal" data-ui="disabled" disabled>Try again</button></div>
+<div data-spec="tone=outlined state=disabled"><button class="button" data-component="button" data-variant="tone=outlined" data-ui="disabled" disabled>Try again</button></div>
+<div data-spec="tone=text state=disabled"><button class="button" data-component="button" data-variant="tone=text" data-ui="disabled" disabled>Try again</button></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

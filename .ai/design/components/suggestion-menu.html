@@ -1,5 +1,42 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="wf:component" content="suggestion-menu"><title>Suggestion menu (Approve / Dismiss)</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../components.css"><style>body{padding:16px}section{margin-bottom:24px}h2{margin:0 0 8px;font-size:16px;font-weight:600}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.note{font-size:13px;color:var(--text-secondary);margin:4px 0 0}</style><script>if(new URLSearchParams(location.search).get("theme")==="dark")document.documentElement.dataset.theme="dark"</script></head><body>
-<section><h2>Existing tag suggested</h2><div class="suggestion-menu" data-component="suggestion-menu" role="menu"><div class="suggestion-menu__head">Suggested: <strong>performance</strong></div><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg> Approve tag</a><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg> Dismiss</a></div></section>
-<section><h2>New tag suggested</h2><div class="suggestion-menu" data-component="suggestion-menu" role="menu"><div class="suggestion-menu__head">New tag: <strong>zig</strong> · approving adds it to your tags</div><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg> Approve tag</a><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg> Dismiss</a></div></section>
-<section><h2>Long tag name</h2><div class="suggestion-menu" data-component="suggestion-menu" role="menu"><div class="suggestion-menu__head">New tag: <strong>distributed systems and consensus protocols</strong> · approving adds it to your tags</div><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg> Approve tag</a><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg> Dismiss</a></div></section>
-</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="suggestion-menu">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Suggestion menu (Approve / Dismiss)</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="state=default"><div class="suggestion-menu" data-component="suggestion-menu" role="menu"><div class="suggestion-menu__head">New tag: <strong>zig</strong></div><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg> Approve tag</a><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg> Dismiss</a></div></div>
+<div data-spec="state=hover"><div class="suggestion-menu" data-component="suggestion-menu" role="menu"><div class="suggestion-menu__head">New tag: <strong>zig</strong></div><a href="#" class="suggestion-menu__item" role="menuitem" data-ui="hover"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg> Approve tag</a><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg> Dismiss</a></div></div>
+<div data-spec="state=pressed"><div class="suggestion-menu" data-component="suggestion-menu" role="menu"><div class="suggestion-menu__head">New tag: <strong>zig</strong></div><a href="#" class="suggestion-menu__item" role="menuitem" data-ui="pressed"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg> Approve tag</a><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg> Dismiss</a></div></div>
+<div data-spec="state=focus"><div class="suggestion-menu" data-component="suggestion-menu" role="menu"><div class="suggestion-menu__head">New tag: <strong>zig</strong></div><a href="#" class="suggestion-menu__item" role="menuitem" data-ui="focus"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg> Approve tag</a><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg> Dismiss</a></div></div>
+<div data-spec="state=disabled"><div class="suggestion-menu" data-component="suggestion-menu" role="menu"><div class="suggestion-menu__head">New tag: <strong>zig</strong></div><a href="#" class="suggestion-menu__item" role="menuitem" data-ui="disabled" aria-disabled="true"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg> Approve tag</a><a href="#" class="suggestion-menu__item" role="menuitem"><svg class="icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/></svg> Dismiss</a></div></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>

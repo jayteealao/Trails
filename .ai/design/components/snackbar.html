@@ -1,4 +1,52 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="wf:component" content="snackbar"><title>Snackbar with Undo</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="../components.css"><style>section{margin-bottom:24px}h2{margin:16px;font-size:16px;font-weight:600}</style><script>if(new URLSearchParams(location.search).get("theme")==="dark")document.documentElement.dataset.theme="dark"</script></head><body>
-<section><h2>After approve</h2><div class="snackbar" data-component="snackbar" role="status"><span class="snackbar__msg">Added tag “zig”</span><a class="snackbar__action" href="#">Undo</a></div></section>
-<section><h2>After dismiss, long name</h2><div class="snackbar" data-component="snackbar" role="status"><span class="snackbar__msg">Dismissed “distributed systems and consensus protocols”</span><a class="snackbar__action" href="#">Undo</a></div></section>
-</body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf:component" content="snackbar">
+<meta name="wf:kind" content="component">
+<meta name="wf:variants" content="action=undo|retry|none">
+<meta name="wf:states" content="default hover pressed focus disabled">
+<title>Snackbar</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../layout.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  [data-spec] { width: 100%; max-width: var(--size-dialog); }
+  /* Every value is a token. Each panel shows the cells in one theme. */
+  body { margin: 0; font-family: var(--font-body); background: var(--ground); color: var(--text); }
+  .wf-theme { background: var(--ground); color: var(--text); padding: var(--space-5); }
+  .wf-theme::before { content: attr(data-theme); flex-basis: 100%; }
+  .wf-theme[hidden] { display: none; }
+</style>
+</head>
+<body>
+<section class="wf-theme l-cluster" data-theme="light" data-theme-source>
+<div data-spec="action=undo state=default"><div class="snackbar" data-component="snackbar" data-variant="action=undo" role="status"><span class="snackbar__msg">Added tag “zig”</span><a class="snackbar__action" href="#">Undo</a></div></div>
+<div data-spec="action=retry state=default"><div class="snackbar" data-component="snackbar" data-variant="action=retry" role="status"><span class="snackbar__msg">That change was not saved on this phone.</span><a class="snackbar__action" href="#">Try again</a></div></div>
+<div data-spec="action=none state=default"><div class="snackbar" data-component="snackbar" data-variant="action=none" role="status"><span class="snackbar__msg">Added tag “zig”</span></div></div>
+<div data-spec="action=undo state=hover"><div class="snackbar" data-component="snackbar" data-variant="action=undo" role="status"><span class="snackbar__msg">Added tag “zig”</span><a class="snackbar__action" href="#" data-ui="hover">Undo</a></div></div>
+<div data-spec="action=retry state=hover"><div class="snackbar" data-component="snackbar" data-variant="action=retry" role="status"><span class="snackbar__msg">That change was not saved on this phone.</span><a class="snackbar__action" href="#" data-ui="hover">Try again</a></div></div>
+<div data-spec="action=none state=hover"><div class="snackbar" data-component="snackbar" data-variant="action=none" role="status"><span class="snackbar__msg">Added tag “zig”</span></div></div>
+<div data-spec="action=undo state=pressed"><div class="snackbar" data-component="snackbar" data-variant="action=undo" role="status"><span class="snackbar__msg">Added tag “zig”</span><a class="snackbar__action" href="#" data-ui="pressed">Undo</a></div></div>
+<div data-spec="action=retry state=pressed"><div class="snackbar" data-component="snackbar" data-variant="action=retry" role="status"><span class="snackbar__msg">That change was not saved on this phone.</span><a class="snackbar__action" href="#" data-ui="pressed">Try again</a></div></div>
+<div data-spec="action=none state=pressed"><div class="snackbar" data-component="snackbar" data-variant="action=none" role="status"><span class="snackbar__msg">Added tag “zig”</span></div></div>
+<div data-spec="action=undo state=focus"><div class="snackbar" data-component="snackbar" data-variant="action=undo" role="status"><span class="snackbar__msg">Added tag “zig”</span><a class="snackbar__action" href="#" data-ui="focus">Undo</a></div></div>
+<div data-spec="action=retry state=focus"><div class="snackbar" data-component="snackbar" data-variant="action=retry" role="status"><span class="snackbar__msg">That change was not saved on this phone.</span><a class="snackbar__action" href="#" data-ui="focus">Try again</a></div></div>
+<div data-spec="action=none state=focus"><div class="snackbar" data-component="snackbar" data-variant="action=none" role="status"><span class="snackbar__msg">Added tag “zig”</span></div></div>
+<div data-spec="action=undo state=disabled"><div class="snackbar" data-component="snackbar" data-variant="action=undo" role="status"><span class="snackbar__msg">Added tag “zig”</span><a class="snackbar__action" href="#" data-ui="disabled" aria-disabled="true">Undo</a></div></div>
+<div data-spec="action=retry state=disabled"><div class="snackbar" data-component="snackbar" data-variant="action=retry" role="status"><span class="snackbar__msg">That change was not saved on this phone.</span><a class="snackbar__action" href="#" data-ui="disabled" aria-disabled="true">Try again</a></div></div>
+<div data-spec="action=none state=disabled"><div class="snackbar" data-component="snackbar" data-variant="action=none" role="status"><span class="snackbar__msg">Added tag “zig”</span></div></div>
+</section>
+<section class="wf-theme l-cluster" data-theme="dark" data-theme-copy></section>
+<script data-wf-themes>
+  (() => {
+    const panels = [...document.querySelectorAll('section.wf-theme')];
+    const source = panels.find((p) => p.dataset.themeSource !== undefined);
+    for (const p of panels) if (source && p !== source) p.innerHTML = source.innerHTML;
+    const only = new URLSearchParams(location.search).get('theme');
+    if (only && panels.some((p) => p.dataset.theme === only)) for (const p of panels) p.hidden = p.dataset.theme !== only;
+  })();
+</script>
+</body>
+</html>
