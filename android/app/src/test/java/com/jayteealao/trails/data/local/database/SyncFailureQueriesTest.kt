@@ -207,7 +207,7 @@ class SyncFailureQueriesTest {
 
         val id = dao.upsertNewArticle(
             Article(itemId = "fresh-id", title = "Re-saved", url = "https://example.com/x", timeAdded = 3_000)
-        )
+        ).itemId
 
         assertEquals("x", id)
         val row = dao.getArticleById("x")!!
