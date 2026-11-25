@@ -237,6 +237,32 @@ private val SEARCH_STATES = mapOf(
     ),
 )
 
+private val SETTINGS_DEFAULT = SettingsState(
+    versionName = BuildConfig.VERSION_NAME,
+    versionCode = BuildConfig.VERSION_CODE,
+    userEmail = "mara@example.org",
+)
+
+private val SETTINGS_STATES = mapOf(
+    "settings-default" to SETTINGS_DEFAULT,
+    "settings-empty" to SETTINGS_DEFAULT.copy(theme = ThemeChoice.LIGHT, userEmail = null, isAnonymous = true),
+    "settings-loading" to SETTINGS_DEFAULT.copy(isSyncing = true, syncStatus = SyncStatus.Syncing),
+    "settings-error" to SETTINGS_DEFAULT.copy(syncStatus = SyncStatus.Error("Not synced", null)),
+    "settings-worst" to SETTINGS_DEFAULT.copy(
+        theme = ThemeChoice.DARK,
+        userEmail = "aleksandra.wisniewska-kowalczyk+reading-archive@mail.example.org",
+        syncStatus = SyncStatus.Error("Not synced", null),
+    ),
+)
+
+/** The Settings screen over [state] in the app frame; its controls do nothing. */
+@Composable
+private fun SettingsStateScreen(state: SettingsState) {
+    AppFrame(Screen.Settings) {
+        SettingsScreenContent(viewStore = ViewStore { state })
+    }
+}
+
 /** The app bar of [screen] over [content], as the app frames it. */
 @Composable
 private fun AppFrame(screen: Screen, content: @Composable () -> Unit) {
@@ -306,7 +332,7 @@ private fun SearchStateScreen(fixture: SearchFixture) {
 }
 
 /**
- * Debug builds only: holds one state of the Settings sync section, the unsynced-changes dialog,
+ * Debug builds only: holds one state of Settings, its sync section, the unsynced-changes dialog,
  * the archive status of an article, the Web tab, a list or search on screen so it can be captured on a device or emulator.
  *
  * Extras: `state` (`pushing` | `push-failed` | `push-failed-one` | `push-failed-switch` |
@@ -328,6 +354,8 @@ private fun SearchStateScreen(fixture: SearchFixture) {
  * The list states are `home-` and `favourites-` with `default` (Home only) | `empty` | `loading` |
  * `error` | `worst`; the search states are `search-` with the same five.
  *
+ * The Settings states are `settings-` with the same five; `settings-worst` is always dark.
+ *
  * `adb shell am start -n com.jayteealao.trails/.debug.DesignStatesActivity
  *   --es state push-failed --ei count 42 --ez dark false`
  */
@@ -338,7 +366,7 @@ class DesignStatesActivity : ComponentActivity() {
         val state = intent.getStringExtra(EXTRA_STATE) ?: "push-failed"
         val count = intent.getIntExtra(EXTRA_COUNT, -1)
         val label = intent.getStringExtra(EXTRA_LABEL)
-        val dark = intent.getBooleanExtra(EXTRA_DARK, false)
+        val dark = intent.getBooleanExtra(EXTRA_DARK, false) || state == "settings-worst"
         val fakeState = fixtureState(state, count, label, dark)
 
         setContent {
@@ -350,11 +378,13 @@ class DesignStatesActivity : ComponentActivity() {
                     val articleState = ARTICLE_STATES[state]
                     val listState = LIST_STATES[state]
                     val searchState = SEARCH_STATES[state]
+                    val settingsState = SETTINGS_STATES[state]
                     when {
                         articleState != null -> ArticleStateScreen(articleState)
                         state in WEB_STATES -> WebStateScreen(WEB_STATES[state])
                         listState != null -> ListStateScreen(listState)
                         searchState != null -> SearchStateScreen(searchState)
+                        settingsState != null -> SettingsStateScreen(settingsState)
                         else -> SettingsScreenContent(viewStore = ViewStore { fakeState })
                     }
                 }
