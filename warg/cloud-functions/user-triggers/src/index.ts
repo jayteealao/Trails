@@ -1,9 +1,11 @@
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { defineString } from 'firebase-functions/params';
 import { callGatewayBegin } from './gateway-client.js';
 import { handleUserArticleCreated } from './handler.js';
+import { handleArchiveRetry } from './retry.js';
 import { PUBLIC_API_KEY, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET, gatewayBeginConfig } from './secrets.js';
 
 // Initialize Firebase Admin
@@ -43,5 +45,31 @@ export const onUserArticleSave = onDocumentCreated(
       { beginArchive: (payload) => callGatewayBegin(gatewayBeginConfig(GATEWAY_URL.value()), payload) }
     );
     return null;
+  }
+);
+
+/**
+ * Callable: a signed-in person archives an article they saved again.
+ *
+ * Takes { itemId } and answers { outcome, reason? } (see retry.ts).
+ */
+export const retryArchive = onCall(
+  {
+    secrets: [PUBLIC_API_KEY, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET],
+    timeoutSeconds: 120,
+    maxInstances: 5,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Sign in to retry an archive');
+    }
+    const data: unknown = request.data;
+    const itemId = typeof data === 'object' && data !== null && 'itemId' in data ? data.itemId : undefined;
+    // Read before the claim, so a missing key fails with nothing claimed.
+    const config = gatewayBeginConfig(GATEWAY_URL.value());
+    return handleArchiveRetry(
+      { db: getFirestore(), userId: request.auth.uid, itemId },
+      { beginArchive: (payload) => callGatewayBegin(config, payload, 1) }
+    );
   }
 );
