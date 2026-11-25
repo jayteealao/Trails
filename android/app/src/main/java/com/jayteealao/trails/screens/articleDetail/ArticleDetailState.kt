@@ -30,6 +30,8 @@ data class ArticleDetailState(
     val selectedArchiveLoadFailed: Boolean = false,
     /** What the Reader tab shows: the text, the skeleton, or a quiet notice. */
     val readerBody: ReaderBody = ReaderBody.Loading,
+    /** The archive status row above the tabs, or null for no row. */
+    val archiveRow: ArchiveRow? = null,
 )
 
 /**
