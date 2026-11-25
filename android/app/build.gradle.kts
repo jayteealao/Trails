@@ -107,6 +107,7 @@ android {
         buildConfigField("String", "SIGNED_URL_BASE_OVERRIDE", "\"\"")
         buildConfigField("String", "FIRESTORE_EMULATOR", "\"\"")
         buildConfigField("String", "AUTH_EMULATOR", "\"\"")
+        buildConfigField("String", "FUNCTIONS_EMULATOR", "\"\"")
     }
 
     buildTypes {
@@ -143,8 +144,9 @@ android {
                 "SIGNED_URL_BASE_OVERRIDE",
                 "\"${providers.gradleProperty("trails.signedUrlBase").getOrElse("")}\""
             )
-            // -Ptrails.firestoreEmulator=<host:port> and -Ptrails.authEmulator=<host:port>
-            // point the debug build at the local Firebase emulators. Empty by default.
+            // -Ptrails.firestoreEmulator=<host:port>, -Ptrails.authEmulator=<host:port> and
+            // -Ptrails.functionsEmulator=<host:port> point the debug build at the local
+            // Firebase emulators. Empty by default.
             buildConfigField(
                 "String",
                 "FIRESTORE_EMULATOR",
@@ -154,6 +156,11 @@ android {
                 "String",
                 "AUTH_EMULATOR",
                 "\"${providers.gradleProperty("trails.authEmulator").getOrElse("")}\""
+            )
+            buildConfigField(
+                "String",
+                "FUNCTIONS_EMULATOR",
+                "\"${providers.gradleProperty("trails.functionsEmulator").getOrElse("")}\""
             )
         }
 //        create("benchmark") {
@@ -284,6 +291,7 @@ dependencies {
     implementation(libs.firebase.ai)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.functions)
     implementation(libs.firebase.config)
     implementation(libs.play.services.auth)
 

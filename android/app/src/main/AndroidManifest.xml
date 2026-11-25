@@ -10,6 +10,10 @@
     <uses-permission
         android:name="android.permission.WAKE_LOCK"
         tools:node="replace" />
+    <!-- A library of the Cloud Functions client declares this; the app receives no messages. -->
+    <uses-permission
+        android:name="com.google.android.c2dm.permission.RECEIVE"
+        tools:node="remove" />
 
     <application
         android:name=".Trails"

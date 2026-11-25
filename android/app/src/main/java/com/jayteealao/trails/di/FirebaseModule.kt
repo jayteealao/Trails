@@ -1,6 +1,7 @@
 package com.jayteealao.trails.di
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
 import com.jayteealao.trails.BuildConfig
 import dagger.Module
 import dagger.Provides
@@ -26,6 +27,24 @@ object FirebaseModule {
                     useEmulator(host, port)
                 } else {
                     Timber.w("Ignoring malformed Auth emulator address '%s'; using production", target)
+                }
+            }
+        }
+    }
+
+    @Provides
+    @Singleton
+    fun provideFirebaseFunctions(): FirebaseFunctions {
+        return FirebaseFunctions.getInstance("us-central1").apply {
+            // Debug builds can target the local Functions emulator (-Ptrails.functionsEmulator=host:port).
+            val target = BuildConfig.FUNCTIONS_EMULATOR
+            if (BuildConfig.DEBUG && target.isNotBlank()) {
+                val host = target.substringBeforeLast(':', "")
+                val port = target.substringAfterLast(':', "").toIntOrNull()
+                if (host.isNotBlank() && port != null) {
+                    useEmulator(host, port)
+                } else {
+                    Timber.w("Ignoring malformed Functions emulator address '%s'; using production", target)
                 }
             }
         }
