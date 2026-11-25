@@ -120,7 +120,7 @@ class AuthViewModel @Inject constructor(
 
     fun signInWithCredential(credential: AuthCredential) {
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
+            _uiState.value = AuthUiState.Loading()
             try {
                 val result = authRepository.signInWithCredential(credential)
                 completeSignIn(result.user!!)
@@ -135,7 +135,7 @@ class AuthViewModel @Inject constructor(
 
     fun signInAnonymously() {
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
+            _uiState.value = AuthUiState.Loading()
             try {
                 val result = authRepository.signInAnonymously()
                 completeSignIn(result.user!!)
@@ -160,7 +160,7 @@ class AuthViewModel @Inject constructor(
 
     fun linkWithCredential(credential: AuthCredential) {
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading
+            _uiState.value = AuthUiState.Loading()
             try {
                 val result = authRepository.linkWithCredential(credential)
                 completeSignIn(result.user!!)
@@ -177,8 +177,12 @@ class AuthViewModel @Inject constructor(
 }
 
 sealed interface AuthUiState {
-    object Loading : AuthUiState
-    object SignedOut : AuthUiState
+    /** A sign-in runs; [canCancel] is false once the library is being handed over. */
+    data class Loading(val canCancel: Boolean = true) : AuthUiState
+    data object SignedOut : AuthUiState
+    /** Google found no account on this phone. */
+    data object NoGoogleAccount : AuthUiState
     data class SignedIn(val user: FirebaseUser) : AuthUiState
-    data class Error(val message: ErrorMessage) : AuthUiState
+    /** A failed sign-in; [account] is the Google address when Google gave one. */
+    data class Error(val message: ErrorMessage, val account: String? = null) : AuthUiState
 }

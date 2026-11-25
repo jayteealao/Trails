@@ -111,7 +111,7 @@ fun AuthScreen(
             label = "auth_state_animation"
         ) { state ->
             when (state) {
-                is AuthUiState.SignedOut -> {
+                AuthUiState.SignedOut, AuthUiState.NoGoogleAccount -> {
                     SignedOutContent(
                         onGoogleSignInClick = {
                             googleSignInLauncher.launch(googleSignInClient.signInIntent)
