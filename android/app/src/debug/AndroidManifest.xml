@@ -20,8 +20,11 @@
       from `Trails.onCreate()`; only the initializer's auth-state listener/logging is skipped.
     -->
     <application>
-        <!-- Debug only: holds one Settings sync or unsynced-changes dialog state for device
-             captures (adb shell am start -n <app>/.debug.DesignStatesActivity ...). -->
+        <!-- Debug only: holds one Settings sync, unsynced-changes dialog or article archive
+             status state for device captures (adb shell am start -n
+             <app>/.debug.DesignStatesActivity ...). The article states are reader-processing,
+             reader-complete, reader-failed, reader-retrying, reader-not-sent, reader-worst,
+             notice-failed and notice-not-sent. -->
         <activity
             android:name="com.jayteealao.trails.debug.DesignStatesActivity"
             android:exported="true"
