@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import com.jayteealao.trails.data.ThemeChoice
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -88,8 +87,11 @@ class ThemeChoiceRowTest {
         val results = mutableListOf<TextLayoutResult>()
         rule.onNodeWithText(label, useUnmergedTree = true)
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
-        assertEquals(label, 1, results.single().lineCount)
-        assertFalse(label, results.single().hasVisualOverflow)
+        // One line, inside the drawn size of the label.
+        val result = results.single()
+        assertEquals(label, 1, result.lineCount)
+        assertTrue(label, result.getLineRight(0) - result.getLineLeft(0) <= result.size.width)
+        assertTrue(label, result.getLineBottom(0) <= result.size.height)
     }
 
     @Test
