@@ -60,7 +60,7 @@ enum class ReaderNoticeKind(val title: String, val line: String, val isError: Bo
     ),
     FAILED(
         "The archive failed",
-        "There is no reader text for this article. Read it on the Web tab.",
+        "There is no reader text for this article. Try again, or read it on the Web tab.",
         true,
     ),
     EMPTY(
@@ -80,8 +80,14 @@ sealed interface ReaderBody {
     data object Text : ReaderBody
     data object Loading : ReaderBody
 
-    /** A notice alone; the skeleton is [Loading], the first read of an open. */
-    data class Notice(val kind: ReaderNoticeKind) : ReaderBody
+    /**
+     * A notice alone; the skeleton is [Loading], the first read of an open. [retry] is where a
+     * retry of the archive stands, for [ReaderNoticeKind.FAILED] only.
+     */
+    data class Notice(
+        val kind: ReaderNoticeKind,
+        val retry: ArchiveRetryState = ArchiveRetryState.Idle,
+    ) : ReaderBody
 }
 
 /**
@@ -98,6 +104,7 @@ sealed interface ReaderBody {
  * @property localTextUnreadable no stored text archive could be opened.
  * @property articleStatus the status of the shared article on the server, or null.
  * @property savedLongAgo the article was saved more than [WAITING_CAP_MILLIS] ago.
+ * @property retry where a retry of the archive stands.
  */
 data class ReaderSignals(
     val hasText: Boolean,
@@ -111,6 +118,7 @@ data class ReaderSignals(
     val localTextUnreadable: Boolean = false,
     val articleStatus: String? = null,
     val savedLongAgo: Boolean = false,
+    val retry: ArchiveRetryState = ArchiveRetryState.Idle,
 )
 
 /** How long the Reader says the text is on its way with no sign from the server: one day. */
@@ -145,7 +153,7 @@ fun readerBodyFor(s: ReaderSignals): ReaderBody = when {
     !s.loaded -> ReaderBody.Loading
     // The notice alone, as drawn: the skeleton lines are the first read of an open, not a download.
     s.textDownloading -> if (s.online) ReaderBody.Notice(ReaderNoticeKind.WAITING) else offline()
-    s.articleStatus in FAILED_STATUSES -> ReaderBody.Notice(ReaderNoticeKind.FAILED)
+    s.articleStatus in FAILED_STATUSES -> failedBody(s.retry)
     // A failed text download keeps its key in the server list, so it is told apart before the
     // pending check, which would otherwise say the text is on its way.
     s.textDownloadFailed -> if (s.online) ReaderBody.Notice(ReaderNoticeKind.UNREADABLE) else offline()
@@ -158,6 +166,13 @@ fun readerBodyFor(s: ReaderSignals): ReaderBody = when {
     // stops promising one and points to the Web tab.
     s.articleStatus == null && s.savedLongAgo -> ReaderBody.Notice(ReaderNoticeKind.NO_TEXT)
     else -> ReaderBody.Notice(ReaderNoticeKind.WAITING)
+}
+
+/** The body of a failed archive: a running retry makes the text one that is on its way again. */
+private fun failedBody(retry: ArchiveRetryState): ReaderBody = when {
+    retry.isTrying -> ReaderBody.Notice(ReaderNoticeKind.WAITING)
+    retry == ArchiveRetryState.Complete -> ReaderBody.Notice(ReaderNoticeKind.NO_TEXT)
+    else -> ReaderBody.Notice(ReaderNoticeKind.FAILED, retry)
 }
 
 private fun offline() = ReaderBody.Notice(ReaderNoticeKind.OFFLINE)
