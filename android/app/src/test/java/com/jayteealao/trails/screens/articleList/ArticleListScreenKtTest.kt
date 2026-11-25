@@ -53,8 +53,8 @@ import org.robolectric.annotation.Config
  *    `databaseSync`), Search Functionality + SearchBar Interactions (search is the
  *    separate `ArticleSearchScreen`), Synchronization Status (`databaseSync` →
  *    `LinearProgressIndicator` lives in `ArticleListScreen`), and Dialog Visibility /
- *    Content / Dismissal (`ArticleDialog` lives in `ArticleListScreen`, gated by
- *    `selectedArticle`). These render through the real graph and are exercised
+ *    Content / Dismissal (the dialog is gone; the actions sheet that replaced it is covered by
+ *    `ArticleActionsSheetTest` and `ArticleRowSemanticsTest`). These render through the real graph and are exercised
  *    best-effort by the instrumented `NavigationTest`, not under Robolectric.
  *  - Kept as real assertions against [ArticleListScreenContent]: empty state, data load,
  *    item content, item click identity, and all-items rendering (5 tests).

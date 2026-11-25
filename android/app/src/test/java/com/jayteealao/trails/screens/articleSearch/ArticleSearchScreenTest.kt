@@ -1,12 +1,14 @@
 package com.jayteealao.trails.screens.articleSearch
 
 import android.app.Application
+import android.content.Intent
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -15,8 +17,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import com.jayteealao.trails.SearchBarState
 import com.jayteealao.trails.data.ArticleRepository
+import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import io.mockk.coEvery
@@ -32,6 +36,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /** What search says when it finds nothing, fails or runs, and its messages, over a real ViewModel. */
@@ -165,10 +171,64 @@ class ArticleSearchScreenTest {
     @Test
     fun aToast_isOnScreen() {
         show()
-        viewModel.regenerateArticleDetails("a")
+        viewModel.archiveArticle("a")
         rule.waitForIdle()
 
-        rule.onNodeWithText("Regenerate details not available in search", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("Article archived").assertIsDisplayed()
+    }
+
+    private fun showResult() {
+        coEvery { repository.searchLocal("river") } returns listOf(ROW)
+        show()
+        search("river")
+    }
+
+    /** Long-presses the result and chooses [label] in the sheet. */
+    private fun choose(label: String) {
+        rule.onNode(hasText(ROW.title) and hasClickAction()).performTouchInput { longClick() }
+        rule.waitForIdle()
+        rule.onNode(hasText(label) and hasClickAction()).performClick()
+        rule.waitForIdle()
+    }
+
+    @Test
+    fun deleteInTheSheet_takesTheRowAway_andUndoBringsItBack() {
+        showResult()
+        choose("Delete")
+        assertGone(ROW.title)
+        rule.onNodeWithText("Article deleted").assertIsDisplayed()
+
+        rule.onNode(hasText("Undo") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText(ROW.title).assertIsDisplayed()
+        coVerify(exactly = 1) { repository.restore("a") }
+    }
+
+    @Test
+    fun shareCopyAndOpen_doWhatTheySay() {
+        showResult()
+        val application = RuntimeEnvironment.getApplication()
+
+        choose("Share")
+        assertEquals(Intent.ACTION_CHOOSER, shadowOf(application).nextStartedActivity.action)
+
+        choose("Open in browser")
+        assertEquals(ROW.url, shadowOf(application).nextStartedActivity.dataString)
+
+        choose("Copy link")
+        rule.onNodeWithText("Article URL copied to clipboard").assertIsDisplayed()
+    }
+
+    @Test
+    fun aRegenerateThatCannotReadThePage_saysSoInTheSheet() {
+        coEvery { repository.getArticleById("a") } returns Article(itemId = "a", url = "not a link")
+        showResult()
+        choose("Regenerate details")
+        val words = "The article details were not updated."
+        rule.waitUntil(5_000L) { rule.onAllNodesWithText(words).fetchSemanticsNodes().isNotEmpty() }
+
+        rule.onNodeWithText(words).assertIsDisplayed()
+        coVerify(exactly = 0) { repository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
     }
 
     private companion object {

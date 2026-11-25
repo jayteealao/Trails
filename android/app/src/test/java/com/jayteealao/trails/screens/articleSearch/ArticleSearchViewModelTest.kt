@@ -2,6 +2,7 @@ package com.jayteealao.trails.screens.articleSearch
 
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.actions.ArticleAction
 import com.jayteealao.trails.screens.components.ErrorMessage
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -183,6 +184,87 @@ class ArticleSearchViewModelTest {
         advanceUntilIdle()
 
         assertEquals(ArticleSearchState(), viewModel.state.value)
+    }
+
+    /** A ViewModel that found [old] and [new], in this order. */
+    private fun TestScope.viewModelWithResults(): Pair<ArticleSearchViewModel, Collected> {
+        coEvery { repository.searchLocal("both") } returns listOf(old, new)
+        return viewModel().also { (viewModel, _) ->
+            viewModel.search("both")
+            advanceUntilIdle()
+        }
+    }
+
+    @Test
+    fun aDelete_hidesTheRow_andUndoShowsItInItsPlace() = runTest(dispatcher) {
+        coEvery { repository.delete("old") } returns Unit
+        coEvery { repository.restore("old") } returns Unit
+        val (viewModel, collected) = viewModelWithResults()
+
+        viewModel.deleteArticle("old")
+        advanceUntilIdle()
+        assertEquals(listOf(new), viewModel.state.value.searchResults)
+
+        (collected.events.single() as ArticleSearchEvent.ArticleDeleted).undo()
+        advanceUntilIdle()
+        assertEquals(listOf(old, new), viewModel.state.value.searchResults)
+        coVerify(exactly = 1) { repository.restore("old") }
+    }
+
+    @Test
+    fun aNewSearch_startsWithNothingHidden() = runTest(dispatcher) {
+        coEvery { repository.delete("old") } returns Unit
+        val (viewModel, _) = viewModelWithResults()
+        viewModel.deleteArticle("old")
+        advanceUntilIdle()
+
+        viewModel.search("both")
+        advanceUntilIdle()
+        assertEquals(listOf(old, new), viewModel.state.value.searchResults)
+    }
+
+    @Test
+    fun aFailedDelete_keepsTheRow() = runTest(dispatcher) {
+        coEvery { repository.delete("old") } throws IllegalStateException("raw")
+        val (viewModel, _) = viewModelWithResults()
+        viewModel.deleteArticle("old")
+        advanceUntilIdle()
+
+        assertEquals(listOf(old, new), viewModel.state.value.searchResults)
+    }
+
+    @Test
+    fun favouriteAndRead_updateTheRow() = runTest(dispatcher) {
+        coEvery { repository.setFavorite("new", true) } returns Unit
+        coEvery { repository.setReadStatus("new", true) } returns Unit
+        val (viewModel, _) = viewModelWithResults()
+
+        viewModel.setFavorite("new", true)
+        viewModel.setReadStatus("new", true)
+        advanceUntilIdle()
+
+        assertEquals(listOf(old, new.copy(favorite = true, isRead = true)), viewModel.state.value.searchResults)
+    }
+
+    @Test
+    fun shareCopyAndOpen_areEvents_andArchiveIsSaid() = runTest(dispatcher) {
+        coEvery { repository.archive("new") } returns Unit
+        val (viewModel, collected) = viewModelWithResults()
+
+        listOf(ArticleAction.SHARE, ArticleAction.COPY_LINK, ArticleAction.OPEN, ArticleAction.ARCHIVE).forEach {
+            viewModel.runAction(it, new)
+            advanceUntilIdle()
+        }
+
+        assertEquals(
+            listOf(
+                ArticleSearchEvent.ShareArticle(new.title, new.url),
+                ArticleSearchEvent.CopyLink(new.url),
+                ArticleSearchEvent.OpenInBrowser(new.url),
+                ArticleSearchEvent.ShowToast("Article archived"),
+            ),
+            collected.events,
+        )
     }
 
     @Test

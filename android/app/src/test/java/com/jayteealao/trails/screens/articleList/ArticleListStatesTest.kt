@@ -218,20 +218,47 @@ class ArticleListStatesTest {
 
     @Test
     fun aToast_isOnScreen() {
-        // A link that cannot be read leaves the stored details, and the update still ends.
+        show()
+
+        viewModel.archiveArticle("a")
+        rule.waitUntil(WAIT_MILLIS) { rule.onAllNodesWithText(ARCHIVED).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText(ARCHIVED).assertIsDisplayed()
+    }
+
+    @Test
+    fun aDelete_offersUndo_aboveTheBottomBar_andUndoRestores() {
+        show()
+
+        viewModel.deleteArticle("a")
+        rule.waitUntil(WAIT_MILLIS) { rule.onAllNodesWithText(DELETED).fetchSemanticsNodes().isNotEmpty() }
+        val message = rule.onNodeWithText(DELETED).assertIsDisplayed().getBoundsInRoot()
+        val bar = rule.onNode(hasText("Archive") and hasClickAction()).getBoundsInRoot()
+        assertTrue(message.bottom <= bar.top)
+
+        rule.onNode(hasText("Undo") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        coVerify(exactly = 1) { repository.restore("a") }
+        rule.onAllNodesWithText(DELETED).assertCountEquals(0)
+    }
+
+    @Test
+    fun aRegenerateThatCannotReadThePage_saysSo_andKeepsTheStoredDetails() {
         coEvery { repository.getArticleById("a") } returns
             Article(itemId = "a", url = "not a link", givenUrl = "not a link")
         show()
 
         viewModel.regenerateArticleDetails("a")
-        rule.waitUntil(WAIT_MILLIS) { rule.onAllNodesWithText(UPDATED).fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithText(UPDATED).assertIsDisplayed()
+        rule.waitUntil(WAIT_MILLIS) { rule.onAllNodesWithText(NOT_UPDATED).fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText(NOT_UPDATED).assertIsDisplayed()
+        coVerify(exactly = 0) { repository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
     }
 
     private companion object {
         const val RAW = "raw text of the exception"
         const val CHANGE_FAILED = "That change was not saved on this phone."
-        const val UPDATED = "Article details updated"
+        const val NOT_UPDATED = "The article details were not updated."
+        const val ARCHIVED = "Article archived"
+        const val DELETED = "Article deleted"
         const val WAIT_MILLIS = 5_000L
         val NOTICES = listOf("Your library starts here", "No favourites yet", "Nothing archived yet")
         val ROW = ArticleItem(itemId = "a", title = "A river in winter", url = "https://example.com/a")

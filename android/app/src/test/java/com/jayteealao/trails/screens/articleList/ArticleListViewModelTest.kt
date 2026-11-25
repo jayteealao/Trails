@@ -8,6 +8,8 @@ import com.jayteealao.trails.data.FakeLibraryStatus
 import com.jayteealao.trails.data.LibraryState
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.actions.ArticleAction
+import com.jayteealao.trails.screens.articleList.actions.ArticleSheet
 import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import io.mockk.MockKAnnotations
@@ -35,6 +37,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import me.saket.unfurl.UnfurlResult
 import me.saket.unfurl.Unfurler
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -294,6 +297,71 @@ class ArticleListViewModelTest {
         coVerify(exactly = 2) { articleRepository.archive("a") }
         coVerify(exactly = 2) { articleRepository.delete("a") }
         assertEquals(changes.size, events.filterIsInstance<ArticleListEvent.ShowError>().size)
+    }
+
+    /** Makes every unfurler of a ViewModel built after this answer [answer]. */
+    private fun unfurlerAnswers(answer: suspend () -> UnfurlResult?) {
+        val unfurler = mockk<Unfurler>()
+        coEvery { unfurler.unfurl(any<String>()) } coAnswers { answer() }
+        mockkStatic("me.saket.unfurl.UnfurlerKt")
+        every { Unfurler() } returns unfurler
+    }
+
+    @Test
+    fun `a regenerate stores the new details and says so`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        unfurlerAnswers { mockk(relaxed = true) { every { title } returns "New title" } }
+        val (viewModel, events) = viewModelWithEvents(dispatcher)
+
+        viewModel.regenerateArticleDetails("test")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            articleRepository.updateUnfurledDetails("test", "New title", any(), any(), any(), any(), any())
+        }
+        assertEquals(listOf<ArticleListEvent>(ArticleListEvent.ShowSnackbar("Article details updated")), events)
+    }
+
+    @Test
+    fun `an offline regenerate says it failed and its retry reads the page again`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        var reads = 0
+        unfurlerAnswers { reads++; null }
+        val (viewModel, events) = viewModelWithEvents(dispatcher)
+
+        viewModel.regenerateArticleDetails("test")
+        advanceUntilIdle()
+
+        val error = events.single() as ArticleListEvent.ShowError
+        assertEquals(ErrorMessage.DETAILS_NOT_UPDATED, error.message)
+        error.retry!!.invoke()
+        advanceUntilIdle()
+        assertEquals(2, reads)
+        coVerify(exactly = 0) { articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `the actions sheet is in the state and an undo restores`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        coEvery { articleRepository.delete("a") } returns Unit
+        coEvery { articleRepository.restore("a") } returns Unit
+        val (viewModel, events) = viewModelWithEvents(dispatcher)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.state.collect {} }
+        val article = ArticleItem(itemId = "a", title = "A river", url = "https://example.com/a")
+
+        viewModel.openActions(article)
+        advanceUntilIdle()
+        assertEquals(ArticleSheet(article), viewModel.state.value.actionSheet)
+
+        viewModel.chooseAction(ArticleAction.DELETE)
+        advanceUntilIdle()
+        assertEquals(null, viewModel.state.value.actionSheet)
+        (events.single() as ArticleListEvent.ArticleDeleted).undo()
+        advanceUntilIdle()
+        coVerify(exactly = 1) { articleRepository.restore("a") }
     }
 
     @Test
