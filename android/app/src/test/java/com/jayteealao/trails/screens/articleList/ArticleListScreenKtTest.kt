@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.jayteealao.trails.data.ArticleRepository
+import com.jayteealao.trails.data.FakeLibraryStatus
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleList.testfixtures.ArticleTestFixtures
 import com.jayteealao.trails.screens.articleList.testfixtures.rememberFakeLazyPagingItems
@@ -91,7 +92,11 @@ class ArticleListScreenKtTest {
         every { repository.favoritePockets() } answers { EmptyPagingSource() }
         every { repository.archivedPockets() } answers { EmptyPagingSource() }
         every { repository.pocketsByTag(any()) } answers { EmptyPagingSource() }
-        return ArticleListViewModel(articleRepository = repository, ioDispatcher = Dispatchers.Unconfined)
+        return ArticleListViewModel(
+            articleRepository = repository,
+            libraryStatus = FakeLibraryStatus(),
+            ioDispatcher = Dispatchers.Unconfined,
+        )
     }
 
     // "Synchronization Status": the progress bar follows the Firestore sync state.

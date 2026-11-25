@@ -2,7 +2,9 @@ package com.jayteealao.trails.screens.articleSearch
 
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.components.ErrorMessage
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -113,9 +115,90 @@ class ArticleSearchViewModelTest {
         viewModel.search("new")
         advanceUntilIdle()
 
-        val errors = collected.events.filterIsInstance<ArticleSearchEvent.ShowError>().map { it.error }
-        assertEquals(listOf<Throwable>(currentError), errors)
+        assertTrue(viewModel.state.value.searchFailed)
+        assertEquals("new", viewModel.state.value.searchedQuery)
         assertFalse(viewModel.state.value.isSearching)
+        // The failure is said once, by the state.
+        assertEquals(emptyList<ArticleSearchEvent>(), collected.events)
+    }
+
+    @Test
+    fun errorOfAReplacedSearch_neverShows_andNeverMarksTheNewerOne() = runTest(dispatcher) {
+        coEvery { repository.searchLocal("slow") } coAnswers {
+            withContext(NonCancellable) { delay(1_000); throw IllegalStateException("raw text") }
+        }
+        coEvery { repository.searchLocal("new") } coAnswers { delay(10); listOf(new) }
+        val (viewModel, collected) = viewModel()
+
+        viewModel.search("slow")
+        advanceTimeBy(5)
+        viewModel.search("new")
+        advanceUntilIdle()
+
+        assertTrue(collected.states.none { it.searchFailed })
+        assertEquals(listOf(new), viewModel.state.value.searchResults)
+    }
+
+    @Test
+    fun aFailedSearchRunAgain_clearsTheFailure() = runTest(dispatcher) {
+        coEvery { repository.searchLocal("river") } throws IllegalStateException("raw text") andThen listOf(new)
+        val (viewModel, _) = viewModel()
+        viewModel.search("river")
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.searchFailed)
+
+        viewModel.search("river")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.searchFailed)
+        assertEquals(listOf(new), viewModel.state.value.searchResults)
+    }
+
+    @Test
+    fun clear_dropsARunningSearch_andTheLastResults() = runTest(dispatcher) {
+        coEvery { repository.searchLocal("river") } returns listOf(old)
+        coEvery { repository.searchLocal("slow") } coAnswers {
+            withContext(NonCancellable) { delay(1_000); listOf(new) }
+        }
+        val (viewModel, _) = viewModel()
+        viewModel.search("river")
+        advanceUntilIdle()
+        viewModel.search("slow")
+        advanceTimeBy(5)
+
+        viewModel.clearSearch()
+        advanceUntilIdle()
+
+        assertEquals(ArticleSearchState(), viewModel.state.value)
+    }
+
+    @Test
+    fun aBlankSearch_clears() = runTest(dispatcher) {
+        coEvery { repository.searchLocal("river") } returns listOf(old)
+        val (viewModel, _) = viewModel()
+        viewModel.search("river")
+        advanceUntilIdle()
+
+        viewModel.search("  ")
+        advanceUntilIdle()
+
+        assertEquals(ArticleSearchState(), viewModel.state.value)
+    }
+
+    @Test
+    fun aFailedChange_saysSoInFixedWords_andItsRetryRepeatsIt() = runTest(dispatcher) {
+        coEvery { repository.archive("old") } throws IllegalStateException("raw text") andThen Unit
+        val (viewModel, collected) = viewModel()
+        viewModel.archiveArticle("old")
+        advanceUntilIdle()
+
+        val error = collected.events.single() as ArticleSearchEvent.ShowError
+        assertEquals(ErrorMessage.CHANGE_FAILED, error.message)
+        error.retry!!.invoke()
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { repository.archive("old") }
+        assertEquals(1, collected.events.size)
     }
 
     @Test

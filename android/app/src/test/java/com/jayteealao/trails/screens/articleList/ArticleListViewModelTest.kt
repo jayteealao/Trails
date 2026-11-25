@@ -4,8 +4,11 @@ import android.net.Uri
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.jayteealao.trails.data.ArticleRepository
+import com.jayteealao.trails.data.FakeLibraryStatus
+import com.jayteealao.trails.data.LibraryState
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import io.mockk.MockKAnnotations
 import io.mockk.clearAllMocks
@@ -22,9 +25,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -41,6 +47,8 @@ import org.junit.Test
 class ArticleListViewModelTest {
 
     @MockK private lateinit var articleRepository: ArticleRepository
+
+    private val libraryStatus = FakeLibraryStatus()
 
     private lateinit var testDispatcher: CoroutineDispatcher
 
@@ -121,6 +129,7 @@ class ArticleListViewModelTest {
 
         val viewModel = ArticleListViewModel(
             articleRepository = articleRepository,
+            libraryStatus = libraryStatus,
             ioDispatcher = dispatcher,
         )
 
@@ -157,6 +166,7 @@ class ArticleListViewModelTest {
 
         val viewModel = ArticleListViewModel(
             articleRepository = articleRepository,
+            libraryStatus = libraryStatus,
             ioDispatcher = dispatcher,
         )
         // The state is shared WhileSubscribed, so keep a collector alive for the test.
@@ -196,6 +206,7 @@ class ArticleListViewModelTest {
 
         val viewModel = ArticleListViewModel(
             articleRepository = articleRepository,
+            libraryStatus = libraryStatus,
             ioDispatcher = dispatcher,
         )
 
@@ -223,6 +234,7 @@ class ArticleListViewModelTest {
 
         val viewModel = ArticleListViewModel(
             articleRepository = articleRepository,
+            libraryStatus = libraryStatus,
             ioDispatcher = dispatcher,
         )
 
@@ -236,6 +248,120 @@ class ArticleListViewModelTest {
         // No ArticleDao in the graph — the structural absence is the proof.
         // These repo-level invocations confirm the ViewModel routes through the
         // repository abstraction, not directly to Room.
+    }
+
+    /** A ViewModel on [dispatcher], and every event it sends. */
+    private fun TestScope.viewModelWithEvents(
+        dispatcher: CoroutineDispatcher,
+    ): Pair<ArticleListViewModel, List<ArticleListEvent>> {
+        val viewModel = ArticleListViewModel(
+            articleRepository = articleRepository,
+            libraryStatus = libraryStatus,
+            ioDispatcher = dispatcher,
+        )
+        val events = mutableListOf<ArticleListEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.event.collect { events += it } }
+        return viewModel to events
+    }
+
+    @Test
+    fun `each failed change says so in fixed words and its retry repeats it`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val raw = IllegalStateException("raw text")
+        coEvery { articleRepository.setFavorite("a", true) } throws raw andThen Unit
+        coEvery { articleRepository.setReadStatus("a", true) } throws raw andThen Unit
+        coEvery { articleRepository.archive("a") } throws raw andThen Unit
+        coEvery { articleRepository.delete("a") } throws raw andThen Unit
+        val (viewModel, events) = viewModelWithEvents(dispatcher)
+
+        val changes = listOf<() -> Unit>(
+            { viewModel.setFavorite("a", true) },
+            { viewModel.setReadStatus("a", true) },
+            { viewModel.archiveArticle("a") },
+            { viewModel.deleteArticle("a") },
+        )
+        changes.forEach { it() }
+        advanceUntilIdle()
+
+        val errors = events.filterIsInstance<ArticleListEvent.ShowError>()
+        assertEquals(List(changes.size) { ErrorMessage.CHANGE_FAILED }, errors.map { it.message })
+        errors.forEach { it.retry!!.invoke() }
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { articleRepository.setFavorite("a", true) }
+        coVerify(exactly = 2) { articleRepository.setReadStatus("a", true) }
+        coVerify(exactly = 2) { articleRepository.archive("a") }
+        coVerify(exactly = 2) { articleRepository.delete("a") }
+        assertEquals(changes.size, events.filterIsInstance<ArticleListEvent.ShowError>().size)
+    }
+
+    @Test
+    fun `saveUrl says what is wrong with a link that cannot be saved`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val (viewModel, events) = viewModelWithEvents(dispatcher)
+
+        viewModel.saveUrl(mockk { every { this@mockk.toString() } returns "" }, "Title")
+        viewModel.saveUrl(mockk { every { this@mockk.toString() } returns "ftp://example.com/a" }, "Title")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(ErrorMessage.NO_LINK, ErrorMessage.LINK_NOT_SUPPORTED),
+            events.map { (it as ArticleListEvent.ShowError).message },
+        )
+    }
+
+    @Test
+    fun `a save that fails says so and its retry saves again`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        coEvery { articleRepository.saveNewArticle(any()) } throws IllegalStateException("raw text")
+        val (viewModel, events) = viewModelWithEvents(dispatcher)
+
+        viewModel.saveUrl(mockk { every { this@mockk.toString() } returns "https://example.com/a" }, "Title")
+        advanceUntilIdle()
+
+        val error = events.filterIsInstance<ArticleListEvent.ShowError>().single()
+        assertEquals(ErrorMessage.SAVE_FAILED, error.message)
+        error.retry!!.invoke()
+        advanceUntilIdle()
+        coVerify(exactly = 2) { articleRepository.saveNewArticle(any()) }
+    }
+
+    @Test
+    fun `a failing tag read is failed and the retry loads the tags`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        every { articleRepository.allTags() } returns
+            flow { throw IllegalStateException("raw text") } andThen flowOf(listOf("rivers"))
+        val (viewModel, _) = viewModelWithEvents(dispatcher)
+        backgroundScope.launch(dispatcher) { viewModel.state.collect {} }
+        advanceUntilIdle()
+        assertEquals(TagsLoad.FAILED, viewModel.state.value.tagsLoad)
+
+        viewModel.retryTags()
+        advanceUntilIdle()
+
+        assertEquals(TagsLoad.LOADED, viewModel.state.value.tagsLoad)
+        assertEquals(listOf("rivers"), viewModel.state.value.tags)
+    }
+
+    @Test
+    fun `the library status is in the state and only the screen starts a restore`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val (viewModel, _) = viewModelWithEvents(dispatcher)
+        backgroundScope.launch(dispatcher) { viewModel.state.collect {} }
+        libraryStatus.state.value = LibraryState(hasArticles = false, signedIn = true)
+        advanceUntilIdle()
+
+        assertEquals(LibraryState(hasArticles = false, signedIn = true), viewModel.state.value.library)
+        assertEquals(0, libraryStatus.restores)
+        viewModel.showLibrary()
+        viewModel.retryLibrary()
+        assertEquals(1, libraryStatus.restores)
+        assertEquals(1, libraryStatus.retries)
     }
 
     // Tag suggestion tests have been moved to TagManagementViewModelTest
