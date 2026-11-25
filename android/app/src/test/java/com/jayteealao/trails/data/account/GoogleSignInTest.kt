@@ -126,6 +126,6 @@ class GoogleSignInTest {
         const val EMAIL = "mara@example.org"
 
         // An unsigned token with the parts a Google ID token has; nothing reads the signature.
-        const val TOKEN = "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIiwiZW1haWwiOiJtYXJhQGV4YW1wbGUub3JnIn0.c2ln"
+        const val TOKEN = "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIiwiZW1haWwiOiJtYXJhQGV4YW1wbGUub3JnIn0.c2ln" // gitleaks:allow
     }
 }
