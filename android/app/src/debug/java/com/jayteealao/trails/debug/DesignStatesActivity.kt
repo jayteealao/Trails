@@ -26,6 +26,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.jayteealao.trails.BuildConfig
 import com.jayteealao.trails.data.LibraryLoad
 import com.jayteealao.trails.data.LibraryState
+import com.jayteealao.trails.data.ThemeChoice
 import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.data.account.WipeReason
 import com.jayteealao.trails.data.archive.RetryFailure
@@ -413,7 +414,7 @@ class DesignStatesActivity : ComponentActivity() {
             val lastSyncAgo = if (failures > 0) 12 * MINUTE_MS else 2 * MINUTE_MS
 
             return SettingsState(
-                darkTheme = dark,
+                theme = if (dark) ThemeChoice.DARK else ThemeChoice.LIGHT,
                 useCardLayout = true,
                 versionName = BuildConfig.VERSION_NAME,
                 versionCode = BuildConfig.VERSION_CODE,

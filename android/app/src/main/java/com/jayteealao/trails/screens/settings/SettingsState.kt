@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.settings
 
+import com.jayteealao.trails.data.ThemeChoice
 import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.services.firestore.SyncStatus
 
@@ -8,7 +9,7 @@ import com.jayteealao.trails.services.firestore.SyncStatus
  */
 data class SettingsState(
     val useFreedium: Boolean = false,
-    val darkTheme: Boolean = false,
+    val theme: ThemeChoice = ThemeChoice.SYSTEM,
     val useCardLayout: Boolean = false,
     val versionName: String = "",
     val versionCode: Int = 0,

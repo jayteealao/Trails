@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -47,6 +48,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -54,6 +58,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.GoogleAuthProvider
 import com.jayteealao.trails.R
+import com.jayteealao.trails.data.ThemeChoice
 import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.jayteealao.trails.services.firestore.SyncStatus
@@ -137,44 +142,12 @@ internal fun SettingsScreenContent(
         )
 
         // Account Section
-        HorizontalDivider()
-        Spacer(Modifier.height(8.dp))
-        Text("ACCOUNT", style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(4.dp))
+        SectionHead("Account")
 
-        if (viewStore.state.userEmail != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "Email")
-                Text(
-                    text = viewStore.state.userEmail ?: "",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        val account = viewStore.state.userEmail ?: if (viewStore.state.isAnonymous) "Guest" else null
+        if (account != null) SettingRow(title = "Account", value = account)
 
         if (viewStore.state.isAnonymous) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "Account Type")
-                Text(
-                    text = "Guest",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
             FilledTonalButton(
                 onClick = {
                     googleSignInLauncher.launch(googleSignInClient.signInIntent)
@@ -201,60 +174,23 @@ internal fun SettingsScreenContent(
         ) {
             Text(text = "Reset Semantic Cache")
         }
-        HorizontalDivider()
-        Spacer(Modifier.height(8.dp))
-        Text("APPEARANCE", style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(4.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Dark mode",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Text(
-                    text = "Use dark theme across the app",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = viewStore.state.darkTheme,
-                onCheckedChange = { viewStore.action { updateDarkTheme(it) } }
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Card layout",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Text(
-                    text = "Display articles as cards with spacing",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = viewStore.state.useCardLayout,
-                onCheckedChange = { viewStore.action { updateCardLayout(it) } }
-            )
-        }
-        HorizontalDivider()
-        Spacer(Modifier.height(8.dp))
-        Text("INTEGRATIONS")
-        Spacer(Modifier.height(4.dp))
+        SectionHead("Appearance")
+        ThemeChoiceRow(
+            choice = viewStore.state.theme,
+            onChoose = { viewStore.action { updateTheme(it) } },
+        )
+        SettingRow(
+            title = "Card layout",
+            // The whole row is the switch, so its name and its target go with it.
+            modifier = Modifier.toggleable(
+                value = viewStore.state.useCardLayout,
+                role = Role.Switch,
+                onValueChange = { viewStore.action { updateCardLayout(it) } },
+            ),
+            hint = "Display articles as cards with spacing",
+            control = { Switch(checked = viewStore.state.useCardLayout, onCheckedChange = null) },
+        )
+        SectionHead("Integrations")
         Row(
             modifier = Modifier.height(48.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -265,10 +201,7 @@ internal fun SettingsScreenContent(
             )
             Text(text = "Use Freedium")
         }
-        HorizontalDivider()
-        Spacer(Modifier.height(8.dp))
-        Text("SYNC", style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(4.dp))
+        SectionHead("Sync")
 
         // Sync Status Row with Animation
         Row(
@@ -384,10 +317,7 @@ internal fun SettingsScreenContent(
             Text(text = if (viewStore.state.isSyncing) "Syncing..." else "Sync Now")
         }
 
-        HorizontalDivider()
-        Spacer(Modifier.height(8.dp))
-        Text("ABOUT", style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(4.dp))
+        SectionHead("About")
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -426,6 +356,20 @@ internal fun SettingsScreenContent(
     )
 }
 
+/** The divider and the name that start a section of Settings. */
+@Composable
+private fun SectionHead(title: String) {
+    HorizontalDivider()
+    Text(
+        text = title,
+        modifier = Modifier
+            .padding(top = 12.dp, bottom = 4.dp)
+            .semantics { heading() },
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
 @Preview(name = "Settings • Freedium Enabled", showBackground = true)
 @Composable
 private fun SettingsScreenPreview() {
@@ -434,7 +378,7 @@ private fun SettingsScreenPreview() {
             viewStore = ViewStore {
                 SettingsState(
                     useFreedium = true,
-                    darkTheme = false,
+                    theme = ThemeChoice.SYSTEM,
                     useCardLayout = true,
                     versionName = "1.8.9",
                     versionCode = 108090,
@@ -458,7 +402,7 @@ private fun SettingsScreenDarkPreview() {
             viewStore = ViewStore {
                 SettingsState(
                     useFreedium = false,
-                    darkTheme = true,
+                    theme = ThemeChoice.DARK,
                     useCardLayout = true,
                     versionName = "1.8.9",
                     versionCode = 108090,

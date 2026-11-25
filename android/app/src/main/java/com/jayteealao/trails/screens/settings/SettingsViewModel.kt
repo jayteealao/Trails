@@ -6,6 +6,8 @@ import com.jayteealao.trails.BuildConfig
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.SharedPreferencesManager
+import com.jayteealao.trails.data.ThemeChoice
+import com.jayteealao.trails.data.ThemePreference
 import com.jayteealao.trails.data.account.LocalDataOwner
 import com.jayteealao.trails.data.account.PushThenWipe
 import com.jayteealao.trails.data.account.PushThenWipeResult
@@ -37,7 +39,7 @@ import javax.inject.Inject
 // Internal data classes for grouping flow state
 private data class PreferencesState(
     val useFreedium: Boolean,
-    val darkTheme: Boolean,
+    val theme: ThemeChoice,
     val useCardLayout: Boolean
 )
 
@@ -59,6 +61,7 @@ private data class LocalDataStateData(
 class SettingsViewModel @Inject constructor(
     private val syncFailures: SyncFailures,
     private val sharedPreferencesManager: SharedPreferencesManager,
+    private val themePreference: ThemePreference,
     private val firestoreSyncManager: FirestoreSyncManager,
     private val authRepository: com.jayteealao.trails.data.AuthRepository,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
@@ -74,10 +77,10 @@ class SettingsViewModel @Inject constructor(
     // Combine preferences flows
     private val preferencesFlow = combine(
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_FREEDIUM),
-        sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.DARK_MODE_ENABLED),
+        themePreference.choices,
         sharedPreferencesManager.booleanFlow(SettingsPreferenceKeys.USE_CARD_LAYOUT, defaultValue = false),
-    ) { useFreedium, darkTheme, useCardLayout ->
-        PreferencesState(useFreedium, darkTheme, useCardLayout)
+    ) { useFreedium, theme, useCardLayout ->
+        PreferencesState(useFreedium, theme, useCardLayout)
     }
 
     // Combine sync state flows
@@ -141,7 +144,7 @@ class SettingsViewModel @Inject constructor(
         val currentUser = authRepository.getCurrentUser()
         SettingsState(
             useFreedium = prefs.useFreedium,
-            darkTheme = prefs.darkTheme,
+            theme = prefs.theme,
             useCardLayout = prefs.useCardLayout,
             versionName = BuildConfig.VERSION_NAME,
             versionCode = BuildConfig.VERSION_CODE,
@@ -161,7 +164,7 @@ class SettingsViewModel @Inject constructor(
         started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
         initialValue = SettingsState(
             useFreedium = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_FREEDIUM),
-            darkTheme = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.DARK_MODE_ENABLED),
+            theme = themePreference.current(),
             useCardLayout = sharedPreferencesManager.getBoolean(SettingsPreferenceKeys.USE_CARD_LAYOUT, false),
             versionName = BuildConfig.VERSION_NAME,
             versionCode = BuildConfig.VERSION_CODE,
@@ -186,10 +189,9 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun updateDarkTheme(enabled: Boolean) {
-        viewModelScope.launch(ioDispatcher) {
-            sharedPreferencesManager.saveBoolean(SettingsPreferenceKeys.DARK_MODE_ENABLED, enabled)
-        }
+    /** Saved at once: the write does not wait for the disk, and two quick taps keep their order. */
+    fun updateTheme(choice: ThemeChoice) {
+        themePreference.set(choice)
     }
 
     fun updateCardLayout(enabled: Boolean) {
