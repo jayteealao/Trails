@@ -57,6 +57,9 @@ import com.jayteealao.trails.screens.articleList.actions.ArticleActionsSheet
 import com.jayteealao.trails.screens.articleList.actions.ArticleSheet
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchState
+import com.jayteealao.trails.screens.auth.AuthUiState
+import com.jayteealao.trails.screens.auth.SignInPanel
+import com.jayteealao.trails.screens.auth.WORST_SIGN_IN_STATE
 import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.screens.components.showDeleted
 import com.jayteealao.trails.screens.components.showError
@@ -272,6 +275,15 @@ private val SHARE_STATES = mapOf(
     ),
 )
 
+/** The sign-in panel of each held state; its buttons do nothing. */
+private val SIGN_IN_STATES = mapOf(
+    "sign-in-default" to AuthUiState.SignedOut,
+    "sign-in-empty" to AuthUiState.NoGoogleAccount,
+    "sign-in-loading" to AuthUiState.Loading(),
+    "sign-in-error" to AuthUiState.Error(ErrorMessage.GOOGLE_OFFLINE),
+    "sign-in-worst" to WORST_SIGN_IN_STATE,
+)
+
 private val SETTINGS_DEFAULT = SettingsState(
     versionName = BuildConfig.VERSION_NAME,
     versionCode = BuildConfig.VERSION_CODE,
@@ -401,6 +413,10 @@ private fun SearchStateScreen(fixture: SearchFixture) {
  * and Back end the activity.
  *
  * The Settings states are `settings-` with the same five; `settings-worst` is always dark.
+ * `settings-empty` is a guest, with the account upgrade row.
+ *
+ * The sign-in states are `sign-in-` with the same five: `empty` has no Google account on the
+ * phone, `error` is offline, and `worst` names a long address.
  *
  * `adb shell am start -n com.jayteealao.trails/.debug.DesignStatesActivity
  *   --es state push-failed --ei count 42 --ez dark false`
@@ -427,6 +443,7 @@ class DesignStatesActivity : ComponentActivity() {
                     val actionState = ACTION_STATES[state]
                     val shareState = SHARE_STATES[state]
                     val settingsState = SETTINGS_STATES[state]
+                    val signInState = SIGN_IN_STATES[state]
                     when {
                         articleState != null -> ArticleStateScreen(articleState)
                         state in WEB_STATES -> WebStateScreen(WEB_STATES[state])
@@ -444,6 +461,14 @@ class DesignStatesActivity : ComponentActivity() {
                         )
                         searchState != null -> SearchStateScreen(searchState)
                         settingsState != null -> SettingsStateScreen(settingsState)
+                        signInState != null -> SignInPanel(
+                            state = signInState,
+                            onGoogle = {},
+                            onGuest = {},
+                            onSkip = {},
+                            onCancel = {},
+                            onAddAccount = {},
+                        )
                         else -> SettingsScreenContent(viewStore = ViewStore { fakeState })
                     }
                 }
