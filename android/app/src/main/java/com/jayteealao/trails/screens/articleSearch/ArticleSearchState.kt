@@ -1,6 +1,7 @@
 package com.jayteealao.trails.screens.articleSearch
 
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.components.ErrorMessage
 
 /**
  * Consolidated UI state for ArticleSearchScreen
@@ -9,6 +10,10 @@ data class ArticleSearchState(
     /** The newest search's results, best first. */
     val searchResults: List<ArticleItem> = emptyList(),
     val isSearching: Boolean = false,
+    /** The words of the newest search, or null when nothing was searched. */
+    val searchedQuery: String? = null,
+    /** The newest search did not finish. */
+    val searchFailed: Boolean = false,
     val tags: List<String> = emptyList()
 )
 
@@ -18,7 +23,9 @@ data class ArticleSearchState(
 sealed interface ArticleSearchEvent {
     data class NavigateToArticle(val itemId: String) : ArticleSearchEvent
     data class ShowToast(val message: String) : ArticleSearchEvent
-    data class ShowError(val error: Throwable) : ArticleSearchEvent
+
+    /** A failure in fixed words; [retry] repeats what failed. */
+    data class ShowError(val message: ErrorMessage, val retry: (() -> Unit)? = null) : ArticleSearchEvent
     data class ShareArticle(val title: String, val url: String) : ArticleSearchEvent
     data class CopyLink(val url: String, val label: String) : ArticleSearchEvent
 }
