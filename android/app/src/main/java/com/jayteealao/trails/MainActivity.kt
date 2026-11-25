@@ -23,30 +23,31 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.request.crossfade
+import com.jayteealao.trails.data.ThemePreference
 import com.jayteealao.trails.screens.auth.AuthViewModel
-import com.jayteealao.trails.screens.settings.SettingsViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import com.jayteealao.trails.screens.theme.rememberDarkTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @Inject
+    lateinit var themePreference: ThemePreference
+
     private val authViewModel by viewModels<AuthViewModel>()
-    private val settingsViewModel by viewModels<SettingsViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
 //        enableEdgeToEdge()
@@ -69,8 +70,7 @@ class MainActivity : ComponentActivity() {
 
 
         setContent {
-            val darkThemeEnabled by settingsViewModel.state.map { it.darkTheme }.collectAsStateWithLifecycle(false)
-            TrailsTheme(darkTheme = darkThemeEnabled) {
+            TrailsTheme(darkTheme = rememberDarkTheme(themePreference)) {
                 setSingletonImageLoaderFactory { context ->
                     ImageLoader.Builder(context)
                         .crossfade(true)

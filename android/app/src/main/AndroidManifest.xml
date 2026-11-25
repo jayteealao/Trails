@@ -32,8 +32,11 @@
             android:shell="true"
             tools:targetApi="29" />
 
+        <!-- Both activities redraw a theme change of the phone in place: a new instance would lose the
+             open screen, or save a shared link again. -->
         <activity
             android:name=".IntentActivity"
+            android:configChanges="uiMode"
             android:documentLaunchMode="always"
             android:excludeFromRecents="true"
             android:exported="true"
@@ -56,6 +59,7 @@
         </activity>
         <activity
             android:name=".MainActivity"
+            android:configChanges="uiMode"
             android:exported="true"
             android:theme="@style/Theme.Trails">
             <intent-filter>

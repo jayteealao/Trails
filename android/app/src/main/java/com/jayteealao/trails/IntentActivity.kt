@@ -45,17 +45,23 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
 import com.jayteealao.trails.common.AnimatedRoundedBoxes
+import com.jayteealao.trails.data.ThemePreference
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
 import com.jayteealao.trails.screens.theme.TrailsTheme
+import com.jayteealao.trails.screens.theme.rememberDarkTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class IntentActivity : ComponentActivity() {
+    @Inject
+    lateinit var themePreference: ThemePreference
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val viewModel by viewModels<ArticleListViewModel>()
@@ -72,7 +78,7 @@ class IntentActivity : ComponentActivity() {
         }
 
         setContent {
-            TrailsTheme {
+            TrailsTheme(darkTheme = rememberDarkTheme(themePreference)) {
                 val title by viewModel.intentTitle.collectAsState()
                 val url by viewModel.intentUrl.collectAsState()
                 val savedArticleId by viewModel.savedArticleId.collectAsState()
