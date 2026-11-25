@@ -30,6 +30,10 @@ interface ArticleDao {
     @Query("SELECT COUNT(*) FROM article WHERE deleted_at IS NULL")
     suspend fun countAllArticles(): Int
 
+    /** Whether a live article is on this phone, archived ones included. */
+    @Query("SELECT EXISTS(SELECT 1 FROM article WHERE deleted_at IS NULL)")
+    fun observeHasArticles(): Flow<Boolean>
+
     /**
      * Keyset page of the rows a push run sends, changed up to [until]: up to [limit] rows
      * after ([afterTimeUpdated], [afterItemId]) in (timeUpdated, itemId) order. A [since] of
