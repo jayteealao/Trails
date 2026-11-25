@@ -18,6 +18,8 @@ package com.jayteealao.trails.data.di
 
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.ArticleRepositoryImpl
+import com.jayteealao.trails.data.archive.ArchiveRetryClient
+import com.jayteealao.trails.data.archive.FirebaseArchiveRetryClient
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -33,4 +35,10 @@ interface DataModule {
     fun bindsArticleRepository(
         articleRepository: ArticleRepositoryImpl
     ): ArticleRepository
+
+    @Singleton
+    @Binds
+    fun bindsArchiveRetryClient(
+        archiveRetryClient: FirebaseArchiveRetryClient
+    ): ArchiveRetryClient
 }
