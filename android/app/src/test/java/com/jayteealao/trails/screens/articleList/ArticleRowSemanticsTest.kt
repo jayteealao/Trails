@@ -236,7 +236,7 @@ class ArticleRowSemanticsTest {
         rule.waitForIdle()
 
         assertSheet(open = true)
-        rule.onNodeWithText("example.com").assertIsDisplayed()
+        rule.onNode(hasText("example.com") and !hasClickAction()).assertIsDisplayed()
         assertEquals(emptyList<ArticleItem>(), opened)
     }
 

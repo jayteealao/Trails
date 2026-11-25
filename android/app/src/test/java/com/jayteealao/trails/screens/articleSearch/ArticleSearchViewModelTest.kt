@@ -280,7 +280,8 @@ class ArticleSearchViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 2) { repository.archive("old") }
-        assertEquals(1, collected.events.size)
+        assertEquals(ArticleSearchEvent.ShowToast("Article archived"), collected.events.last())
+        assertEquals(2, collected.events.size)
     }
 
     @Test

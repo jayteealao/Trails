@@ -39,6 +39,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /** The words, the rows and the states of the actions sheet. */
 @RunWith(RobolectricTestRunner::class)
@@ -123,7 +124,9 @@ class ArticleActionsSheetTest {
         LABELS.forEach { row(it).assertIsEnabled() }
     }
 
+    // Native graphics, because without them every letter is one pixel wide and no line wraps.
     @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun atTheLargestFontOnASmallPhone_longWordsWrap_andDeleteIsReachable() {
         val long = ArticleItem(
             itemId = "long",
