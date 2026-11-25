@@ -3,7 +3,6 @@ package com.jayteealao.trails.screens.auth
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.common.NetworkMonitor
@@ -126,21 +125,6 @@ class AuthViewModel @Inject constructor(
         }
         localDataOwner.adopt(user.uid, label)
         _uiState.value = AuthUiState.SignedIn(user)
-    }
-
-    fun signInWithCredential(credential: AuthCredential) {
-        viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading()
-            try {
-                val result = authRepository.signInWithCredential(credential)
-                completeSignIn(result.user!!)
-                // Navigation is now handled by observing the SignedIn state in AuthScreen
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                signInFailed(e)
-            }
-        }
     }
 
     /**
@@ -267,8 +251,8 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    /** Shows that a sign-in failed, also one that failed before it reached this ViewModel. */
-    fun signInFailed(cause: Exception) {
+    /** Shows that a guest sign-in failed. */
+    private fun signInFailed(cause: Exception) {
         Timber.e(cause, "Sign-in failed")
         _uiState.value = AuthUiState.Error(signInErrorOf(cause))
     }
@@ -328,22 +312,6 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun linkWithCredential(credential: AuthCredential) {
-        viewModelScope.launch {
-            _uiState.value = AuthUiState.Loading()
-            try {
-                val result = authRepository.linkWithCredential(credential)
-                completeSignIn(result.user!!)
-                if (_uiState.value is AuthUiState.SignedIn) {
-                    _event.emit(AuthEvent.ShowToast("Account upgraded successfully!"))
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                signInFailed(e)
-            }
-        }
-    }
 }
 
 /** Where the account upgrade stands. */

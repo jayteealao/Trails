@@ -293,7 +293,6 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.functions)
     implementation(libs.firebase.config)
-    implementation(libs.play.services.auth)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)

@@ -1,6 +1,5 @@
 package com.jayteealao.trails.data
 
-import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -17,10 +16,6 @@ class AuthRepository @Inject constructor(
         return auth.currentUser
     }
 
-    suspend fun signInWithCredential(credential: AuthCredential): AuthResult {
-        return auth.signInWithCredential(credential).await()
-    }
-
     suspend fun signInAnonymously(): AuthResult {
         return try {
             withTimeout(10000) {  // 10 second timeout
@@ -29,12 +24,6 @@ class AuthRepository @Inject constructor(
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
             throw TimeoutException("The guest sign-in did not answer in time").apply { initCause(e) }
         }
-    }
-
-    suspend fun linkWithCredential(credential: AuthCredential): AuthResult {
-        val currentUser = auth.currentUser
-            ?: throw IllegalStateException("No current user to link")
-        return currentUser.linkWithCredential(credential).await()
     }
 
     /** Signs in to Firebase with the Google [idToken]. */
