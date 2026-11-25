@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.SnackbarHost
@@ -46,7 +45,6 @@ import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.constraintlayout.compose.Dimension
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.accompanist.web.AccompanistWebViewClient
-import com.google.accompanist.web.LoadingState
 import com.google.accompanist.web.WebContent
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
@@ -581,44 +579,6 @@ fun ArticleDetails(
                 }
             }
         }
-    }
-}
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-fun ArticleWebView(
-    url: String,
-    modifier: Modifier = Modifier,
-) {
-    val webViewState = rememberWebViewState(url = url)
-    val webClient: AccompanistWebViewClient = remember {
-        object : AccompanistWebViewClient() {
-        }
-    }
-
-    val loadingState = webViewState.loadingState
-    Column(modifier = modifier) {
-        if (loadingState is LoadingState.Loading) {
-            LinearProgressIndicator(
-                progress = { loadingState.progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp),
-            )
-        }
-        WebView(
-            state = webViewState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(),
-            onCreated = {
-                it.settings.javaScriptEnabled = true
-                it.settings.domStorageEnabled = true
-            },
-            onDispose = {
-            },
-            client = webClient
-        )
     }
 }
 
