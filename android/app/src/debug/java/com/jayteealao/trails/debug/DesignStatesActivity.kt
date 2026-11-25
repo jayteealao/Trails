@@ -62,6 +62,9 @@ import com.jayteealao.trails.screens.components.showDeleted
 import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.settings.SettingsScreenContent
 import com.jayteealao.trails.screens.settings.SettingsState
+import com.jayteealao.trails.screens.share.SavePhase
+import com.jayteealao.trails.screens.share.ShareSheet
+import com.jayteealao.trails.screens.share.ShareState
 import com.jayteealao.trails.services.firestore.SyncStatus
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import io.yumemi.tartlet.ViewStore
@@ -256,6 +259,19 @@ private val SEARCH_STATES = mapOf(
     ),
 )
 
+private val SHARE_SAVED = ShareState.Save(SAMPLE_ROWS[0].title, "example.org", SavePhase.SAVED)
+
+/** The share sheet of each held state; its time never ends and its buttons do nothing. */
+private val SHARE_STATES = mapOf(
+    "share-default" to SHARE_SAVED,
+    "share-empty" to ShareState.NoLink,
+    "share-loading" to SHARE_SAVED.copy(phase = SavePhase.SAVING),
+    "share-error" to SHARE_SAVED.copy(phase = SavePhase.NOT_SAVED),
+    "share-worst" to ShareState.Save(
+        LONG_TITLE, "reading-room.archive.the-longest-subdomain-in-the-list.example.org", SavePhase.ALREADY_SAVED,
+    ),
+)
+
 private val SETTINGS_DEFAULT = SettingsState(
     versionName = BuildConfig.VERSION_NAME,
     versionCode = BuildConfig.VERSION_CODE,
@@ -381,6 +397,9 @@ private fun SearchStateScreen(fixture: SearchFixture) {
  *
  * The actions sheet states are `actions-` with the same five, over the sample list.
  *
+ * The share sheet states are `share-` with the same five. The time of the sheet never ends; Close
+ * and Back end the activity.
+ *
  * The Settings states are `settings-` with the same five; `settings-worst` is always dark.
  *
  * `adb shell am start -n com.jayteealao.trails/.debug.DesignStatesActivity
@@ -406,6 +425,7 @@ class DesignStatesActivity : ComponentActivity() {
                     val listState = LIST_STATES[state]
                     val searchState = SEARCH_STATES[state]
                     val actionState = ACTION_STATES[state]
+                    val shareState = SHARE_STATES[state]
                     val settingsState = SETTINGS_STATES[state]
                     when {
                         articleState != null -> ArticleStateScreen(articleState)
@@ -415,6 +435,13 @@ class DesignStatesActivity : ComponentActivity() {
                             ListStateScreen(LIST_STATES.getValue("home-default"))
                             ArticleActionsSheet(actionState, onChoose = {}, onDismiss = {})
                         }
+                        shareState != null -> ShareSheet(
+                            state = shareState,
+                            onUndo = {},
+                            onRetry = {},
+                            onClosed = ::finish,
+                            undoMillis = Long.MAX_VALUE,
+                        )
                         searchState != null -> SearchStateScreen(searchState)
                         settingsState != null -> SettingsStateScreen(settingsState)
                         else -> SettingsScreenContent(viewStore = ViewStore { fakeState })
