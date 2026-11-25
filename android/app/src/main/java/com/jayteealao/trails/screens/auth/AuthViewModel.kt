@@ -2,6 +2,9 @@ package com.jayteealao.trails.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.data.AuthRepository
@@ -11,8 +14,10 @@ import com.jayteealao.trails.data.account.PushThenWipe
 import com.jayteealao.trails.data.account.PushThenWipeResult
 import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.data.account.WipeReason
+import com.jayteealao.trails.screens.components.ErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +27,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import timber.log.Timber
+import java.util.concurrent.TimeoutException
 import javax.inject.Inject
 
 @HiltViewModel
@@ -122,9 +129,10 @@ class AuthViewModel @Inject constructor(
                 val result = authRepository.signInWithCredential(credential)
                 completeSignIn(result.user!!)
                 // Navigation is now handled by observing the SignedIn state in AuthScreen
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.value = AuthUiState.Error(e)
-                _event.emit(AuthEvent.ShowError(e.message ?: "Failed to sign in"))
+                signInFailed(e)
             }
         }
     }
@@ -135,11 +143,18 @@ class AuthViewModel @Inject constructor(
             try {
                 val result = authRepository.signInAnonymously()
                 completeSignIn(result.user!!)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.value = AuthUiState.Error(e)
-                _event.emit(AuthEvent.ShowError(e.message ?: "Failed to sign in as guest"))
+                signInFailed(e)
             }
         }
+    }
+
+    /** Shows that a sign-in failed, also one that failed before it reached this ViewModel. */
+    fun signInFailed(cause: Exception) {
+        Timber.e(cause, "Sign-in failed")
+        _uiState.value = AuthUiState.Error(signInErrorOf(cause))
     }
 
     fun signOut() {
@@ -156,9 +171,10 @@ class AuthViewModel @Inject constructor(
                 if (_uiState.value is AuthUiState.SignedIn) {
                     _event.emit(AuthEvent.ShowToast("Account upgraded successfully!"))
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.value = AuthUiState.Error(e)
-                _event.emit(AuthEvent.ShowError(e.message ?: "Failed to upgrade account"))
+                signInFailed(e)
             }
         }
     }
@@ -168,5 +184,18 @@ sealed interface AuthUiState {
     object Loading : AuthUiState
     object SignedOut : AuthUiState
     data class SignedIn(val user: FirebaseUser) : AuthUiState
-    data class Error(val throwable: Throwable) : AuthUiState
+    data class Error(val message: ErrorMessage) : AuthUiState
 }
+
+/** The words for a failed sign-in: no network or no answer reads as offline, all else as failed. */
+internal fun signInErrorOf(cause: Throwable): ErrorMessage {
+    val offline = generateSequence(cause) { it.cause }.take(MAX_CAUSES).any {
+        it is FirebaseNetworkException ||
+            it is TimeoutException ||
+            (it is ApiException && it.statusCode == CommonStatusCodes.NETWORK_ERROR)
+    }
+    return if (offline) ErrorMessage.SIGN_IN_OFFLINE else ErrorMessage.SIGN_IN_FAILED
+}
+
+/** A cause chain can loop; no real one is this long. */
+private const val MAX_CAUSES = 10

@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.TimeoutException
 import javax.inject.Inject
 
 class AuthRepository @Inject constructor(
@@ -25,7 +26,7 @@ class AuthRepository @Inject constructor(
                 auth.signInAnonymously().await()
             }
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-            throw Exception("Authentication timeout. Please check your internet connection and ensure Firebase is properly configured.")
+            throw TimeoutException("The guest sign-in did not answer in time").apply { initCause(e) }
         }
     }
 

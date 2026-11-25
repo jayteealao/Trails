@@ -26,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,11 +34,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -48,13 +53,16 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.GoogleAuthProvider
 import com.jayteealao.trails.R
+import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.screens.settings.UnsyncedChangesDialog
 import compose.icons.CssGgIcons
 import compose.icons.cssggicons.Danger
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
+import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(
@@ -71,9 +79,14 @@ fun AuthScreen(
     ) { result ->
         if (result.resultCode == RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            val account = task.result
-            val credential = GoogleAuthProvider.getCredential(account.idToken, null)
-            viewStore.action { signInWithCredential(credential) }
+            try {
+                // Throws when Google did not sign the person in.
+                val account = task.getResult(ApiException::class.java)
+                val credential = GoogleAuthProvider.getCredential(account.idToken, null)
+                viewStore.action { signInWithCredential(credential) }
+            } catch (e: Exception) {
+                viewStore.action { signInFailed(e) }
+            }
         }
     }
 
@@ -83,15 +96,6 @@ fun AuthScreen(
         .build()
 
     val googleSignInClient = GoogleSignIn.getClient(context, gso)
-
-    // Handle events
-    viewStore.handle<AuthEvent.ShowError> { event ->
-        // Could show toast/snackbar with error message
-    }
-
-    viewStore.handle<AuthEvent.ShowToast> { event ->
-        // Could show toast message
-    }
 
     // Render different UI based on state with animations
     Box(
@@ -169,87 +173,13 @@ fun AuthScreen(
                     }
                 }
                 is AuthUiState.Error -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                            contentDescription = "Trails Logo",
-                            modifier = Modifier.size(120.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-
-                        Text(
-                            text = "Trails",
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Error container with better visual design
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.errorContainer,
-                            shape = MaterialTheme.shapes.medium
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    CssGgIcons.Danger,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(48.dp)
-                                )
-
-                                Text(
-                                    text = "Authentication Failed",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-
-                                Text(
-                                    text = state.throwable.message ?: "Unable to sign in. Please try again.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Button(
-                            onClick = {
-                                googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-
-                                .height(48.dp)
-                        ) {
-                            Text(text = "Retry with Google")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                viewStore.action { signInAnonymously() }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                        ) {
-                            Text(text = "Continue as Guest Instead")
-                        }
-                    }
+                    AuthErrorContent(
+                        message = state.message,
+                        onRetryGoogle = {
+                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                        },
+                        onContinueAsGuest = { viewStore.action { signInAnonymously() } },
+                    )
                 }
             }
         }
@@ -262,6 +192,104 @@ fun AuthScreen(
         onConfirm = { viewStore.action { switchAccountAnyway() } },
         onCancelPush = { viewStore.action { keepPreviousAccountData() } },
     )
+}
+
+/** A failed sign-in in fixed words, read out once, and the ways to try again. */
+@Composable
+internal fun AuthErrorContent(
+    message: ErrorMessage,
+    onRetryGoogle: () -> Unit,
+    onContinueAsGuest: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Icon(
+            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+            contentDescription = "Trails Logo",
+            modifier = Modifier.size(120.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+
+        Text(
+            text = "Trails",
+            style = MaterialTheme.typography.displayMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Error container with better visual design
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.errorContainer,
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    CssGgIcons.Danger,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(48.dp)
+                )
+
+                Text(
+                    text = "Authentication Failed",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.error
+                )
+
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onRetryGoogle,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+            Text(text = "Retry with Google")
+        }
+        OutlinedButton(
+            onClick = onContinueAsGuest,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+        ) {
+            Text(text = "Continue as Guest Instead")
+        }
+    }
+}
+
+/** Shows the messages of the account that are not a screen state, on whichever screen is open. */
+@Composable
+fun AuthMessages(authViewModel: AuthViewModel, snackbarHostState: SnackbarHostState) {
+    val viewStore = rememberViewStore { authViewModel }
+    val scope = rememberCoroutineScope()
+
+    viewStore.handle<AuthEvent.ShowToast> { event ->
+        scope.launch { snackbarHostState.showSnackbar(event.message) }
+    }
 }
 
 @Composable
