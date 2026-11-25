@@ -122,6 +122,13 @@
           "version": "v1",
           "at": "2026-11-08T00:16:48Z",
           "workflow": "reader-text-pipeline"
+        },
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
         }
       ]
     },
@@ -233,7 +240,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:32:32Z",
       "updated-at": "2026-11-25T14:44:37Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     },
     "home-first-run": {
       "title": "Home before the first article",
@@ -246,7 +261,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:34:42Z",
       "updated-at": "2026-11-25T14:44:37Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     },
     "favourites": {
       "title": "Favourites",
@@ -259,7 +282,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:34:43Z",
       "updated-at": "2026-11-25T14:44:37Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     },
     "article-actions": {
       "title": "Article actions sheet",
@@ -272,7 +303,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:34:43Z",
       "updated-at": "2026-11-25T14:44:38Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     },
     "reader-status": {
       "title": "Archive status while reading",
@@ -285,7 +324,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:34:43Z",
       "updated-at": "2026-11-25T14:44:38Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     },
     "reader-web": {
       "title": "Web tab with its error",
@@ -298,7 +345,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:34:43Z",
       "updated-at": "2026-11-25T14:44:38Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     },
     "search": {
       "title": "Search",
@@ -311,7 +366,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:34:43Z",
       "updated-at": "2026-11-25T14:44:38Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     },
     "settings": {
       "title": "Settings: theme",
@@ -324,7 +387,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:34:43Z",
       "updated-at": "2026-11-25T14:44:38Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     },
     "share-save": {
       "title": "Save from the share sheet",
@@ -337,7 +408,15 @@
       "slices": [],
       "created-at": "2026-11-25T14:34:43Z",
       "updated-at": "2026-11-25T14:44:38Z",
-      "approvals": []
+      "approvals": [
+        {
+          "commit": "f2ec3e98251b937ffbfa826a53de4dff9fb286e7",
+          "version": "v1",
+          "at": "2026-11-25T14:46:00Z",
+          "answeredAt": "2026-11-25T14:45:23.586Z",
+          "workflow": "android-ui-and-flows"
+        }
+      ]
     }
   },
   "explore": {},
