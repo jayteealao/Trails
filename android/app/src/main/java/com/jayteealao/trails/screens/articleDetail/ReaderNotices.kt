@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -314,8 +313,9 @@ fun ReaderNotice(
                 )
             }
             if (kind == ReaderNoticeKind.FAILED && onRetry != null && retry != ArchiveRetryState.NotRetryable) {
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+                // 40 dp to look at; the button itself adds the 48 dp touch target.
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = onRetry) {
                     Text("Try again")
                 }
                 Spacer(Modifier.height(24.dp))

@@ -7,7 +7,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
@@ -19,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.jayteealao.trails.data.archive.RetryFailure
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,7 +48,11 @@ class ReaderNoticeRetryTest {
         show(ReaderBody.Notice(ReaderNoticeKind.FAILED))
 
         rule.onNode(hasText("The archive failed")).assertExists()
-        rule.onNode(tryAgain).assertIsEnabled().assertHeightIsAtLeast(48.dp).performClick()
+        val button = rule.onNode(tryAgain).assertIsEnabled()
+        // The area that takes a touch, which can be taller than the drawn button.
+        val touchHeight = with(rule.density) { button.fetchSemanticsNode().touchBoundsInRoot.height.toDp() }
+        assertTrue("touch height $touchHeight", touchHeight >= 48.dp)
+        button.performClick()
         assertEquals(1, retries)
     }
 
