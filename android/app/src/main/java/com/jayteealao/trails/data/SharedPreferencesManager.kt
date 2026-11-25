@@ -6,6 +6,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -76,6 +78,20 @@ class SharedPreferencesManager @Inject constructor(
         sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
         awaitClose { sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+
+    /**
+     * The value that [read] gives now, then again after each change of one of [keys] or a clear of
+     * every preference (reported from API 30). Each value is read when it is delivered, so a change
+     * during the first read is not lost.
+     */
+    fun <T> valueFlow(vararg keys: String, read: () -> T): Flow<T> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->
+            if (changedKey == null || changedKey in keys) trySend(Unit)
+        }
+        sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
+        trySend(Unit)
+        awaitClose { sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.conflate().map { read() }
 
     /** The uid that owns the local library, or null when none is stored. */
     fun getLocalDataOwnerUid(): String? = sharedPreferences.getString(LOCAL_DATA_OWNER_UID, null)
