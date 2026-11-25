@@ -7,17 +7,22 @@ import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.screens.tagManagement.TagSuggestionUiState
 import com.jayteealao.trails.services.gemini.GeminiClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -40,20 +45,28 @@ class TagManagementViewModel @Inject constructor(
     // Internal mutable states
     private val _tagSuggestions = MutableStateFlow<Map<String, TagSuggestionUiState>>(emptyMap())
     private val _article = MutableStateFlow<ArticleItem?>(null)
+    private val _loadFailed = MutableStateFlow(false)
+    private var loadJob: Job? = null
 
     private val tagsFlow = articleRepository.allTags()
+        .catch { error ->
+            Timber.e(error, "Could not read the tags")
+            emit(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Tartlet Store implementation - Consolidated state
     private val _state = combine(
         tagsFlow,
         _tagSuggestions,
-        _article
-    ) { tags, tagSuggestions, article ->
+        _article,
+        _loadFailed,
+    ) { tags, tagSuggestions, article, loadFailed ->
         TagManagementState(
             tags = tags,
             tagSuggestionStates = tagSuggestions,
-            article = article
+            article = article,
+            loadFailed = loadFailed,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -70,13 +83,21 @@ class TagManagementViewModel @Inject constructor(
         // Reset to null so the composable re-enters loading state and
         // initializes tagStates from fresh DB data instead of stale cache
         _article.value = null
-        viewModelScope.launch(ioDispatcher) {
+        _loadFailed.value = false
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch(ioDispatcher) {
             try {
-                val articles = articleDao.getArticlesByIds(listOf(articleId))
-                _article.value = articles.firstOrNull()
+                val article = articleDao.getArticlesByIds(listOf(articleId)).firstOrNull()
+                ensureActive()
+                _article.value = article
+                // An article that is gone has no tags to show either.
+                _loadFailed.value = article == null
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Failed to fetch article: $articleId")
-                _event.emit(TagManagementEvent.ShowError(e))
+                ensureActive()
+                _loadFailed.value = true
             }
         }
     }
@@ -92,8 +113,13 @@ class TagManagementViewModel @Inject constructor(
                 } else {
                     articleRepository.removeTag(itemId, tag)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _event.emit(TagManagementEvent.ShowError(e))
+                Timber.e(e, "Failed to change a tag of $itemId")
+                _event.emit(
+                    TagManagementEvent.ShowError(ErrorMessage.CHANGE_FAILED) { updateTag(itemId, tag, enabled) }
+                )
             }
         }
     }
@@ -217,12 +243,15 @@ class TagManagementViewModel @Inject constructor(
 data class TagManagementState(
     val tags: List<String> = emptyList(),
     val tagSuggestionStates: Map<String, TagSuggestionUiState> = emptyMap(),
-    val article: ArticleItem? = null
+    val article: ArticleItem? = null,
+    /** The article could not be read, so its tags cannot be shown. */
+    val loadFailed: Boolean = false,
 )
 
 /**
  * One-time events for TagManagementScreen
  */
 sealed interface TagManagementEvent {
-    data class ShowError(val error: Throwable) : TagManagementEvent
+    /** A failure in fixed words; [retry] repeats what failed. */
+    data class ShowError(val message: ErrorMessage, val retry: (() -> Unit)? = null) : TagManagementEvent
 }

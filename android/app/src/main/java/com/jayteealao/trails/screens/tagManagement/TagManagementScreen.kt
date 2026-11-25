@@ -34,14 +34,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleDetail.ReaderNoticeIcons
+import com.jayteealao.trails.screens.components.Notice
+import com.jayteealao.trails.screens.components.NoticeAction
+import com.jayteealao.trails.screens.components.NoticeActionStyle
+import com.jayteealao.trails.screens.components.TRY_AGAIN
+import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.tagManagement.TagSuggestionUiState
+import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 
 /**
  * Tag Management Screen - Content only (no ModalBottomSheet wrapper)
  * The BottomSheetSceneStrategy handles the sheet presentation
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TagManagementScreen(
     articleId: String,
@@ -62,25 +69,50 @@ fun TagManagementScreen(
     val scope = rememberCoroutineScope()
     viewStore.handle<TagManagementEvent.ShowError> { event ->
         scope.launch {
-            snackbarHostState.showSnackbar(
-                event.error.localizedMessage ?: "An error occurred"
+            snackbarHostState.showError(event.message, event.retry)
+        }
+    }
+
+    // Content only - BottomSheetSceneStrategy wraps this in ModalBottomSheet
+    Box(modifier = Modifier.fillMaxWidth()) {
+        when {
+            article != null -> TagManagementContent(article, viewStore)
+            viewStore.state.loadFailed -> Notice(
+                icon = ReaderNoticeIcons.Failed,
+                title = "The tags did not open",
+                text = "The tags are still saved. Try again.",
+                modifier = Modifier.fillMaxWidth(),
+                isError = true,
+                actions = listOf(
+                    NoticeAction(TRY_AGAIN, NoticeActionStyle.FILLED) {
+                        viewStore.action { getArticle(articleId) }
+                    },
+                ),
             )
+            // Show loading indicator while article is being fetched
+            else -> Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(48.dp))
+            }
         }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
+}
 
-    // Show loading indicator while article is being fetched
-    if (article == null) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 48.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator(modifier = Modifier.size(48.dp))
-        }
-        return
-    }
-
+/** The tags of [article]: add a new one, take a suggestion, switch one on or off. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun TagManagementContent(
+    article: ArticleItem,
+    viewStore: ViewStore<TagManagementState, TagManagementEvent, TagManagementViewModel>,
+) {
     // Local state for tag management — mutableStateMapOf so Compose observes mutations
     val tagStates = remember(article.itemId) {
         mutableStateMapOf<String, Boolean>().apply {
@@ -94,8 +126,6 @@ fun TagManagementScreen(
     val tagSuggestionState: TagSuggestionUiState = viewStore.state.tagSuggestionStates[article.itemId]
         ?: TagSuggestionUiState()
 
-    // Content only - BottomSheetSceneStrategy wraps this in ModalBottomSheet
-    Box(modifier = Modifier.fillMaxWidth()) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -231,10 +261,5 @@ fun TagManagementScreen(
                 )
             }
         }
-    }
-    SnackbarHost(
-        hostState = snackbarHostState,
-        modifier = Modifier.align(Alignment.BottomCenter)
-    )
     }
 }
