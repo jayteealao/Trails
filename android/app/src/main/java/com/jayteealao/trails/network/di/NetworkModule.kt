@@ -14,6 +14,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import me.saket.unfurl.Unfurler
 import okhttp3.ConnectionPool
 import okhttp3.ConnectionSpec
 import okhttp3.Interceptor
@@ -22,12 +23,18 @@ import okhttp3.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import javax.inject.Qualifier
 import javax.inject.Singleton
 
 private const val DEFAULT_BROWSER_VERSION = "100.0.0.0"
 
 internal const val CHROME_USER_AGENT = "Mozilla/5.0 (Linux; Android 11; Build/RQ2A.210505.003) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Version/4.0 Chrome/$DEFAULT_BROWSER_VERSION Mobile Safari/537.36"
+
+/** The client that reads the pages of articles. */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class PageClient
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -105,7 +112,31 @@ object NetworkModule {
             .build()
         return retrofit.create(ArchiveUrlService::class.java)
     }
+
+    /**
+     * Reads pages for their titles. It has none of the interceptors of the app client: they would
+     * replace the agent that page readers expect and read every body whole. Plain http pages have
+     * titles too. The connections and the dispatcher are those of the app client.
+     */
+    @Provides
+    @Singleton
+    @PageClient
+    fun providePageClient(okHttpClient: OkHttpClient): OkHttpClient =
+        okHttpClient.newBuilder()
+            .apply {
+                interceptors().clear()
+                networkInterceptors().clear()
+            }
+            .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
+            .callTimeout(PAGE_READ_SECONDS, TimeUnit.SECONDS)
+            .build()
+
+    /** Not shared: an unfurler remembers its answers, and reading a page again must ask again. */
+    @Provides
+    fun provideUnfurler(@PageClient client: OkHttpClient): Unfurler = Unfurler(httpClient = client)
 }
+
+private const val PAGE_READ_SECONDS = 15L
 
 /**
  * TLS only. A debug build whose signed-link base override is a plain-http local
