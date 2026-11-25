@@ -746,7 +746,7 @@ A caller with no account gets `unauthenticated`, a malformed id
 The claim rule: the gateway does not stop a second retry run, so one transaction
 reads the status by the same rule as `articleStatusDerive` and sets
 `processing_started_at` before the one gateway call. A refusal by the gateway (a
-4xx, or an error with a gateway code) puts the earlier start time back and marks
+4xx, or an error with a gateway code other than `INTERNAL_ERROR`) puts the earlier start time back and marks
 the article `failed`; a timeout, a dropped connection or any other answer keeps
 the claim, which frees itself 45 minutes after the start. The retry sends the
 shared article's `url`, never the one the app wrote, and does not change

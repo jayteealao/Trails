@@ -68,12 +68,15 @@ function gatewayCode(body: string): string | undefined {
 
 /**
  * Whether the gateway itself refused the start. Any other answer (a server
- * error page of the network in between, or a success that names no run) leaves
- * open whether a run exists.
+ * error page of the network in between, the gateway's own INTERNAL_ERROR, which
+ * also covers a call to the workflow that broke off after the run began, or a
+ * success that names no run) leaves open whether a run exists.
  */
 function isRefusal(error: unknown): error is GatewayBeginError {
   if (!(error instanceof GatewayBeginError)) return false;
-  return (error.status >= 400 && error.status < 500) || gatewayCode(error.body) !== undefined;
+  if (error.status >= 400 && error.status < 500) return true;
+  const code = gatewayCode(error.body);
+  return code !== undefined && code !== 'INTERNAL_ERROR';
 }
 
 /**

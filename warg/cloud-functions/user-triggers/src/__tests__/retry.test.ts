@@ -311,6 +311,10 @@ const unclear: Array<[string, () => Response]> = [
     },
   ],
   ['a server error page the gateway did not write', () => new Response('<html>502</html>', { status: 502 })],
+  [
+    'an internal error of the gateway',
+    () => new Response('{"error":"Internal error","code":"INTERNAL_ERROR"}', { status: 500 }),
+  ],
   ['a success that names no run', () => new Response('{}', { status: 200 })],
 ];
 
