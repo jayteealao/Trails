@@ -16,7 +16,6 @@
 
 package com.jayteealao.trails.screens.articleList
 
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.LoadState
@@ -27,8 +26,6 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
-import com.jayteealao.trails.common.generateId
-import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.LibraryStatus
 import com.jayteealao.trails.data.local.database.Article
@@ -39,10 +36,8 @@ import com.jayteealao.trails.screens.articleList.actions.ArticleActionEvent
 import com.jayteealao.trails.screens.articleList.actions.ArticleActionRunner
 import com.jayteealao.trails.screens.articleList.actions.ArticleChange
 import com.jayteealao.trails.screens.articleList.actions.refreshArticleDetails
-import com.jayteealao.trails.screens.components.ErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -51,7 +46,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -63,15 +57,16 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.saket.unfurl.Unfurler
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import javax.inject.Inject
+import javax.inject.Provider
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
     private val articleRepository: ArticleRepository,
     private val libraryStatus: LibraryStatus,
+    private val unfurlers: Provider<Unfurler>,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel(), Store<ArticleListState, ArticleListEvent> {
 
@@ -88,7 +83,7 @@ class ArticleListViewModel @Inject constructor(
         repository = articleRepository,
         scope = viewModelScope,
         dispatcher = ioDispatcher,
-        refreshDetails = { refreshArticleDetails(articleRepository, unfurler, it) },
+        refreshDetails = { refreshArticleDetails(articleRepository, unfurlers.get(), it) },
         emit = { _event.emit(it.toListEvent()) },
     )
 
@@ -267,144 +262,7 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
-    private val _isSaving = MutableStateFlow(false)
-    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
-
-    private val _intentUrl = MutableStateFlow("")
-    val intentUrl: StateFlow<String>
-        get() = _intentUrl
-
-    private val _intentTitle = MutableStateFlow("")
-    val intentTitle: StateFlow<String>
-        get() = _intentTitle
-
-    private val _savedArticleId = MutableStateFlow<String?>(null)
-    val savedArticleId: StateFlow<String?>
-        get() = _savedArticleId
-
-    val unfurler = Unfurler()
-
-    fun saveUrl(givenUrl: Uri, givenTitle: String?) {
-        // Reset state from any previous share
-        _isSaving.value = true
-        _savedArticleId.value = null
-
-        val id = generateId()
-        val (title, url) = if (givenTitle == null) {
-            extractTitleAndUrl(givenUrl.toString()) ?: Pair(givenTitle, givenUrl.toString())
-        } else {
-            Pair(givenTitle, givenUrl.toString())
-        }
-
-        _intentUrl.value = url
-        _intentTitle.value = title ?: ""
-
-        viewModelScope.launch(ioDispatcher) {
-            try {
-                if (url.isBlank()) {
-                    _event.emit(ArticleListEvent.ShowError(ErrorMessage.NO_LINK))
-                    return@launch
-                }
-
-                if (url.toHttpUrlOrNull() == null) {
-                    _event.emit(ArticleListEvent.ShowError(ErrorMessage.LINK_NOT_SUPPORTED))
-                    return@launch
-                }
-
-                val timeNow = System.currentTimeMillis()
-                val normalizedUrl = normalizeUrl(url)
-                val articleId = articleRepository.saveNewArticle(
-                    Article(
-                        itemId = id,
-                        resolvedId = null,
-                        title = "",
-                        givenTitle = title ?: "",
-                        url = url,
-                        givenUrl = url,
-                        normalizedUrl = normalizedUrl,
-                        timeAdded = timeNow,
-                        timeUpdated = timeNow,
-                    )
-                ).itemId
-
-                val isNewArticle = (articleId == id)
-                _savedArticleId.value = articleId
-
-                if (!isNewArticle) {
-                    _event.emit(ArticleListEvent.ShowSnackbar("Article already saved — details refreshed"))
-                }
-
-                var resolvedTitle = title ?: ""
-                var resolvedUrl = url
-                var resolvedImage: String? = null
-                var hasImage = false
-                var resolvedExcerpt = ""
-
-                val unfurlResult = runCatching { unfurler.unfurl(url) }
-                    .onFailure { Timber.w(it, "Failed to unfurl url: %s", url) }
-                    .getOrNull()
-
-                if (unfurlResult != null) {
-                    resolvedTitle = unfurlResult.title ?: resolvedTitle
-                    resolvedUrl = unfurlResult.url.toString()
-                    resolvedImage = unfurlResult.thumbnail?.toString()
-                    hasImage = unfurlResult.thumbnail != null
-                    resolvedExcerpt = unfurlResult.description ?: ""
-                }
-
-                if (_intentTitle.value.isBlank()) {
-                    _intentTitle.value = resolvedTitle
-                }
-
-                // Guard against undo race: skip update if article was deleted during unfurl
-                val currentArticle = articleRepository.getArticleById(articleId)
-                if (currentArticle?.deletedAt != null) {
-                    Timber.d("Article %s was deleted during save, skipping metadata update", articleId)
-                    return@launch
-                }
-
-                articleRepository.updateUnfurledDetails(
-                    itemId = articleId,
-                    title = resolvedTitle,
-                    url = resolvedUrl,
-                    image = resolvedImage,
-                    hasImage = hasImage,
-                    excerpt = resolvedExcerpt,
-                    normalizedUrl = normalizeUrl(resolvedUrl),
-                )
-
-                // Back up immediately so the article's existence marker lands in
-                // Firestore before the detail screen opens its archive listener.
-                // The periodic background sync (syncToFirestore) is enqueued as a
-                // safety backstop in case the inline backup fails (e.g. offline).
-                articleRepository.backupArticleNow(articleId)
-                    .onFailure { t -> Timber.w(t, "Inline backup failed for $articleId — periodic sync will retry") }
-                articleRepository.syncToFirestore()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (error: Throwable) {
-                Timber.e(error, "Failed to save shared article.")
-                _event.emit(ArticleListEvent.ShowError(ErrorMessage.SAVE_FAILED) { saveUrl(givenUrl, givenTitle) })
-            } finally {
-                _isSaving.value = false
-            }
-        }
-    }
-
     fun regenerateArticleDetails(itemId: String) = actions.regenerate(itemId)
-
-    fun extractTitleAndUrl(combinedString: String): Pair<String, String>? {
-        val urlRegex = "(https?://\\S+)".toRegex()
-        val urlMatch = urlRegex.find(combinedString)
-
-        return if (urlMatch != null) {
-            val url = urlMatch.value.trimEnd('.', ',', ')', ']', ';', ':', '!')
-            val title = combinedString.substringBefore(urlMatch.value).trim()
-            Pair(title, url)
-        } else {
-            null
-        }
-    }
 
     private companion object {
         fun ArticleActionEvent.toListEvent(): ArticleListEvent = when (this) {

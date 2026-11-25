@@ -15,10 +15,6 @@ enum class ErrorMessage(val text: String, val staysUntilAnswered: Boolean = fals
     /** A change to an article or its tags did not reach the database. */
     CHANGE_FAILED("That change was not saved on this phone."),
 
-    NO_LINK("There is no link to save."),
-    LINK_NOT_SUPPORTED("Trails saves only links that start with http or https."),
-    SAVE_FAILED("The article was not saved."),
-
     ARTICLE_MISSING("This article is no longer on this phone."),
     ARTICLE_HAS_NO_LINK("This article has no web address."),
     DETAILS_NOT_UPDATED("The article details were not updated."),

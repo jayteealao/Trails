@@ -32,10 +32,12 @@ import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
+import javax.inject.Provider
 
 @HiltViewModel
 class ArticleSearchViewModel @Inject constructor(
     private val pocketRepository: ArticleRepository,  //TODO: remove uses of pocket repository
+    private val unfurlers: Provider<Unfurler>,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ): ViewModel(), Store<ArticleSearchState, ArticleSearchEvent> {
 
@@ -43,13 +45,11 @@ class ArticleSearchViewModel @Inject constructor(
     private val _event = MutableSharedFlow<ArticleSearchEvent>()
     override val event: SharedFlow<ArticleSearchEvent> = _event.asSharedFlow()
 
-    private val unfurler = Unfurler()
-
     private val actions = ArticleActionRunner(
         repository = pocketRepository,
         scope = viewModelScope,
         dispatcher = ioDispatcher,
-        refreshDetails = { refreshArticleDetails(pocketRepository, unfurler, it) },
+        refreshDetails = { refreshArticleDetails(pocketRepository, unfurlers.get(), it) },
         emit = { _event.emit(it.toSearchEvent()) },
         onSaved = ::showChange,
         onDetails = { itemId, details ->
