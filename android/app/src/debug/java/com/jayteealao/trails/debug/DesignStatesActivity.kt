@@ -53,9 +53,12 @@ import com.jayteealao.trails.screens.articleList.ArticleListFrame
 import com.jayteealao.trails.screens.articleList.ArticleListScreenContent
 import com.jayteealao.trails.screens.articleList.ArticleListState
 import com.jayteealao.trails.screens.articleList.ArticleListTab
+import com.jayteealao.trails.screens.articleList.actions.ArticleActionsSheet
+import com.jayteealao.trails.screens.articleList.actions.ArticleSheet
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchContent
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchState
 import com.jayteealao.trails.screens.components.ErrorMessage
+import com.jayteealao.trails.screens.components.showDeleted
 import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.settings.SettingsScreenContent
 import com.jayteealao.trails.screens.settings.SettingsState
@@ -193,6 +196,7 @@ private data class ListFixture(
     val refresh: LoadState = LoadState.NotLoading(endOfPaginationReached = true),
     val library: LibraryState = LibraryState(hasArticles = false, signedIn = false),
     val failedChange: Boolean = false,
+    val deleted: Boolean = false,
 )
 
 private val LOAD_FAILED = LoadState.Error(IllegalStateException("design state"))
@@ -216,10 +220,25 @@ private val LIST_STATES = mapOf(
             load = LibraryLoad.Failed(offline = false, remoteCount = 1284),
         ),
     ),
+    "favourites-default" to ListFixture(
+        ArticleListTab.FAVOURITES, rows = SAMPLE_ROWS.map { it.copy(favorite = true) }, deleted = true,
+    ),
     "favourites-empty" to ListFixture(ArticleListTab.FAVOURITES),
     "favourites-loading" to ListFixture(ArticleListTab.FAVOURITES, refresh = LoadState.Loading),
     "favourites-error" to ListFixture(ArticleListTab.FAVOURITES, refresh = LOAD_FAILED),
     "favourites-worst" to ListFixture(ArticleListTab.FAVOURITES, rows = WORST_ROWS, failedChange = true),
+)
+
+/** The actions sheet of each held state, over the sample list. */
+private val ACTION_STATES = mapOf(
+    "actions-default" to ArticleSheet(SAMPLE_ROWS[0]),
+    "actions-empty" to ArticleSheet(ArticleItem("tree-0", "Notes from the tree survey", url = "")),
+    "actions-loading" to ArticleSheet(SAMPLE_ROWS[0], regenerating = true),
+    "actions-error" to ArticleSheet(
+        SAMPLE_ROWS[0],
+        failure = "Add to favourites was not saved on this phone. Choose it again to retry.",
+    ),
+    "actions-worst" to ArticleSheet(WORST_ROWS[0].copy(favorite = false)),
 )
 
 /** One held state of search: the words in the field and what the newest search found. */
@@ -297,6 +316,11 @@ private fun ListStateScreen(fixture: ListFixture) {
             while (true) snackbarHostState.showError(ErrorMessage.CHANGE_FAILED) {}
         }
     }
+    if (fixture.deleted) {
+        LaunchedEffect(Unit) {
+            while (true) snackbarHostState.showDeleted {}
+        }
+    }
     AppFrame(Screen.ArticleList) {
         ArticleListFrame(
             selectedTab = fixture.tab,
@@ -351,8 +375,11 @@ private fun SearchStateScreen(fixture: SearchFixture) {
  * The Web tab states are `web-empty` (offline) | `web-loading` | `web-error` | `web-worst` (a bad
  * certificate of a long host).
  *
- * The list states are `home-` and `favourites-` with `default` (Home only) | `empty` | `loading` |
- * `error` | `worst`; the search states are `search-` with the same five.
+ * The list states are `home-` and `favourites-` with `default` | `empty` | `loading` | `error` |
+ * `worst`; the search states are `search-` with the same five. `favourites-default` holds the
+ * message of a deleted article with Undo.
+ *
+ * The actions sheet states are `actions-` with the same five, over the sample list.
  *
  * The Settings states are `settings-` with the same five; `settings-worst` is always dark.
  *
@@ -378,11 +405,16 @@ class DesignStatesActivity : ComponentActivity() {
                     val articleState = ARTICLE_STATES[state]
                     val listState = LIST_STATES[state]
                     val searchState = SEARCH_STATES[state]
+                    val actionState = ACTION_STATES[state]
                     val settingsState = SETTINGS_STATES[state]
                     when {
                         articleState != null -> ArticleStateScreen(articleState)
                         state in WEB_STATES -> WebStateScreen(WEB_STATES[state])
                         listState != null -> ListStateScreen(listState)
+                        actionState != null -> {
+                            ListStateScreen(LIST_STATES.getValue("home-default"))
+                            ArticleActionsSheet(actionState, onChoose = {}, onDismiss = {})
+                        }
                         searchState != null -> SearchStateScreen(searchState)
                         settingsState != null -> SettingsStateScreen(settingsState)
                         else -> SettingsScreenContent(viewStore = ViewStore { fakeState })
