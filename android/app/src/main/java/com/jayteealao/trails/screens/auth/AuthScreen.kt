@@ -26,7 +26,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,6 +60,7 @@ import com.google.firebase.auth.GoogleAuthProvider
 import com.jayteealao.trails.R
 import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.screens.components.findActivity
+import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.components.rememberAddGoogleAccount
 import com.jayteealao.trails.screens.settings.UnsyncedChangesDialog
 import compose.icons.CssGgIcons
@@ -198,9 +201,48 @@ internal fun AuthErrorContent(
 fun AuthMessages(authViewModel: AuthViewModel, snackbarHostState: SnackbarHostState) {
     val viewStore = rememberViewStore { authViewModel }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val addGoogleAccount = rememberAddGoogleAccount(onClosed = {})
 
     viewStore.handle<AuthEvent.ShowToast> { event ->
         scope.launch { snackbarHostState.showSnackbar(event.message) }
+    }
+    viewStore.handle<AuthEvent.Upgraded> {
+        scope.launch { snackbarHostState.showSnackbar(UPGRADED) }
+    }
+    viewStore.handle<AuthEvent.UpgradeFailed> { event ->
+        scope.launch {
+            snackbarHostState.showUpgradeFailure(
+                message = event.message,
+                retry = { context.findActivity()?.let { authViewModel.upgradeAccount(it) } },
+                addAccount = addGoogleAccount,
+            )
+        }
+    }
+}
+
+/** What a successful account upgrade says. */
+internal const val UPGRADED = "Your account is upgraded"
+
+/** The label of the action that adds a Google account to the phone. */
+internal const val ADD_ACCOUNT = "Add account"
+
+/**
+ * Shows a failed account upgrade: no account offers to add one, an account with its own library
+ * offers nothing, and every other failure offers Try again.
+ */
+internal suspend fun SnackbarHostState.showUpgradeFailure(
+    message: ErrorMessage,
+    retry: () -> Unit,
+    addAccount: () -> Unit,
+) {
+    when (message) {
+        ErrorMessage.GOOGLE_NO_ACCOUNT -> {
+            val result = showSnackbar(message.text, actionLabel = ADD_ACCOUNT, duration = SnackbarDuration.Long)
+            if (result == SnackbarResult.ActionPerformed) addAccount()
+        }
+        ErrorMessage.ACCOUNT_IN_USE -> showSnackbar(message.text, duration = SnackbarDuration.Long)
+        else -> showError(message, retry)
     }
 }
 

@@ -11,10 +11,12 @@ import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -35,6 +37,8 @@ import com.jayteealao.trails.screens.auth.AuthMessages
 import com.jayteealao.trails.screens.auth.AuthScreen
 import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
+import com.jayteealao.trails.screens.auth.UpgradeState
+import com.jayteealao.trails.screens.components.findActivity
 import com.jayteealao.trails.screens.settings.LogoutConfirmationDialog
 import com.jayteealao.trails.screens.settings.SettingsScreen
 import com.jayteealao.trails.screens.settings.SettingsViewModel
@@ -46,6 +50,7 @@ import com.jayteealao.trails.ui.adaptive.DIALOG
 import com.jayteealao.trails.ui.adaptive.DialogSceneStrategy
 import com.jayteealao.trails.ui.adaptive.TrailsListDetailSceneStrategy
 import com.jayteealao.trails.ui.adaptive.rememberTrailsListDetailSceneStrategy
+import io.yumemi.tartlet.rememberViewStore
 
 @OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class,
     ExperimentalMaterial3AdaptiveApi::class
@@ -58,6 +63,11 @@ fun MainNavigation(
     settingsViewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val authState by authViewModel.state.collectAsState()
+    val upgrade by authViewModel.upgrade.collectAsState()
+    // An upgrade keeps the person on Settings; the account row then reads the new account.
+    LaunchedEffect(upgrade) {
+        if (upgrade == UpgradeState.Done) settingsViewModel.accountChanged()
+    }
     // Cache the initial route calculation to prevent recomposition issues
     val initialRoute = remember(authState) {
         if (authState is AuthUiState.SignedIn) Screen.ArticleList else Screen.Login
@@ -159,6 +169,7 @@ fun MainNavigation(
                 )
             }
             entry<Screen.Settings> {
+                val activity = LocalContext.current.findActivity()
                 SettingsScreen(
                     onLogout = {
                         // "Clear data" signs out only after its wipe; this updates the
@@ -169,9 +180,10 @@ fun MainNavigation(
                     onShowLogoutDialog = {
                         appBackStack.add(Screen.LogoutConfirmation)
                     },
-                    onUpgradeAccount = { credential ->
-                        authViewModel.linkWithCredential(credential)
-                    }
+                    upgrading = upgrade == UpgradeState.Running,
+                    onUpgradeAccount = { activity?.let { authViewModel.upgradeAccount(it) } },
+                    // The same view model that hears of a finished upgrade.
+                    viewStore = rememberViewStore { settingsViewModel },
                 )
             }
             entry<Screen.LogoutConfirmation>(

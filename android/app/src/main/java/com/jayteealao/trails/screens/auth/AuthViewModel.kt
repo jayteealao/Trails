@@ -92,7 +92,7 @@ class AuthViewModel @Inject constructor(
      * first (the person confirms when changes are not backed up), so a restore can only
      * start after the wipe and the new owner.
      */
-    private suspend fun completeSignIn(user: FirebaseUser) {
+    private suspend fun completeSignIn(user: FirebaseUser, label: String? = user.email) {
         if (localDataOwner.decide(user.uid) == OwnerDecision.DIFFERENT_OWNER) {
             val result = try {
                 // No push as [user]: it would write the previous library into this account.
@@ -124,7 +124,7 @@ class AuthViewModel @Inject constructor(
                 return
             }
         }
-        localDataOwner.adopt(user.uid, user.email)
+        localDataOwner.adopt(user.uid, label)
         _uiState.value = AuthUiState.SignedIn(user)
     }
 
@@ -273,9 +273,59 @@ class AuthViewModel @Inject constructor(
         _uiState.value = AuthUiState.Error(signInErrorOf(cause))
     }
 
+    /**
+     * The person's logout: a running upgrade stops, Firebase signs out, and the credential
+     * providers are told, best effort. Startup never calls this.
+     */
     fun signOut() {
+        upgradeJob?.cancel()
+        upgradeJob = null
+        _upgrade.value = UpgradeState.Idle
         authRepository.signOut()
         _uiState.value = AuthUiState.SignedOut
+        viewModelScope.launch {
+            try {
+                googleSignIn.forget()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w(e, "The credential providers were not told of the sign-out")
+            }
+        }
+    }
+
+    private val _upgrade = MutableStateFlow(UpgradeState.Idle)
+
+    /** The account upgrade from Settings; it never changes [state] until it succeeds. */
+    val upgrade: StateFlow<UpgradeState> = _upgrade.asStateFlow()
+
+    private var upgradeJob: Job? = null
+
+    /**
+     * Adds the Google account that the person picks to the signed-in guest. The uid stays, so
+     * the library stays. A failure leaves the guest signed in on Settings with a message; it
+     * never falls back to a sign-in, which would replace the guest. [activity] is not kept.
+     */
+    fun upgradeAccount(activity: Context) {
+        if (_upgrade.value == UpgradeState.Running) return
+        if (_uiState.value !is AuthUiState.SignedIn) return
+        _upgrade.value = UpgradeState.Running
+        upgradeJob = viewModelScope.launch {
+            try {
+                val account = googleSignIn.account(activity)
+                val user = authRepository.linkGoogle(account.idToken).user
+                    ?: throw IllegalStateException("Firebase gave no user")
+                completeSignIn(user, label = user.email ?: account.email)
+                _upgrade.value = UpgradeState.Done
+                _event.emit(AuthEvent.Upgraded)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Account upgrade failed")
+                _upgrade.value = UpgradeState.Idle
+                upgradeErrorOf(e, networkMonitor.isOnline.first())?.let { _event.emit(AuthEvent.UpgradeFailed(it)) }
+            }
+        }
     }
 
     fun linkWithCredential(credential: AuthCredential) {
@@ -295,6 +345,9 @@ class AuthViewModel @Inject constructor(
         }
     }
 }
+
+/** Where the account upgrade stands. */
+enum class UpgradeState { Idle, Running, Done }
 
 /** A state with no sign-in running, which a cancelled picker goes back to. */
 private fun AuthUiState.isRestful(): Boolean =

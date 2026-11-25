@@ -1,12 +1,9 @@
 package com.jayteealao.trails.screens.settings
 
-import android.app.Activity.RESULT_OK
 import android.content.Context
 import android.content.res.Configuration
 import android.text.format.DateUtils
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -54,10 +51,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.firebase.auth.GoogleAuthProvider
-import com.jayteealao.trails.R
 import com.jayteealao.trails.data.ThemeChoice
 import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.screens.theme.TrailsTheme
@@ -71,7 +64,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     onLogout: () -> Unit = {},
     onShowLogoutDialog: () -> Unit = {},
-    onUpgradeAccount: (com.google.firebase.auth.AuthCredential) -> Unit = {},
+    upgrading: Boolean = false,
+    onUpgradeAccount: () -> Unit = {},
     viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel> = rememberViewStore { hiltViewModel() }
 ) {
     SettingsScreenContent(
@@ -79,6 +73,7 @@ fun SettingsScreen(
         viewStore = viewStore,
         onLogout = onLogout,
         onShowLogoutDialog = onShowLogoutDialog,
+        upgrading = upgrading,
         onUpgradeAccount = onUpgradeAccount
     )
 
@@ -104,27 +99,9 @@ internal fun SettingsScreenContent(
     viewStore: ViewStore<SettingsState, SettingsEvent, SettingsViewModel>,
     onLogout: () -> Unit = {},
     onShowLogoutDialog: () -> Unit = {},
-    onUpgradeAccount: (com.google.firebase.auth.AuthCredential) -> Unit = {}
+    upgrading: Boolean = false,
+    onUpgradeAccount: () -> Unit = {}
 ) {
-    val context = LocalContext.current
-
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            val account = task.result
-            val credential = GoogleAuthProvider.getCredential(account.idToken, null)
-            onUpgradeAccount(credential)
-        }
-    }
-
-    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-        .requestIdToken(context.getString(R.string.default_web_client_id))
-        .requestEmail()
-        .build()
-
-    val googleSignInClient = GoogleSignIn.getClient(context, gso)
     val scrollState = rememberScrollState()
 
     Column(
@@ -148,16 +125,16 @@ internal fun SettingsScreenContent(
         if (account != null) SettingRow(title = "Account", value = account)
 
         if (viewStore.state.isAnonymous) {
-            FilledTonalButton(
-                onClick = {
-                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+            // A guest can keep the library and add a Google account; off while one is added.
+            SettingRow(
+                title = "Full account",
+                hint = "Keep your articles on every device",
+                control = {
+                    FilledTonalButton(onClick = onUpgradeAccount, enabled = !upgrading) {
+                        Text(text = "Upgrade")
+                    }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            ) {
-                Text(text = "Upgrade to Full Account")
-            }
+            )
         }
 
         OutlinedButton(

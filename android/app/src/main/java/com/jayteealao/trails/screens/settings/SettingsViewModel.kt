@@ -2,6 +2,7 @@ package com.jayteealao.trails.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.BuildConfig
 import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
@@ -135,12 +136,16 @@ class SettingsViewModel @Inject constructor(
     /** The person's answer to the push-failed dialog: true clears the device. */
     private var clearAnswer: CompletableDeferred<Boolean>? = null
 
+    /** Raised when the account changed outside Settings, so the account row reads it again. */
+    private val accountVersion = MutableStateFlow(0)
+
     // Combine all groups into final state
     private val _state = combine(
         preferencesFlow,
         syncStateFlow,
         localDataStateFlow,
-    ) { prefs, sync, local ->
+        accountVersion,
+    ) { prefs, sync, local, _ ->
         val currentUser = authRepository.getCurrentUser()
         SettingsState(
             useFreedium = prefs.useFreedium,
@@ -152,7 +157,7 @@ class SettingsViewModel @Inject constructor(
             lastSyncTime = sync.lastSyncTime,
             syncStatus = sync.syncStatus,
             lastError = sync.lastError,
-            userEmail = currentUser?.email,
+            userEmail = accountNameOf(currentUser),
             isAnonymous = currentUser?.isAnonymous ?: false,
             syncFailureCount = local.syncFailureCount,
             isRetryingFailures = local.isRetryingFailures,
@@ -174,6 +179,20 @@ class SettingsViewModel @Inject constructor(
     )
 
     override val state: StateFlow<SettingsState> = _state
+
+    /** The account changed elsewhere, for example by an upgrade: show it. */
+    fun accountChanged() {
+        accountVersion.value++
+    }
+
+    /**
+     * The address of a signed-in account; Firebase may give a linked guest none, so the name
+     * the library was handed over under stands in when this account owns it.
+     */
+    private fun accountNameOf(user: FirebaseUser?): String? {
+        if (user == null || user.isAnonymous) return null
+        return user.email ?: localDataOwner.label().takeIf { localDataOwner.uid() == user.uid }
+    }
 
     // Actions
     fun resetSemanticCache() {
