@@ -1,6 +1,6 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { callGatewayBegin } from '../gateway-client.js';
+import { GatewayBeginError, callGatewayBegin } from '../gateway-client.js';
 
 // The gateway /begin client against a scripted fetch: each call is recorded
 // (url, method, headers, parsed body) and answered by the next queued response.
@@ -91,4 +91,32 @@ test('a 202 workflow trigger warning is retried and the next 200 is returned', a
   ]);
   assert.deepEqual(await callGatewayBegin(config, payload), { requestId: 'req-3' });
   assert.equal(calls.length, 2);
+});
+
+test('a refusal rejects with a GatewayBeginError that holds the status and the body', async () => {
+  const body = '{"code":"REQUEST_ID_CONFLICT"}';
+  install([{ status: 409, body }]);
+  await assert.rejects(callGatewayBegin(config, payload), (error: unknown) => {
+    assert.ok(error instanceof GatewayBeginError);
+    assert.equal(error.status, 409);
+    assert.equal(error.body, body);
+    assert.equal(error.message, 'Gateway begin failed: 409 ' + body);
+    return true;
+  });
+});
+
+test('a transport error passes through and is not a GatewayBeginError', async () => {
+  globalThis.fetch = async () => {
+    throw new TypeError('fetch failed');
+  };
+  await assert.rejects(callGatewayBegin(config, payload), (error: unknown) => {
+    assert.ok(error instanceof TypeError);
+    return true;
+  });
+});
+
+test('one allowed attempt posts once, also for an answer that is otherwise retried', async () => {
+  install([{ status: 503, body: 'unavailable' }]);
+  await assert.rejects(callGatewayBegin(config, payload, 1), GatewayBeginError);
+  assert.equal(calls.length, 1);
 });

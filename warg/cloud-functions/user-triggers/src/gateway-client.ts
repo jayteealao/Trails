@@ -16,6 +16,22 @@ interface GatewayBeginResponse {
   warning?: string;
 }
 
+/**
+ * The gateway answered, and the answer is not a started archive. A dropped
+ * connection or a timeout is not one of these: it passes through as it is.
+ */
+export class GatewayBeginError extends Error {
+  readonly status: number;
+  readonly body: string;
+
+  constructor(status: number, body: string) {
+    super(`Gateway begin failed: ${status} ${body}`);
+    this.name = 'GatewayBeginError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -26,11 +42,12 @@ function shouldRetry(status: number): boolean {
 
 export async function callGatewayBegin(
   config: GatewayBeginClientConfig,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  maxAttempts = 3
 ): Promise<GatewayBeginResponse> {
   let lastError: GatewayErrorPayload | undefined;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const response = await fetch(`${config.gatewayUrl}/begin`, {
       method: 'POST',
       headers: {
@@ -66,14 +83,12 @@ export async function callGatewayBegin(
       : rawBody || `HTTP ${response.status}`;
     lastError = { status: retryStatus, body: reason };
 
-    if (!shouldRetry(retryStatus) || attempt === 2) {
+    if (!shouldRetry(retryStatus) || attempt === maxAttempts - 1) {
       break;
     }
 
     await sleep(500 * (2 ** attempt));
   }
 
-  throw new Error(
-    `Gateway begin failed: ${lastError?.status ?? 500} ${lastError?.body ?? 'unknown error'}`
-  );
+  throw new GatewayBeginError(lastError?.status ?? 500, lastError?.body ?? 'unknown error');
 }
