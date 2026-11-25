@@ -249,7 +249,7 @@ does not exist or does not name its field (paths relative to
 | `timeAdded` | `packages/article-writer/src/pocket.ts` (`projectPocket`), `dashboard-api/src/list-articles.ts` (order) |
 | `timeRead` | `packages/article-writer/src/pocket.ts` (`projectPocket`) |
 | `timeUpdated` | `backfill-archiver/src/scheduler.ts` |
-| `deletedAt` | `backfill-scripts/src/rederive.ts` |
+| `deletedAt` | `backfill-scripts/src/rederive.ts`, `user-triggers/src/retry.ts` |
 
 ## Producer
 
