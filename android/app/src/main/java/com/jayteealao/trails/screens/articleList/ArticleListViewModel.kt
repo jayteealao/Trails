@@ -325,7 +325,7 @@ class ArticleListViewModel @Inject constructor(
                         timeAdded = timeNow,
                         timeUpdated = timeNow,
                     )
-                )
+                ).itemId
 
                 val isNewArticle = (articleId == id)
                 _savedArticleId.value = articleId

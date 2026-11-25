@@ -28,6 +28,7 @@ import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.archive.WargMetadata
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
+import com.jayteealao.trails.data.local.database.SavedArticle
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.search.FtsMatchQuery
 import com.jayteealao.trails.network.ArticleData
@@ -113,7 +114,8 @@ interface ArticleRepository: Syncable {
      */
     suspend fun backupArticleNow(itemId: String): Result<Unit>
 
-    suspend fun saveNewArticle(article: Article): String
+    /** Stores [article]; an article with the same address that is stored already comes back as it is. */
+    suspend fun saveNewArticle(article: Article): SavedArticle
     suspend fun upsertArticle(article: Article)
     suspend fun updateUnfurledDetails(
         itemId: String, title: String, url: String,
@@ -361,14 +363,14 @@ class ArticleRepositoryImpl @Inject constructor(
      * video rows, and stamps the sent version as backed up, through the sync manager:
      * its owner check and stamp are the ones every push uses.
      *
-     * Fires synchronously on the caller's coroutine — the ViewModel calls this
-     * inline in `saveUrl` after the unfurl, before handing off to the periodic
+     * Fires synchronously on the caller's coroutine — a save calls this
+     * after it read the page, before handing off to the periodic
      * background sync. A failure here is not fatal: the periodic sync will retry.
      */
     override suspend fun backupArticleNow(itemId: String): Result<Unit> =
         firestoreSyncManager.backupArticleNow(itemId)
 
-    override suspend fun saveNewArticle(article: Article): String =
+    override suspend fun saveNewArticle(article: Article): SavedArticle =
         articleDao.upsertNewArticle(article)
 
     override suspend fun upsertArticle(article: Article) =

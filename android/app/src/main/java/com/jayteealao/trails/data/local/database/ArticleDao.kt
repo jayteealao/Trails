@@ -23,6 +23,12 @@ import kotlinx.coroutines.flow.Flow
 /** Failed push runs after which the sync skips an article until the person retries it. */
 const val MAX_SYNC_FAILURES = 3
 
+/**
+ * Where a saved link is stored, and whether it was in the library before. A deleted article is not
+ * in the library; an archived one is.
+ */
+data class SavedArticle(val itemId: String, val alreadySaved: Boolean)
+
 @Dao
 @DaoReturnTypeConverters(PagingSourceDaoReturnTypeConverter::class)
 interface ArticleDao {
@@ -506,73 +512,35 @@ interface ArticleDao {
     }
 
     /**
-     * Upserts an article into the database.
-     *
-     * This function attempts to find an existing article based on the `givenUrl` or `url` of the `newArticle`.
-     * If an existing article is found, it updates the `timeUpdated` field with the `timeAdded` value from the `newArticle`.
-     * If no existing article is found, the function does nothing.
-     *
-     * This operation is performed within a transaction to ensure data consistency.
-     *
-     * @param newArticle The new article data to upsert.
+     * Puts an article that was deleted or archived back in the library, with everything it had. The
+     * new time is always later than the stored one, as in [clearDeleted], so the sync sends it.
+     */
+    @Query(
+        """
+        UPDATE article
+        SET deleted_at = NULL,
+            archived_at = NULL,
+            timeUpdated = MAX(:now, timeUpdated + 1)
+        WHERE itemId = :itemId
+        """
+    )
+    suspend fun bringBack(itemId: String, now: Long)
+
+    /**
+     * Stores [newArticle], or brings back the stored article with the same address as it is: its
+     * title, text, details and sync bookkeeping stay. The stored article is found by the normalized
+     * address, else by the address or the given address as they were typed.
      */
     @Transaction
-    suspend fun upsertNewArticle(newArticle: Article): String {
-        // Dedup via the dedicated normalized_url column
-        val lookupUrl = newArticle.normalizedUrl
-            ?: newArticle.url
-            ?: newArticle.givenUrl
-
-        val existingArticle = if (lookupUrl != null) {
-            getArticleByNormalizedUrl(lookupUrl)
-                ?: getArticleByUrl(lookupUrl) // Fallback for pre-migration rows
-        } else null
-
-        if (existingArticle != null) {
-            val normalizedFavorite = when {
-                existingArticle.favorite == "1" || existingArticle.timeFavorited > 0 -> "1"
-                newArticle.favorite == "1" || newArticle.timeFavorited > 0 -> "1"
-                newArticle.favorite == "0" -> "0"
-                !newArticle.favorite.isNullOrBlank() -> newArticle.favorite
-                else -> existingArticle.favorite
-            }
-
-            // The sync_state row is not touched, so a re-save keeps the stamp and the
-            // counter; timeUpdated moves, so the push still sends it.
-            upsertArticle(
-                newArticle.copy(
-                    itemId = existingArticle.itemId,
-                    articleId = existingArticle.articleId,
-                    resolvedId = existingArticle.resolvedId,
-                    timeUpdated = newArticle.timeAdded,
-                    timeAdded = existingArticle.timeAdded, //TODO: this is not right
-                    title = newArticle.title.ifBlank { existingArticle.title },
-                    givenTitle = newArticle.givenTitle.ifBlank { existingArticle.givenTitle },
-                    url = newArticle.url ?: existingArticle.url,
-                    givenUrl = newArticle.givenUrl ?: existingArticle.givenUrl,
-                    normalizedUrl = newArticle.normalizedUrl ?: existingArticle.normalizedUrl,
-                    favorite = normalizedFavorite,
-                    status = newArticle.status.ifBlank { existingArticle.status },
-                    image = newArticle.image ?: existingArticle.image,
-                    hasImage = if (!newArticle.hasImage) existingArticle.hasImage else true,
-                    hasVideo = if (!newArticle.hasVideo) existingArticle.hasVideo else true,
-                    hasAudio = if (!newArticle.hasAudio) existingArticle.hasAudio else true,
-                    listenDurationEstimate = if (newArticle.listenDurationEstimate == 0) existingArticle.listenDurationEstimate else newArticle.listenDurationEstimate,
-                    wordCount = if (newArticle.wordCount == 0) existingArticle.wordCount else newArticle.wordCount,
-                    wordCountMessage = if (newArticle.wordCountMessage.isNullOrBlank()) existingArticle.wordCountMessage else newArticle.wordCountMessage,
-                    sortId = if (newArticle.sortId == 0) existingArticle.sortId else newArticle.sortId,
-                    timeRead = if (newArticle.timeRead == null || newArticle.timeRead == 0L) existingArticle.timeRead else newArticle.timeRead,
-                    timeFavorited = if (newArticle.timeFavorited == 0L) existingArticle.timeFavorited else newArticle.timeFavorited,
-                    timeToRead = if (newArticle.timeToRead == 0) existingArticle.timeToRead else newArticle.timeToRead,
-                    text = if (newArticle.text.isNullOrBlank()) existingArticle.text else newArticle.text,
-                    deletedAt = null,
-                    archivedAt = null,
-                )
-            )
-            return existingArticle.itemId
-        } else {
+    suspend fun upsertNewArticle(newArticle: Article): SavedArticle {
+        val addresses = with(newArticle) { listOfNotNull(normalizedUrl, url, givenUrl) }.distinct()
+        val stored = addresses.firstOrNull()?.let { getArticleByNormalizedUrl(it) }
+            ?: addresses.firstNotNullOfOrNull { getArticleByUrl(it) }
+        if (stored == null) {
             upsertArticle(newArticle)
-            return newArticle.itemId
+            return SavedArticle(newArticle.itemId, alreadySaved = false)
         }
+        bringBack(stored.itemId, newArticle.timeAdded)
+        return SavedArticle(stored.itemId, alreadySaved = stored.deletedAt == null)
     }
 }
