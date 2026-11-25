@@ -5,21 +5,34 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.paging.LoadState
+import androidx.paging.LoadStates
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.jayteealao.trails.BuildConfig
+import com.jayteealao.trails.data.LibraryLoad
+import com.jayteealao.trails.data.LibraryState
 import com.jayteealao.trails.data.account.UnsyncedChangesDialogState
 import com.jayteealao.trails.data.account.WipeReason
 import com.jayteealao.trails.data.archive.RetryFailure
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.Screen
+import com.jayteealao.trails.screens.TrailScaffold
+import com.jayteealao.trails.screens.TrailsTopAppBarNav3
 import com.jayteealao.trails.screens.articleDetail.ArchiveRetryState
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailContent
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailState
@@ -28,11 +41,20 @@ import com.jayteealao.trails.screens.articleDetail.ReaderSignals
 import com.jayteealao.trails.screens.articleDetail.archiveRowFor
 import com.jayteealao.trails.screens.articleDetail.onTap
 import com.jayteealao.trails.screens.articleDetail.readerBodyFor
+import com.jayteealao.trails.screens.articleList.ArticleListFrame
+import com.jayteealao.trails.screens.articleList.ArticleListScreenContent
+import com.jayteealao.trails.screens.articleList.ArticleListState
+import com.jayteealao.trails.screens.articleList.ArticleListTab
+import com.jayteealao.trails.screens.articleSearch.ArticleSearchContent
+import com.jayteealao.trails.screens.articleSearch.ArticleSearchState
+import com.jayteealao.trails.screens.components.ErrorMessage
+import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.settings.SettingsScreenContent
 import com.jayteealao.trails.screens.settings.SettingsState
 import com.jayteealao.trails.services.firestore.SyncStatus
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import io.yumemi.tartlet.ViewStore
+import kotlinx.coroutines.flow.flowOf
 
 /** One held state of the article screen: its stored text, its archive status and its retry. */
 private data class ArticleFixture(
@@ -106,9 +128,146 @@ private fun ArticleStateScreen(fixture: ArticleFixture) {
     }
 }
 
+private const val LONG_TITLE = "Benachrichtigungseinstellungen and other compound words: how Aleksandra " +
+    "Wiśniewska-Kowalczyk rebuilt a forty-year-old newsletter in one very long summer"
+
+private val SAMPLE_ROWS = listOf(
+    ArticleItem("tree-1", "Counting the street trees of a small city", "https://example.org/trees"),
+    ArticleItem("tree-2", "A slow walk along the old canal", "https://example.com/canal", favorite = true),
+    ArticleItem("tree-3", "What a newsletter keeps", "https://example.net/newsletter"),
+)
+
+private val WORST_ROWS = listOf(
+    ArticleItem(
+        itemId = "worst-1",
+        title = LONG_TITLE,
+        url = "https://reading-room.archive.the-longest-subdomain-in-the-list.example.org/a",
+        favorite = true,
+    ),
+) + SAMPLE_ROWS
+
+/** One held state of a list: its tab, its rows and their first load, and the library behind it. */
+private data class ListFixture(
+    val tab: ArticleListTab,
+    val rows: List<ArticleItem> = emptyList(),
+    val refresh: LoadState = LoadState.NotLoading(endOfPaginationReached = true),
+    val library: LibraryState = LibraryState(hasArticles = false, signedIn = false),
+    val failedChange: Boolean = false,
+)
+
+private val LOAD_FAILED = LoadState.Error(IllegalStateException("design state"))
+
+private val LIST_STATES = mapOf(
+    "home-default" to ListFixture(ArticleListTab.HOME, rows = SAMPLE_ROWS),
+    "home-empty" to ListFixture(ArticleListTab.HOME),
+    "home-loading" to ListFixture(ArticleListTab.HOME, refresh = LoadState.Loading),
+    "home-error" to ListFixture(
+        ArticleListTab.HOME,
+        library = LibraryState(
+            hasArticles = false, signedIn = true, load = LibraryLoad.Failed(offline = true, remoteCount = null),
+        ),
+    ),
+    "home-worst" to ListFixture(
+        ArticleListTab.HOME,
+        library = LibraryState(
+            hasArticles = false,
+            signedIn = true,
+            email = "aleksandra.wisniewska-kowalczyk+reading-archive@mail.example.org",
+            load = LibraryLoad.Failed(offline = false, remoteCount = 1284),
+        ),
+    ),
+    "favourites-empty" to ListFixture(ArticleListTab.FAVOURITES),
+    "favourites-loading" to ListFixture(ArticleListTab.FAVOURITES, refresh = LoadState.Loading),
+    "favourites-error" to ListFixture(ArticleListTab.FAVOURITES, refresh = LOAD_FAILED),
+    "favourites-worst" to ListFixture(ArticleListTab.FAVOURITES, rows = WORST_ROWS, failedChange = true),
+)
+
+/** One held state of search: the words in the field and what the newest search found. */
+private data class SearchFixture(val text: String, val state: ArticleSearchState)
+
+private val SEARCH_STATES = mapOf(
+    "search-default" to SearchFixture(
+        "tree", ArticleSearchState(searchedQuery = "tree", searchResults = SAMPLE_ROWS.take(1)),
+    ),
+    "search-empty" to SearchFixture("zigurrat", ArticleSearchState(searchedQuery = "zigurrat")),
+    "search-loading" to SearchFixture("tree", ArticleSearchState(searchedQuery = "tree", isSearching = true)),
+    "search-error" to SearchFixture("tree", ArticleSearchState(searchedQuery = "tree", searchFailed = true)),
+    "search-worst" to SearchFixture(
+        LONG_TITLE, ArticleSearchState(searchedQuery = LONG_TITLE, searchResults = WORST_ROWS),
+    ),
+)
+
+/** The app bar of [screen] over [content], as the app frames it. */
+@Composable
+private fun AppFrame(screen: Screen, content: @Composable () -> Unit) {
+    TrailScaffold(
+        topBar = { menuState ->
+            TrailsTopAppBarNav3(
+                title = "Trails",
+                currentScreen = screen,
+                menuState = menuState,
+                onNavigateBack = {},
+                onNavigateToSearch = {},
+                onNavigateToSettings = {},
+            )
+        },
+    ) { paddingValues, _, _ ->
+        Box(Modifier.padding(paddingValues)) { content() }
+    }
+}
+
+/** The list screen over [fixture], with the rules the app uses; its buttons do nothing. */
+@Composable
+private fun ListStateScreen(fixture: ListFixture) {
+    val done = LoadState.NotLoading(endOfPaginationReached = true)
+    val paging = remember(fixture) {
+        flowOf(PagingData.from(fixture.rows, LoadStates(refresh = fixture.refresh, prepend = done, append = done)))
+    }
+    val state = ArticleListState(selectedTab = fixture.tab, library = fixture.library)
+    val snackbarHostState = remember { SnackbarHostState() }
+    if (fixture.failedChange) {
+        // The message comes back each time it ends, so it can be captured at any time.
+        LaunchedEffect(Unit) {
+            while (true) snackbarHostState.showError(ErrorMessage.CHANGE_FAILED) {}
+        }
+    }
+    AppFrame(Screen.ArticleList) {
+        ArticleListFrame(
+            selectedTab = fixture.tab,
+            onSelectTab = {},
+            syncing = false,
+            snackbarHostState = snackbarHostState,
+        ) {
+            ArticleListScreenContent(
+                lazyItems = paging.collectAsLazyPagingItems(),
+                viewStore = ViewStore { state },
+                onSelectArticle = {},
+                onOpenTagManagement = {},
+                useCardLayout = false,
+            )
+        }
+    }
+}
+
+/** The search screen over [fixture]; its buttons do nothing. */
+@Composable
+private fun SearchStateScreen(fixture: SearchFixture) {
+    AppFrame(Screen.ArticleSearch) {
+        ArticleSearchContent(
+            searchText = fixture.text,
+            viewStore = ViewStore { fixture.state },
+            onTextChange = {},
+            onSearch = {},
+            onClear = {},
+            onSelectArticle = {},
+            snackbarHostState = remember { SnackbarHostState() },
+        )
+    }
+}
+
 /**
- * Debug builds only: holds one state of the Settings sync section, the unsynced-changes dialog
- * or the archive status of an article on screen so it can be captured on a device or emulator.
+ * Debug builds only: holds one state of the Settings sync section, the unsynced-changes dialog,
+ * the archive status of an article, a list or search on screen so it can be captured on a device or emulator.
  *
  * Extras: `state` (`pushing` | `push-failed` | `push-failed-one` | `push-failed-switch` |
  * `wiping` | `worst` | `failures` | `retry-failed` | `no-failures`), `count` (Int), `label`
@@ -122,6 +281,9 @@ private fun ArticleStateScreen(fixture: ArticleFixture) {
  * `reader-complete` | `reader-failed` | `reader-retrying` | `reader-not-sent` | `reader-worst`) or
  * without text (`notice-failed` | `notice-not-sent`). A tap on Try again stays at the request that
  * never answers.
+ *
+ * The list states are `home-` and `favourites-` with `default` (Home only) | `empty` | `loading` |
+ * `error` | `worst`; the search states are `search-` with the same five.
  *
  * `adb shell am start -n com.jayteealao.trails/.debug.DesignStatesActivity
  *   --es state push-failed --ei count 42 --ez dark false`
@@ -143,10 +305,13 @@ class DesignStatesActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     val articleState = ARTICLE_STATES[state]
-                    if (articleState != null) {
-                        ArticleStateScreen(articleState)
-                    } else {
-                        SettingsScreenContent(viewStore = ViewStore { fakeState })
+                    val listState = LIST_STATES[state]
+                    val searchState = SEARCH_STATES[state]
+                    when {
+                        articleState != null -> ArticleStateScreen(articleState)
+                        listState != null -> ListStateScreen(listState)
+                        searchState != null -> SearchStateScreen(searchState)
+                        else -> SettingsScreenContent(viewStore = ViewStore { fakeState })
                     }
                 }
             }
