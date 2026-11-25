@@ -4,6 +4,7 @@ import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.TimeoutException
@@ -34,6 +35,18 @@ class AuthRepository @Inject constructor(
         val currentUser = auth.currentUser
             ?: throw IllegalStateException("No current user to link")
         return currentUser.linkWithCredential(credential).await()
+    }
+
+    /** Signs in to Firebase with the Google [idToken]. */
+    suspend fun signInWithGoogle(idToken: String): AuthResult {
+        return auth.signInWithCredential(GoogleAuthProvider.getCredential(idToken, null)).await()
+    }
+
+    /** Adds the Google account of [idToken] to the signed-in user, which keeps its uid. */
+    suspend fun linkGoogle(idToken: String): AuthResult {
+        val currentUser = auth.currentUser
+            ?: throw IllegalStateException("No current user to link")
+        return currentUser.linkWithCredential(GoogleAuthProvider.getCredential(idToken, null)).await()
     }
 
     fun signOut() {
