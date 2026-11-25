@@ -29,5 +29,3 @@ data class ArticleItem(
         tagsString?.split(",")?.map { it.trim() } ?: emptyList()
     }
 }
-
-val EMPTYARTICLEITEM = ArticleItem("", "", "")

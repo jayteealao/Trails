@@ -6,6 +6,11 @@ import com.jayteealao.trails.common.di.dispatchers.Dispatcher
 import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.actions.ArticleAction
+import com.jayteealao.trails.screens.articleList.actions.ArticleActionEvent
+import com.jayteealao.trails.screens.articleList.actions.ArticleActionRunner
+import com.jayteealao.trails.screens.articleList.actions.ArticleChange
+import com.jayteealao.trails.screens.articleList.actions.refreshArticleDetails
 import com.jayteealao.trails.screens.components.ErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
@@ -23,6 +28,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import me.saket.unfurl.Unfurler
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
@@ -37,12 +43,28 @@ class ArticleSearchViewModel @Inject constructor(
     private val _event = MutableSharedFlow<ArticleSearchEvent>()
     override val event: SharedFlow<ArticleSearchEvent> = _event.asSharedFlow()
 
+    private val unfurler = Unfurler()
+
+    private val actions = ArticleActionRunner(
+        repository = pocketRepository,
+        scope = viewModelScope,
+        dispatcher = ioDispatcher,
+        refreshDetails = { refreshArticleDetails(pocketRepository, unfurler, it) },
+        emit = { _event.emit(it.toSearchEvent()) },
+        onSaved = ::showChange,
+        onDetails = { itemId, details ->
+            updateRow(itemId) { it.copy(title = details.title, url = details.url, image = details.image) }
+        },
+    )
+
     /** The newest search: its words, where it stands and what it found. */
     private data class Search(
         val query: String? = null,
         val running: Boolean = false,
         val failed: Boolean = false,
         val results: List<ArticleItem> = emptyList(),
+        /** Deleted since the search; each keeps its place in [results], so Undo shows it there. */
+        val hidden: Set<String> = emptySet(),
     )
 
     private val newestSearch = MutableStateFlow(Search())
@@ -61,13 +83,14 @@ class ArticleSearchViewModel @Inject constructor(
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Tartlet Store implementation - Consolidated state
-    private val _state = combine(newestSearch, tagsFlow) { search, tags ->
+    private val _state = combine(newestSearch, tagsFlow, actions.sheet) { search, tags, sheet ->
         ArticleSearchState(
-            searchResults = search.results,
+            searchResults = search.results.filterNot { it.itemId in search.hidden },
             isSearching = search.running,
             searchedQuery = search.query,
             searchFailed = search.failed,
-            tags = tags
+            tags = tags,
+            actionSheet = sheet,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -86,7 +109,7 @@ class ArticleSearchViewModel @Inject constructor(
         if (query.isBlank()) return clearSearch()
         searchJob?.cancel()
         val generation = searchGeneration.incrementAndGet()
-        newestSearch.update { it.copy(query = query, running = true, failed = false) }
+        newestSearch.update { it.copy(query = query, running = true, failed = false, hidden = emptySet()) }
         searchJob = viewModelScope.launch(ioDispatcher) {
             try {
                 val results = pocketRepository.searchLocal(query)
@@ -108,6 +131,21 @@ class ArticleSearchViewModel @Inject constructor(
         newestSearch.value = Search()
     }
 
+    /** The results are read once, so a saved change is shown in them here. */
+    private fun showChange(change: ArticleChange) {
+        when (change) {
+            is ArticleChange.Favourite -> updateRow(change.itemId) { it.copy(favorite = change.isFavorite) }
+            is ArticleChange.Read -> updateRow(change.itemId) { it.copy(isRead = change.isRead) }
+            is ArticleChange.Archive -> Unit
+            is ArticleChange.Delete -> newestSearch.update { it.copy(hidden = it.hidden + change.itemId) }
+            is ArticleChange.Restore -> newestSearch.update { it.copy(hidden = it.hidden - change.itemId) }
+        }
+    }
+
+    private fun updateRow(itemId: String, change: (ArticleItem) -> ArticleItem) = newestSearch.update { search ->
+        search.copy(results = search.results.map { if (it.itemId == itemId) change(it) else it })
+    }
+
     private fun updateIfNewest(generation: Long, change: (Search) -> Search) {
         newestSearch.update { if (generation == searchGeneration.get()) change(it) else it }
     }
@@ -126,9 +164,25 @@ class ArticleSearchViewModel @Inject constructor(
         }
     }
 
-    fun setFavorite(itemId: String, isFavorite: Boolean) = change("setFavorite") {
-        pocketRepository.setFavorite(itemId, isFavorite)
-    }
+    fun setFavorite(itemId: String, isFavorite: Boolean) =
+        actions.save(ArticleChange.Favourite(itemId, isFavorite))
+
+    fun setReadStatus(itemId: String, isRead: Boolean) = actions.save(ArticleChange.Read(itemId, isRead))
+
+    fun archiveArticle(itemId: String) = actions.save(ArticleChange.Archive(itemId))
+
+    fun deleteArticle(itemId: String) = actions.save(ArticleChange.Delete(itemId))
+
+    fun regenerateArticleDetails(itemId: String) = actions.regenerate(itemId)
+
+    /** Runs [action] of [article], which is the article as its row shows it. */
+    fun runAction(action: ArticleAction, article: ArticleItem) = actions.run(action, article)
+
+    fun openActions(article: ArticleItem) = actions.openSheet(article)
+
+    fun chooseAction(action: ArticleAction) = actions.choose(action)
+
+    fun closeActions() = actions.closeSheet()
 
     fun updateTag(itemId: String, tag: String, enabled: Boolean) = change("updateTag") {
         if (enabled) {
@@ -136,18 +190,6 @@ class ArticleSearchViewModel @Inject constructor(
         } else {
             pocketRepository.removeTag(itemId, tag)
         }
-    }
-
-    fun setReadStatus(itemId: String, isRead: Boolean) = change("setReadStatus") {
-        pocketRepository.setReadStatus(itemId, isRead)
-    }
-
-    fun archiveArticle(itemId: String) = change("archiveArticle") {
-        pocketRepository.archive(itemId)
-    }
-
-    fun deleteArticle(itemId: String) = change("deleteArticle") {
-        pocketRepository.delete(itemId)
     }
 
     fun shareArticle(title: String, url: String) {
@@ -162,9 +204,14 @@ class ArticleSearchViewModel @Inject constructor(
         }
     }
 
-    fun regenerateArticleDetails(itemId: String) {
-        viewModelScope.launch {
-            _event.emit(ArticleSearchEvent.ShowToast("Regenerate details not available in search. Open article in list view."))
+    private companion object {
+        fun ArticleActionEvent.toSearchEvent(): ArticleSearchEvent = when (this) {
+            is ArticleActionEvent.Say -> ArticleSearchEvent.ShowToast(message)
+            is ArticleActionEvent.Failed -> ArticleSearchEvent.ShowError(message, retry)
+            is ArticleActionEvent.Deleted -> ArticleSearchEvent.ArticleDeleted(undo)
+            is ArticleActionEvent.Share -> ArticleSearchEvent.ShareArticle(title, url)
+            is ArticleActionEvent.Copy -> ArticleSearchEvent.CopyLink(url)
+            is ArticleActionEvent.Open -> ArticleSearchEvent.OpenInBrowser(url)
         }
     }
 }

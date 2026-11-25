@@ -5,8 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.painterResource
 import com.jayteealao.trails.R
 import com.jayteealao.trails.data.LibraryState
-import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
+import com.jayteealao.trails.screens.articleList.actions.ArticleSheet
 import com.jayteealao.trails.screens.components.ErrorMessage
 
 /**
@@ -18,7 +17,8 @@ data class ArticleListState(
     val selectedTag: String? = null,
     val sortOption: ArticleSortOption = ArticleSortOption.Newest,
     val tags: List<String> = emptyList(),
-    val selectedArticle: ArticleItem = EMPTYARTICLEITEM,
+    /** The open actions sheet, or null. */
+    val actionSheet: ArticleSheet? = null,
     val databaseSync: Boolean = false,
     val selectedTab: ArticleListTab = ArticleListTab.HOME,
     /** Why the library on this phone is empty, or that it is not. */
@@ -39,6 +39,10 @@ sealed interface ArticleListEvent {
     data class ShowError(val message: ErrorMessage, val retry: (() -> Unit)? = null) : ArticleListEvent
     data class ShareArticle(val title: String, val url: String) : ArticleListEvent
     data class CopyLink(val url: String, val label: String = "Article URL") : ArticleListEvent
+    data class OpenInBrowser(val url: String) : ArticleListEvent
+
+    /** An article was deleted; [undo] takes it back. */
+    data class ArticleDeleted(val undo: () -> Unit) : ArticleListEvent
 }
 
 enum class ArticleListTab(val label: String, val icon: @Composable () -> Unit) {

@@ -1,6 +1,7 @@
 package com.jayteealao.trails.screens.articleSearch
 
 import com.jayteealao.trails.data.models.ArticleItem
+import com.jayteealao.trails.screens.articleList.actions.ArticleSheet
 import com.jayteealao.trails.screens.components.ErrorMessage
 
 /**
@@ -14,7 +15,9 @@ data class ArticleSearchState(
     val searchedQuery: String? = null,
     /** The newest search did not finish. */
     val searchFailed: Boolean = false,
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    /** The open actions sheet, or null. */
+    val actionSheet: ArticleSheet? = null,
 )
 
 /**
@@ -27,5 +30,9 @@ sealed interface ArticleSearchEvent {
     /** A failure in fixed words; [retry] repeats what failed. */
     data class ShowError(val message: ErrorMessage, val retry: (() -> Unit)? = null) : ArticleSearchEvent
     data class ShareArticle(val title: String, val url: String) : ArticleSearchEvent
-    data class CopyLink(val url: String, val label: String) : ArticleSearchEvent
+    data class CopyLink(val url: String, val label: String = "Article URL") : ArticleSearchEvent
+    data class OpenInBrowser(val url: String) : ArticleSearchEvent
+
+    /** An article was deleted; [undo] takes it back. */
+    data class ArticleDeleted(val undo: () -> Unit) : ArticleSearchEvent
 }

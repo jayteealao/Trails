@@ -87,8 +87,8 @@ class ArticleActionRunner(
 
             ArticleAction.REGENERATE -> regenerate(article.itemId)
             ArticleAction.OPEN -> if (article.webHost != null) send(ArticleActionEvent.Open(article.url))
-            ArticleAction.SHARE -> if (article.webHost != null) share(article.title, article.url)
-            ArticleAction.COPY_LINK -> if (article.webHost != null) copy(article.url)
+            ArticleAction.SHARE -> if (article.webHost != null) send(ArticleActionEvent.Share(article.title, article.url))
+            ArticleAction.COPY_LINK -> if (article.webHost != null) send(ArticleActionEvent.Copy(article.url))
         }
     }
 
@@ -111,10 +111,6 @@ class ArticleActionRunner(
             if (!saved(change)) failed(change)
         }
     }
-
-    fun share(title: String, url: String) = send(ArticleActionEvent.Share(title, url))
-
-    fun copy(url: String) = send(ArticleActionEvent.Copy(url))
 
     /** Reads the details of [itemId] again; only one run at a time for one article. */
     fun regenerate(itemId: String) {

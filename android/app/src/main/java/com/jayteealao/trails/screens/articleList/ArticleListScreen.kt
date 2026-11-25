@@ -64,10 +64,8 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.jayteealao.trails.R
 import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
 import com.jayteealao.trails.screens.articleDetail.ReaderNoticeIcons
 import com.jayteealao.trails.screens.articleList.components.AdaptiveArticleGrid
-import com.jayteealao.trails.screens.articleList.components.ArticleDialog
 import com.jayteealao.trails.screens.articleList.components.ArticleListSkeleton
 import com.jayteealao.trails.screens.components.Notice
 import com.jayteealao.trails.screens.components.NoticeAction
@@ -184,11 +182,6 @@ fun ArticleListScreen(
                 content(taggedArticles)
             }
         }
-        ArticleDialog( // remove dialog or add to swipe buttons
-            article = viewStore.state.selectedArticle,
-            showDialog = viewStore.state.selectedArticle != EMPTYARTICLEITEM,
-            onDismissRequest = { viewStore.action { selectArticle(EMPTYARTICLEITEM) } }
-        )
     }
 }
 

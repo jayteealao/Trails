@@ -34,7 +34,11 @@ import com.jayteealao.trails.data.LibraryStatus
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.computeNormalizedUrl
 import com.jayteealao.trails.data.models.ArticleItem
-import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
+import com.jayteealao.trails.screens.articleList.actions.ArticleAction
+import com.jayteealao.trails.screens.articleList.actions.ArticleActionEvent
+import com.jayteealao.trails.screens.articleList.actions.ArticleActionRunner
+import com.jayteealao.trails.screens.articleList.actions.ArticleChange
+import com.jayteealao.trails.screens.articleList.actions.refreshArticleDetails
 import com.jayteealao.trails.screens.components.ErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
@@ -78,8 +82,15 @@ class ArticleListViewModel @Inject constructor(
     // Internal mutable states
     private val _selectedTag = MutableStateFlow<String?>(null)
     private val _sortOption = MutableStateFlow(ArticleSortOption.Newest)
-    private val _selectedArticle = MutableStateFlow<ArticleItem>(EMPTYARTICLEITEM)
     private val _selectedTab = MutableStateFlow(ArticleListTab.HOME)
+
+    private val actions = ArticleActionRunner(
+        repository = articleRepository,
+        scope = viewModelScope,
+        dispatcher = ioDispatcher,
+        refreshDetails = { refreshArticleDetails(articleRepository, unfurler, it) },
+        emit = { _event.emit(it.toListEvent()) },
+    )
 
     private data class TagList(val tags: List<String>, val load: TagsLoad)
 
@@ -110,16 +121,16 @@ class ArticleListViewModel @Inject constructor(
         combine(_selectedTag, _sortOption, tagsFlow) { tag, sort, tags ->
             Triple(tag, sort, tags)
         },
-        combine(_selectedArticle, databaseSyncFlow, _selectedTab) { article, sync, tab ->
-            Triple(article, sync, tab)
+        combine(actions.sheet, databaseSyncFlow, _selectedTab) { sheet, sync, tab ->
+            Triple(sheet, sync, tab)
         },
         libraryStatus.state,
-    ) { (selectedTag, sortOption, tagList), (selectedArticle, databaseSync, selectedTab), library ->
+    ) { (selectedTag, sortOption, tagList), (actionSheet, databaseSync, selectedTab), library ->
         ArticleListState(
             selectedTag = selectedTag,
             sortOption = sortOption,
             tags = tagList.tags,
-            selectedArticle = selectedArticle,
+            actionSheet = actionSheet,
             databaseSync = databaseSync,
             selectedTab = selectedTab,
             library = library,
@@ -204,42 +215,23 @@ class ArticleListViewModel @Inject constructor(
 
     fun retryTags() = tagsRead.update { it + 1 }
 
-    /** Runs one change; a failure is told, with a retry that runs the same change again. */
-    private fun change(name: String, block: suspend () -> Unit) {
-        viewModelScope.launch(ioDispatcher) {
-            try {
-                block()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.e(e, "%s failed", name)
-                _event.emit(ArticleListEvent.ShowError(ErrorMessage.CHANGE_FAILED) { change(name, block) })
-            }
-        }
-    }
+    /** Runs [action] of [article], which is the article as its row shows it. */
+    fun runAction(action: ArticleAction, article: ArticleItem) = actions.run(action, article)
 
-    fun setFavorite(itemId: String, isFavorite: Boolean) = change("setFavorite") {
-        articleRepository.setFavorite(itemId, isFavorite)
-    }
+    fun openActions(article: ArticleItem) = actions.openSheet(article)
 
-    fun setReadStatus(itemId: String, isRead: Boolean) = change("setReadStatus") {
-        articleRepository.setReadStatus(itemId, isRead)
-    }
+    fun chooseAction(action: ArticleAction) = actions.choose(action)
 
-    fun archiveArticle(itemId: String) = change("archiveArticle") {
-        articleRepository.archive(itemId)
-        _event.emit(ArticleListEvent.ShowSnackbar("Article archived"))
-    }
+    fun closeActions() = actions.closeSheet()
 
-    fun deleteArticle(itemId: String) = change("deleteArticle") {
-        articleRepository.delete(itemId)
-        _event.emit(ArticleListEvent.ShowSnackbar("Article deleted"))
-    }
+    fun setFavorite(itemId: String, isFavorite: Boolean) =
+        actions.save(ArticleChange.Favourite(itemId, isFavorite))
 
-    fun selectArticle(articleItem: ArticleItem) {
-        _selectedArticle.value = articleItem
-//        provideSummary(articleItem.itemId)
-    }
+    fun setReadStatus(itemId: String, isRead: Boolean) = actions.save(ArticleChange.Read(itemId, isRead))
+
+    fun archiveArticle(itemId: String) = actions.save(ArticleChange.Archive(itemId))
+
+    fun deleteArticle(itemId: String) = actions.save(ArticleChange.Delete(itemId))
 
     fun selectTag(tag: String?) {
         _selectedTag.value = tag
@@ -399,66 +391,7 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
-    fun regenerateArticleDetails(itemId: String) {
-        viewModelScope.launch(ioDispatcher) {
-            try {
-                // Get the current article
-                val article = articleRepository.getArticleById(itemId)
-                if (article == null) {
-                    _event.emit(ArticleListEvent.ShowError(ErrorMessage.ARTICLE_MISSING))
-                    return@launch
-                }
-
-                val url = article.url ?: article.givenUrl
-                if (url.isNullOrBlank()) {
-                    _event.emit(ArticleListEvent.ShowError(ErrorMessage.ARTICLE_HAS_NO_LINK))
-                    return@launch
-                }
-
-                // Refetch metadata using unfurler
-                val unfurlResult = runCatching { unfurler.unfurl(url) }
-                    .onFailure { Timber.w(it, "Failed to unfurl url: %s", url) }
-                    .getOrNull()
-
-                var resolvedTitle = article.givenTitle
-                var resolvedUrl = url
-                var resolvedImage: String? = null
-                var hasImage = false
-                var resolvedExcerpt = ""
-
-                if (unfurlResult != null) {
-                    resolvedTitle = unfurlResult.title ?: resolvedTitle
-                    resolvedUrl = unfurlResult.url.toString()
-                    resolvedImage = unfurlResult.thumbnail?.toString()
-                    hasImage = unfurlResult.thumbnail != null
-                    resolvedExcerpt = unfurlResult.description ?: ""
-                }
-
-                // Update article with new metadata
-                articleRepository.updateUnfurledDetails(
-                    itemId = itemId,
-                    title = resolvedTitle,
-                    url = resolvedUrl,
-                    image = resolvedImage,
-                    hasImage = hasImage,
-                    excerpt = resolvedExcerpt,
-                    normalizedUrl = normalizeUrl(resolvedUrl),
-                )
-
-                // TODO: Re-enable text extraction and metrics when new text provider is available
-
-                Timber.d("Successfully regenerated details for article: $itemId")
-                _event.emit(ArticleListEvent.ShowToast("Article details updated"))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (error: Throwable) {
-                Timber.e(error, "Failed to regenerate article details for: $itemId")
-                _event.emit(
-                    ArticleListEvent.ShowError(ErrorMessage.DETAILS_NOT_UPDATED) { regenerateArticleDetails(itemId) }
-                )
-            }
-        }
-    }
+    fun regenerateArticleDetails(itemId: String) = actions.regenerate(itemId)
 
     fun extractTitleAndUrl(combinedString: String): Pair<String, String>? {
         val urlRegex = "(https?://\\S+)".toRegex()
@@ -474,6 +407,15 @@ class ArticleListViewModel @Inject constructor(
     }
 
     private companion object {
+        fun ArticleActionEvent.toListEvent(): ArticleListEvent = when (this) {
+            is ArticleActionEvent.Say -> ArticleListEvent.ShowSnackbar(message)
+            is ArticleActionEvent.Failed -> ArticleListEvent.ShowError(message, retry)
+            is ArticleActionEvent.Deleted -> ArticleListEvent.ArticleDeleted(undo)
+            is ArticleActionEvent.Share -> ArticleListEvent.ShareArticle(title, url)
+            is ArticleActionEvent.Copy -> ArticleListEvent.CopyLink(url)
+            is ArticleActionEvent.Open -> ArticleListEvent.OpenInBrowser(url)
+        }
+
         /**
          * A page that still loads, as the value before the first load. `PagingData.empty()` without
          * load states reads as loaded and empty, so an empty notice would flash on each open.
