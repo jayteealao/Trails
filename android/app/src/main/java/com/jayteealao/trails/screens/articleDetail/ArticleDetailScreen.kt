@@ -81,42 +81,108 @@ fun ArticleDetailScreen(
     }
 
     val currentArticle = viewStore.state.article ?: article
-    val tabs = detailTabsFor(viewStore.state.tabArchiveKeys)
+    ArticleDetailContent(
+        state = viewStore.state,
+        article = currentArticle,
+        onTabSelected = { viewStore.action { setSelectedTab(it) } },
+        onRetry = { viewStore.action { retryArchive(currentArticle.itemId) } },
+    )
+}
+
+/**
+ * The article screen without its view model: the selected tab's body, then the archive status row
+ * when there is one, then the tab row. The row is a sibling of the body, so it never covers text.
+ */
+@Composable
+fun ArticleDetailContent(
+    state: ArticleDetailState,
+    article: Article,
+    onTabSelected: (Int) -> Unit,
+    onRetry: () -> Unit,
+) {
+    val tabs = detailTabsFor(state.tabArchiveKeys)
 
     ConstraintLayout(
         modifier = Modifier.fillMaxSize()
     ) {
-        val (tabRow, detailView) = createRefs()
+        val (bottomRows, detailView) = createRefs()
 
         ArticleDetails(
             modifier = Modifier.constrainAs(detailView) {
                 top.linkTo(parent.top)
-                bottom.linkTo(tabRow.top)
+                bottom.linkTo(bottomRows.top)
                 start.linkTo(parent.start)
                 end.linkTo(parent.end)
                 height = Dimension.fillToConstraints
             },
-            selectedTabIndex = viewStore.state.selectedTabIndex,
-            article = currentArticle,
+            selectedTabIndex = state.selectedTabIndex,
+            article = article,
             tabs = tabs,
-            selectedArchiveContent = viewStore.state.selectedArchiveContent,
-            readerBody = viewStore.state.readerBody,
-            selectedArchiveLoadFailed = viewStore.state.selectedArchiveLoadFailed,
-            pendingArchiveKeys = viewStore.state.pendingArchiveKeys,
-            failedArchiveKeys = viewStore.state.failedArchiveKeys,
-            online = viewStore.state.online,
+            selectedArchiveContent = state.selectedArchiveContent,
+            readerBody = state.readerBody,
+            selectedArchiveLoadFailed = state.selectedArchiveLoadFailed,
+            pendingArchiveKeys = state.pendingArchiveKeys,
+            failedArchiveKeys = state.failedArchiveKeys,
+            online = state.online,
+            onRetry = onRetry,
         )
 
-        ArticleDetailTabRow(
-            modifier = Modifier.constrainAs(tabRow) {
+        Column(
+            modifier = Modifier.constrainAs(bottomRows) {
                 bottom.linkTo(parent.bottom)
                 start.linkTo(parent.start)
                 end.linkTo(parent.end)
             },
-            selectedTabIndex = viewStore.state.selectedTabIndex,
-            tabs = tabs,
-            onTabSelected = { viewStore.action { setSelectedTab(it) } }
-        )
+        ) {
+            state.archiveRow?.let { ArchiveStatusRow(row = it, onRetry = onRetry) }
+            ArticleDetailTabRow(
+                selectedTabIndex = state.selectedTabIndex,
+                tabs = tabs,
+                onTabSelected = onTabSelected,
+            )
+        }
+    }
+}
+
+@Preview(name = "Article Detail • archive failed • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ArticleDetailArchiveFailedLightPreview() {
+    ArticleDetailRowPreview("failed")
+}
+
+@Preview(
+    name = "Article Detail • archive failed • dark",
+    showBackground = true,
+    widthDp = 411,
+    heightDp = 900,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun ArticleDetailArchiveFailedDarkPreview() {
+    ArticleDetailRowPreview("failed", darkTheme = true)
+}
+
+@Preview(name = "Article Detail • archiving • light", showBackground = true, widthDp = 411, heightDp = 900)
+@Composable
+private fun ArticleDetailArchivingPreview() {
+    ArticleDetailRowPreview("processing")
+}
+
+@Composable
+private fun ArticleDetailRowPreview(status: String, darkTheme: Boolean = false) {
+    TrailsTheme(darkTheme = darkTheme) {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            ArticleDetailContent(
+                state = ArticleDetailState(
+                    selectedTabIndex = READER_TAB_INDEX,
+                    readerBody = ReaderBody.Text,
+                    archiveRow = archiveRowFor(hasText = true, status = status, retry = ArchiveRetryState.Idle),
+                ),
+                article = PreviewFixtures.article.copy(text = PREVIEW_READER_MARKDOWN),
+                onTabSelected = {},
+                onRetry = {},
+            )
+        }
     }
 }
 
@@ -250,7 +316,7 @@ private val PREVIEW_ALL_ARCHIVE_KEYS =
 private fun ReaderBodyPreview(body: ReaderBody, darkTheme: Boolean = false) {
     TrailsTheme(darkTheme = darkTheme) {
         Surface(color = MaterialTheme.colorScheme.background) {
-            ReaderBodyView(body = body, text = "")
+            ReaderBodyView(body = body, text = "", onRetry = {})
         }
     }
 }
@@ -424,6 +490,7 @@ fun ArticleDetails(
     pendingArchiveKeys: Set<String> = emptySet(),
     failedArchiveKeys: Set<String> = emptySet(),
     online: Boolean = true,
+    onRetry: (() -> Unit)? = null,
 ) {
     AnimatedContent(
         targetState = selectedTabIndex,
@@ -433,6 +500,7 @@ fun ArticleDetails(
             targetIndex == 0 -> ReaderBodyView(
                 body = if (!article.text.isNullOrBlank()) ReaderBody.Text else readerBody,
                 text = article.text.orEmpty(),
+                onRetry = onRetry,
             )
             targetIndex == 1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
             else -> {
