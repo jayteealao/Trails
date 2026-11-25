@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -36,8 +37,14 @@ import com.jayteealao.trails.screens.TrailsTopAppBarNav3
 import com.jayteealao.trails.screens.articleDetail.ArchiveRetryState
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailContent
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailState
+import com.jayteealao.trails.screens.articleDetail.ArticleDetailTabRow
 import com.jayteealao.trails.screens.articleDetail.READER_TAB_INDEX
 import com.jayteealao.trails.screens.articleDetail.ReaderSignals
+import com.jayteealao.trails.screens.articleDetail.WEB_TAB_INDEX
+import com.jayteealao.trails.screens.articleDetail.WebFailure
+import com.jayteealao.trails.screens.articleDetail.WebFailureKind
+import com.jayteealao.trails.screens.articleDetail.WebTabNotice
+import com.jayteealao.trails.screens.articleDetail.WebTabProgress
 import com.jayteealao.trails.screens.articleDetail.archiveRowFor
 import com.jayteealao.trails.screens.articleDetail.onTap
 import com.jayteealao.trails.screens.articleDetail.readerBodyFor
@@ -125,6 +132,38 @@ private fun ArticleStateScreen(fixture: ArticleFixture) {
             onTabSelected = { tab = it },
             onRetry = { retry = retry.onTap(fixture.status) },
         )
+    }
+}
+
+/** Why the page of each held Web tab did not load; null while it loads. */
+private val WEB_STATES: Map<String, WebFailure?> = mapOf(
+    "web-empty" to WebFailure(WebFailureKind.OFFLINE, "https://example.org/trees"),
+    "web-loading" to null,
+    "web-error" to WebFailure(WebFailureKind.NO_ANSWER, "https://example.org/trees"),
+    "web-worst" to WebFailure(
+        WebFailureKind.CERTIFICATE, "https://reading-room.archive.the-longest-subdomain-in-the-list.example.org/a",
+    ),
+)
+
+/** The Web tab with [failure], or with a page on its way; its buttons do nothing. */
+@Composable
+private fun WebStateScreen(failure: WebFailure?) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Box(Modifier.weight(1f)) {
+            if (failure == null) {
+                WebTabProgress(0.45f)
+            } else {
+                WebTabNotice(
+                    failure = failure,
+                    isArticlePage = true,
+                    onRetry = {},
+                    onOpenInBrowser = {},
+                    onBack = {},
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        ArticleDetailTabRow(selectedTabIndex = WEB_TAB_INDEX)
     }
 }
 
@@ -267,7 +306,7 @@ private fun SearchStateScreen(fixture: SearchFixture) {
 
 /**
  * Debug builds only: holds one state of the Settings sync section, the unsynced-changes dialog,
- * the archive status of an article, a list or search on screen so it can be captured on a device or emulator.
+ * the archive status of an article, the Web tab, a list or search on screen so it can be captured on a device or emulator.
  *
  * Extras: `state` (`pushing` | `push-failed` | `push-failed-one` | `push-failed-switch` |
  * `wiping` | `worst` | `failures` | `retry-failed` | `no-failures`), `count` (Int), `label`
@@ -281,6 +320,9 @@ private fun SearchStateScreen(fixture: SearchFixture) {
  * `reader-complete` | `reader-failed` | `reader-retrying` | `reader-not-sent` | `reader-worst`) or
  * without text (`notice-failed` | `notice-not-sent`). A tap on Try again stays at the request that
  * never answers.
+ *
+ * The Web tab states are `web-empty` (offline) | `web-loading` | `web-error` | `web-worst` (a bad
+ * certificate of a long host).
  *
  * The list states are `home-` and `favourites-` with `default` (Home only) | `empty` | `loading` |
  * `error` | `worst`; the search states are `search-` with the same five.
@@ -309,6 +351,7 @@ class DesignStatesActivity : ComponentActivity() {
                     val searchState = SEARCH_STATES[state]
                     when {
                         articleState != null -> ArticleStateScreen(articleState)
+                        state in WEB_STATES -> WebStateScreen(WEB_STATES[state])
                         listState != null -> ListStateScreen(listState)
                         searchState != null -> SearchStateScreen(searchState)
                         else -> SettingsScreenContent(viewStore = ViewStore { fakeState })
