@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -81,6 +82,9 @@ class DeletionRoundTripTest {
         return (result as PagingSource.LoadResult.Page).data.map { it.itemId }
     }
 
+    private suspend fun pushedIds(): List<String> =
+        dao.getArticlesModifiedSinceKeyset(0L, Long.MAX_VALUE, 0L, "", 50).map { it.itemId }
+
     @Test
     fun `a deleted row is selected for the push`() = runTest {
         dao.upsertArticles(listOf(article("a1", "Roses"), article("a2", "Apples"), article("a3", "Pears")))
@@ -91,6 +95,42 @@ class DeletionRoundTripTest {
         val pushed = dao.getArticlesModifiedSinceKeyset(0L, Long.MAX_VALUE, 0L, "", 50).associateBy { it.itemId }
         assertEquals(setOf("a1", "a2", "a3"), pushed.keys)
         assertEquals(500L, pushed.getValue("a2").deletedAt)
+    }
+
+    @Test
+    fun `a deletion taken back in the same millisecond is newer, is pushed and stays taken back`() = runTest {
+        dao.upsertArticles(listOf(article("a", "Roses")))
+        dao.updateDeleted("a", 500L)
+        val tombstone = dao.getArticleById("a")!!
+        dao.markBackedUpIfUnchanged("a", tombstone.timeUpdated)
+
+        dao.clearDeleted("a", 500L)
+
+        val live = dao.getArticleById("a")!!
+        assertNull(live.deletedAt)
+        assertTrue(live.timeUpdated > tombstone.timeUpdated)
+        assertEquals(listOf("a"), libraryIds())
+        assertEquals(listOf("a"), pushedIds())
+        // The backup merges, so the field has to be there, and empty, to take the deletion away.
+        val wire = live.toUserArticleWire().toFirestore()
+        assertTrue(UserArticleWire.DELETED_AT in wire)
+        assertNull(wire[UserArticleWire.DELETED_AT])
+
+        manager.applyRemoteArticles(listOf(tombstone))
+        assertNull(dao.getArticleById("a")?.deletedAt)
+    }
+
+    @Test
+    fun `a removed favourite is pushed`() = runTest {
+        dao.upsertArticles(listOf(article("a", "Roses")))
+        dao.updateFavorite("a", true, 400L, 400L)
+        dao.markBackedUpIfUnchanged("a", 400L)
+        assertEquals(emptyList<String>(), pushedIds())
+
+        dao.updateFavorite("a", false, 0L, 500L)
+
+        assertEquals(500L, dao.getArticleById("a")?.timeUpdated)
+        assertEquals(listOf("a"), pushedIds())
     }
 
     @Test

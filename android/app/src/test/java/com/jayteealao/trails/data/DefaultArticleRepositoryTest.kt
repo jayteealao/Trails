@@ -135,6 +135,26 @@ class DefaultArticleRepositoryTest {
         coVerify(exactly = 1) { firestoreSyncManager.syncLocalChanges() }
     }
 
+    @Test
+    fun `restore clears the deletion and triggers one sync`() = runTest(testDispatcher) {
+        repository.restore("item1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { articleDao.clearDeleted("item1", any()) }
+        coVerify(exactly = 1) { firestoreSyncManager.syncLocalChanges() }
+    }
+
+    @Test
+    fun `a favourite that is set or removed has the time of the change`() = runTest(testDispatcher) {
+        val before = System.currentTimeMillis()
+
+        repository.setFavorite("item1", true)
+        repository.setFavorite("item1", false)
+
+        coVerify(exactly = 1) { articleDao.updateFavorite("item1", true, more(before, true), more(before, true)) }
+        coVerify(exactly = 1) { articleDao.updateFavorite("item1", false, 0L, more(before, true)) }
+    }
+
     /**
      * add() must delegate to the single transactional DAO method
      * [ArticleDao.upsertArticlesWithAssociatedData] exactly once, guaranteeing that
