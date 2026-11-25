@@ -152,6 +152,66 @@ export function markSharedArticleFailed(
   return ref.update(buildSharedArticleFailedPatch(error, now));
 }
 
+// --- claimSharedArticleRetryInTransaction: a person's retry takes the start, tx.update ---
+
+export interface ClaimSharedArticleRetryPatch {
+  status: 'processing';
+  processing_started_at: Timestamp;
+}
+
+export function buildClaimSharedArticleRetryPatch(now: Timestamp = Timestamp.now()): ClaimSharedArticleRetryPatch {
+  return { status: 'processing', processing_started_at: now };
+}
+
+/**
+ * Takes the archive start of a retry, so a second retry reads it as in flight.
+ * The earlier `error` stays, so a retry that dies reads failed again.
+ */
+export function claimSharedArticleRetryInTransaction(
+  tx: Transaction,
+  ref: DocumentReference,
+  now: Timestamp = Timestamp.now()
+): Transaction {
+  return tx.update(ref, buildClaimSharedArticleRetryPatch(now));
+}
+
+// --- releaseSharedArticleRetryInTransaction: the claimed start was refused, tx.update ---
+
+export interface ReleaseSharedArticleRetryPatch {
+  status: 'failed';
+  error: string;
+  failed_at: Timestamp;
+  /** The start time from before the claim, or FieldValue.delete() when there was none. */
+  processing_started_at: Timestamp | FieldValue;
+}
+
+export interface RetryRelease {
+  error: string;
+  priorProcessingStartedAt: Timestamp | undefined;
+}
+
+export function buildReleaseSharedArticleRetryPatch(
+  input: RetryRelease,
+  now: Timestamp = Timestamp.now()
+): ReleaseSharedArticleRetryPatch {
+  return {
+    status: 'failed',
+    error: input.error,
+    failed_at: now,
+    processing_started_at: input.priorProcessingStartedAt ?? FieldValue.delete(),
+  };
+}
+
+/** Undoes a claim. The caller checks in the same transaction that the claim is still the current start. */
+export function releaseSharedArticleRetryInTransaction(
+  tx: Transaction,
+  ref: DocumentReference,
+  input: RetryRelease,
+  now: Timestamp = Timestamp.now()
+): Transaction {
+  return tx.update(ref, buildReleaseSharedArticleRetryPatch(input, now));
+}
+
 // --- bootstrapSharedArticle: the dashboard creates a missing article, ref.set (replace) ---
 
 export interface BootstrapSharedArticlePatch {
@@ -609,6 +669,8 @@ type _SharedPatchesUseListedFields = [
   Expect<OnlyFields<CountSharedArticleSavePatch, SharedArticleField>>,
   Expect<OnlyFields<SharedArticleArchiveStartedPatch, SharedArticleField>>,
   Expect<OnlyFields<SharedArticleFailedPatch, SharedArticleField>>,
+  Expect<OnlyFields<ClaimSharedArticleRetryPatch, SharedArticleField>>,
+  Expect<OnlyFields<ReleaseSharedArticleRetryPatch, SharedArticleField>>,
   Expect<OnlyFields<BootstrapSharedArticlePatch, SharedArticleField>>,
   Expect<OnlyFields<BootstrapBackfillPatch, SharedArticleField>>,
   Expect<OnlyFields<SharedArticleProcessingPatch, SharedArticleField>>,

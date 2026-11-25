@@ -8,6 +8,9 @@ import {
   buildArchiveUploadJournalPatch,
   buildBackfillUpsertPatch,
   buildBootstrapBackfillPatch,
+  buildClaimSharedArticleRetryPatch,
+  buildReleaseSharedArticleRetryPatch,
+  claimSharedArticleRetryInTransaction,
   clearUserArticleCanonicalId,
   clearUserArticleCanonicalIdInBulk,
   copySharedArticleArchiveInBulk,
@@ -18,6 +21,7 @@ import {
   markSharedArticleMergedInBulk,
   moveUserArticleCanonicalIdInBulk,
   recordSharedArticleBackfillFailure,
+  releaseSharedArticleRetryInTransaction,
   setSharedArticleDerivedStatus,
   setSharedArticleNormalizedUrlInBulk,
   setUserArticleLinkInBulk,
@@ -94,6 +98,17 @@ const cases: Array<[string, (s: ReturnType<typeof spies>) => unknown, Omit<Call,
     'markSharedArticleFailed',
     (s) => markSharedArticleFailed(s.ref, 'boom', now),
     { method: 'update', target: 'ref', options: [] },
+  ],
+  [
+    'claimSharedArticleRetryInTransaction',
+    (s) => claimSharedArticleRetryInTransaction(s.tx, s.ref, now),
+    { method: 'update', target: 'tx:ref', options: [] },
+  ],
+  [
+    'releaseSharedArticleRetryInTransaction',
+    (s) =>
+      releaseSharedArticleRetryInTransaction(s.tx, s.ref, { error: 'boom', priorProcessingStartedAt: undefined }, now),
+    { method: 'update', target: 'tx:ref', options: [] },
   ],
   [
     'bootstrapSharedArticle',
@@ -253,6 +268,27 @@ describe('each bulk writer queues one update with its arguments and options', ()
     if (!(field instanceof FieldPath)) throw new Error('the archive copy did not name a FieldPath');
     expect(field.isEqual(new FieldPath('archives', 'readability.v2'))).toBe(true);
     expect(field.isEqual(new FieldPath('archives', 'readability', 'v2'))).toBe(false);
+  });
+});
+
+describe('the retry claim and its release', () => {
+  test('the claim sets the status and the start time only, so the earlier error stays', () => {
+    expect(buildClaimSharedArticleRetryPatch(now)).toEqual({ status: 'processing', processing_started_at: now });
+  });
+
+  test('the release puts back the start time from before the claim', () => {
+    const prior = Timestamp.fromMillis(5);
+    expect(buildReleaseSharedArticleRetryPatch({ error: 'boom', priorProcessingStartedAt: prior }, now)).toEqual({
+      status: 'failed',
+      error: 'boom',
+      failed_at: now,
+      processing_started_at: prior,
+    });
+  });
+
+  test('the release deletes the start time when there was none before the claim', () => {
+    const patch = buildReleaseSharedArticleRetryPatch({ error: 'boom', priorProcessingStartedAt: undefined }, now);
+    expect(patch.processing_started_at).toEqual(FieldValue.delete());
   });
 });
 

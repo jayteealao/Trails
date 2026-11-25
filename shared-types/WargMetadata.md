@@ -44,7 +44,7 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 | `domain` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill, journalSharedArticleUploads | |
 | `created_at` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, backfillSharedArticleBaseFields, upsertSharedArticleForBackfill, journalSharedArticleUploads | |
 | `updated_at` | `articles/{id}` | bootstrapSharedArticle, backfillSharedArticleBaseFields, markSharedArticleProcessing, upsertSharedArticleForBackfill, markSharedArticleBackfillBegun, recordSharedArticleBackfillFailure, settleStuckSharedArticle, journalSharedArticleUploads, finalizeSharedArticleArchives | |
-| `status` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, markSharedArticleArchiveStarted, markSharedArticleFailed, markSharedArticleProcessing, setSharedArticleDerivedStatus | `pending`, `processing`, `failed`; the status trigger writes the derived value |
+| `status` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, markSharedArticleArchiveStarted, markSharedArticleFailed, markSharedArticleProcessing, claimSharedArticleRetryInTransaction, releaseSharedArticleRetryInTransaction, setSharedArticleDerivedStatus | `pending`, `processing`, `failed`; the status trigger writes the derived value |
 | `archives` | `articles/{id}` | createSharedArticleInTransaction, bootstrapSharedArticle, upsertSharedArticleForBackfill, recordSharedArticleBackfillFailure, settleStuckSharedArticle, journalSharedArticleUploads | written empty on create; the archive gateway writes one entry per stored artifact kind with journalSharedArticleUploads (merged, `uploading`) and finalizeSharedArticleArchives (each entry replaced by its dotted name, `success`), and copySharedArticleArchiveInBulk copies one whole `archives.<archive key>` entry from a merged duplicate |
 | `archives.gateway_begin` | `articles/{id}` | recordSharedArticleBackfillFailure | the failed archive start of the backfill |
 | `archives.gateway_begin.status` | `articles/{id}` | as `archives.gateway_begin` | `failed` |
@@ -130,9 +130,9 @@ dotted name is a field of a map (`stats.total_saves` is `total_saves` in
 | `stats.total_views` | `articles/{id}` | as `stats` | |
 | `stats.last_saved_at` | `articles/{id}` | countSharedArticleSaveInTransaction | |
 | `warg_request_id` | `articles/{id}` | markSharedArticleArchiveStarted, markSharedArticleProcessing, markSharedArticleBackfillBegun | |
-| `processing_started_at` | `articles/{id}` | markSharedArticleArchiveStarted, markSharedArticleProcessing, markSharedArticleBackfillBegun | |
-| `error` | `articles/{id}` | markSharedArticleFailed, recordSharedArticleBackfillFailure, settleStuckSharedArticle, markSharedArticleBackfillBegun | markSharedArticleBackfillBegun deletes it |
-| `failed_at` | `articles/{id}` | markSharedArticleFailed, recordSharedArticleBackfillFailure, settleStuckSharedArticle | |
+| `processing_started_at` | `articles/{id}` | markSharedArticleArchiveStarted, markSharedArticleProcessing, markSharedArticleBackfillBegun, claimSharedArticleRetryInTransaction, releaseSharedArticleRetryInTransaction | releaseSharedArticleRetryInTransaction puts back the value from before the claim, or deletes it |
+| `error` | `articles/{id}` | markSharedArticleFailed, recordSharedArticleBackfillFailure, settleStuckSharedArticle, markSharedArticleBackfillBegun, releaseSharedArticleRetryInTransaction | markSharedArticleBackfillBegun deletes it |
+| `failed_at` | `articles/{id}` | markSharedArticleFailed, recordSharedArticleBackfillFailure, settleStuckSharedArticle, releaseSharedArticleRetryInTransaction | |
 | `retry_count` | `articles/{id}` | upsertSharedArticleForBackfill, recordSharedArticleBackfillFailure | the archive starts the backfill made |
 | `status_updated_at` | `articles/{id}` | setSharedArticleDerivedStatus | |
 | `failure` | `articles/{id}` | recordSharedArticleBackfillFailure | the last failed archive start |
