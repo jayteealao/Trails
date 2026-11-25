@@ -5,11 +5,14 @@ import com.jayteealao.trails.common.UrlModifier
 import com.jayteealao.trails.data.ArticleRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.data.archive.ArchiveDownload
+import com.jayteealao.trails.data.archive.ArchiveRetryAnswer
+import com.jayteealao.trails.data.archive.ArchiveRetryClient
 import com.jayteealao.trails.data.archive.ArchiveService
 import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.ArchiveType
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.archive.LocalArchiveDao
+import com.jayteealao.trails.data.archive.RetryFailure
 import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
@@ -23,6 +26,7 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.just
 import io.mockk.Runs
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -70,6 +74,19 @@ class ArticleDetailViewModelTest {
     /** The status of the shared article on the server. */
     private val status = MutableStateFlow<String?>(null)
 
+    /** Holds each retry request until the test answers it. */
+    private class FakeArchiveRetryClient : ArchiveRetryClient {
+        val requests = mutableListOf<Pair<String, CompletableDeferred<ArchiveRetryAnswer>>>()
+
+        override suspend fun retry(itemId: String): ArchiveRetryAnswer {
+            val answer = CompletableDeferred<ArchiveRetryAnswer>()
+            requests += itemId to answer
+            return answer.await()
+        }
+    }
+
+    private val retryClient = FakeArchiveRetryClient()
+
     private val preferenceChangesFlow = MutableSharedFlow<String?>(extraBufferCapacity = 64)
 
     private val scheduler = TestCoroutineScheduler()
@@ -113,6 +130,7 @@ class ArticleDetailViewModelTest {
         localArchiveDao = localArchiveDao,
         urlModifier = urlModifier,
         networkMonitor = networkMonitor,
+        archiveRetryClient = retryClient,
         ioDispatcher = testDispatcher,
     )
 
@@ -892,5 +910,245 @@ class ArticleDetailViewModelTest {
         val viewModel = openWithoutText()
 
         assertEquals(setOf("singlefile"), viewModel.state.value.failedArchiveKeys)
+    }
+
+    // ----- Try again on a failed archive -----
+
+    private val tryingRow = ArchiveRow("Trying the archive again", isError = false, canRetry = false)
+    private val failedRow = ArchiveRow("The archive failed. This text is kept.", isError = true, canRetry = true)
+    private val offlineRow = ArchiveRow(
+        "The retry was not sent because you’re offline. This text is kept.", isError = true, canRetry = true,
+    )
+
+    /** Opens a1, which has text and whose archive has the status [initial]. */
+    private fun TestScope.openWithStatus(initial: String?): ArticleDetailViewModel {
+        status.value = initial
+        storeArticle("a1", "stored text", "readability")
+        coEvery { archiveService.syncArchives(any(), any()) } just Runs
+        val viewModel = buildViewModel()
+        viewModel.state.onEach { }.launchIn(backgroundScope)
+        viewModel.getArticle("a1")
+        advanceUntilIdle()
+        return viewModel
+    }
+
+    private fun TestScope.answer(request: Int, answer: ArchiveRetryAnswer) {
+        retryClient.requests[request].second.complete(answer)
+        advanceUntilIdle()
+    }
+
+    private fun TestScope.tap(viewModel: ArticleDetailViewModel, itemId: String = "a1") {
+        viewModel.retryArchive(itemId)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun archiveRow_followsTheStatus() = runTest(scheduler) {
+        val viewModel = openWithStatus("processing")
+        assertEquals("Still archiving this page", viewModel.state.value.archiveRow?.words)
+
+        for (failed in listOf("failed", "abandoned", "partial")) {
+            status.value = failed
+            advanceUntilIdle()
+            assertEquals(failed, failedRow, viewModel.state.value.archiveRow)
+        }
+        for (silent in listOf("complete", "pending", "someday", null)) {
+            status.value = silent
+            advanceUntilIdle()
+            assertNull(silent, viewModel.state.value.archiveRow)
+        }
+    }
+
+    @Test
+    fun tenTaps_sendOneRequest_andThePendingStateStays() = runTest(scheduler) {
+        val viewModel = openWithStatus("failed")
+
+        repeat(10) { viewModel.retryArchive("a1") }
+        advanceUntilIdle()
+        repeat(10) { tap(viewModel) }
+
+        assertEquals(listOf("a1"), retryClient.requests.map { it.first })
+        assertEquals(tryingRow, viewModel.state.value.archiveRow)
+    }
+
+    @Test
+    fun aStatusThatCannotBeRetried_sendsNothing() = runTest(scheduler) {
+        for (other in listOf("complete", "processing", "pending", null)) {
+            val viewModel = openWithStatus(other)
+            tap(viewModel)
+        }
+        assertTrue(retryClient.requests.isEmpty())
+    }
+
+    @Test
+    fun offline_sendsNothing_saysWhy_andKeepsTryAgain() = runTest(scheduler) {
+        online.value = false
+        val viewModel = openWithStatus("failed")
+
+        tap(viewModel)
+        assertTrue(retryClient.requests.isEmpty())
+        assertEquals(offlineRow, viewModel.state.value.archiveRow)
+
+        tap(viewModel)
+        assertEquals(offlineRow, viewModel.state.value.archiveRow)
+    }
+
+    @Test
+    fun backOnline_clearsTheOfflineMessage_andATapSends() = runTest(scheduler) {
+        online.value = false
+        val viewModel = openWithStatus("failed")
+        tap(viewModel)
+
+        online.value = true
+        advanceUntilIdle()
+        assertEquals(failedRow, viewModel.state.value.archiveRow)
+
+        tap(viewModel)
+        assertEquals(1, retryClient.requests.size)
+        assertEquals(tryingRow, viewModel.state.value.archiveRow)
+    }
+
+    @Test
+    fun offlineWithNoText_theNoticeSaysWhyAndKeepsTryAgain() = runTest(scheduler) {
+        status.value = "failed"
+        online.value = false
+        val viewModel = openWithoutText()
+
+        tap(viewModel)
+
+        assertEquals(
+            ReaderBody.Notice(ReaderNoticeKind.FAILED, ArchiveRetryState.NotSent(RetryFailure.OFFLINE)),
+            viewModel.state.value.readerBody,
+        )
+    }
+
+    @Test
+    fun withNoText_aRetryShowsTheWaitingNotice() = runTest(scheduler) {
+        status.value = "failed"
+        val viewModel = openWithoutText()
+
+        tap(viewModel)
+
+        assertEquals(ReaderBody.Notice(ReaderNoticeKind.WAITING), viewModel.state.value.readerBody)
+        assertNull(viewModel.state.value.archiveRow)
+    }
+
+    @Test
+    fun acceptedRetry_runsThroughProcessingToComplete() = runTest(scheduler) {
+        val viewModel = openWithStatus("failed")
+        tap(viewModel)
+
+        status.value = "processing"
+        advanceUntilIdle()
+        assertEquals(tryingRow, viewModel.state.value.archiveRow)
+        answer(0, ArchiveRetryAnswer.Accepted)
+        assertEquals(tryingRow, viewModel.state.value.archiveRow)
+
+        status.value = "complete"
+        advanceUntilIdle()
+        assertNull(viewModel.state.value.archiveRow)
+    }
+
+    @Test
+    fun acceptedRetryThatFailsAgain_offersTryAgain() = runTest(scheduler) {
+        val viewModel = openWithStatus("failed")
+        tap(viewModel)
+        status.value = "processing"
+        advanceUntilIdle()
+        answer(0, ArchiveRetryAnswer.Accepted)
+
+        status.value = "failed"
+        advanceUntilIdle()
+        assertEquals(failedRow, viewModel.state.value.archiveRow)
+
+        tap(viewModel)
+        assertEquals(2, retryClient.requests.size)
+    }
+
+    @Test
+    fun runThatFailsBeforeTheAcceptedAnswer_offersTryAgain() = runTest(scheduler) {
+        val viewModel = openWithStatus("failed")
+        tap(viewModel)
+        status.value = "processing"
+        advanceUntilIdle()
+        status.value = "failed"
+        advanceUntilIdle()
+        assertEquals(tryingRow, viewModel.state.value.archiveRow)
+
+        answer(0, ArchiveRetryAnswer.Accepted)
+        assertEquals(failedRow, viewModel.state.value.archiveRow)
+    }
+
+    @Test
+    fun theOtherAnswers_showTheirRow() = runTest(scheduler) {
+        val rows = mapOf(
+            ArchiveRetryAnswer.Complete to null,
+            ArchiveRetryAnswer.NotRetryable to ArchiveRow(
+                "This page can’t be archived again. This text is kept.", isError = true, canRetry = false,
+            ),
+            ArchiveRetryAnswer.NotSent(RetryFailure.OFFLINE) to offlineRow,
+            ArchiveRetryAnswer.NotSent(RetryFailure.SIGNED_OUT) to ArchiveRow(
+                "The retry was not sent because you’re signed out. Sign in and try again.", isError = true, canRetry = true,
+            ),
+            ArchiveRetryAnswer.NotSent(RetryFailure.REFUSED) to ArchiveRow(
+                "The archive service did not take the retry. This text is kept.", isError = true, canRetry = true,
+            ),
+            ArchiveRetryAnswer.NotSent(RetryFailure.NO_ANSWER) to ArchiveRow(
+                "The retry got no answer. This text is kept.", isError = true, canRetry = true,
+            ),
+        )
+        for ((answer, row) in rows) {
+            val viewModel = openWithStatus("failed")
+            tap(viewModel)
+            answer(retryClient.requests.lastIndex, answer)
+            assertEquals("$answer", row, viewModel.state.value.archiveRow)
+        }
+    }
+
+    @Test
+    fun switchToAnotherArticleAndBack_keepsThePendingRequest() = runTest(scheduler) {
+        val viewModel = openWithStatus("failed")
+        tap(viewModel)
+        coEvery { articleRepository.getArticleById("b2") } returns
+            Article(itemId = "b2", url = "https://example.com/b2", givenUrl = "https://example.com/b2", text = "b2 text")
+
+        viewModel.getArticle("b2")
+        advanceUntilIdle()
+        assertEquals(failedRow, viewModel.state.value.archiveRow)
+
+        viewModel.getArticle("a1")
+        advanceUntilIdle()
+        assertEquals(tryingRow, viewModel.state.value.archiveRow)
+        tap(viewModel)
+        assertEquals(1, retryClient.requests.size)
+    }
+
+    @Test
+    fun aLateAnswer_changesOnlyItsOwnArticle() = runTest(scheduler) {
+        val viewModel = openWithStatus("failed")
+        tap(viewModel)
+        coEvery { articleRepository.getArticleById("b2") } returns
+            Article(itemId = "b2", url = "https://example.com/b2", givenUrl = "https://example.com/b2", text = "b2 text")
+        viewModel.getArticle("b2")
+        advanceUntilIdle()
+
+        answer(0, ArchiveRetryAnswer.NotRetryable)
+        assertEquals(failedRow, viewModel.state.value.archiveRow)
+
+        viewModel.getArticle("a1")
+        advanceUntilIdle()
+        assertEquals(false, viewModel.state.value.archiveRow?.canRetry)
+    }
+
+    @Test
+    fun aReopen_endsAWaitWhoseStatusNeverMoved() = runTest(scheduler) {
+        val viewModel = openWithStatus("failed")
+        tap(viewModel)
+        answer(0, ArchiveRetryAnswer.Accepted)
+        assertEquals(tryingRow, viewModel.state.value.archiveRow)
+
+        viewModel.getArticle("a1")
+        advanceUntilIdle()
+        assertEquals(failedRow, viewModel.state.value.archiveRow)
     }
 }

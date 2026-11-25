@@ -1,6 +1,7 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import androidx.compose.ui.unit.dp
+import com.jayteealao.trails.data.archive.RetryFailure
 import com.jayteealao.trails.screens.articleDetail.ReaderBody.Loading
 import com.jayteealao.trails.screens.articleDetail.ReaderBody.Notice
 import com.jayteealao.trails.screens.articleDetail.ReaderBody.Text
@@ -140,6 +141,58 @@ class ReaderNoticesTest {
         }
     }
 
+    // --- A retry of a failed archive ---
+
+    @Test
+    fun `a failed archive shows the waiting notice while a retry runs, also offline`() {
+        val running = listOf(
+            ArchiveRetryState.Sending(), ArchiveRetryState.Sending(true),
+            ArchiveRetryState.Waiting(false), ArchiveRetryState.Waiting(true),
+        )
+        for (status in listOf("failed", "abandoned")) {
+            for (retry in running) {
+                val signals = base.copy(articleStatus = status, retry = retry)
+                assertEquals(Notice(WAITING), body(signals))
+                assertEquals(Notice(WAITING), body(signals.copy(online = false)))
+            }
+        }
+    }
+
+    @Test
+    fun `the failed notice carries a retry that did not start, and an archive that turned out complete has no text`() {
+        val stopped = RetryFailure.entries.map { ArchiveRetryState.NotSent(it) } + ArchiveRetryState.NotRetryable
+        for (retry in stopped) {
+            assertEquals(Notice(FAILED, retry), body(base.copy(articleStatus = "failed", retry = retry)))
+        }
+        assertEquals(Notice(NO_TEXT), body(base.copy(articleStatus = "failed", retry = ArchiveRetryState.Complete)))
+    }
+
+    @Test
+    fun `a partial archive with no text keeps the no-text notice, whatever the retry`() {
+        assertEquals(Notice(NO_TEXT), body(base.copy(articleStatus = "partial", retry = ArchiveRetryState.Sending())))
+    }
+
+    @Test
+    fun `the line of the failed notice says why a retry did not start`() {
+        val lines = mapOf(
+            RetryFailure.OFFLINE to
+                "The retry was not sent because you’re offline. Try again when you’re back online.",
+            RetryFailure.SIGNED_OUT to
+                "The retry was not sent because you’re signed out. Sign in and try again.",
+            RetryFailure.REFUSED to
+                "The archive service did not take the retry. Try again, or read it on the Web tab.",
+            RetryFailure.NO_ANSWER to
+                "The retry got no answer. Try again, or read it on the Web tab.",
+        )
+        assertEquals(RetryFailure.entries.toSet(), lines.keys)
+        for ((failure, line) in lines) assertEquals(line, failedNoticeLine(ArchiveRetryState.NotSent(failure)))
+        assertEquals(
+            "This page can’t be archived again. Read it on the Web tab.",
+            failedNoticeLine(ArchiveRetryState.NotRetryable),
+        )
+        assertEquals(FAILED.line, failedNoticeLine(ArchiveRetryState.Idle))
+    }
+
     // --- A text archive tab ---
 
     @Test
@@ -162,7 +215,7 @@ class ReaderNoticesTest {
             NO_TEXT to ("No reader text for this article" to
                 "The archive kept no text for this page. Read it on the Web tab."),
             FAILED to ("The archive failed" to
-                "There is no reader text for this article. Read it on the Web tab."),
+                "There is no reader text for this article. Try again, or read it on the Web tab."),
             EMPTY to ("This text is empty" to
                 "The archive saved no words for this page. Read it on the Web tab."),
             UNREADABLE to ("The text could not be opened" to
