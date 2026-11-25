@@ -13,6 +13,7 @@ import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.data.AuthRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
+import com.jayteealao.trails.data.ThemePreference
 import com.jayteealao.trails.data.account.LocalDataOwner
 import com.jayteealao.trails.data.account.LocalDataReset
 import com.jayteealao.trails.data.account.PushThenWipe
@@ -131,6 +132,7 @@ class LogoutWipeIntegrationTest {
         return SettingsViewModel(
             syncFailures = SyncFailures(db.articleDao(), syncManager),
             sharedPreferencesManager = prefs,
+            themePreference = ThemePreference(prefs),
             firestoreSyncManager = syncManager,
             authRepository = authRepository,
             ioDispatcher = Dispatchers.IO,

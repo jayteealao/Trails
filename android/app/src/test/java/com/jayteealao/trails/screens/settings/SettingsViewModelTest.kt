@@ -4,6 +4,8 @@ import com.jayteealao.trails.services.firestore.SyncFailures
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.data.AuthRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
+import com.jayteealao.trails.data.ThemeChoice
+import com.jayteealao.trails.data.ThemePreference
 import com.jayteealao.trails.data.account.LocalDataOwner
 import com.jayteealao.trails.data.account.LocalDataReset
 import com.jayteealao.trails.data.account.PushThenWipe
@@ -25,6 +27,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -48,7 +51,7 @@ import kotlin.time.Duration.Companion.seconds
  * sequence with the device operations mocked: "Logout only" pushes pending changes (at most
  * 15 seconds), signs out and clears nothing; "Clear data"
  * asks when a push fails, keeps everything on "Keep data", and clears, forgets preferences
- * and signs out in that order on "Clear anyway".
+ * and signs out in that order on "Clear anyway". The theme choice is kept by a new view model.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
@@ -60,6 +63,8 @@ class SettingsViewModelTest {
     private lateinit var authRepository: AuthRepository
     private lateinit var reset: LocalDataReset
     private lateinit var owner: LocalDataOwner
+    /** The stored theme name; it outlives a view model, as the preferences file does. */
+    private val storedTheme = MutableStateFlow<String?>(null)
     private val failureCount = MutableStateFlow(0)
     private val syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     private val user = mockk<FirebaseUser>().also {
@@ -76,6 +81,12 @@ class SettingsViewModelTest {
         prefs = mockk(relaxed = true)
         every { prefs.booleanFlow(any(), any()) } returns flowOf(false)
         every { prefs.getBoolean(any(), any()) } returns false
+        every { prefs.getString(SettingsPreferenceKeys.THEME_CHOICE) } answers { storedTheme.value }
+        every { prefs.saveString(SettingsPreferenceKeys.THEME_CHOICE, any()) } answers { storedTheme.value = secondArg() }
+        every { prefs.valueFlow<ThemeChoice>(*anyVararg(), read = any()) } answers {
+            val read = lastArg<() -> ThemeChoice>()
+            storedTheme.map { read() }
+        }
         syncManager = mockk()
         every { syncManager.isSyncing } returns MutableStateFlow(false)
         every { syncManager.lastSyncTime } returns MutableStateFlow(0L)
@@ -98,6 +109,7 @@ class SettingsViewModelTest {
     private fun viewModel() = SettingsViewModel(
         syncFailures = SyncFailures(articleDao, syncManager),
         sharedPreferencesManager = prefs,
+        themePreference = ThemePreference(prefs),
         firestoreSyncManager = syncManager,
         authRepository = authRepository,
         ioDispatcher = dispatcher,
@@ -307,6 +319,36 @@ class SettingsViewModelTest {
 
         assertEquals(UnsyncedChangesDialogState.PushFailed(1, WipeReason.CLEAR_DATA, "a@example.com"), dialog(vm))
         coVerify(exactly = 0) { reset.pushPendingChanges() }
+    }
+
+    @Test
+    fun savedTheme_isTheInitialState() = runTest(dispatcher) {
+        storedTheme.value = ThemeChoice.LIGHT.name
+
+        assertEquals(ThemeChoice.LIGHT, viewModel().state.value.theme)
+    }
+
+    @Test
+    fun updateTheme_savesTheChoice_andShowsIt() = runTest(dispatcher) {
+        val vm = viewModel()
+        observe(vm)
+        assertEquals(ThemeChoice.SYSTEM, vm.state.value.theme)
+
+        vm.updateTheme(ThemeChoice.DARK)
+        advanceUntilIdle()
+
+        assertEquals(ThemeChoice.DARK.name, storedTheme.value)
+        assertEquals(ThemeChoice.DARK, vm.state.value.theme)
+    }
+
+    @Test
+    fun chosenTheme_isKeptByANewViewModel() = runTest(dispatcher) {
+        viewModel().updateTheme(ThemeChoice.DARK)
+
+        val restarted = viewModel()
+        assertEquals(ThemeChoice.DARK, restarted.state.value.theme)
+        observe(restarted)
+        assertEquals(ThemeChoice.DARK, restarted.state.value.theme)
     }
 
     @Test
