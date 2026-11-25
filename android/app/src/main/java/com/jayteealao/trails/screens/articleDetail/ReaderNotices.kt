@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -263,10 +265,18 @@ private val SkeletonLineWidths = listOf(0.92f, 1f, 0.84f, 1f, 0.96f, 0.70f, 1f, 
 /**
  * A quiet notice in the reading column: a [NOTICE_ICON_SIZE] outline icon, a title and one line, centred
  * [topOffset] from the top (96 dp, less on a short window). The words carry the state, so the icon is hidden from screen readers; the block
- * is a polite live region, so a notice that changes while the Reader is open is read out.
+ * is a polite live region, so a notice that changes while the Reader is open is read out. The
+ * failed notice offers Try again under its line when [onRetry] is given and the page can be
+ * archived again; the button is outside the live region, so a screen reader reaches it on its own.
  */
 @Composable
-fun ReaderNotice(kind: ReaderNoticeKind, modifier: Modifier = Modifier, topOffset: Dp = NOTICE_TOP_OFFSET) {
+fun ReaderNotice(
+    kind: ReaderNoticeKind,
+    modifier: Modifier = Modifier,
+    topOffset: Dp = NOTICE_TOP_OFFSET,
+    retry: ArchiveRetryState = ArchiveRetryState.Idle,
+    onRetry: (() -> Unit)? = null,
+) {
     val colors = MaterialTheme.colorScheme
     BoxWithConstraints(modifier.fillMaxWidth()) {
         Column(
@@ -274,31 +284,42 @@ fun ReaderNotice(kind: ReaderNoticeKind, modifier: Modifier = Modifier, topOffse
                 .align(Alignment.TopCenter)
                 .padding(horizontal = readerSidePadding(maxWidth))
                 .padding(top = topOffset)
-                .widthIn(max = NOTICE_MAX_WIDTH)
-                .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+                .widthIn(max = NOTICE_MAX_WIDTH),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(
-                imageVector = kind.icon,
-                contentDescription = null,
-                modifier = Modifier.size(NOTICE_ICON_SIZE),
-                tint = if (kind.isError) colors.error else colors.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = kind.title,
-                style = NoticeTitleStyle,
-                color = colors.onBackground,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { heading() },
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = kind.line,
-                style = MaterialTheme.typography.bodyLarge.copy(lineBreak = LineBreak.Heading),
-                color = colors.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            Column(
+                modifier = Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    imageVector = kind.icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(NOTICE_ICON_SIZE),
+                    tint = if (kind.isError) colors.error else colors.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = kind.title,
+                    style = NoticeTitleStyle,
+                    color = colors.onBackground,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (kind == ReaderNoticeKind.FAILED) failedNoticeLine(retry) else kind.line,
+                    style = MaterialTheme.typography.bodyLarge.copy(lineBreak = LineBreak.Heading),
+                    color = colors.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (kind == ReaderNoticeKind.FAILED && onRetry != null && retry != ArchiveRetryState.NotRetryable) {
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Try again")
+                }
+                Spacer(Modifier.height(24.dp))
+            }
         }
     }
 }
@@ -333,7 +354,12 @@ fun ReaderSkeleton(modifier: Modifier = Modifier) {
 
 /** A text body of the article screen: [text] in the reading column, the skeleton, or a notice. */
 @Composable
-fun ReaderBodyView(body: ReaderBody, text: String, modifier: Modifier = Modifier) {
+fun ReaderBodyView(
+    body: ReaderBody,
+    text: String,
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null,
+) {
     when (body) {
         ReaderBody.Text -> ArticleMarkdown(text, modifier)
         ReaderBody.Loading -> ReaderSkeleton(modifier.fillMaxSize())
@@ -342,7 +368,7 @@ fun ReaderBodyView(body: ReaderBody, text: String, modifier: Modifier = Modifier
         is ReaderBody.Notice -> BoxWithConstraints(modifier.fillMaxSize()) {
             val topOffset = noticeTopOffset(maxHeight)
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                ReaderNotice(body.kind, topOffset = topOffset)
+                ReaderNotice(body.kind, topOffset = topOffset, retry = body.retry, onRetry = onRetry)
             }
         }
     }
