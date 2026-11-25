@@ -1,5 +1,6 @@
 package com.jayteealao.trails.screens.articleSearch
 
+import android.content.ActivityNotFoundException
 import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -31,12 +33,18 @@ import com.jayteealao.trails.R
 import com.jayteealao.trails.SearchBarState
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleDetail.ReaderNoticeIcons
+import com.jayteealao.trails.screens.articleList.actions.ArticleActionsSheet
 import com.jayteealao.trails.screens.articleList.components.ArticleListItem
 import com.jayteealao.trails.screens.articleList.components.ArticleListSkeleton
+import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.screens.components.Notice
 import com.jayteealao.trails.screens.components.NoticeAction
 import com.jayteealao.trails.screens.components.NoticeActionStyle
 import com.jayteealao.trails.screens.components.TRY_AGAIN
+import com.jayteealao.trails.screens.components.copyLink
+import com.jayteealao.trails.screens.components.openInBrowser
+import com.jayteealao.trails.screens.components.shareArticle
+import com.jayteealao.trails.screens.components.showDeleted
 import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.preview.previewSearchBarState
@@ -44,6 +52,7 @@ import com.jayteealao.trails.screens.theme.TrailsTheme
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 @Composable
 fun ArticleSearchScreen(
@@ -54,6 +63,7 @@ fun ArticleSearchScreen(
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // Handle events
     viewStore.handle<ArticleSearchEvent.NavigateToArticle> { event ->
@@ -68,12 +78,26 @@ fun ArticleSearchScreen(
         scope.launch { snackbarHostState.showSnackbar(event.message) }
     }
 
+    viewStore.handle<ArticleSearchEvent.ArticleDeleted> { event ->
+        scope.launch { snackbarHostState.showDeleted(event.undo) }
+    }
+
     viewStore.handle<ArticleSearchEvent.ShareArticle> { event ->
-        // Share article handled by parent
+        context.shareArticle(event.title, event.url)
     }
 
     viewStore.handle<ArticleSearchEvent.CopyLink> { event ->
-        // Copy link handled by parent
+        context.copyLink(event.url, event.label)
+        scope.launch { snackbarHostState.showSnackbar("${event.label} copied to clipboard") }
+    }
+
+    viewStore.handle<ArticleSearchEvent.OpenInBrowser> { event ->
+        try {
+            context.openInBrowser(event.url)
+        } catch (e: ActivityNotFoundException) {
+            Timber.w(e, "No browser on this device")
+            scope.launch { snackbarHostState.showError(ErrorMessage.NO_BROWSER, retry = null) }
+        }
     }
 
     ArticleSearchContent(
@@ -88,6 +112,12 @@ fun ArticleSearchScreen(
         onSelectArticle = onSelectArticle,
         snackbarHostState = snackbarHostState,
         useCardLayout = useCardLayout,
+    )
+
+    ArticleActionsSheet(
+        sheet = viewStore.state.actionSheet,
+        onChoose = { viewStore.action { chooseAction(it) } },
+        onDismiss = { viewStore.action { closeActions() } },
     )
 }
 

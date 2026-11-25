@@ -16,10 +16,7 @@
 
 package com.jayteealao.trails.screens.articleList
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
+import android.content.ActivityNotFoundException
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -57,6 +54,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -65,11 +63,17 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.jayteealao.trails.R
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleDetail.ReaderNoticeIcons
+import com.jayteealao.trails.screens.articleList.actions.ArticleActionsSheet
 import com.jayteealao.trails.screens.articleList.components.AdaptiveArticleGrid
 import com.jayteealao.trails.screens.articleList.components.ArticleListSkeleton
+import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.screens.components.Notice
 import com.jayteealao.trails.screens.components.NoticeAction
 import com.jayteealao.trails.screens.components.NoticeIcons
+import com.jayteealao.trails.screens.components.copyLink
+import com.jayteealao.trails.screens.components.openInBrowser
+import com.jayteealao.trails.screens.components.shareArticle
+import com.jayteealao.trails.screens.components.showDeleted
 import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.theme.TrailsTheme
@@ -77,6 +81,7 @@ import com.jayteealao.trails.testtags.ArticleListTestTags
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -122,22 +127,31 @@ fun ArticleListScreen(
         }
     }
 
-    viewStore.handle<ArticleListEvent.ShareArticle> { event ->
-        val sendIntent = Intent().apply {
-            action = Intent.ACTION_SEND
-            putExtra(Intent.EXTRA_TEXT, "${event.title}\n\n${event.url}")
-            type = "text/plain"
+    viewStore.handle<ArticleListEvent.ArticleDeleted> { event ->
+        scope.launch {
+            snackbarHostState.showDeleted(event.undo)
         }
-        val shareIntent = Intent.createChooser(sendIntent, "Share article")
-        context.startActivity(shareIntent)
+    }
+
+    viewStore.handle<ArticleListEvent.ShareArticle> { event ->
+        context.shareArticle(event.title, event.url)
     }
 
     viewStore.handle<ArticleListEvent.CopyLink> { event ->
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText(event.label, event.url)
-        clipboard.setPrimaryClip(clip)
+        context.copyLink(event.url, event.label)
         scope.launch {
             snackbarHostState.showSnackbar("${event.label} copied to clipboard")
+        }
+    }
+
+    viewStore.handle<ArticleListEvent.OpenInBrowser> { event ->
+        try {
+            context.openInBrowser(event.url)
+        } catch (e: ActivityNotFoundException) {
+            Timber.w(e, "No browser on this device")
+            scope.launch {
+                snackbarHostState.showError(ErrorMessage.NO_BROWSER, retry = null)
+            }
         }
     }
 
@@ -183,6 +197,12 @@ fun ArticleListScreen(
             }
         }
     }
+
+    ArticleActionsSheet(
+        sheet = viewStore.state.actionSheet,
+        onChoose = { viewStore.action { chooseAction(it) } },
+        onDismiss = { viewStore.action { closeActions() } },
+    )
 }
 
 /**
@@ -315,7 +335,7 @@ internal fun TagsContent(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelectTag(tag) }
+                            .clickable(role = Role.Button) { onSelectTag(tag) }
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     )
                 }
