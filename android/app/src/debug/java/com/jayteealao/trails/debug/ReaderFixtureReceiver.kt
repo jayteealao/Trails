@@ -36,7 +36,9 @@ import java.util.zip.GZIPOutputStream
  *
  * [ACTION_SEED_EMPTY] stores an article with no text and no local archive under the id in
  * [EXTRA_ITEM_ID] (it must start with [TEXT_FIRST_PREFIX]), so its archives arrive by download
- * from the local stub, for the check that a large archive does not hold back the text.
+ * from the local stub, for the check that a large archive does not hold back the text. With
+ * [EXTRA_HOST] (it must end with `.invalid`, which never resolves) its page is on that host, for
+ * the check that the Web tab names a site that does not answer.
  *
  * [ACTION_SEED_ALL_ARCHIVES] stores the article [ALL_ARCHIVES_ITEM_ID] with Readability text and
  * all six local archives, so the detail screen shows every tab. Its AI Markdown archive holds a
@@ -67,6 +69,11 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
             Timber.w("ReaderFixtureReceiver — $action takes an $EXTRA_ITEM_ID that starts with $TEXT_FIRST_PREFIX, got $emptyId")
             return
         }
+        val host = intent.getStringExtra(EXTRA_HOST)
+        if (action == ACTION_SEED_EMPTY && host != null && !host.matches(NO_ANSWER_HOST)) {
+            Timber.w("ReaderFixtureReceiver — $action takes an $EXTRA_HOST that ends with .invalid, got $host")
+            return
+        }
         val app = context.applicationContext
         val entryPoint = EntryPointAccessors.fromApplication(app, ReaderFixtureEntryPoint::class.java)
         val pending = goAsync()
@@ -74,7 +81,7 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
             try {
                 when (action) {
                     ACTION_SEED -> seed(app, entryPoint)
-                    ACTION_SEED_EMPTY -> seedEmpty(entryPoint.articleDao(), emptyId!!)
+                    ACTION_SEED_EMPTY -> seedEmpty(entryPoint.articleDao(), emptyId!!, host ?: "example.com")
                     ACTION_SEED_ALL_ARCHIVES -> seedAllArchives(app, entryPoint)
                     ACTION_SEED_WORST -> seedWorst(app, entryPoint)
                     else -> storeArchive(
@@ -173,9 +180,9 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
         return Uri.fromFile(file).toString()
     }
 
-    private suspend fun seedEmpty(articleDao: ArticleDao, itemId: String) {
+    private suspend fun seedEmpty(articleDao: ArticleDao, itemId: String, host: String) {
         val now = System.currentTimeMillis()
-        val url = "https://example.com/$itemId"
+        val url = "https://$host/$itemId"
         articleDao.upsertArticle(
             Article(
                 itemId = itemId,
@@ -217,10 +224,14 @@ class ReaderFixtureReceiver : BroadcastReceiver() {
         const val ACTION_SEED_ALL_ARCHIVES = "com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES"
         const val ACTION_SEED_WORST = "com.jayteealao.trails.debug.READER_SEED_WORST"
         const val EXTRA_ITEM_ID = "itemId"
+        const val EXTRA_HOST = "host"
         const val TEXT_FIRST_PREFIX = "text-first"
 
         /** An id of the text-first seed: the prefix, then letters, digits, `_` or `-` only, so it is one path segment. */
         val TEXT_FIRST_ID = Regex("^$TEXT_FIRST_PREFIX[A-Za-z0-9_-]*$")
+
+        /** A host under `.invalid`, the name that is reserved never to resolve. */
+        private val NO_ANSWER_HOST = Regex("^[A-Za-z0-9.-]+\\.invalid$")
         private const val TEXT_FIRST_TITLE = "A text that arrives first"
         const val ITEM_ID = "reader-fixture"
         private const val TITLE = "Counting the street trees of a small city"

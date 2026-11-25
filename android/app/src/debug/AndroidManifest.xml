@@ -37,7 +37,8 @@
              with the string extra itemId, for example text-first-r1, stores the Readability archive for
              that article instead, so the first text arrives while the Reader waits.
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_EMPTY
-             with the string extra itemId, for example text-first-a1 (an XML comment cannot hold a double hyphen).
+             with the string extra itemId, for example text-first-a1 (an XML comment cannot hold a double hyphen),
+             and optionally the string extra host, for example reading-room.example.invalid, for a page that never answers.
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_ALL_ARCHIVES
              stores an article with every local archive, so the detail screen shows every tab.
              adb shell am broadcast -n com.jayteealao.trails/.debug.ReaderFixtureReceiver -a com.jayteealao.trails.debug.READER_SEED_WORST
