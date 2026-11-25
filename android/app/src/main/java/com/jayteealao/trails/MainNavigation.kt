@@ -3,8 +3,6 @@ package com.jayteealao.trails
 
 //import com.jayteealao.trails.ui.adaptive.rememberListDetailSceneStrategy
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheetProperties
@@ -13,7 +11,6 @@ import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -30,10 +27,11 @@ import com.jayteealao.trails.navigation.AppBackStack
 import com.jayteealao.trails.screens.Screen
 import com.jayteealao.trails.screens.TrailScaffold
 import com.jayteealao.trails.screens.TrailsTopAppBarNav3
-import com.jayteealao.trails.screens.articleDetail.ArticleDetailScreen
+import com.jayteealao.trails.screens.articleDetail.ArticleDetailPane
 import com.jayteealao.trails.screens.articleDetail.ArticleDetailViewModel
 import com.jayteealao.trails.screens.articleList.ArticleListScreen
 import com.jayteealao.trails.screens.articleSearch.ArticleSearchScreen
+import com.jayteealao.trails.screens.auth.AuthMessages
 import com.jayteealao.trails.screens.auth.AuthScreen
 import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
@@ -48,7 +46,6 @@ import com.jayteealao.trails.ui.adaptive.DIALOG
 import com.jayteealao.trails.ui.adaptive.DialogSceneStrategy
 import com.jayteealao.trails.ui.adaptive.TrailsListDetailSceneStrategy
 import com.jayteealao.trails.ui.adaptive.rememberTrailsListDetailSceneStrategy
-import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class,
     ExperimentalMaterial3AdaptiveApi::class
@@ -106,7 +103,9 @@ fun MainNavigation(
                 )
             }
         }
-    ) { paddingValues, _, snackbarHostState -> // TODO: pass in snackbarHostState
+    ) { paddingValues, _, snackbarHostState ->
+        // An account upgrade runs from Settings, so its message is heard on every screen.
+        AuthMessages(authViewModel, snackbarHostState)
         NavDisplay(
             backStack = appBackStack.backStack,
             modifier = modifier.padding(paddingValues),
@@ -133,22 +132,21 @@ fun MainNavigation(
                     },
                     onOpenTagManagement = { article ->
                         appBackStack.add(Screen.TagManagement(article.itemId))
-                    }
+                    },
+                    // The login route alone; it clears no data, and Skip returns to the list.
+                    onSignIn = { appBackStack.logout() },
+                    onOpenSettings = { appBackStack.add(Screen.Settings) },
                 )
             }
             entry<Screen.ArticleDetail>(
                 metadata = TrailsListDetailSceneStrategy.detailPane()
 //                metadata = ListDetailSceneStrategy.detailPane()
             ) { key ->
-                val articleId = key.id
-                LaunchedEffect(articleId) {
-                    articleDetailViewModel.getArticle(articleId)
-                }
-                val selectedArticle by articleDetailViewModel.state.map { it.article }.collectAsState(null)
-
-                Box(modifier = Modifier.fillMaxSize().testTag(MainNavTestTags.DETAIL_PANE)) {
-                    selectedArticle?.let { ArticleDetailScreen(article = it) }
-                }
+                ArticleDetailPane(
+                    articleId = key.id,
+                    viewModel = articleDetailViewModel,
+                    modifier = Modifier.testTag(MainNavTestTags.DETAIL_PANE),
+                )
             }
             entry<Screen.ArticleSearch> {
                 ArticleSearchScreen(
