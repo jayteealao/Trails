@@ -1,6 +1,8 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import android.app.Application
+import android.os.Looper
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,12 +10,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /** Why a page did not load, what the Web tab says about it, and what it loads next. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class WebTabStateTest {
+
+    // A state write makes Compose post to the main looper. Left unrun, that post would stop every
+    // later post of Compose, so the lists of the next test classes would never load.
+    @After
+    fun runPostedWork() = shadowOf(Looper.getMainLooper()).idle()
 
     private fun noAnswer(url: String = ARTICLE) = WebFailure(WebFailureKind.NO_ANSWER, url)
 
