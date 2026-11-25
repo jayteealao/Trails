@@ -53,7 +53,7 @@ class ArticleSearchScreenTest {
         every { allTags() } returns flowOf(emptyList())
     }
     private val words = SearchBarState()
-    private val viewModel by lazy { ArticleSearchViewModel(repository, Dispatchers.Unconfined) }
+    private val viewModel by lazy { ArticleSearchViewModel(repository, { mockk() }, Dispatchers.Unconfined) }
 
     private fun show() {
         rule.setContent {

@@ -1,6 +1,5 @@
 package com.jayteealao.trails.screens.articleList
 
-import android.net.Uri
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.jayteealao.trails.data.ArticleRepository
@@ -19,10 +18,6 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.slot
-import io.mockk.unmockkStatic
-import io.mockk.verify
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,6 +48,8 @@ class ArticleListViewModelTest {
 
     private val libraryStatus = FakeLibraryStatus()
 
+    private val unfurler = mockk<Unfurler>()
+
     private lateinit var testDispatcher: CoroutineDispatcher
 
     @Before
@@ -62,7 +59,6 @@ class ArticleListViewModelTest {
         Dispatchers.setMain(testDispatcher)
 
         every { articleRepository.synchronize() } returns Unit
-        every { articleRepository.syncToFirestore() } returns Unit
         every { articleRepository.isSyncing } returns flowOf(false)
         every { articleRepository.pockets() } answers { TestPagingSource() }
         every { articleRepository.favoritePockets() } answers { TestPagingSource() }
@@ -75,10 +71,6 @@ class ArticleListViewModelTest {
         coEvery { articleRepository.addTag(any(), any()) } returns Unit
         coEvery { articleRepository.removeTag(any(), any()) } returns Unit
         coEvery { articleRepository.updateExcerpt(any(), any()) } returns Unit
-        coEvery { articleRepository.backupArticleNow(any()) } returns Result.success(Unit)
-        coEvery { articleRepository.saveNewArticle(any()) } answers {
-            firstArg<Article>().itemId
-        }
         coEvery { articleRepository.getArticleById(any()) } returns Article(
             itemId = "test", url = "https://example.com/article", givenUrl = "https://example.com/article"
         )
@@ -89,70 +81,7 @@ class ArticleListViewModelTest {
     @After
     fun tearDown() {
         clearAllMocks()
-        runCatching { unmockkStatic("me.saket.unfurl.UnfurlerKt") }
         Dispatchers.resetMain()
-    }
-
-    @Test
-    fun saveUrl_whenMetadataFetchFails_usesSharedUrlAndTitleFallback() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        Dispatchers.setMain(dispatcher)
-
-        // Unfurler is an interface built via the top-level Unfurler() factory, so it
-        // can't be mocked with mockkConstructor. Mock the factory so the ViewModel's
-        // `val unfurler = Unfurler()` receives a mock whose suspend unfurl() fails —
-        // this is the metadata-fetch-failure path under test.
-        val unfurler = mockk<Unfurler>()
-        coEvery { unfurler.unfurl(any<String>()) } throws RuntimeException("unfurl failure")
-        mockkStatic("me.saket.unfurl.UnfurlerKt")
-        every { Unfurler() } returns unfurler
-
-        val upsertSlot = slot<Article>()
-        coEvery { articleRepository.saveNewArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
-
-        // Mock getArticleById for undo-race guard (return article with no deletedAt)
-        coEvery { articleRepository.getArticleById(any()) } returns Article(
-            itemId = "test", url = "https://example.com/article", givenUrl = "https://example.com/article"
-        )
-
-        val updateItemId = slot<String>()
-        val updateTitle = slot<String>()
-        val updateUrl = slot<String>()
-        coEvery {
-            articleRepository.updateUnfurledDetails(
-                capture(updateItemId),
-                capture(updateTitle),
-                capture(updateUrl),
-                any(),
-                any(),
-                any(),
-                any(),
-            )
-        } returns Unit
-
-        val viewModel = ArticleListViewModel(
-            articleRepository = articleRepository,
-            libraryStatus = libraryStatus,
-            ioDispatcher = dispatcher,
-        )
-
-        val sharedUrl = "https://example.com/article"
-        // android.net.Uri has no JVM implementation; saveUrl() only reads
-        // givenUrl.toString(), so a mock that echoes the URL is sufficient.
-        val sharedUri = mockk<Uri>()
-        every { sharedUri.toString() } returns sharedUrl
-        viewModel.saveUrl(sharedUri, "Shared title")
-        advanceUntilIdle()
-
-        assertEquals(sharedUrl, upsertSlot.captured.url)
-        assertEquals(sharedUrl, upsertSlot.captured.givenUrl)
-        assertEquals(upsertSlot.captured.itemId, updateItemId.captured)
-        assertEquals("Shared title", updateTitle.captured)
-        assertEquals(sharedUrl, updateUrl.captured)
-        assertFalse(viewModel.isSaving.value)
-        assertEquals("Shared title", viewModel.intentTitle.value)
-
-        coVerify(exactly = 1) { articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
     }
 
     @Test
@@ -170,6 +99,7 @@ class ArticleListViewModelTest {
         val viewModel = ArticleListViewModel(
             articleRepository = articleRepository,
             libraryStatus = libraryStatus,
+            unfurlers = { unfurler },
             ioDispatcher = dispatcher,
         )
         // The state is shared WhileSubscribed, so keep a collector alive for the test.
@@ -186,73 +116,6 @@ class ArticleListViewModelTest {
         assertFalse(viewModel.state.value.databaseSync)
     }
 
-    @Test
-    fun `saveUrl calls backupArticleNow and syncToFirestore after unfurl`() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        Dispatchers.setMain(dispatcher)
-
-        val unfurler = mockk<Unfurler>()
-        coEvery { unfurler.unfurl(any<String>()) } throws RuntimeException("unfurl failure")
-        mockkStatic("me.saket.unfurl.UnfurlerKt")
-        every { Unfurler() } returns unfurler
-
-        val upsertSlot = slot<Article>()
-        coEvery { articleRepository.saveNewArticle(capture(upsertSlot)) } answers { upsertSlot.captured.itemId }
-
-        coEvery { articleRepository.getArticleById(any()) } returns Article(
-            itemId = "test", url = "https://example.com/article", givenUrl = "https://example.com/article"
-        )
-
-        coEvery {
-            articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any())
-        } returns Unit
-
-        val viewModel = ArticleListViewModel(
-            articleRepository = articleRepository,
-            libraryStatus = libraryStatus,
-            ioDispatcher = dispatcher,
-        )
-
-        val sharedUri = mockk<Uri>()
-        every { sharedUri.toString() } returns "https://example.com/article"
-        viewModel.saveUrl(sharedUri, "Shared title")
-        advanceUntilIdle()
-
-        // After the unfurl step, the ViewModel must call backupArticleNow(articleId)
-        // then syncToFirestore() — in that order — as the inline backup + expedited backstop.
-        val capturedId = upsertSlot.captured.itemId
-        coVerify(exactly = 1) { articleRepository.backupArticleNow(capturedId) }
-        verify(exactly = 1) { articleRepository.syncToFirestore() }
-    }
-
-    @Test
-    fun `saveUrl routes data access through repository not DAO`() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        Dispatchers.setMain(dispatcher)
-
-        val unfurler = mockk<Unfurler>()
-        coEvery { unfurler.unfurl(any<String>()) } throws RuntimeException("unfurl failure")
-        mockkStatic("me.saket.unfurl.UnfurlerKt")
-        every { Unfurler() } returns unfurler
-
-        val viewModel = ArticleListViewModel(
-            articleRepository = articleRepository,
-            libraryStatus = libraryStatus,
-            ioDispatcher = dispatcher,
-        )
-
-        val sharedUri = mockk<Uri>()
-        every { sharedUri.toString() } returns "https://example.com/article"
-        viewModel.saveUrl(sharedUri, "Test title")
-        advanceUntilIdle()
-
-        coVerify(exactly = 1) { articleRepository.saveNewArticle(any()) }
-        coVerify(exactly = 1) { articleRepository.updateUnfurledDetails(any(), any(), any(), any(), any(), any(), any()) }
-        // No ArticleDao in the graph — the structural absence is the proof.
-        // These repo-level invocations confirm the ViewModel routes through the
-        // repository abstraction, not directly to Room.
-    }
-
     /** A ViewModel on [dispatcher], and every event it sends. */
     private fun TestScope.viewModelWithEvents(
         dispatcher: CoroutineDispatcher,
@@ -260,6 +123,7 @@ class ArticleListViewModelTest {
         val viewModel = ArticleListViewModel(
             articleRepository = articleRepository,
             libraryStatus = libraryStatus,
+            unfurlers = { unfurler },
             ioDispatcher = dispatcher,
         )
         val events = mutableListOf<ArticleListEvent>()
@@ -299,12 +163,9 @@ class ArticleListViewModelTest {
         assertEquals(changes.size, events.filterIsInstance<ArticleListEvent.ShowError>().size)
     }
 
-    /** Makes every unfurler of a ViewModel built after this answer [answer]. */
+    /** Makes the injected unfurler answer [answer]. */
     private fun unfurlerAnswers(answer: suspend () -> UnfurlResult?) {
-        val unfurler = mockk<Unfurler>()
         coEvery { unfurler.unfurl(any<String>()) } coAnswers { answer() }
-        mockkStatic("me.saket.unfurl.UnfurlerKt")
-        every { Unfurler() } returns unfurler
     }
 
     @Test
@@ -362,39 +223,6 @@ class ArticleListViewModelTest {
         (events.single() as ArticleListEvent.ArticleDeleted).undo()
         advanceUntilIdle()
         coVerify(exactly = 1) { articleRepository.restore("a") }
-    }
-
-    @Test
-    fun `saveUrl says what is wrong with a link that cannot be saved`() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        Dispatchers.setMain(dispatcher)
-        val (viewModel, events) = viewModelWithEvents(dispatcher)
-
-        viewModel.saveUrl(mockk { every { this@mockk.toString() } returns "" }, "Title")
-        viewModel.saveUrl(mockk { every { this@mockk.toString() } returns "ftp://example.com/a" }, "Title")
-        advanceUntilIdle()
-
-        assertEquals(
-            listOf(ErrorMessage.NO_LINK, ErrorMessage.LINK_NOT_SUPPORTED),
-            events.map { (it as ArticleListEvent.ShowError).message },
-        )
-    }
-
-    @Test
-    fun `a save that fails says so and its retry saves again`() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        Dispatchers.setMain(dispatcher)
-        coEvery { articleRepository.saveNewArticle(any()) } throws IllegalStateException("raw text")
-        val (viewModel, events) = viewModelWithEvents(dispatcher)
-
-        viewModel.saveUrl(mockk { every { this@mockk.toString() } returns "https://example.com/a" }, "Title")
-        advanceUntilIdle()
-
-        val error = events.filterIsInstance<ArticleListEvent.ShowError>().single()
-        assertEquals(ErrorMessage.SAVE_FAILED, error.message)
-        error.retry!!.invoke()
-        advanceUntilIdle()
-        coVerify(exactly = 2) { articleRepository.saveNewArticle(any()) }
     }
 
     @Test

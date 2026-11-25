@@ -70,6 +70,7 @@ class ArticleSwipeTest {
         ArticleListViewModel(
             articleRepository = repository,
             libraryStatus = FakeLibraryStatus(LibraryState(hasArticles = true)),
+            unfurlers = { mockk() },
             ioDispatcher = Dispatchers.Unconfined,
         )
     }

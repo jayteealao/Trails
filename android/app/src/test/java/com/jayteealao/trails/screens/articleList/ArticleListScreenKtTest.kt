@@ -95,6 +95,7 @@ class ArticleListScreenKtTest {
         return ArticleListViewModel(
             articleRepository = repository,
             libraryStatus = FakeLibraryStatus(),
+            unfurlers = { mockk() },
             ioDispatcher = Dispatchers.Unconfined,
         )
     }

@@ -59,7 +59,7 @@ class ArticleSearchViewModelTest {
 
     /** Builds the ViewModel on the test dispatcher and collects its state and events for the whole test. */
     private fun TestScope.viewModel(): Pair<ArticleSearchViewModel, Collected> {
-        val viewModel = ArticleSearchViewModel(repository, dispatcher)
+        val viewModel = ArticleSearchViewModel(repository, { mockk() }, dispatcher)
         val states = mutableListOf<ArticleSearchState>()
         val events = mutableListOf<ArticleSearchEvent>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.state.collect { states += it } }

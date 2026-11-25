@@ -79,6 +79,7 @@ class ArticleListStatesTest {
         ArticleListViewModel(
             articleRepository = repository,
             libraryStatus = library,
+            unfurlers = { mockk() },
             ioDispatcher = Dispatchers.Unconfined,
         )
     }

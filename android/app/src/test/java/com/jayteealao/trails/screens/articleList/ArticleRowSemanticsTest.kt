@@ -80,9 +80,11 @@ class ArticleRowSemanticsTest {
         every { pocketsByTag(any()) } answers { Source() }
     }
     private val listViewModel by lazy {
-        ArticleListViewModel(repository, FakeLibraryStatus(LibraryState(hasArticles = true)), Dispatchers.Unconfined)
+        ArticleListViewModel(
+            repository, FakeLibraryStatus(LibraryState(hasArticles = true)), { mockk() }, Dispatchers.Unconfined,
+        )
     }
-    private val searchViewModel by lazy { ArticleSearchViewModel(repository, Dispatchers.Unconfined) }
+    private val searchViewModel by lazy { ArticleSearchViewModel(repository, { mockk() }, Dispatchers.Unconfined) }
     private val opened = mutableListOf<ArticleItem>()
 
     private val row = hasText(ROW.title) and hasClickAction()
