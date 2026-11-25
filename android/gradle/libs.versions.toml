@@ -45,6 +45,8 @@ nav3Core = "1.0.0-rc01"
 lifecycleViewmodelNav3 = "2.10.0-rc01"
 material3AdaptiveNav3 = "1.3.0-alpha03"
 playServicesAuth = "21.4.0"
+credentials = "1.6.0"
+googleid = "1.2.1"
 
 #constraintlayoutVersion = "2.1.4"
 
@@ -138,6 +140,9 @@ firebase-firestore = { module = "com.google.firebase:firebase-firestore" }
 firebase-functions = { module = "com.google.firebase:firebase-functions" }
 firebase-config = { module = "com.google.firebase:firebase-config" }
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
+androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
+androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
+googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "nav3Core" }
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "nav3Core" }
 androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycleViewmodelNav3" }

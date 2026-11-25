@@ -294,6 +294,9 @@ dependencies {
     implementation(libs.firebase.functions)
     implementation(libs.firebase.config)
     implementation(libs.play.services.auth)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
 
     // Navigation 3
     implementation(libs.androidx.navigation3.ui)
