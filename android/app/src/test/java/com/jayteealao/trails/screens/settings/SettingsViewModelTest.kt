@@ -518,4 +518,46 @@ class SettingsViewModelTest {
 
         coVerify(exactly = 0) { syncManager.performFullSync() }
     }
+
+    @Test
+    fun aGuest_hasNoAddress_andALinkedAccountWithNone_takesTheLibraryName() = runTest(dispatcher) {
+        val guest = mockk<FirebaseUser>().also {
+            every { it.uid } returns "owner-a"
+            every { it.email } returns null
+            every { it.isAnonymous } returns true
+        }
+        every { authRepository.getCurrentUser() } returns guest
+        every { owner.uid() } returns "owner-a"
+        val vm = viewModel()
+        observe(vm)
+        assertEquals(null, vm.state.value.userEmail)
+        assertTrue(vm.state.value.isAnonymous)
+
+        // The guest is upgraded: the same uid, now a full account Firebase gave no address.
+        val linked = mockk<FirebaseUser>().also {
+            every { it.uid } returns "owner-a"
+            every { it.email } returns null
+            every { it.isAnonymous } returns false
+        }
+        every { authRepository.getCurrentUser() } returns linked
+        vm.accountChanged()
+        advanceUntilIdle()
+
+        assertEquals("a@example.com", vm.state.value.userEmail)
+        assertFalse(vm.state.value.isAnonymous)
+    }
+
+    @Test
+    fun anotherOwnersName_isNeverShown() = runTest(dispatcher) {
+        every { authRepository.getCurrentUser() } returns mockk<FirebaseUser>().also {
+            every { it.uid } returns "owner-b"
+            every { it.email } returns null
+            every { it.isAnonymous } returns false
+        }
+        every { owner.uid() } returns "owner-a"
+        val vm = viewModel()
+        observe(vm)
+
+        assertEquals(null, vm.state.value.userEmail)
+    }
 }

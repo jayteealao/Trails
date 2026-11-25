@@ -11,6 +11,7 @@ import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseUser
+import com.jayteealao.trails.common.NetworkMonitor
 import com.jayteealao.trails.data.AuthRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.data.ThemePreference
@@ -23,6 +24,7 @@ import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.SyncState
 import com.jayteealao.trails.screens.auth.AuthUiState
 import com.jayteealao.trails.screens.auth.AuthViewModel
+import com.jayteealao.trails.screens.auth.FakeGoogleSignIn
 import com.jayteealao.trails.services.firestore.FirestoreSyncManager
 import com.jayteealao.trails.services.firestore.SyncRunResult
 import com.jayteealao.trails.services.firestore.SyncStatus
@@ -38,6 +40,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -245,7 +248,8 @@ class LogoutWipeIntegrationTest {
         assertEquals(0, db.articleDao().countUnsyncedChanges())
 
         // Another account signs in on the same device, over the same owner store and reset.
-        val auth = AuthViewModel(authRepository, owner, PushThenWipe(reset))
+        val network = mockk<NetworkMonitor> { every { isOnline } returns flowOf(true) }
+        val auth = AuthViewModel(authRepository, owner, PushThenWipe(reset), FakeGoogleSignIn(), network)
         val switchDialogs = mutableListOf<UnsyncedChangesDialogState>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
             auth.unsyncedChangesDialog.collect { switchDialogs += it }

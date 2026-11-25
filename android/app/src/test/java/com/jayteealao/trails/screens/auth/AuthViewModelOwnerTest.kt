@@ -1,9 +1,10 @@
 package com.jayteealao.trails.screens.auth
 
 import android.app.Application
-import com.google.firebase.auth.AuthCredential
+import android.content.Context
 import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseUser
+import com.jayteealao.trails.common.NetworkMonitor
 import com.jayteealao.trails.data.AuthRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
 import com.jayteealao.trails.data.account.LocalDataOwner
@@ -18,6 +19,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -50,7 +52,9 @@ class AuthViewModelOwnerTest {
     private lateinit var authRepository: AuthRepository
     private lateinit var owner: LocalDataOwner
     private lateinit var reset: LocalDataReset
-    private val credential = mockk<AuthCredential>()
+    private val google = FakeGoogleSignIn()
+    private val activity = mockk<Context>()
+    private val network = mockk<NetworkMonitor> { every { isOnline } returns flowOf(true) }
 
     @Before
     fun setUp() {
@@ -76,15 +80,15 @@ class AuthViewModelOwnerTest {
 
     private fun result(user: FirebaseUser) = mockk<AuthResult>().also { every { it.user } returns user }
 
-    private fun viewModel() = AuthViewModel(authRepository, owner, PushThenWipe(reset))
+    private fun viewModel() = AuthViewModel(authRepository, owner, PushThenWipe(reset), google, network)
 
     @Test
     fun firstSignIn_adoptsTheLibrary() = runTest(dispatcher) {
         val a = user("a", "a@example.com")
-        coEvery { authRepository.signInWithCredential(credential) } returns result(a)
+        coEvery { authRepository.signInWithGoogle(FakeGoogleSignIn.TOKEN) } returns result(a)
         val vm = viewModel()
 
-        vm.signInWithCredential(credential)
+        vm.signInWithGoogle(activity)
         advanceUntilIdle()
 
         assertEquals("a", owner.uid())
@@ -97,10 +101,10 @@ class AuthViewModelOwnerTest {
     @Test
     fun sameAccount_keepsTheLibrary() = runTest(dispatcher) {
         owner.adopt("a", "a@example.com")
-        coEvery { authRepository.signInWithCredential(credential) } returns result(user("a", "a@example.com"))
+        coEvery { authRepository.signInWithGoogle(FakeGoogleSignIn.TOKEN) } returns result(user("a", "a@example.com"))
         val vm = viewModel()
 
-        vm.signInWithCredential(credential)
+        vm.signInWithGoogle(activity)
         advanceUntilIdle()
 
         assertTrue(vm.state.value is AuthUiState.SignedIn)
@@ -111,10 +115,12 @@ class AuthViewModelOwnerTest {
     @Test
     fun guestLinkedToGoogle_keepsTheLibraryAndTakesTheEmail() = runTest(dispatcher) {
         owner.adopt("a", null)
-        coEvery { authRepository.linkWithCredential(credential) } returns result(user("a", "a@example.com"))
+        // The guest is signed in when the upgrade starts.
+        every { authRepository.getCurrentUser() } returns user("a", null)
+        coEvery { authRepository.linkGoogle(FakeGoogleSignIn.TOKEN) } returns result(user("a", "a@example.com"))
         val vm = viewModel()
 
-        vm.linkWithCredential(credential)
+        vm.upgradeAccount(activity)
         advanceUntilIdle()
 
         assertTrue(vm.state.value is AuthUiState.SignedIn)
@@ -140,7 +146,7 @@ class AuthViewModelOwnerTest {
         advanceUntilIdle()
 
         assertEquals("a", ownerAtWipe)
-        assertEquals(AuthUiState.Loading, stateAtWipe)
+        assertEquals(AuthUiState.Loading(canCancel = false), stateAtWipe)
         assertEquals("b", owner.uid())
         assertNull(owner.label())
         assertTrue(vm.state.value is AuthUiState.SignedIn)
@@ -152,17 +158,17 @@ class AuthViewModelOwnerTest {
     fun otherAccount_changesPending_asks_andKeepingSignsTheNewAccountOut() = runTest(dispatcher) {
         owner.adopt("a", "a@example.com")
         coEvery { reset.pendingChangeCount() } returns 3
-        coEvery { authRepository.signInWithCredential(credential) } returns result(user("b", "b@example.com"))
+        coEvery { authRepository.signInWithGoogle(FakeGoogleSignIn.TOKEN) } returns result(user("b", "b@example.com"))
         val vm = viewModel()
 
-        vm.signInWithCredential(credential)
+        vm.signInWithGoogle(activity)
         advanceUntilIdle()
 
         assertEquals(
             UnsyncedChangesDialogState.PushFailed(3, WipeReason.ACCOUNT_SWITCH, "a@example.com"),
             vm.unsyncedChangesDialog.value,
         )
-        assertEquals(AuthUiState.Loading, vm.state.value)
+        assertEquals(AuthUiState.Loading(canCancel = false), vm.state.value)
         coVerify(exactly = 0) { reset.wipeLocalData() }
 
         vm.keepPreviousAccountData()
@@ -180,10 +186,10 @@ class AuthViewModelOwnerTest {
     fun otherAccount_changesPending_switchAnywayClearsAndAdopts() = runTest(dispatcher) {
         owner.adopt("a", "a@example.com")
         coEvery { reset.pendingChangeCount() } returns 3
-        coEvery { authRepository.signInWithCredential(credential) } returns result(user("b", "b@example.com"))
+        coEvery { authRepository.signInWithGoogle(FakeGoogleSignIn.TOKEN) } returns result(user("b", "b@example.com"))
         val vm = viewModel()
 
-        vm.signInWithCredential(credential)
+        vm.signInWithGoogle(activity)
         advanceUntilIdle()
         vm.switchAccountAnyway()
         advanceUntilIdle()

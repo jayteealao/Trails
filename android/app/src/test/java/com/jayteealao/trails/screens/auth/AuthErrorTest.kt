@@ -1,38 +1,32 @@
 package com.jayteealao.trails.screens.auth
 
 import android.app.Application
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
-import com.google.android.gms.common.api.ApiException
-import com.google.android.gms.common.api.CommonStatusCodes
-import com.google.android.gms.common.api.Status
+import android.content.Context
+import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
+import androidx.credentials.exceptions.GetCredentialUnknownException
 import com.google.firebase.FirebaseNetworkException
-import com.google.firebase.auth.AuthCredential
+import com.google.firebase.auth.AuthResult
+import com.google.firebase.auth.FirebaseUser
+import com.jayteealao.trails.common.NetworkMonitor
 import com.jayteealao.trails.data.AuthRepository
 import com.jayteealao.trails.data.account.LocalDataOwner
+import com.jayteealao.trails.data.account.OwnerDecision
 import com.jayteealao.trails.data.account.PushThenWipe
 import com.jayteealao.trails.screens.components.ErrorMessage
-import com.jayteealao.trails.screens.theme.TrailsTheme
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -43,21 +37,18 @@ import java.util.concurrent.TimeoutException
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 // Plain Application so Robolectric does not boot the Hilt app, whose onCreate starts Firebase.
-@Config(sdk = [33], qualifiers = "w412dp-h915dp", application = Application::class)
+@Config(sdk = [33], application = Application::class)
 class AuthErrorTest {
-
-    @get:Rule
-    val rule = createComposeRule()
 
     private val offlineCauses = listOf(
         FirebaseNetworkException(RAW),
         TimeoutException(RAW),
         RuntimeException(RAW, FirebaseNetworkException(RAW)),
-        ApiException(Status(CommonStatusCodes.NETWORK_ERROR, RAW)),
+        GetCredentialUnknownException(RAW).apply { initCause(FirebaseNetworkException(RAW)) },
     )
     private val otherCauses = listOf(
         IllegalStateException(RAW),
-        ApiException(Status(CommonStatusCodes.DEVELOPER_ERROR, RAW)),
+        GetCredentialProviderConfigurationException(RAW),
     )
 
     @Test
@@ -67,67 +58,82 @@ class AuthErrorTest {
     }
 
     @Test
-    fun everyWayToSignIn_endsInTheErrorState() = runTest {
+    fun everyWayToSignIn_endsInItsState() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
-            val credential = mockk<AuthCredential>()
             val repository = mockk<AuthRepository> {
                 every { getCurrentUser() } returns null
                 coEvery { signInAnonymously() } throws TimeoutException(RAW)
-                coEvery { signInWithCredential(credential) } throws FirebaseNetworkException(RAW)
-                coEvery { linkWithCredential(credential) } throws IllegalStateException(RAW)
+                coEvery { signInWithGoogle(FakeGoogleSignIn.TOKEN) } throws FirebaseNetworkException(RAW)
             }
-            val viewModel = AuthViewModel(repository, mockk<LocalDataOwner>(), mockk<PushThenWipe>())
+            val network = mockk<NetworkMonitor> { every { isOnline } returns flowOf(true) }
+            val viewModel = AuthViewModel(
+                repository, mockk<LocalDataOwner>(), mockk<PushThenWipe>(), FakeGoogleSignIn(), network,
+            )
 
             viewModel.signInAnonymously()
             advanceUntilIdle()
             assertEquals(AuthUiState.Error(ErrorMessage.SIGN_IN_OFFLINE), viewModel.state.value)
 
-            viewModel.linkWithCredential(credential)
+            viewModel.signInWithGoogle(mockk<Context>())
             advanceUntilIdle()
-            assertEquals(AuthUiState.Error(ErrorMessage.SIGN_IN_FAILED), viewModel.state.value)
+            assertEquals(AuthUiState.Error(ErrorMessage.GOOGLE_OFFLINE), viewModel.state.value)
 
-            viewModel.signInWithCredential(credential)
+            coEvery { repository.signInWithGoogle(FakeGoogleSignIn.TOKEN) } throws IllegalStateException(RAW)
+            viewModel.signInWithGoogle(mockk<Context>())
             advanceUntilIdle()
-            assertEquals(AuthUiState.Error(ErrorMessage.SIGN_IN_OFFLINE), viewModel.state.value)
-
-            viewModel.signInFailed(IllegalStateException(RAW))
-            assertEquals(AuthUiState.Error(ErrorMessage.SIGN_IN_FAILED), viewModel.state.value)
+            assertEquals(
+                AuthUiState.Error(ErrorMessage.GOOGLE_FAILED, account = FakeGoogleSignIn.EMAIL),
+                viewModel.state.value,
+            )
         } finally {
             Dispatchers.resetMain()
         }
     }
 
-    private fun assertShownOnce(message: ErrorMessage, words: String) {
-        var google = 0
-        var guest = 0
-        rule.setContent {
-            TrailsTheme(darkTheme = false) {
-                AuthErrorContent(message, onRetryGoogle = { google++ }, onContinueAsGuest = { guest++ })
+    @Test
+    fun failedLink_keepsTheGuestSignedIn_andSaysSoOnce() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val guest = mockk<FirebaseUser> {
+                every { uid } returns "guest"
+                every { email } returns null
             }
-        }
+            val repository = mockk<AuthRepository> {
+                every { getCurrentUser() } returns guest
+                coEvery { linkGoogle(FakeGoogleSignIn.TOKEN) } throws IllegalStateException(RAW)
+            }
+            val owner = mockk<LocalDataOwner>(relaxed = true) {
+                every { decide("guest") } returns OwnerDecision.SAME_OWNER
+            }
+            val network = mockk<NetworkMonitor> { every { isOnline } returns flowOf(true) }
+            val viewModel = AuthViewModel(repository, owner, mockk<PushThenWipe>(), FakeGoogleSignIn(), network)
+            val events = mutableListOf<AuthEvent>()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.event.collect { events += it } }
 
-        rule.onAllNodesWithText(words, useUnmergedTree = true).assertCountEquals(1)
-        rule.onAllNodesWithText(RAW, substring = true, useUnmergedTree = true).assertCountEquals(0)
-        rule.onNode(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
-            .assert(hasText(words))
-        rule.onNodeWithText("Retry with Google").performClick()
-        rule.onNodeWithText("Continue as Guest Instead").performClick()
-        assertEquals(1, google)
-        assertEquals(1, guest)
+            viewModel.upgradeAccount(mockk<Context>())
+            advanceUntilIdle()
+
+            assertEquals(AuthUiState.SignedIn(guest), viewModel.state.value)
+            assertEquals(listOf<AuthEvent>(AuthEvent.UpgradeFailed(ErrorMessage.UPGRADE_FAILED)), events)
+        } finally {
+            Dispatchers.resetMain()
+        }
     }
 
     @Test
-    fun offline_isShownOnce() = assertShownOnce(
-        signInErrorOf(offlineCauses.first()),
-        "You’re offline, so you were not signed in. Connect, then try again.",
-    )
-
-    @Test
-    fun anyOtherFailure_isShownOnce() = assertShownOnce(
-        signInErrorOf(otherCauses.first()),
-        "Sign-in did not finish. Try again.",
-    )
+    fun noWordsEverCarryTheExceptionText() {
+        (offlineCauses + otherCauses).forEach { cause ->
+            listOfNotNull(
+                signInErrorOf(cause),
+                googleSignInErrorOf(cause, online = true),
+                googleSignInErrorOf(cause, online = false),
+                upgradeErrorOf(cause, online = true),
+            ).forEach { message ->
+                assertEquals(false, signInText(message, account = null).contains(RAW))
+            }
+        }
+    }
 
     private companion object {
         const val RAW = "raw text of the exception"
