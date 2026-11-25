@@ -152,6 +152,20 @@ interface ArticleDao {
     )
     suspend fun updateDeleted(itemId: String, timeDeleted: Long)
 
+    /**
+     * Takes a deletion back. The new time is always later than the time of the deletion, because
+     * the sync pushes only a newer version, and a remote copy of the deletion must be the older one.
+     */
+    @Query(
+        """
+        UPDATE article
+        SET deleted_at = NULL,
+            timeUpdated = MAX(:now, timeUpdated + 1)
+        WHERE itemId = :itemId
+        """
+    )
+    suspend fun clearDeleted(itemId: String, now: Long)
+
     @Query("""
             UPDATE article
             SET title = :title, url = :url, image = :image, hasImage = :hasImage, excerpt = :excerpt,
@@ -189,11 +203,11 @@ interface ArticleDao {
         UPDATE article
         SET favorite = CASE WHEN :isFavorite THEN '1' ELSE '0' END,
             timeFavorited = CASE WHEN :isFavorite THEN :timeFavorited ELSE 0 END,
-            timeUpdated = :timeFavorited
+            timeUpdated = :now
         WHERE itemId = :itemId
         """
     )
-    suspend fun updateFavorite(itemId: String, isFavorite: Boolean, timeFavorited: Long)
+    suspend fun updateFavorite(itemId: String, isFavorite: Boolean, timeFavorited: Long, now: Long)
 
     @Query(
         """

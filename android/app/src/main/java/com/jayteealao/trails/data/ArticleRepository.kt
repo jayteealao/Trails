@@ -72,6 +72,9 @@ interface ArticleRepository: Syncable {
 
     suspend fun delete(itemId: String)
 
+    /** Takes back a [delete], on this phone and, by the sync, in the backup. */
+    suspend fun restore(itemId: String)
+
     suspend fun updateExcerpt(itemId: String, excerpt: String)
 
     override fun synchronize()
@@ -191,8 +194,9 @@ class ArticleRepositoryImpl @Inject constructor(
     }
 
     override suspend fun setFavorite(itemId: String, isFavorite: Boolean) {
-        val timestamp = if (isFavorite) System.currentTimeMillis() else 0L
-        articleDao.updateFavorite(itemId, isFavorite, timestamp)
+        // A removed favourite is a change too: it needs its own time, or the sync does not send it.
+        val now = System.currentTimeMillis()
+        articleDao.updateFavorite(itemId, isFavorite, if (isFavorite) now else 0L, now)
     }
 
     override suspend fun setReadStatus(itemId: String, isRead: Boolean) {
@@ -233,14 +237,22 @@ class ArticleRepositoryImpl @Inject constructor(
         // Soft-delete locally; the deletion is an ordinary change that the sync
         // pushes through the one serializer (as deletedAt).
         articleDao.updateDeleted(itemId, System.currentTimeMillis())
+        syncChangeOf(itemId, "deletion")
+    }
 
+    override suspend fun restore(itemId: String) {
+        articleDao.clearDeleted(itemId, System.currentTimeMillis())
+        syncChangeOf(itemId, "restore")
+    }
+
+    private fun syncChangeOf(itemId: String, change: String) {
         coroutineScope.launch {
             try {
                 firestoreSyncManager.syncLocalChanges()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.e(e, "Failed to sync deletion of $itemId")
+                Timber.e(e, "Failed to sync $change of $itemId")
             }
         }
     }
