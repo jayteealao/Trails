@@ -4,10 +4,7 @@ package com.jayteealao.trails.screens.articleDetail
 
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
 import android.content.res.Configuration
-import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +52,7 @@ import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.components.ErrorMessage
+import com.jayteealao.trails.screens.components.openInBrowser
 import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
@@ -120,15 +118,6 @@ fun ArticleDetailPane(
             )
         }
     }
-}
-
-/**
- * Shows [url] in the browser of the phone. The browser is asked for by its category, because the
- * app itself takes web links, to save them, and would be offered or opened for a plain one.
- */
-private fun Context.openInBrowser(url: String) {
-    val browser = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER)
-    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { selector = browser })
 }
 
 @SuppressLint("SetJavaScriptEnabled")
