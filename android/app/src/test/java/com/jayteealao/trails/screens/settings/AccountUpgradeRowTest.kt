@@ -1,7 +1,6 @@
 package com.jayteealao.trails.screens.settings
 
 import android.app.Application
-import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -12,6 +11,7 @@ import com.jayteealao.trails.data.ThemeChoice
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import io.yumemi.tartlet.ViewStore
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,7 +59,11 @@ class AccountUpgradeRowTest {
         rule.onNodeWithText("Guest").assertExists()
         rule.onNodeWithText("Full account").assertExists()
         rule.onNodeWithText("Keep your articles on every device").assertExists()
-        rule.onNodeWithText("Upgrade").assertIsEnabled().assertHeightIsAtLeast(48.dp).performClick()
+        val upgrade = rule.onNodeWithText("Upgrade").assertIsEnabled()
+        // The button draws at 40 dp; its touch target is what must reach 48 dp.
+        val touchHeight = with(rule.density) { upgrade.fetchSemanticsNode().touchBoundsInRoot.height.toDp() }
+        assertTrue("touch height $touchHeight", touchHeight >= 48.dp)
+        upgrade.performClick()
         assertEquals(1, upgrades)
     }
 
