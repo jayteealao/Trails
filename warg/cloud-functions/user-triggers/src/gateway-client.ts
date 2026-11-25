@@ -26,7 +26,6 @@ export class GatewayBeginError extends Error {
 
   constructor(status: number, body: string) {
     super(`Gateway begin failed: ${status} ${body}`);
-    this.name = 'GatewayBeginError';
     this.status = status;
     this.body = body;
   }
