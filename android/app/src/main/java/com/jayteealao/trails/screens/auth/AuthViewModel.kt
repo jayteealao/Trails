@@ -2,9 +2,6 @@ package com.jayteealao.trails.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.common.api.ApiException
-import com.google.android.gms.common.api.CommonStatusCodes
-import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.AuthCredential
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.data.AuthRepository
@@ -28,7 +25,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import java.util.concurrent.TimeoutException
 import javax.inject.Inject
 
 @HiltViewModel
@@ -186,16 +182,3 @@ sealed interface AuthUiState {
     data class SignedIn(val user: FirebaseUser) : AuthUiState
     data class Error(val message: ErrorMessage) : AuthUiState
 }
-
-/** The words for a failed sign-in: no network or no answer reads as offline, all else as failed. */
-internal fun signInErrorOf(cause: Throwable): ErrorMessage {
-    val offline = generateSequence(cause) { it.cause }.take(MAX_CAUSES).any {
-        it is FirebaseNetworkException ||
-            it is TimeoutException ||
-            (it is ApiException && it.statusCode == CommonStatusCodes.NETWORK_ERROR)
-    }
-    return if (offline) ErrorMessage.SIGN_IN_OFFLINE else ErrorMessage.SIGN_IN_FAILED
-}
-
-/** A cause chain can loop; no real one is this long. */
-private const val MAX_CAUSES = 10

@@ -25,6 +25,19 @@ enum class ErrorMessage(val text: String, val staysUntilAnswered: Boolean = fals
 
     SIGN_IN_OFFLINE("You’re offline, so you were not signed in. Connect, then try again."),
     SIGN_IN_FAILED("Sign-in did not finish. Try again."),
+
+    GOOGLE_OFFLINE("You’re offline, so Google could not sign you in. Connect, then try again."),
+    GOOGLE_NO_ACCOUNT(
+        "There is no Google account on this phone. Add one in the phone’s settings, then come back."
+    ),
+    GOOGLE_FAILED(
+        "Google did not finish signing you in. Nothing on this phone changed. Try again, or continue as a guest."
+    ),
+    UPGRADE_FAILED("Your account was not upgraded. Your articles are still on this phone."),
+    ACCOUNT_IN_USE(
+        "That Google account already has a Trails library, so this one was not upgraded. " +
+            "Your articles are still on this phone."
+    ),
 }
 
 /** The label of every action that repeats what failed. */
