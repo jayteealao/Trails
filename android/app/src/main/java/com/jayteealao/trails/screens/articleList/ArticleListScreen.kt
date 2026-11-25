@@ -27,7 +27,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,12 +37,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,20 +53,26 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemContentType
-import androidx.paging.compose.itemKey
+import com.jayteealao.trails.R
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
+import com.jayteealao.trails.screens.articleDetail.ReaderNoticeIcons
 import com.jayteealao.trails.screens.articleList.components.AdaptiveArticleGrid
 import com.jayteealao.trails.screens.articleList.components.ArticleDialog
-import com.jayteealao.trails.screens.articleList.components.ArticleListItem
+import com.jayteealao.trails.screens.articleList.components.ArticleListSkeleton
+import com.jayteealao.trails.screens.components.Notice
+import com.jayteealao.trails.screens.components.NoticeAction
+import com.jayteealao.trails.screens.components.NoticeIcons
+import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.preview.rememberPreviewArticles
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.jayteealao.trails.testtags.ArticleListTestTags
@@ -84,6 +89,8 @@ fun ArticleListScreen(
     onSelectArticle: (ArticleItem) -> Unit,
     onOpenTagManagement: (ArticleItem) -> Unit,
     useCardLayout: Boolean = false,
+    onSignIn: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
 ) {
     val context = LocalContext.current
@@ -113,7 +120,7 @@ fun ArticleListScreen(
 
     viewStore.handle<ArticleListEvent.ShowError> { event ->
         scope.launch {
-            snackbarHostState.showSnackbar("Error: ${event.error.message}")
+            snackbarHostState.showError(event.message, event.retry)
         }
     }
 
@@ -136,17 +143,73 @@ fun ArticleListScreen(
         }
     }
 
+    LaunchedEffect(Unit) {
+        viewStore.action { showLibrary() }
+    }
+
     LaunchedEffect(viewStore.state.selectedTab) {
         if (viewStore.state.selectedTab != ArticleListTab.TAGS) {
             viewStore.action { selectTag(null) }
         }
     }
 
+    val content: @Composable (LazyPagingItems<ArticleItem>) -> Unit = { lazyItems ->
+        ArticleListScreenContent(
+            lazyItems = lazyItems,
+            viewStore = viewStore,
+            onSelectArticle = onSelectArticle,
+            onOpenTagManagement = onOpenTagManagement,
+            useCardLayout = useCardLayout,
+            onSignIn = onSignIn,
+            onOpenSettings = onOpenSettings,
+        )
+    }
+
+    ArticleListFrame(
+        selectedTab = viewStore.state.selectedTab,
+        onSelectTab = { viewStore.action { setSelectedTab(it) } },
+        syncing = viewStore.state.databaseSync,
+        snackbarHostState = snackbarHostState,
+        modifier = modifier,
+    ) {
+        when (viewStore.state.selectedTab) {
+            ArticleListTab.HOME -> content(articles)
+            ArticleListTab.FAVOURITES -> content(favoriteArticles)
+            ArticleListTab.ARCHIVE -> content(archivedArticles)
+            ArticleListTab.TAGS -> TagsContent(
+                state = viewStore.state,
+                onSelectTag = { viewStore.action { selectTag(it) } },
+                onRetryTags = { viewStore.action { retryTags() } },
+            ) {
+                content(taggedArticles)
+            }
+        }
+        ArticleDialog( // remove dialog or add to swipe buttons
+            article = viewStore.state.selectedArticle,
+            showDialog = viewStore.state.selectedArticle != EMPTYARTICLEITEM,
+            onDismissRequest = { viewStore.action { selectArticle(EMPTYARTICLEITEM) } }
+        )
+    }
+}
+
+/**
+ * The parts around every list: the sync progress bar above it, the tabs below it, and the messages
+ * of the screen, which lie over the list and above the tabs.
+ */
+@Composable
+internal fun ArticleListFrame(
+    selectedTab: ArticleListTab,
+    onSelectTab: (ArticleListTab) -> Unit,
+    syncing: Boolean,
+    snackbarHostState: SnackbarHostState,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     Column(
         modifier = modifier.fillMaxSize()
     ) {
         AnimatedVisibility(
-            visible = viewStore.state.databaseSync,
+            visible = syncing,
             modifier = Modifier.padding(0.dp)
             ) {
             LinearProgressIndicator(
@@ -162,45 +225,11 @@ fun ArticleListScreen(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            when (viewStore.state.selectedTab) {
-                ArticleListTab.HOME -> ArticleListScreenContent(
-                    lazyItems = articles,
-                    viewStore = viewStore,
-                    onSelectArticle = onSelectArticle,
-                    onOpenTagManagement = onOpenTagManagement,
-                    useCardLayout = useCardLayout
-                )
-
-                ArticleListTab.FAVOURITES -> ArticleListScreenContent(
-                    lazyItems = favoriteArticles,
-                    viewStore = viewStore,
-                    onSelectArticle = onSelectArticle,
-                    onOpenTagManagement = onOpenTagManagement,
-                    useCardLayout = useCardLayout
-                )
-
-                ArticleListTab.ARCHIVE -> ArticleListScreenContent(
-                    lazyItems = archivedArticles,
-                    viewStore = viewStore,
-                    onSelectArticle = onSelectArticle,
-                    onOpenTagManagement = onOpenTagManagement,
-                    useCardLayout = useCardLayout
-                )
-
-                ArticleListTab.TAGS -> TagsContent(
-                    viewStore = viewStore,
-                    lazyItems = taggedArticles,
-                    onSelectArticle = onSelectArticle,
-                    onOpenTagManagement = onOpenTagManagement,
-                    useCardLayout = useCardLayout
-                )
-            }
-            ArticleDialog( // remove dialog or add to swipe buttons
-                article = viewStore.state.selectedArticle,
-                showDialog = viewStore.state.selectedArticle != EMPTYARTICLEITEM,
-                onDismissRequest = { viewStore.action { selectArticle(EMPTYARTICLEITEM) } }
+            content()
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
-
         }
         NavigationBar(
             modifier = Modifier
@@ -211,15 +240,14 @@ fun ArticleListScreen(
         ) {
             ArticleListTab.entries.forEach { tab ->
                 NavigationBarItem(
-                    selected = viewStore.state.selectedTab == tab,
-                    onClick = { viewStore.action { setSelectedTab(tab) } },
+                    selected = selectedTab == tab,
+                    onClick = { onSelectTab(tab) },
                     icon = tab.icon,
                     label = { Text(text = tab.label) }
                 )
             }
         }
     }
-
 }
 
 @Preview(name = "Articles • Light", showBackground = true)
@@ -267,45 +295,34 @@ private fun ArticleListScreenDarkPreview() {
 }
 
 
+/** The list of tags, or [articles] of the selected tag under its name. */
 @Composable
-private fun TagsContent(
-    viewStore: ViewStore<ArticleListState, ArticleListEvent, ArticleListViewModel>,
-    lazyItems: LazyPagingItems<ArticleItem>,
-    onSelectArticle: (ArticleItem) -> Unit,
-    onOpenTagManagement: (ArticleItem) -> Unit,
-    useCardLayout: Boolean,
+internal fun TagsContent(
+    state: ArticleListState,
+    onSelectTag: (String?) -> Unit,
+    onRetryTags: () -> Unit,
+    articles: @Composable () -> Unit,
 ) {
-    val tags = viewStore.state.tags
-    val selectedTag = viewStore.state.selectedTag
+    val selectedTag = state.selectedTag
 
     if (selectedTag == null) {
-        if (tags.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "No tags yet",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+        val body = tagsBodyFor(state.tags.size, state.tagsLoad)
+        if (body != ArticleListBody.Rows) {
+            ArticleListBodyView(body, onAction = { onRetryTags() })
         } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
-                items(tags) { tag ->
+                items(state.tags) { tag ->
                     Text(
                         text = tag,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { viewStore.action { selectTag(tag) } }
+                            .clickable { onSelectTag(tag) }
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     )
                 }
@@ -329,24 +346,19 @@ private fun TagsContent(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                TextButton(onClick = { viewStore.action { selectTag(null) } }) {
+                TextButton(onClick = { onSelectTag(null) }) {
                     Text(text = "All tags")
                 }
             }
             Box(modifier = Modifier.weight(1f)) {
-                ArticleListScreenContent(
-                    lazyItems = lazyItems,
-                    viewStore = viewStore,
-                    onSelectArticle = onSelectArticle,
-                    onOpenTagManagement = onOpenTagManagement,
-                    useCardLayout = useCardLayout
-                )
+                articles()
             }
         }
     }
 }
 
 
+/** The list of the selected tab: its rows, the skeleton while it loads, or the notice that says why not. */
 @Composable
 internal fun ArticleListScreenContent(
     lazyItems: LazyPagingItems<ArticleItem>,
@@ -354,14 +366,73 @@ internal fun ArticleListScreenContent(
     onSelectArticle: (ArticleItem) -> Unit,
     onOpenTagManagement: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
+    onSignIn: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
-    AdaptiveArticleGrid(
-        lazyItems = lazyItems,
-        viewStore = viewStore,
-        onSelectArticle = onSelectArticle,
-        onOpenTagManagement = onOpenTagManagement,
-        useCardLayout = useCardLayout
+    val state = viewStore.state
+    val body = listBodyFor(
+        tab = state.selectedTab,
+        selectedTag = state.selectedTag,
+        itemCount = lazyItems.itemCount,
+        refresh = lazyItems.loadState.refresh,
+        library = state.library,
     )
+    if (body == ArticleListBody.Rows) {
+        AdaptiveArticleGrid(
+            lazyItems = lazyItems,
+            viewStore = viewStore,
+            onSelectArticle = onSelectArticle,
+            onOpenTagManagement = onOpenTagManagement,
+            useCardLayout = useCardLayout
+        )
+    } else {
+        ArticleListBodyView(
+            body = body,
+            onAction = { action ->
+                when (action) {
+                    ListAction.RETRY_LIST -> lazyItems.retry()
+                    ListAction.RETRY_LIBRARY -> viewStore.action { retryLibrary() }
+                    ListAction.RETRY_TAGS -> viewStore.action { retryTags() }
+                    ListAction.SIGN_IN -> onSignIn()
+                    ListAction.OPEN_SETTINGS -> onOpenSettings()
+                }
+            },
+        )
+    }
 }
 
+/** The skeleton or the notice of [body], in the place of the list. */
+@Composable
+private fun ArticleListBodyView(body: ArticleListBody, onAction: (ListAction) -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .testTag(ArticleListTestTags.LIST_ROOT)
+    ) {
+        when (body) {
+            ArticleListBody.Rows -> Unit
+            ArticleListBody.Loading -> ArticleListSkeleton()
+            is ArticleListBody.Message -> Notice(
+                icon = body.icon.vector(),
+                title = body.title,
+                text = body.text,
+                modifier = Modifier.fillMaxSize(),
+                isError = body.isError,
+                actions = body.actions.map { action ->
+                    NoticeAction(action.label, action.style) { onAction(action) }
+                },
+            )
+        }
+    }
+}
 
+@Composable
+private fun ListNoticeIcon.vector(): ImageVector = when (this) {
+    ListNoticeIcon.BOOK -> NoticeIcons.Book
+    ListNoticeIcon.FAVOURITE -> ImageVector.vectorResource(R.drawable.star_24px)
+    ListNoticeIcon.ARCHIVE -> ImageVector.vectorResource(R.drawable.archive_icon_24)
+    ListNoticeIcon.TAG -> ImageVector.vectorResource(R.drawable.tag_24px)
+    ListNoticeIcon.OFFLINE -> ReaderNoticeIcons.Offline
+    ListNoticeIcon.FAILED -> ReaderNoticeIcons.Failed
+}

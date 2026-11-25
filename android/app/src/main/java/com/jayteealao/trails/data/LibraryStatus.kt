@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.launch
@@ -103,8 +105,14 @@ class DefaultLibraryStatus @Inject constructor(
     }
 
     override val state: Flow<LibraryState> = combine(
+        // Not known until the first answer, and when the read fails: the other parts still arrive.
         articleDao.observeHasArticles()
-            .catch { Timber.e(it, "Could not read whether the library has articles") },
+            .map<Boolean, Boolean?> { it }
+            .onStart { emit(null) }
+            .catch {
+                Timber.e(it, "Could not read whether the library has articles")
+                emit(null)
+            },
         account,
         attempt,
         syncManager.isSyncing,

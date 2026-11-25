@@ -19,6 +19,8 @@ package com.jayteealao.trails.screens.articleList
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.LoadState
+import androidx.paging.LoadStates
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -28,12 +30,15 @@ import com.jayteealao.trails.common.di.dispatchers.TrailsDispatchers
 import com.jayteealao.trails.common.generateId
 import com.jayteealao.trails.common.normalizeUrl
 import com.jayteealao.trails.data.ArticleRepository
+import com.jayteealao.trails.data.LibraryStatus
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.computeNormalizedUrl
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
+import com.jayteealao.trails.screens.components.ErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -43,11 +48,15 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.saket.unfurl.Unfurler
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -58,6 +67,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ArticleListViewModel @Inject constructor(
     private val articleRepository: ArticleRepository,
+    private val libraryStatus: LibraryStatus,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher
 ) : ViewModel(), Store<ArticleListState, ArticleListEvent> {
 
@@ -71,8 +81,26 @@ class ArticleListViewModel @Inject constructor(
     private val _selectedArticle = MutableStateFlow<ArticleItem>(EMPTYARTICLEITEM)
     private val _selectedTab = MutableStateFlow(ArticleListTab.HOME)
 
-    private val tagsFlow = articleRepository.allTags()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private data class TagList(val tags: List<String>, val load: TagsLoad)
+
+    /** Each step up reads the tags again. */
+    private val tagsRead = MutableStateFlow(0)
+
+    private val tagsFlow = tagsRead
+        .flatMapLatest {
+            articleRepository.allTags()
+                .map { TagList(it, TagsLoad.LOADED) }
+                .onStart { emit(TagList(emptyList(), TagsLoad.LOADING)) }
+                .catch { error ->
+                    Timber.e(error, "Could not read the tags")
+                    emit(TagList(emptyList(), TagsLoad.FAILED))
+                }
+        }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            TagList(emptyList(), TagsLoad.LOADING),
+        )
 
     private val databaseSyncFlow = articleRepository.isSyncing
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -84,15 +112,18 @@ class ArticleListViewModel @Inject constructor(
         },
         combine(_selectedArticle, databaseSyncFlow, _selectedTab) { article, sync, tab ->
             Triple(article, sync, tab)
-        }
-    ) { (selectedTag, sortOption, tags), (selectedArticle, databaseSync, selectedTab) ->
+        },
+        libraryStatus.state,
+    ) { (selectedTag, sortOption, tagList), (selectedArticle, databaseSync, selectedTab), library ->
         ArticleListState(
             selectedTag = selectedTag,
             sortOption = sortOption,
-            tags = tags,
+            tags = tagList.tags,
             selectedArticle = selectedArticle,
             databaseSync = databaseSync,
-            selectedTab = selectedTab
+            selectedTab = selectedTab,
+            library = library,
+            tagsLoad = tagList.load,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -108,9 +139,10 @@ class ArticleListViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            tagsFlow.collectLatest { availableTags ->
+            tagsFlow.collectLatest { tagList ->
                 val currentTag = _selectedTag.value
-                if (currentTag != null && currentTag !in availableTags) {
+                // A tag list that is still loading, or did not load, says nothing about the tag.
+                if (tagList.load == TagsLoad.LOADED && currentTag != null && currentTag !in tagList.tags) {
                     _selectedTag.value = null
                 }
             }
@@ -124,26 +156,26 @@ class ArticleListViewModel @Inject constructor(
         pagingSourceFactory = { articleRepository.pockets() }
     ).flow
         .cachedIn(viewModelScope)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), loadingPage())
 
     val favoriteArticles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(pageSize = 20),
         pagingSourceFactory = { articleRepository.favoritePockets() }
     ).flow
         .cachedIn(viewModelScope)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), loadingPage())
 
     val archivedArticles: StateFlow<PagingData<ArticleItem>> = Pager(
         config = PagingConfig(pageSize = 20),
         pagingSourceFactory = { articleRepository.archivedPockets() }
     ).flow
         .cachedIn(viewModelScope)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), loadingPage())
 
     val taggedArticles: StateFlow<PagingData<ArticleItem>> = _selectedTag
         .flatMapLatest { tag ->
             if (tag.isNullOrBlank()) {
-                flowOf(PagingData.empty())
+                flowOf(loadingPage())
             } else {
                 Pager(
                     config = PagingConfig(pageSize = 20),
@@ -152,7 +184,7 @@ class ArticleListViewModel @Inject constructor(
             }
         }
         .cachedIn(viewModelScope)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PagingData.empty())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), loadingPage())
 
     private var _searchResults = MutableStateFlow(emptyList<ArticleItem>())
     val searchResults: StateFlow<List<ArticleItem>>
@@ -165,46 +197,43 @@ class ArticleListViewModel @Inject constructor(
     }
 
     // Actions
-    fun setFavorite(itemId: String, isFavorite: Boolean) {
+    /** Brings the articles of a signed-in person back to an empty phone; the list calls it when it opens. */
+    fun showLibrary() = libraryStatus.restoreIfEmpty()
+
+    fun retryLibrary() = libraryStatus.retry()
+
+    fun retryTags() = tagsRead.update { it + 1 }
+
+    /** Runs one change; a failure is told, with a retry that runs the same change again. */
+    private fun change(name: String, block: suspend () -> Unit) {
         viewModelScope.launch(ioDispatcher) {
             try {
-                articleRepository.setFavorite(itemId, isFavorite)
+                block()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _event.emit(ArticleListEvent.ShowError(e))
+                Timber.e(e, "%s failed", name)
+                _event.emit(ArticleListEvent.ShowError(ErrorMessage.CHANGE_FAILED) { change(name, block) })
             }
         }
     }
 
-    fun setReadStatus(itemId: String, isRead: Boolean) {
-        viewModelScope.launch(ioDispatcher) {
-            try {
-                articleRepository.setReadStatus(itemId, isRead)
-            } catch (e: Exception) {
-                _event.emit(ArticleListEvent.ShowError(e))
-            }
-        }
+    fun setFavorite(itemId: String, isFavorite: Boolean) = change("setFavorite") {
+        articleRepository.setFavorite(itemId, isFavorite)
     }
 
-    fun archiveArticle(itemId: String) {
-        viewModelScope.launch(ioDispatcher) {
-            try {
-                articleRepository.archive(itemId)
-                _event.emit(ArticleListEvent.ShowSnackbar("Article archived"))
-            } catch (e: Exception) {
-                _event.emit(ArticleListEvent.ShowError(e))
-            }
-        }
+    fun setReadStatus(itemId: String, isRead: Boolean) = change("setReadStatus") {
+        articleRepository.setReadStatus(itemId, isRead)
     }
 
-    fun deleteArticle(itemId: String) {
-        viewModelScope.launch(ioDispatcher) {
-            try {
-                articleRepository.delete(itemId)
-                _event.emit(ArticleListEvent.ShowSnackbar("Article deleted"))
-            } catch (e: Exception) {
-                _event.emit(ArticleListEvent.ShowError(e))
-            }
-        }
+    fun archiveArticle(itemId: String) = change("archiveArticle") {
+        articleRepository.archive(itemId)
+        _event.emit(ArticleListEvent.ShowSnackbar("Article archived"))
+    }
+
+    fun deleteArticle(itemId: String) = change("deleteArticle") {
+        articleRepository.delete(itemId)
+        _event.emit(ArticleListEvent.ShowSnackbar("Article deleted"))
     }
 
     fun selectArticle(articleItem: ArticleItem) {
@@ -281,16 +310,12 @@ class ArticleListViewModel @Inject constructor(
         viewModelScope.launch(ioDispatcher) {
             try {
                 if (url.isBlank()) {
-                    _event.emit(ArticleListEvent.ShowError(
-                        IllegalArgumentException("No valid URL found in shared content")
-                    ))
+                    _event.emit(ArticleListEvent.ShowError(ErrorMessage.NO_LINK))
                     return@launch
                 }
 
                 if (url.toHttpUrlOrNull() == null) {
-                    _event.emit(ArticleListEvent.ShowError(
-                        IllegalArgumentException("Only HTTP and HTTPS URLs are supported")
-                    ))
+                    _event.emit(ArticleListEvent.ShowError(ErrorMessage.LINK_NOT_SUPPORTED))
                     return@launch
                 }
 
@@ -363,9 +388,11 @@ class ArticleListViewModel @Inject constructor(
                 articleRepository.backupArticleNow(articleId)
                     .onFailure { t -> Timber.w(t, "Inline backup failed for $articleId — periodic sync will retry") }
                 articleRepository.syncToFirestore()
+            } catch (e: CancellationException) {
+                throw e
             } catch (error: Throwable) {
                 Timber.e(error, "Failed to save shared article.")
-                _event.emit(ArticleListEvent.ShowError(error))
+                _event.emit(ArticleListEvent.ShowError(ErrorMessage.SAVE_FAILED) { saveUrl(givenUrl, givenTitle) })
             } finally {
                 _isSaving.value = false
             }
@@ -378,13 +405,13 @@ class ArticleListViewModel @Inject constructor(
                 // Get the current article
                 val article = articleRepository.getArticleById(itemId)
                 if (article == null) {
-                    _event.emit(ArticleListEvent.ShowError(Exception("Article not found")))
+                    _event.emit(ArticleListEvent.ShowError(ErrorMessage.ARTICLE_MISSING))
                     return@launch
                 }
 
                 val url = article.url ?: article.givenUrl
                 if (url.isNullOrBlank()) {
-                    _event.emit(ArticleListEvent.ShowError(Exception("No URL found for article")))
+                    _event.emit(ArticleListEvent.ShowError(ErrorMessage.ARTICLE_HAS_NO_LINK))
                     return@launch
                 }
 
@@ -422,9 +449,13 @@ class ArticleListViewModel @Inject constructor(
 
                 Timber.d("Successfully regenerated details for article: $itemId")
                 _event.emit(ArticleListEvent.ShowToast("Article details updated"))
+            } catch (e: CancellationException) {
+                throw e
             } catch (error: Throwable) {
                 Timber.e(error, "Failed to regenerate article details for: $itemId")
-                _event.emit(ArticleListEvent.ShowError(error))
+                _event.emit(
+                    ArticleListEvent.ShowError(ErrorMessage.DETAILS_NOT_UPDATED) { regenerateArticleDetails(itemId) }
+                )
             }
         }
     }
@@ -442,4 +473,17 @@ class ArticleListViewModel @Inject constructor(
         }
     }
 
+    private companion object {
+        /**
+         * A page that still loads, as the value before the first load. `PagingData.empty()` without
+         * load states reads as loaded and empty, so an empty notice would flash on each open.
+         */
+        fun loadingPage(): PagingData<ArticleItem> = PagingData.empty(
+            sourceLoadStates = LoadStates(
+                refresh = LoadState.Loading,
+                prepend = LoadState.NotLoading(endOfPaginationReached = false),
+                append = LoadState.NotLoading(endOfPaginationReached = false),
+            ),
+        )
+    }
 }

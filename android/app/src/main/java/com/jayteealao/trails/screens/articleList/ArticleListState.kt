@@ -4,8 +4,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.painterResource
 import com.jayteealao.trails.R
+import com.jayteealao.trails.data.LibraryState
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.data.models.EMPTYARTICLEITEM
+import com.jayteealao.trails.screens.components.ErrorMessage
 
 /**
  * Consolidated UI state for ArticleListScreen
@@ -18,7 +20,11 @@ data class ArticleListState(
     val tags: List<String> = emptyList(),
     val selectedArticle: ArticleItem = EMPTYARTICLEITEM,
     val databaseSync: Boolean = false,
-    val selectedTab: ArticleListTab = ArticleListTab.HOME
+    val selectedTab: ArticleListTab = ArticleListTab.HOME,
+    /** Why the library on this phone is empty, or that it is not. */
+    val library: LibraryState = LibraryState(),
+    /** Where reading [tags] stands. */
+    val tagsLoad: TagsLoad = TagsLoad.LOADING,
 )
 
 /**
@@ -28,7 +34,9 @@ sealed interface ArticleListEvent {
     data class NavigateToArticle(val itemId: String) : ArticleListEvent
     data class ShowSnackbar(val message: String) : ArticleListEvent
     data class ShowToast(val message: String) : ArticleListEvent
-    data class ShowError(val error: Throwable) : ArticleListEvent
+
+    /** A failure in fixed words; [retry] repeats what failed, when it can be repeated. */
+    data class ShowError(val message: ErrorMessage, val retry: (() -> Unit)? = null) : ArticleListEvent
     data class ShareArticle(val title: String, val url: String) : ArticleListEvent
     data class CopyLink(val url: String, val label: String = "Article URL") : ArticleListEvent
 }
