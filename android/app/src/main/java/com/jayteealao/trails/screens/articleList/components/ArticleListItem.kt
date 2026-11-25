@@ -33,6 +33,7 @@ import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleList.ArticleListEvent
 import com.jayteealao.trails.screens.articleList.ArticleListState
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import com.jayteealao.trails.screens.articleList.actions.ArticleAction
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import io.yumemi.tartlet.Store
 import io.yumemi.tartlet.ViewStore
@@ -49,13 +50,8 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
     onOpenTagManagement: () -> Unit,
     useCardLayout: Boolean = false,
     tags: List<String> = emptyList(),
-    onSetFavorite: (String, Boolean) -> Unit = { _, _ -> },
-    onSetReadStatus: (String, Boolean) -> Unit = { _, _ -> },
-    onArchiveArticle: (String) -> Unit = {},
-    onDeleteArticle: (String) -> Unit = {},
-    onRegenerateDetails: (String) -> Unit = {},
-    onCopyLink: (String, String) -> Unit = { _, _ -> },
-    onShareArticle: (String, String) -> Unit = { _, _ -> },
+    onAction: (ArticleAction, ArticleItem) -> Unit = { _, _ -> },
+    onLongPress: (ArticleItem) -> Unit = {},
 ) {
     var isFavorite by remember(article.itemId) { mutableStateOf(article.favorite) }
     var animationTrigger by remember(article.itemId) { mutableStateOf(0) }
@@ -71,8 +67,19 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
 
     val filledStar = painterResource(id = R.drawable.star_filled_24px)
     val outlinedStar = painterResource(id = R.drawable.star_24px)
-    val markReadIcon = painterResource(id = R.drawable.check_24px)
-    val markUnreadIcon = painterResource(id = R.drawable.close_24px)
+
+    // The article as the row shows it. An action toggles from it, so it is the state before the toggle.
+    val shown = remember(article, isFavorite, isRead) {
+        article.copy(favorite = isFavorite, isRead = isRead)
+    }
+    val act: (ArticleAction, ArticleItem) -> Unit = { action, item ->
+        when (action) {
+            ArticleAction.FAVOURITE -> isFavorite = !item.favorite
+            ArticleAction.READ -> isRead = !item.isRead
+            else -> Unit
+        }
+        onAction(action, item)
+    }
 
     val tagStates: Map<String, Boolean> = remember(article.tagsString, tags) {
         val all = mutableMapOf<String, Boolean>()
@@ -98,9 +105,7 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
         when (swipeState.currentValue) {
             SwipeToDismissBoxValue.StartToEnd -> {
                 // Perform action immediately
-                val newFavorite = !isFavorite
-                isFavorite = newFavorite
-                onSetFavorite(article.itemId, newFavorite)
+                act(ArticleAction.FAVOURITE, article.copy(favorite = isFavorite, isRead = isRead))
 
                 // Trigger animation (increment counter so animation runs every time)
                 animationTrigger++
@@ -130,52 +135,35 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
         state = swipeState,
         backgroundContent = {
             ArticleSwipeBackground(
-                article = article,
+                article = shown,
                 swipeState = swipeState,
-                isFavorite = isFavorite,
-                isRead = isRead,
-                markReadIcon = markReadIcon,
-                markUnreadIcon = markUnreadIcon,
                 animationTrigger = animationTrigger,
-                onSetReadStatus = { itemId, newState ->
-                    isRead = newState
-                    onSetReadStatus(itemId, newState)
-                },
-                onArchiveArticle = onArchiveArticle,
-                onDeleteArticle = onDeleteArticle,
-                onRegenerateDetails = onRegenerateDetails,
-                onCopyLink = onCopyLink,
-                onShareArticle = onShareArticle
+                onAction = act,
             )
         }
     ) {
         if (useCardLayout) {
 
             ArticleItemCardStyle(
-                article = article,
+                article = shown,
                 viewStore = viewStore,
                 parsedSnippet = parsedSnippet,
                 tagStates = tagStates,
                 onClick = onClick,
-                onFavoriteToggleLocal = { checked -> isFavorite = checked },
-                isFavorite = isFavorite,
-                isRead = isRead,
                 filledStar = filledStar,
                 outlinedStar = outlinedStar,
                 showAddTagDialog = onOpenTagManagement,
-                onSetFavorite = onSetFavorite
+                onAction = act,
+                onLongPress = onLongPress,
             )
 
         } else {
             ArticleContent( // non card item layout - legacy
-                article = article,
+                article = shown,
                 viewStore = viewStore,
                 parsedSnippet = parsedSnippet,
                 tagStates = tagStates,
                 onClick = onClick,
-                onFavoriteToggleLocal = { checked -> isFavorite = checked },
-                isFavorite = isFavorite,
-                isRead = isRead,
                 filledStar = filledStar,
                 outlinedStar = outlinedStar,
                 showAddTagDialog = onOpenTagManagement,
@@ -183,7 +171,8 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
                     .padding(start = 8.dp, end = 8.dp, top = 8.dp)
                     .background(colorScheme.surface)
                     .wrapContentHeight(),
-                onSetFavorite = onSetFavorite
+                onAction = act,
+                onLongPress = onLongPress,
             )
         }
     }
@@ -196,13 +185,11 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleItemCardStyle(
     parsedSnippet: AnnotatedString?,
     tagStates: Map<String, Boolean>,
     onClick: () -> Unit,
-    onFavoriteToggleLocal: (Boolean) -> Unit,
-    isFavorite: Boolean,
-    isRead: Boolean,
     filledStar: Painter,
     outlinedStar: Painter,
     showAddTagDialog: () -> Unit,
-    onSetFavorite: (String, Boolean) -> Unit = { _, _ -> }
+    onAction: (ArticleAction, ArticleItem) -> Unit = { _, _ -> },
+    onLongPress: (ArticleItem) -> Unit = {},
 ) {
     Card(
         modifier = Modifier
@@ -223,15 +210,13 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleItemCardStyle(
             parsedSnippet = parsedSnippet,
             tagStates = tagStates,
             onClick = onClick,
-            onFavoriteToggleLocal = onFavoriteToggleLocal,
-            isFavorite = isFavorite,
-            isRead = isRead,
             filledStar = filledStar,
             outlinedStar = outlinedStar,
             showAddTagDialog = showAddTagDialog,
             modifier = Modifier
                 .padding(12.dp),
-            onSetFavorite = onSetFavorite
+            onAction = onAction,
+            onLongPress = onLongPress,
         )
     }
 }

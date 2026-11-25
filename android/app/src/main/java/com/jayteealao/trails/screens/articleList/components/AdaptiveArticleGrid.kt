@@ -76,7 +76,7 @@ fun AdaptiveArticleGrid(
 }
 
 /**
- * Wires the 7 standard article actions to viewStore and delegates to ArticleListItem.
+ * Wires the article actions and the actions sheet to viewStore and delegates to ArticleListItem.
  * Eliminates the duplicate action-lambda block between ArticleGrid and ArticleList.
  */
 @Composable
@@ -96,13 +96,8 @@ private fun ArticleListItemWithActions(
         onOpenTagManagement = { onOpenTagManagement(article) },
         useCardLayout = useCardLayout,
         tags = viewStore.state.tags,
-        onSetFavorite = { itemId, isFavorite -> viewStore.action { setFavorite(itemId, isFavorite) } },
-        onSetReadStatus = { itemId, isRead -> viewStore.action { setReadStatus(itemId, isRead) } },
-        onArchiveArticle = { itemId -> viewStore.action { archiveArticle(itemId) } },
-        onDeleteArticle = { itemId -> viewStore.action { deleteArticle(itemId) } },
-        onRegenerateDetails = { itemId -> viewStore.action { regenerateArticleDetails(itemId) } },
-        onCopyLink = { url, label -> viewStore.action { copyLink(url, label) } },
-        onShareArticle = { title, url -> viewStore.action { shareArticle(title, url) } }
+        onAction = { action, item -> viewStore.action { runAction(action, item) } },
+        onLongPress = { item -> viewStore.action { openActions(item) } },
     )
 }
 

@@ -1,7 +1,7 @@
 package com.jayteealao.trails.screens.articleList.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -24,6 +24,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -32,6 +36,8 @@ import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleList.ArticleListEvent
 import com.jayteealao.trails.screens.articleList.ArticleListState
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import com.jayteealao.trails.screens.articleList.actions.ArticleAction
+import com.jayteealao.trails.screens.articleList.actions.articleActions
 import io.yumemi.tartlet.Store
 import io.yumemi.tartlet.ViewStore
 
@@ -43,15 +49,21 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleContent(
     parsedSnippet: AnnotatedString?,
     tagStates: Map<String, Boolean>,
     onClick: () -> Unit,
-    onFavoriteToggleLocal: (Boolean) -> Unit,
-    isFavorite: Boolean,
-    isRead: Boolean,
     filledStar: Painter,
     outlinedStar: Painter,
     showAddTagDialog: () -> Unit,
     modifier: Modifier = Modifier,
-    onSetFavorite: (String, Boolean) -> Unit = { _, _ -> }
+    onAction: (ArticleAction, ArticleItem) -> Unit = { _, _ -> },
+    onLongPress: (ArticleItem) -> Unit = {},
 ) {
+    val isRead = article.isRead
+    val isFavorite = article.favorite
+    val customActions = articleActions(article).filter { it.enabled }.map { item ->
+        CustomAccessibilityAction(item.label) {
+            onAction(item.action, article)
+            true
+        }
+    }
     val colorScheme = MaterialTheme.colorScheme
     val titleColor = if (isRead) {
         colorScheme.onSurface.copy(alpha = 0.5f)  // Stronger dimming: 50% opacity
@@ -71,7 +83,14 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleContent(
     val thumbnailAlpha = if (isRead) 0.3f else 1f  // Much more faded: 30% opacity
     Column(
         modifier = modifier
-            .clickable { onClick() }
+            .combinedClickable(
+                role = Role.Button,
+                onClickLabel = "Open article",
+                onLongClickLabel = "Show actions",
+                onLongClick = { onLongPress(article) },
+                onClick = onClick,
+            )
+            .semantics { this.customActions = customActions }
     ) {
         Row(
             modifier = Modifier
@@ -117,17 +136,14 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleContent(
                     IconToggleButton(
                         modifier = Modifier.size(24.dp),
                         checked = isFavorite,
-                        onCheckedChange = { checked ->
-                            onFavoriteToggleLocal(checked)
-                            onSetFavorite(article.itemId, checked)
-                        }
+                        onCheckedChange = { onAction(ArticleAction.FAVOURITE, article) }
                     ) {
                         Icon(
                             painter = if (isFavorite) filledStar else outlinedStar,
                             contentDescription = if (isFavorite) {
-                                "Remove from favorites"
+                                "Remove from favourites"
                             } else {
-                                "Add to favorites"
+                                "Add to favourites"
                             },
                             tint = if (isFavorite) {
                                 MaterialTheme.colorScheme.primary

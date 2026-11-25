@@ -27,28 +27,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.jayteealao.trails.R
 import com.jayteealao.trails.data.models.ArticleItem
 import com.jayteealao.trails.screens.articleList.ArticleListEvent
 import com.jayteealao.trails.screens.articleList.ArticleListState
 import com.jayteealao.trails.screens.articleList.ArticleListViewModel
+import com.jayteealao.trails.screens.articleList.actions.ArticleAction
+import com.jayteealao.trails.screens.articleList.actions.ArticleActionItem
+import com.jayteealao.trails.screens.articleList.actions.articleActions
+import com.jayteealao.trails.screens.articleList.actions.painter
 import io.yumemi.tartlet.ViewStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/**
- * Data class representing a swipe action button configuration
- */
-data class SwipeActionButton(
-    val icon: @Composable () -> Painter,
-    val contentDescription: @Composable () -> String,
-    val onClick: () -> Unit
+/** The actions of a left swipe, in the order of its buttons. */
+private val SWIPE_ACTIONS = listOf(
+    ArticleAction.READ,
+    ArticleAction.ARCHIVE,
+    ArticleAction.DELETE,
+    ArticleAction.REGENERATE,
+    ArticleAction.COPY_LINK,
+    ArticleAction.SHARE,
 )
 
 /**
@@ -56,7 +62,8 @@ data class SwipeActionButton(
  */
 @Composable
 private fun SwipeActionButton(
-    button: SwipeActionButton,
+    item: ArticleActionItem,
+    onClick: () -> Unit,
     swipeState: SwipeToDismissBoxState,
     modifier: Modifier = Modifier
 ) {
@@ -67,8 +74,8 @@ private fun SwipeActionButton(
             .size(44.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface)
-            .clickable {
-                button.onClick()
+            .clickable(enabled = item.enabled, role = Role.Button) {
+                onClick()
                 scope.launch {
                     delay(200)
                     swipeState.reset()
@@ -77,8 +84,9 @@ private fun SwipeActionButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            painter = button.icon(),
-            contentDescription = button.contentDescription(),
+            painter = item.painter(),
+            contentDescription = item.label,
+            modifier = Modifier.alpha(if (item.enabled) 1f else 0.38f),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
@@ -88,17 +96,8 @@ private fun SwipeActionButton(
 fun ArticleSwipeBackground(
     article: ArticleItem,
     swipeState: SwipeToDismissBoxState,
-    isFavorite: Boolean,
-    isRead: Boolean,
-    markReadIcon: androidx.compose.ui.graphics.painter.Painter,
-    markUnreadIcon: androidx.compose.ui.graphics.painter.Painter,
     animationTrigger: Int = 0,
-    onSetReadStatus: (String, Boolean) -> Unit = { _, _ -> },
-    onArchiveArticle: (String) -> Unit = {},
-    onDeleteArticle: (String) -> Unit = {},
-    onRegenerateDetails: (String) -> Unit = {},
-    onCopyLink: (String, String) -> Unit = { _, _ -> },
-    onShareArticle: (String, String) -> Unit = { _, _ -> },
+    onAction: (ArticleAction, ArticleItem) -> Unit = { _, _ -> },
 ) {
     val direction = swipeState.dismissDirection
     val scope = rememberCoroutineScope()
@@ -159,7 +158,7 @@ fun ArticleSwipeBackground(
             ) {
                 // Cross-fade between filled and unfilled star
                 AnimatedContent(
-                    targetState = isFavorite,
+                    targetState = article.favorite,
                     transitionSpec = {
                         fadeIn(
                             animationSpec = tween(durationMillis = 200)
@@ -189,43 +188,8 @@ fun ArticleSwipeBackground(
         // RIGHT SWIPE (EndToStart): Archive and Delete actions
         if (direction == SwipeToDismissBoxValue.EndToStart) {
             // Create list of action buttons
-            val actionButtons = remember(isRead) {
-                listOf(
-                    SwipeActionButton(
-                        icon = { if (isRead) markUnreadIcon else markReadIcon },
-                        contentDescription = { if (isRead) "Mark as unread" else "Mark as read" },
-                        onClick = {
-                            val newReadState = !isRead
-                            onSetReadStatus(article.itemId, newReadState)
-                        }
-                    ),
-                    SwipeActionButton(
-                        icon = { painterResource(id = R.drawable.archive_icon_24) },
-                        contentDescription = { "Archive" },
-                        onClick = { onArchiveArticle(article.itemId) }
-                    ),
-                    SwipeActionButton(
-                        icon = { painterResource(id = R.drawable.delete_24px) },
-                        contentDescription = { "Delete" },
-                        onClick = { onDeleteArticle(article.itemId) }
-                    ),
-                    SwipeActionButton(
-                        icon = { painterResource(id = R.drawable.refresh_24px) },
-                        contentDescription = { "Regenerate details" },
-                        onClick = { onRegenerateDetails(article.itemId) }
-                    ),
-                    SwipeActionButton(
-                        icon = { painterResource(id = R.drawable.link_24px) },
-                        contentDescription = { "Copy link" },
-                        onClick = { onCopyLink(article.url ?: "", "Article URL") }
-                    ),
-                    SwipeActionButton(
-                        icon = { painterResource(id = R.drawable.share_24px) },
-                        contentDescription = { "Share" },
-                        onClick = { onShareArticle(article.title, article.url ?: "") }
-                    )
-                )
-            }
+            val actions = articleActions(article).associateBy { it.action }
+            val actionButtons = SWIPE_ACTIONS.map { actions.getValue(it) }
 
             Box(
                 modifier = Modifier
@@ -244,9 +208,10 @@ fun ArticleSwipeBackground(
                     ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    actionButtons.forEach { button ->
+                    actionButtons.forEach { item ->
                         SwipeActionButton(
-                            button = button,
+                            item = item,
+                            onClick = { onAction(item.action, article) },
                             swipeState = swipeState
                         )
                     }
