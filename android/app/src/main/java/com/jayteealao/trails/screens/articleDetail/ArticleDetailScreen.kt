@@ -5,6 +5,7 @@ package com.jayteealao.trails.screens.articleDetail
 import android.annotation.SuppressLint
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -23,6 +24,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SecondaryScrollableTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
@@ -30,6 +33,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +51,7 @@ import com.google.accompanist.web.WebContent
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
@@ -53,31 +59,67 @@ import com.mikepenz.markdown.compose.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
+import kotlinx.coroutines.launch
+
+/**
+ * The article of [articleId] and its messages. The messages show with or without a loaded article,
+ * so an article that does not open says so and offers Try again.
+ */
+@Composable
+fun ArticleDetailPane(
+    articleId: String,
+    viewModel: ArticleDetailViewModel = hiltViewModel(),
+    modifier: Modifier = Modifier,
+) {
+    val viewStore = rememberViewStore { viewModel }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    viewStore.handle<ArticleDetailEvent.ShowError> { event ->
+        scope.launch { snackbarHostState.showError(event.message, event.retry) }
+    }
+
+    viewStore.handle<ArticleDetailEvent.ShowToast> { event ->
+        scope.launch { snackbarHostState.showSnackbar(event.message) }
+    }
+
+    LaunchedEffect(articleId) {
+        // A message of the article before this one has nothing left to retry here.
+        snackbarHostState.currentSnackbarData?.dismiss()
+        viewModel.getArticle(articleId)
+    }
+
+    Box(modifier.fillMaxSize()) {
+        val article = viewStore.state.article
+        if (article == null) {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.navigationBars),
+            )
+        } else {
+            ArticleDetailScreen(
+                article = article,
+                viewStore = viewStore,
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+            )
+        }
+    }
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ArticleDetailScreen(
     article: Article,
-    viewStore: ViewStore<ArticleDetailState, ArticleDetailEvent, ArticleDetailViewModel> = rememberViewStore { hiltViewModel() }
+    viewStore: ViewStore<ArticleDetailState, ArticleDetailEvent, ArticleDetailViewModel> = rememberViewStore { hiltViewModel() },
+    snackbarHost: @Composable () -> Unit = {},
 ) {
-    // Mark as read when screen opens (article loading handled by MainNavigation)
+    // Mark as read when screen opens (article loading handled by ArticleDetailPane)
     LaunchedEffect(article.itemId) {
         viewStore.action {
             markAsRead(article.itemId)
         }
-    }
-
-    // Handle events
-    viewStore.handle<ArticleDetailEvent.ArticleMarkedAsRead> { event ->
-        // Could show a subtle indicator that article was marked as read
-    }
-
-    viewStore.handle<ArticleDetailEvent.ShowError> { event ->
-        // Could show error toast/snackbar
-    }
-
-    viewStore.handle<ArticleDetailEvent.ShowToast> { event ->
-        // Show toast message
     }
 
     val currentArticle = viewStore.state.article ?: article
@@ -86,12 +128,14 @@ fun ArticleDetailScreen(
         article = currentArticle,
         onTabSelected = { viewStore.action { setSelectedTab(it) } },
         onRetry = { viewStore.action { retryArchive(currentArticle.itemId) } },
+        snackbarHost = snackbarHost,
     )
 }
 
 /**
  * The article screen without its view model: the selected tab's body, then the archive status row
  * when there is one, then the tab row. The row is a sibling of the body, so it never covers text.
+ * The messages of [snackbarHost] lie over the body, above the row and the tabs.
  */
 @Composable
 fun ArticleDetailContent(
@@ -99,13 +143,14 @@ fun ArticleDetailContent(
     article: Article,
     onTabSelected: (Int) -> Unit,
     onRetry: () -> Unit,
+    snackbarHost: @Composable () -> Unit = {},
 ) {
     val tabs = detailTabsFor(state.tabArchiveKeys)
 
     ConstraintLayout(
         modifier = Modifier.fillMaxSize()
     ) {
-        val (bottomRows, detailView) = createRefs()
+        val (bottomRows, detailView, messages) = createRefs()
 
         ArticleDetails(
             modifier = Modifier.constrainAs(detailView) {
@@ -140,6 +185,16 @@ fun ArticleDetailContent(
                 tabs = tabs,
                 onTabSelected = onTabSelected,
             )
+        }
+
+        Box(
+            modifier = Modifier.constrainAs(messages) {
+                bottom.linkTo(bottomRows.top)
+                start.linkTo(parent.start)
+                end.linkTo(parent.end)
+            },
+        ) {
+            snackbarHost()
         }
     }
 }

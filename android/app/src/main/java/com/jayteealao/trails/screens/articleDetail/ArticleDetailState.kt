@@ -3,6 +3,7 @@ package com.jayteealao.trails.screens.articleDetail
 import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.screens.components.ErrorMessage
 
 /**
  * Consolidated UI state for ArticleDetailScreen
@@ -41,5 +42,7 @@ sealed interface ArticleDetailEvent {
     data class ShowToast(val message: String) : ArticleDetailEvent
     data class ArticleMarkedAsRead(val itemId: String) : ArticleDetailEvent
     data object NavigateBack : ArticleDetailEvent
-    data class ShowError(val error: Throwable) : ArticleDetailEvent
+
+    /** A failure in fixed words; [retry] repeats what failed. */
+    data class ShowError(val message: ErrorMessage, val retry: (() -> Unit)? = null) : ArticleDetailEvent
 }

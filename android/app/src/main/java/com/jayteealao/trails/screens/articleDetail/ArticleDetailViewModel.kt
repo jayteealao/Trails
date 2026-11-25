@@ -18,6 +18,7 @@ import com.jayteealao.trails.data.archive.LocalArchiveDao
 import com.jayteealao.trails.data.archive.RetryFailure
 import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
@@ -202,7 +203,7 @@ class ArticleDetailViewModel @Inject constructor(
                     throw e
                 } catch (e: Exception) {
                     Timber.e(e, "getArticle($itemId) — reopen read failed")
-                    _event.emit(ArticleDetailEvent.ShowError(e))
+                    tellOpenFailed(itemId)
                 }
             }
             // Re-attach observer only if the previous one completed or was cancelled
@@ -240,13 +241,25 @@ class ArticleDetailViewModel @Inject constructor(
 
                 // Start archive observation
                 loadArchives(itemId)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "getArticle($itemId) — failed")
-                _event.emit(ArticleDetailEvent.ShowError(e))
+                tellOpenFailed(itemId)
             } finally {
                 _isLoading.value = false
             }
         }
+    }
+
+    /** Tells that [itemId] did not open, unless another article was opened since. */
+    private suspend fun tellOpenFailed(itemId: String) {
+        if (currentArticleId != itemId) return
+        _event.emit(
+            ArticleDetailEvent.ShowError(ErrorMessage.OPEN_FAILED) {
+                if (currentArticleId == itemId) getArticle(itemId)
+            }
+        )
     }
 
     fun setSelectedTab(index: Int) {
@@ -267,8 +280,11 @@ class ArticleDetailViewModel @Inject constructor(
             try {
                 articleRepository.setReadStatus(itemId, true)
                 _event.emit(ArticleDetailEvent.ArticleMarkedAsRead(itemId))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _event.emit(ArticleDetailEvent.ShowError(e))
+                Timber.e(e, "markAsRead($itemId) — failed")
+                _event.emit(ArticleDetailEvent.ShowError(ErrorMessage.MARK_READ_FAILED) { markAsRead(itemId) })
             }
         }
     }
