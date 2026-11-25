@@ -1,12 +1,12 @@
 package com.jayteealao.trails.screens
 
 import android.content.res.Configuration
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,7 +47,7 @@ fun TrailScaffold(
 
     Scaffold(
         topBar = { topBar(menuState) },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarHostState, Modifier.navigationBarsPadding()) },
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0.dp)
     ){ paddingValues ->
@@ -176,65 +176,60 @@ fun TrailsTopAppBar(
 
     val actionOnClick = when (destination) {
         "main" -> { { navController.navigate("search") } }
-        "search" -> { {} }
         else -> { {} }
     }
 
     val iconImage = when (destination) {
         "main" -> painterResource(R.drawable.search_24px)
-        "search" -> painterResource(R.drawable.more_vert_24px)
         else -> null
     }
 
     val contentDesc = when (destination) {
         "main" -> "Search"
-        "search" -> "Menu"
         else -> null
     }
-    AnimatedVisibility(visible = destination != "search"){
-        CenterAlignedTopAppBar(
-            title = {
-                Text(
-                    text = titleText,
-                    style = MaterialTheme.typography.titleLarge
+    CenterAlignedTopAppBar(
+        title = {
+            Text(
+                text = titleText,
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        navigationIcon = {
+            IconButton(
+                onClick = {
+                    if (destination != "main") {
+                        navController.popBackStack()
+                    } else if (menuState.value == MenuState.Open) {
+                        menuState.value = MenuState.Closed
+                    } else {
+                        menuState.value = MenuState.Open
+                    }
+                }
+            ) {
+                Icon(
+                    painter = icon,
+                    contentDescription = "Back"
                 )
-            },
-            navigationIcon = {
-                IconButton(
-                    onClick = {
-                        if (destination != "main") {
-                            navController.popBackStack()
-                        } else if (menuState.value == MenuState.Open) {
-                            menuState.value = MenuState.Closed
-                        } else {
-                            menuState.value = MenuState.Open
-                        }
-                    }
-                ) {
-                    Icon(
-                        painter = icon,
-                        contentDescription = "Back"
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                actionIconContentColor = MaterialTheme.colorScheme.onSurface,
-            ),
-            actions = {
-                if (iconImage != null) {
-                    IconButton(onClick = actionOnClick) {
-                        Icon(painter = iconImage, contentDescription = contentDesc)
-                    }
-                }
-                IconButton(onClick = { navController.navigate("settings") }) {
-                    Icon(painter = painterResource(R.drawable.settings_24px), contentDescription = "Settings")
+            }
+        },
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+            actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        actions = {
+            if (iconImage != null) {
+                IconButton(onClick = actionOnClick) {
+                    Icon(painter = iconImage, contentDescription = contentDesc)
                 }
             }
-        )
-    }
+            IconButton(onClick = { navController.navigate("settings") }) {
+                Icon(painter = painterResource(R.drawable.settings_24px), contentDescription = "Settings")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -268,67 +263,62 @@ fun TrailsTopAppBarNav3(
 
     val actionIcon = when (currentScreen) {
         is Screen.ArticleList -> painterResource(R.drawable.search_24px)
-        is Screen.ArticleSearch -> painterResource(R.drawable.more_vert_24px)
         else -> null
     }
 
     val actionContentDesc = when (currentScreen) {
         is Screen.ArticleList -> "Search"
-        is Screen.ArticleSearch -> "Menu"
         else -> null
     }
 
-    // Hide app bar on search screen
-    AnimatedVisibility(visible = currentScreen !is Screen.ArticleSearch) {
-        CenterAlignedTopAppBar(
-            title = {
-                Text(
-                    text = titleText,
-                    style = MaterialTheme.typography.titleLarge
-                )
-            },
-            navigationIcon = {
-                IconButton(
-                    onClick = {
-                        when (currentScreen) {
-                            is Screen.ArticleList -> {
-                                // Toggle menu
-                                menuState.value = if (menuState.value == MenuState.Open) {
-                                    MenuState.Closed
-                                } else {
-                                    MenuState.Open
-                                }
-                            }
-                            else -> {
-                                // Go back
-                                onNavigateBack()
+    CenterAlignedTopAppBar(
+        title = {
+            Text(
+                text = titleText,
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        navigationIcon = {
+            IconButton(
+                onClick = {
+                    when (currentScreen) {
+                        is Screen.ArticleList -> {
+                            // Toggle menu
+                            menuState.value = if (menuState.value == MenuState.Open) {
+                                MenuState.Closed
+                            } else {
+                                MenuState.Open
                             }
                         }
-                    }
-                ) {
-                    Icon(
-                        painter = icon,
-                        contentDescription = if (currentScreen is Screen.ArticleList) "Menu" else "Back"
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                actionIconContentColor = MaterialTheme.colorScheme.onSurface,
-            ),
-            actions = {
-                if (actionIcon != null) {
-                    IconButton(onClick = actionOnClick) {
-                        Icon(painter = actionIcon, contentDescription = actionContentDesc)
+                        else -> {
+                            // Go back
+                            onNavigateBack()
+                        }
                     }
                 }
-                IconButton(onClick = onNavigateToSettings) {
-                    Icon(painter = painterResource(R.drawable.settings_24px), contentDescription = "Settings")
+            ) {
+                Icon(
+                    painter = icon,
+                    contentDescription = if (currentScreen is Screen.ArticleList) "Menu" else "Back"
+                )
+            }
+        },
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+            actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        actions = {
+            if (actionIcon != null) {
+                IconButton(onClick = actionOnClick) {
+                    Icon(painter = actionIcon, contentDescription = actionContentDesc)
                 }
             }
-        )
-    }
+            IconButton(onClick = onNavigateToSettings) {
+                Icon(painter = painterResource(R.drawable.settings_24px), contentDescription = "Settings")
+            }
+        }
+    )
 }
 

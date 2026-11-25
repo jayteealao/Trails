@@ -81,7 +81,5 @@ fun rememberPreviewArticles(): LazyPagingItems<ArticleItem> {
     return pagingDataFlow.collectAsLazyPagingItems()
 }
 
-fun previewSearchBarState(
-    active: Boolean = false,
-    query: String = "",
-): SearchBarState = SearchBarState(active).apply { searchText = query }
+fun previewSearchBarState(query: String = ""): SearchBarState =
+    SearchBarState().apply { searchText = query }

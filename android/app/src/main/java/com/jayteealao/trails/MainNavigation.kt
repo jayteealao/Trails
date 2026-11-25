@@ -66,7 +66,7 @@ fun MainNavigation(
         if (authState is AuthUiState.SignedIn) Screen.ArticleList else Screen.Login
     }
     val appBackStack = remember(initialRoute) { AppBackStack(initialRoute, Screen.Login) }
-    val searchBarState = remember { SearchBarState(false) }
+    val searchBarState = remember { SearchBarState() }
 
     val trailsListDetailSceneStrategy = rememberTrailsListDetailSceneStrategy<Screen>(
 //        appBackStack = appBackStack
