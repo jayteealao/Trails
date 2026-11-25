@@ -180,8 +180,9 @@ set -euo pipefail
 #   invoker    after a codebase verifies, `gcloud run services
 #              get-iam-policy` of each trigger and scheduled function
 #              (private_functions_for() below) must hold no allUsers or
-#              allAuthenticatedUsers binding, else exit 3. HTTP functions stay
-#              public; their per-caller keys guard them.
+#              allAuthenticatedUsers binding, else exit 3. HTTP functions and
+#              callables stay public; their per-caller keys, or the ID token
+#              a callable checks, guard them.
 #   rules      the grace end is read from the released Firestore rules (the
 #              stamped `timestamp.value(<ms>); // __GRACE_END_MS__` line) and
 #              reused; when the release holds none, this is the first stamped
@@ -818,7 +819,7 @@ deploy_worker() {
 function_names_for() {
   case "$1" in
     archive-gateway)   echo "archiveGateway" ;;
-    user-triggers)     echo "onUserArticleSave" ;;
+    user-triggers)     echo "onUserArticleSave retryArchive" ;;
     backfill-archiver) echo "backfillArchiver backfillStatus articleStatusDerive" ;;
     dashboard-api)     echo "dashboardApi" ;;
     *)                 echo "" ;;
@@ -827,9 +828,9 @@ function_names_for() {
 
 # The trigger and scheduled functions of each codebase. They must have no
 # public invoker (allUsers or allAuthenticatedUsers), which the invoker check
-# reads after the deploy; HTTP functions stay public with per-caller keys. The
-# deploy harness fails when an exported function outside this table is not an
-# HTTP function.
+# reads after the deploy; HTTP functions stay public with per-caller keys, and a
+# callable stays public because it checks the caller's ID token itself. The
+# deploy harness fails when an exported function outside this table is neither.
 private_functions_for() {
   case "$1" in
     user-triggers)     echo "onUserArticleSave" ;;

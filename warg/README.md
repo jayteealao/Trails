@@ -208,7 +208,8 @@ Cloud Run IAM policy of its trigger and scheduled functions
 (`onUserArticleSave`, `backfillArchiver`, `articleStatusDerive`) and fails with
 exit 3 when one grants `allUsers` or `allAuthenticatedUsers`; a deploy update
 leaves IAM as it was, so a public binding never goes unnoticed. The HTTP
-functions stay public; their per-caller keys guard them.
+functions stay public; their per-caller keys guard them. The callable
+`retryArchive` stays public too: it checks the caller's ID token.
 
 Link check: the dashboard reads follow the server-written link
 (`canonicalId`), so before any deploy that includes the functions the script
@@ -723,6 +724,33 @@ to one hour after the save. After that it marks the shared article `failed` and
 writes the error on the user article. The backfill does not retry those, nor an
 archive the trigger started that later failed or got stuck, because the trigger
 does not change the article's `timeUpdated`; a new full pass (below) does.
+
+`retryArchive` (user-triggers, us-central1) is a callable: a signed-in person, a
+guest account included, asks for one more archive run of an article they saved.
+It takes `{"itemId": "<id>"}` and answers `{"outcome": ..., "reason"?: ...}`:
+
+| `outcome` | Meaning | Gateway called |
+| --- | --- | --- |
+| `started` | the run was started | yes |
+| `in_flight` | a run is already going | no |
+| `complete` | the archive is complete | no |
+| `not_started` | the save has not started its first run yet | no |
+| `not_retryable` | bad data, or no usable link | no |
+| `not_sent` | the gateway refused; `reason` is `operator_owned` (409 `REQUEST_ID_CONFLICT`) or `gateway` | yes |
+| `unconfirmed` | no clear answer, so a run may exist | yes |
+
+A caller with no account gets `unauthenticated`, a malformed id
+`invalid-argument`, and an article the caller did not save (or deleted)
+`permission-denied`. Set the client timeout to 120 seconds.
+
+The claim rule: the gateway does not stop a second retry run, so one transaction
+reads the status by the same rule as `articleStatusDerive` and sets
+`processing_started_at` before the one gateway call. A refusal by the gateway (a
+4xx, or an error with a gateway code) puts the earlier start time back and marks
+the article `failed`; a timeout, a dropped connection or any other answer keeps
+the claim, which frees itself 45 minutes after the start. The retry sends the
+shared article's `url`, never the one the app wrote, and does not change
+`retry_count`.
 
 To start one new full pass, set `BACKFILL_PASS_LABEL` to a new value in
 `cloud-functions/backfill-archiver/.env` (the default is `1`) and deploy the

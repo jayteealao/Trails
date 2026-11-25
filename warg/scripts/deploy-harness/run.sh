@@ -1113,8 +1113,9 @@ scenario_function_exports_sync() {
 }
 
 # private_functions_for() names only exported functions, and every other
-# exported function is an HTTP function (export const <name> = onRequest(), so
-# no trigger or scheduled function escapes the invoker check.
+# exported function is an HTTP function or a callable (export const <name> =
+# onRequest( or onCall( ), so no trigger or scheduled function escapes the
+# invoker check.
 scenario_invoker_table_sync() {
   start invoker-table-sync
   local fn name
@@ -1129,8 +1130,8 @@ scenario_invoker_table_sync() {
       case " $(private_functions_for "$fn") " in
         *" $name "*) continue ;;
       esac
-      grep -Eq "^export const $name = onRequest\(" "$WARG/cloud-functions/$fn/src/"*.ts ||
-        fail "$fn: $name is not in private_functions_for() and is not defined with onRequest("
+      grep -Eq "^export const $name = (onRequest|onCall)\(" "$WARG/cloud-functions/$fn/src/"*.ts ||
+        fail "$fn: $name is not in private_functions_for() and is not defined with onRequest( or onCall("
     done
   done
   finish
