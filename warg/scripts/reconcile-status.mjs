@@ -20,7 +20,7 @@ const PROJECT = 'trails-e428e';
 const DB = `projects/${PROJECT}/databases/(default)`;
 const DOC_PREFIX = `${DB}/documents`;
 const PAGE_SIZE = 300;
-// Keep in sync with article-status.ts / backfill index.ts (Workstream C3).
+// Keep in sync with packages/article-writer/src/article-status.ts and backfill scheduler.ts (Workstream C3).
 const STUCK_TIMEOUT_MS = 45 * 60 * 1000;
 const MAX_RETRIES = 2;
 const SUFFICIENT_ARCHIVES = ['rendered', 'singlefile', 'monolith'];
@@ -89,7 +89,7 @@ function fields(doc) {
   return out;
 }
 
-// --- The rules (mirror of article-status.ts deriveStatus) ---
+// --- The rules (mirror of packages/article-writer/src/article-status.ts deriveStatus) ---
 function hasSufficientArtifact(doc) {
   const archives = doc?.archives ?? {};
   return SUFFICIENT_ARCHIVES.some((k) => archives[k]?.status === 'success');

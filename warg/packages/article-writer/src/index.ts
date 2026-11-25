@@ -3,7 +3,9 @@
 // through one of its write functions, so each field name is spelled once. It
 // also holds the one reader of a user article's shared-article link
 // (`resolve.ts`) and the one projection of a user article onto the shared
-// article's pocket map (`pocket.ts`).
+// article's pocket map (`pocket.ts`), and the one rule that derives a shared
+// article's status (`article-status.ts`).
+export * from './article-status.js';
 export * from './bulk.js';
 export * from './fields.js';
 export * from './pocket.js';
