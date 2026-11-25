@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.AccessibilityManager
 import androidx.compose.ui.platform.LocalAccessibilityManager
@@ -20,7 +21,6 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertTouchHeightIsEqualTo
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
@@ -93,8 +93,10 @@ class ShareSheetTest {
 
     private fun advance(millis: Long) = rule.mainClock.advanceTimeBy(millis)
 
+    /** Shows [newState]; with the clock held, a write of the test is seen only after it is announced. */
     private fun show(newState: ShareState) {
-        state = newState
+        rule.runOnUiThread { state = newState }
+        Snapshot.sendApplyNotifications()
         advance(100)
     }
 
@@ -102,7 +104,10 @@ class ShareSheetTest {
 
     private fun assertButtons(vararg labels: String) {
         rule.onAllNodes(hasClickAction()).assertCountEquals(labels.size)
-        labels.forEach { button(it).assertTouchHeightIsEqualTo(48.dp) }
+        labels.forEach { label ->
+            val touch = button(label).fetchSemanticsNode().touchBoundsInRoot
+            assertTrue("$label: $touch", touch.height >= with(rule.density) { 48.dp.toPx() })
+        }
     }
 
     @Test
@@ -225,10 +230,16 @@ class ShareSheetTest {
             SAVE.copy(phase = SavePhase.NOT_UNDONE),
             SAVE.copy(phase = SavePhase.NOT_SAVED),
         ).forEachIndexed { index, next ->
-            state = next
-            if (index == 0) showSheet() else advance(100)
+            if (index == 0) {
+                state = next
+                showSheet()
+            } else {
+                show(next)
+            }
             advance(60_000)
             assertTrue("$next", heard.isEmpty())
+            rule.onNodeWithText(if (next is ShareState.Save) WORDS.getValue(next.phase) else "No link to save")
+                .assertIsDisplayed()
         }
 
         button("Close").performClick()
@@ -273,6 +284,11 @@ class ShareSheetTest {
     }
 
     private companion object {
+        val WORDS = mapOf(
+            SavePhase.SAVING to "Saving…",
+            SavePhase.NOT_UNDONE to "Not removed",
+            SavePhase.NOT_SAVED to "Not saved",
+        )
         val SAVE = ShareState.Save("A river in winter", "rivers.example.org", SavePhase.SAVED)
         val LONG = ShareState.Save(
             title = "Benachrichtigungseinstellungen and other compound words: how one very long summer " +
