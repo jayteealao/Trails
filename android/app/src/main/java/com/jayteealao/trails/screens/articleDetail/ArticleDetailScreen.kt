@@ -3,7 +3,11 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -49,6 +54,7 @@ import com.google.accompanist.web.WebContent
 import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewState
 import com.jayteealao.trails.data.local.database.Article
+import com.jayteealao.trails.screens.components.ErrorMessage
 import com.jayteealao.trails.screens.components.showError
 import com.jayteealao.trails.screens.preview.PreviewFixtures
 import com.jayteealao.trails.screens.theme.TrailsTheme
@@ -58,6 +64,7 @@ import com.mikepenz.markdown.m3.markdownColor
 import io.yumemi.tartlet.ViewStore
 import io.yumemi.tartlet.rememberViewStore
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /**
  * The article of [articleId] and its messages. The messages show with or without a loaded article,
@@ -72,6 +79,7 @@ fun ArticleDetailPane(
     val viewStore = rememberViewStore { viewModel }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     viewStore.handle<ArticleDetailEvent.ShowError> { event ->
         scope.launch { snackbarHostState.showError(event.message, event.retry) }
@@ -101,9 +109,26 @@ fun ArticleDetailPane(
                 article = article,
                 viewStore = viewStore,
                 snackbarHost = { SnackbarHost(snackbarHostState) },
+                onOpenInBrowser = { url ->
+                    try {
+                        context.openInBrowser(url)
+                    } catch (e: ActivityNotFoundException) {
+                        Timber.w(e, "No browser on this device")
+                        scope.launch { snackbarHostState.showError(ErrorMessage.NO_BROWSER, retry = null) }
+                    }
+                },
             )
         }
     }
+}
+
+/**
+ * Shows [url] in the browser of the phone. The browser is asked for by its category, because the
+ * app itself takes web links, to save them, and would be offered or opened for a plain one.
+ */
+private fun Context.openInBrowser(url: String) {
+    val browser = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER)
+    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply { selector = browser })
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -112,6 +137,7 @@ fun ArticleDetailScreen(
     article: Article,
     viewStore: ViewStore<ArticleDetailState, ArticleDetailEvent, ArticleDetailViewModel> = rememberViewStore { hiltViewModel() },
     snackbarHost: @Composable () -> Unit = {},
+    onOpenInBrowser: (String) -> Unit = {},
 ) {
     // Mark as read when screen opens (article loading handled by ArticleDetailPane)
     LaunchedEffect(article.itemId) {
@@ -127,6 +153,7 @@ fun ArticleDetailScreen(
         onTabSelected = { viewStore.action { setSelectedTab(it) } },
         onRetry = { viewStore.action { retryArchive(currentArticle.itemId) } },
         snackbarHost = snackbarHost,
+        onOpenInBrowser = onOpenInBrowser,
     )
 }
 
@@ -142,6 +169,7 @@ fun ArticleDetailContent(
     onTabSelected: (Int) -> Unit,
     onRetry: () -> Unit,
     snackbarHost: @Composable () -> Unit = {},
+    onOpenInBrowser: (String) -> Unit = {},
 ) {
     val tabs = detailTabsFor(state.tabArchiveKeys)
 
@@ -168,6 +196,7 @@ fun ArticleDetailContent(
             failedArchiveKeys = state.failedArchiveKeys,
             online = state.online,
             onRetry = onRetry,
+            onOpenInBrowser = onOpenInBrowser,
         )
 
         Column(
@@ -544,6 +573,7 @@ fun ArticleDetails(
     failedArchiveKeys: Set<String> = emptySet(),
     online: Boolean = true,
     onRetry: (() -> Unit)? = null,
+    onOpenInBrowser: (String) -> Unit = {},
 ) {
     AnimatedContent(
         targetState = selectedTabIndex,
@@ -555,7 +585,11 @@ fun ArticleDetails(
                 text = article.text.orEmpty(),
                 onRetry = onRetry,
             )
-            targetIndex == 1 -> ArticleWebView(article.url ?: article.givenUrl ?: "https://www.google.com/")
+            targetIndex == 1 -> ArticleWebView(
+                url = article.url ?: article.givenUrl ?: "https://www.google.com/",
+                online = online,
+                onOpenInBrowser = onOpenInBrowser,
+            )
             else -> {
                 val archiveType = tabs.getOrNull(targetIndex)?.archiveType
                 if (archiveType != null) {

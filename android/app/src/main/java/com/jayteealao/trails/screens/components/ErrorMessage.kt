@@ -25,6 +25,7 @@ enum class ErrorMessage(val text: String, val staysUntilAnswered: Boolean = fals
 
     OPEN_FAILED("The article did not open.", staysUntilAnswered = true),
     MARK_READ_FAILED("The article was not marked as read."),
+    NO_BROWSER("No app on this phone opens this link."),
 
     SIGN_IN_OFFLINE("You’re offline, so you were not signed in. Connect, then try again."),
     SIGN_IN_FAILED("Sign-in did not finish. Try again."),
