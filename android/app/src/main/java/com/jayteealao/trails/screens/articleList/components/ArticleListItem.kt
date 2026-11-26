@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.Painter
@@ -100,6 +101,7 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
         }
     }
     val swipeState = rememberSwipeToDismissBoxState()
+    val swipeScope = rememberCoroutineScope()
 
     LaunchedEffect(swipeState.currentValue) {
         when (swipeState.currentValue) {
@@ -138,7 +140,14 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleListItem(
                 article = shown,
                 swipeState = swipeState,
                 animationTrigger = animationTrigger,
-                onAction = act,
+                onAction = { action, item ->
+                    // The list keeps the swipe position of a row by its key, so a row that Delete
+                    // takes away would come back open on Undo: close it before it goes.
+                    if (action == ArticleAction.DELETE) {
+                        swipeScope.launch { swipeState.snapTo(SwipeToDismissBoxValue.Settled) }
+                    }
+                    act(action, item)
+                },
             )
         }
     ) {
