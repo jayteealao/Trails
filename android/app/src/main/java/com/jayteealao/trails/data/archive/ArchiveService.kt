@@ -24,12 +24,14 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -60,6 +62,15 @@ data class WargMetadata(
      */
     val leadImage: String? = null,
 )
+
+/**
+ * How long a run may stay processing before the server's status rule counts it as dead: the
+ * stuck timeout of `deriveStatus` in the article-writer package (STUCK_TIMEOUT_MS).
+ */
+internal const val STALLED_RUN_MS = 45L * 60 * 1000
+private const val PROCESSING_STATUS = "processing"
+/** What a dead run reads as: a failure the server runs again. */
+private const val STALLED_RUN_STATUS = "failed"
 
 private const val MAX_DOWNLOAD_BYTES = 50L * 1024 * 1024 // 50MB
 private const val THUMBNAIL_SIZE = 160
@@ -217,7 +228,12 @@ class ArchiveService @Inject constructor(
             }
             .distinctUntilChanged()
 
-    /** Snapshot listener on the `status` of articles/{sharedId}; any error logs and sends null. */
+    /**
+     * Snapshot listener on the `status` of articles/{sharedId}; any error logs and sends null.
+     * A run stored as `processing` that started more than [STALLED_RUN_MS] ago has died, as the
+     * server's status rule says, so it reads as `failed` from then on, and can be retried.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeSharedStatus(itemId: String, sharedId: String): Flow<String?> = callbackFlow {
         val registration = firestore.collection("articles").document(sharedId)
             .addSnapshotListener { snapshot, error ->
@@ -226,10 +242,31 @@ class ArchiveService @Inject constructor(
                     trySend(null)
                     return@addSnapshotListener
                 }
-                trySend(snapshot?.takeIf { it.exists() }?.getString("status"))
+                trySend(snapshot?.takeIf { it.exists() }?.let(::storedStatusOf))
             }
         awaitClose { registration.remove() }
+    }.transformLatest { stored ->
+        val startedAt = stored?.processingStartedAtMs
+        if (stored?.status != PROCESSING_STATUS || startedAt == null) {
+            emit(stored?.status)
+            return@transformLatest
+        }
+        val left = startedAt + STALLED_RUN_MS - System.currentTimeMillis()
+        if (left > 0) {
+            emit(PROCESSING_STATUS)
+            delay(left)
+        }
+        emit(STALLED_RUN_STATUS)
     }
+
+    private fun storedStatusOf(snapshot: DocumentSnapshot) = StoredStatus(
+        status = snapshot.getString("status"),
+        // A start time of another type is no start time.
+        processingStartedAtMs = runCatching { snapshot.getTimestamp("processing_started_at") }
+            .getOrNull()?.toDate()?.time,
+    )
+
+    private data class StoredStatus(val status: String?, val processingStartedAtMs: Long?)
 
     // ── b) Download archive from GCS → store locally ────────────────────
 

@@ -26,7 +26,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
+import com.google.firebase.Timestamp
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import org.junit.After
@@ -315,11 +318,44 @@ class ArchiveServiceObserveTest {
 
     // --- The status of the shared article ---
 
-    private fun statusSnapshot(status: String?, exists: Boolean = true): DocumentSnapshot {
+    private fun statusSnapshot(status: String?, exists: Boolean = true, startedAgoMs: Long? = null): DocumentSnapshot {
         val snapshot = mockk<DocumentSnapshot>()
         every { snapshot.exists() } returns exists
         every { snapshot.getString("status") } returns status
+        every { snapshot.getTimestamp("processing_started_at") } returns
+            startedAgoMs?.let { Timestamp(java.util.Date(System.currentTimeMillis() - it)) }
         return snapshot
+    }
+
+    @Test
+    fun `a run processing past the stuck timeout reads as failed`() = runTest(UnconfinedTestDispatcher()) {
+        val emitted = mutableListOf<String?>()
+        val job = launch { service.observeArticleStatus("item1").toList(emitted) }
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+
+        sharedListeners.single().second.onEvent(statusSnapshot("processing", startedAgoMs = 2 * 60 * 60 * 1000L), null)
+        advanceUntilIdle()
+
+        assertEquals(listOf<String?>("failed"), emitted)
+        job.cancel()
+    }
+
+    @Test
+    fun `a run that is processing reads as failed once the stuck timeout passes`() = runTest(UnconfinedTestDispatcher()) {
+        val emitted = mutableListOf<String?>()
+        val job = launch { service.observeArticleStatus("item1").toList(emitted) }
+        userListeners.single().onEvent(userSnapshot("shared1"), null)
+        advanceUntilIdle()
+
+        sharedListeners.single().second.onEvent(statusSnapshot("processing", startedAgoMs = 44 * 60 * 1000L), null)
+        runCurrent()
+        assertEquals(listOf<String?>("processing"), emitted)
+
+        advanceTimeBy(2 * 60 * 1000L)
+        runCurrent()
+        assertEquals(listOf<String?>("processing", "failed"), emitted)
+        job.cancel()
     }
 
     @Test
