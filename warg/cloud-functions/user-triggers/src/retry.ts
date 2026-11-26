@@ -140,6 +140,7 @@ async function claimRetry(
     // Only a start counts: an answer that starts nothing costs nothing.
     const window = startsInWindow(limitData, now);
     if (window.count >= RETRY_LIMIT) return { outcome: 'not_sent', reason: 'rate_limited' };
+    // article-write-check: not-an-article (retry rate-limit counter)
     tx.set(limitRef, { window_start: window.windowStart, count: window.count + 1 });
 
     const ref = articles.doc(shared.id);
