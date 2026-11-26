@@ -25,6 +25,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -185,15 +189,25 @@ internal fun ArticleSearchContent(
     }
 }
 
+/** What TalkBack says when search results arrive. */
+internal fun searchFoundWords(count: Int): String =
+    if (count == 1) "1 article found" else "$count articles found"
+
 @Composable
 private fun SearchResults(
     viewStore: ViewStore<ArticleSearchState, ArticleSearchEvent, ArticleSearchViewModel>,
     onSelectArticle: (ArticleItem) -> Unit,
     useCardLayout: Boolean,
 ) {
+    val found = searchFoundWords(viewStore.state.searchResults.size)
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            // TalkBack says how many articles were found when the results arrive.
+            .semantics {
+                liveRegion = LiveRegionMode.Polite
+                contentDescription = found
+            }
             .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = if (useCardLayout) 16.dp else 0.dp)
     ) {

@@ -7,6 +7,11 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -152,6 +157,23 @@ class ArticleSearchScreenTest {
         answer.complete(listOf(ROW))
         rule.waitForIdle()
         rule.onNodeWithText(ROW.title).assertIsDisplayed()
+    }
+
+    @Test
+    fun theSkeletonAndTheResults_areSaidByTalkBack() {
+        val answer = CompletableDeferred<List<ArticleItem>>()
+        coEvery { repository.searchLocal("river") } coAnswers { answer.await() }
+        show()
+        search("river")
+        rule.onNode(hasContentDescription("Loading articles") and isLiveRegion()).assertExists()
+
+        answer.complete(listOf(ROW))
+        rule.waitForIdle()
+        rule.onNode(hasContentDescription("1 article found") and isLiveRegion()).assertExists()
+    }
+
+    private fun isLiveRegion() = SemanticsMatcher("is a polite live region") {
+        it.config.getOrNull(SemanticsProperties.LiveRegion) == LiveRegionMode.Polite
     }
 
     @Test
