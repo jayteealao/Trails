@@ -19,6 +19,9 @@ import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,10 +61,14 @@ fun <S : Any, E : Any, VM : Store<S, E>> ArticleContent(
 ) {
     val isRead = article.isRead
     val isFavorite = article.favorite
-    val customActions = articleActions(article).filter { it.enabled }.map { item ->
-        CustomAccessibilityAction(item.label) {
-            onAction(item.action, article)
-            true
+    val currentOnAction by rememberUpdatedState(onAction)
+    // Built once per article, not on each recomposition of the row.
+    val customActions = remember(article) {
+        articleActions(article).filter { it.enabled }.map { item ->
+            CustomAccessibilityAction(item.label) {
+                currentOnAction(item.action, article)
+                true
+            }
         }
     }
     val colorScheme = MaterialTheme.colorScheme
