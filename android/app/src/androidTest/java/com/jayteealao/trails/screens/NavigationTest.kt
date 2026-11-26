@@ -44,7 +44,7 @@ import javax.inject.Inject
  * suite instead.
  *
  * The app gates the article list behind auth, so the test enters via the production
- * "Skip Login (Browse Local Articles)" affordance (the guest/skip path that calls
+ * "Skip and read what is on this phone" affordance (the guest/skip path that calls
  * `onLoginSuccess`) — this is the real, unauthenticated entry into the local library, not a
  * test-only backdoor. Best-effort per the PO: this is a final-gate suite, and the Room+Hilt
  * smoke test remains the per-step golden master.
@@ -78,7 +78,7 @@ class NavigationTest {
     fun listToDetail_navigatesThroughRealGraph() {
         // Enter the local library past the auth gate via the guest/skip affordance.
         composeTestRule.onNodeWithText(
-            text = "Skip Login",
+            text = "Skip and read what is on this phone",
             substring = true,
         ).performClick()
 
