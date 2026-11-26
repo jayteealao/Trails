@@ -2,6 +2,9 @@
   "name": "warg",
   "private": true,
   "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": "^22.23.0 || >=24.22.0"
+  },
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/link-worker-bundler.mjs",
