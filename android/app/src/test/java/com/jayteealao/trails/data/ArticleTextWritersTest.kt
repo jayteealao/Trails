@@ -8,8 +8,8 @@ import java.io.File
  * A checked fact about the app source: the person cannot edit the text of an article.
  *
  * The stored article text is written only by the ranked write of the repository, which the
- * article detail screen calls with archive texts, and the only text field in the app is the
- * tag field. So replacing a weaker stored text with a better-ranked archive never loses an
+ * article detail screen calls with archive texts, and the only text fields in the app are the
+ * tag field and the search query field. So replacing a weaker stored text with a better-ranked archive never loses an
  * edit. The ranked write also keeps any stored text whose source is not a ranked archive
  * (see `TextSourceRank.shouldReplace`), so an edit saved under its own source is kept.
  *
@@ -56,6 +56,8 @@ class ArticleTextWritersTest {
             emptySet<String>(),
             filesCalling(Regex("""\b(?:Outlined|Basic)?TextField\("""))
                 .filterNot { it.startsWith("com/jayteealao/trails/screens/tagManagement/") }
+                // The search field edits the query, never the text of an article.
+                .filterNot { it == "com/jayteealao/trails/screens/articleSearch/SearchField.kt" }
                 .toSet(),
         )
     }
