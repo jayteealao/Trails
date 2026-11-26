@@ -227,14 +227,16 @@ class ArticleDetailViewModel @Inject constructor(
         openJob = viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             try {
-                // Rank the local text archives first, so the one read below gets the best text.
+                // The stored article shows first; ranking the local text archives reads files.
+                publishArticle(itemId)
                 val archives = localArchiveDao.getArchivesForArticle(itemId)
                 val localText = offerBestText(itemId, archives)
                 // Another article opened while this one was read: nothing of this one shows.
                 if (currentArticleId != itemId) return@launch
                 _localText.value = localText
                 lastReadTextArchives = textArchivesOf(archives)
-                publishArticle(itemId)
+                // A better-ranked text replaced the stored one: show it.
+                if (archives.isNotEmpty()) publishArticle(itemId)
 
                 // Start archive observation
                 if (currentArticleId == itemId) loadArchives(itemId)

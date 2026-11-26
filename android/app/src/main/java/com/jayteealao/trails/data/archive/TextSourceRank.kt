@@ -36,8 +36,25 @@ object TextSourceRank {
     const val RUN_TOGETHER_PARAGRAPH_CHARS = 2000
 
     /** Whether [text] has a paragraph (split on blank lines) over [RUN_TOGETHER_PARAGRAPH_CHARS]. */
-    fun isRunTogether(text: String): Boolean =
-        text.split(PARAGRAPH_BREAK).any { it.trim().length > RUN_TOGETHER_PARAGRAPH_CHARS }
+    fun isRunTogether(text: String): Boolean {
+        if (text.length <= RUN_TOGETHER_PARAGRAPH_CHARS) return false
+        // Measures each paragraph in place, so a long text is not copied once per paragraph.
+        var start = 0
+        for (gap in PARAGRAPH_BREAK.findAll(text)) {
+            if (trimmedLength(text, start, gap.range.first) > RUN_TOGETHER_PARAGRAPH_CHARS) return true
+            start = gap.range.last + 1
+        }
+        return trimmedLength(text, start, text.length) > RUN_TOGETHER_PARAGRAPH_CHARS
+    }
+
+    /** The length of text[from, to) without the whitespace at its ends, as [String.trim] counts. */
+    private fun trimmedLength(text: String, from: Int, to: Int): Int {
+        var first = from
+        var end = to
+        while (first < end && text[first].isWhitespace()) first++
+        while (end > first && text[end - 1].isWhitespace()) end--
+        return end - first
+    }
 
     private val PARAGRAPH_BREAK = Regex("\n[ \t\r]*\n")
 

@@ -339,11 +339,13 @@ class ArticleDetailViewModelTest {
         viewModel.getArticle("a4")
         advanceUntilIdle()
 
+        // The stored article shows first; the read after the ranked write shows the best text.
         coVerifyOrder {
+            articleRepository.getArticleById("a4")
             articleRepository.offerArticleText("a4", "readability content", "readability")
             articleRepository.getArticleById("a4")
         }
-        coVerify(exactly = 1) { articleRepository.getArticleById("a4") }
+        coVerify(exactly = 2) { articleRepository.getArticleById("a4") }
         coVerify(exactly = 0) { archiveService.readArchiveText("a4", ArchiveType.MARKDOWN) }
         assertEquals("readability content", viewModel.state.value.article?.text)
         assertEquals("readability", viewModel.state.value.textSource)
