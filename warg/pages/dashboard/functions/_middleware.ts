@@ -94,6 +94,9 @@ type Refusal = 'not_configured' | 'bad_credential' | 'cross_site_write' | 'too_m
 const GUESS_LIMIT = 10;
 const GUESS_WINDOW_MS = 60_000;
 const guesses = new Map<string, { count: number; windowStart: number }>();
+// The most addresses counted at once; past it, a new address is not counted.
+const MAX_COUNTED_ADDRESSES = 10_000;
+let lastSweep = 0;
 
 // A local dev server stamps the loopback address; local clients are not counted.
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1']);
@@ -114,10 +117,12 @@ function guessesExhausted(address: string, now: number): boolean {
 function countGuess(address: string, now: number): void {
   const entry = guesses.get(address);
   if (!entry || now - entry.windowStart >= GUESS_WINDOW_MS) {
-    // Drop stale windows now and then, so the map stays small.
-    if (guesses.size > 1000) {
+    // Drop the ended windows once per window, so a request walks the map at most once a minute.
+    if (now - lastSweep >= GUESS_WINDOW_MS) {
+      lastSweep = now;
       for (const [key, value] of guesses) if (now - value.windowStart >= GUESS_WINDOW_MS) guesses.delete(key);
     }
+    if (!entry && guesses.size >= MAX_COUNTED_ADDRESSES) return;
     guesses.set(address, { count: 1, windowStart: now });
   } else {
     entry.count += 1;
@@ -127,6 +132,7 @@ function countGuess(address: string, now: number): void {
 /** Test hook: forget every counted guess. */
 export function resetGuessCounts(): void {
   guesses.clear();
+  lastSweep = 0;
 }
 
 function tooManyGuesses(): Response {
