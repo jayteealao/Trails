@@ -4,7 +4,7 @@
 A calm reading app on standard Material 3, in navy and sky blue. Token file: none.
 
 ## Colors
-The Android app uses a navy and sky-blue palette (`android/app/src/main/java/com/jayteealao/trails/screens/theme/Color.kt`), mapped to Material 3 roles in `Theme.kt`. It supports light and dark mode. Dark mode follows an in-app Settings toggle, not the system setting. Dynamic colour exists in `TrailsTheme(dynamicColor)` but is off by default. Each role below has a light value and a dark value. The Material 3 role it maps to is named in "Used for".
+The Android app uses a navy and sky-blue palette (`android/app/src/main/java/com/jayteealao/trails/screens/theme/Color.kt`), mapped to Material 3 roles in `Theme.kt`. It supports light and dark mode. Dark mode follows the Theme choice in Settings: System (the default, which follows the phone), Light or Dark. Dynamic colour exists in `TrailsTheme(dynamicColor)` but is off by default. Each role below has a light value and a dark value. The Material 3 role it maps to is named in "Used for".
 
 ### Token roles
 | Role | Kind | Light (light) | Dark (dark) | Used for |
