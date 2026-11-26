@@ -52,6 +52,12 @@ export const onUserArticleSave = onDocumentCreated(
  * Callable: a signed-in person archives an article they saved again.
  *
  * Takes { itemId } and answers { outcome, reason? } (see retry.ts).
+ *
+ * App Check is not enforced: the Android app has no App Check provider yet, so
+ * enforcing it would refuse every call. What bounds a caller is the sign-in
+ * check here, the ownership check and claim of retry.ts, and its per-person
+ * limit of started retries per hour. Turn on enforceAppCheck once the app sends
+ * App Check tokens.
  */
 export const retryArchive = onCall(
   {
