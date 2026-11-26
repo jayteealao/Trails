@@ -19,7 +19,7 @@ import com.jayteealao.trails.data.archive.RetryFailure
 import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.components.ErrorMessage
-import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
+import com.jayteealao.trails.data.SettingsPreferenceKeys
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.yumemi.tartlet.Store
 import kotlinx.coroutines.CancellationException

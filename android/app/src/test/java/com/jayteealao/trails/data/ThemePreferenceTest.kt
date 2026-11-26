@@ -3,7 +3,6 @@ package com.jayteealao.trails.data
 import android.app.Application
 import android.content.Context
 import android.os.Looper
-import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher

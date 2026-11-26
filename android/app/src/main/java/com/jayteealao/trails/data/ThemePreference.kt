@@ -1,6 +1,5 @@
 package com.jayteealao.trails.data
 
-import com.jayteealao.trails.screens.settings.SettingsPreferenceKeys
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import javax.inject.Inject

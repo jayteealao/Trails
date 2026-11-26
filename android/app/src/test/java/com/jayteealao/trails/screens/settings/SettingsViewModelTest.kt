@@ -1,6 +1,7 @@
 package com.jayteealao.trails.screens.settings
 
 import com.jayteealao.trails.services.firestore.SyncFailures
+import com.jayteealao.trails.data.SettingsPreferenceKeys
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.data.AuthRepository
 import com.jayteealao.trails.data.SharedPreferencesManager

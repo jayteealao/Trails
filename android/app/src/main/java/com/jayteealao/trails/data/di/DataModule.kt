@@ -22,8 +22,6 @@ import com.jayteealao.trails.data.DefaultLibraryStatus
 import com.jayteealao.trails.data.LibraryStatus
 import com.jayteealao.trails.data.archive.ArchiveRetryClient
 import com.jayteealao.trails.data.archive.FirebaseArchiveRetryClient
-import com.jayteealao.trails.screens.share.DefaultLinkSaver
-import com.jayteealao.trails.screens.share.LinkSaver
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -51,10 +49,4 @@ interface DataModule {
     fun bindsLibraryStatus(
         libraryStatus: DefaultLibraryStatus
     ): LibraryStatus
-
-    @Singleton
-    @Binds
-    fun bindsLinkSaver(
-        linkSaver: DefaultLinkSaver
-    ): LinkSaver
 }

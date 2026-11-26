@@ -1,6 +1,7 @@
 package com.jayteealao.trails.screens.settings
 
 import androidx.lifecycle.ViewModel
+import com.jayteealao.trails.data.SettingsPreferenceKeys
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.BuildConfig

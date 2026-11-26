@@ -1,4 +1,4 @@
-package com.jayteealao.trails.screens.settings
+package com.jayteealao.trails.data
 
 object SettingsPreferenceKeys {
     const val USE_FREEDIUM = "USE_FREEDIUM"
