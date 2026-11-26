@@ -2,6 +2,8 @@ package com.jayteealao.trails.data.archive
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -12,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 
 /** The number of archive kinds that carry text. */
 private val TEXT_KINDS = ArchiveType.entries.count { it.providesText }
@@ -38,6 +41,9 @@ class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
     /** Per article, the archives whose download is running or failed, by archive key. */
     private val downloads = MutableStateFlow<Map<String, Map<String, ArchiveDownload>>>(emptyMap())
 
+    /** The download jobs that have not ended yet. */
+    private val running: MutableSet<Job> = ConcurrentHashMap.newKeySet()
+
     /**
      * Mark [type] of [itemId] as downloading and launch its download, unless it is already
      * downloading (so two syncs never fetch one archive twice). The job stores the archive and
@@ -59,7 +65,7 @@ class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
         }
         Timber.d("syncArchives($itemId) — starting download for $key")
         val permits = if (type.providesText) textPermits else heavyPermits
-        scope.launch {
+        val job = scope.launch {
             val stored = try {
                 if (!type.providesText) awaitTextDownloads(itemId)
                 permits.withPermit { download() }
@@ -70,7 +76,22 @@ class ArchiveDownloadScheduler(private val scope: CoroutineScope) {
                 null
             }
             set(itemId, key, if (stored == null) ArchiveDownload.FAILED else null)
-        }.invokeOnCompletion { cause -> if (cause != null) set(itemId, key, null) }
+        }
+        running += job
+        job.invokeOnCompletion { cause ->
+            running -= job
+            if (cause != null) set(itemId, key, null)
+        }
+    }
+
+    /**
+     * Cancels every download and waits until each has stopped, so none writes a file after the
+     * local data is cleared.
+     */
+    suspend fun cancelAll() {
+        val jobs = running.toList()
+        jobs.forEach { it.cancel() }
+        jobs.joinAll()
     }
 
     /** Suspends until no text archive of [itemId] is downloading. */

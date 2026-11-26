@@ -89,12 +89,14 @@ class ArchiveService @Inject constructor(
     private val application: Application,
     @Dispatcher(TrailsDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
     @ApplicationScope private val appScope: CoroutineScope,
-) {
+) : ArchiveDownloads {
     private val archivesDir: File
         get() = File(application.filesDir, LocalFolders.ARCHIVES_DIR)
 
     /** The downloads of the archives, each on its own in the app scope. */
     private val downloads = ArchiveDownloadScheduler(appScope)
+
+    override suspend fun cancelAll() = downloads.cancelAll()
 
     // ── Shared-article id resolver ──────────────────────────────────────
     //

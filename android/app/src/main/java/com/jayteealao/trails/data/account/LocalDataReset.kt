@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.WorkManager
 import androidx.work.await
 import coil3.SingletonImageLoader
+import com.jayteealao.trails.data.archive.ArchiveDownloads
 import com.jayteealao.trails.data.local.LocalFolders
 import com.jayteealao.trails.data.local.database.ArticleDao
 import com.jayteealao.trails.services.firestore.FirestoreCacheReset
@@ -26,6 +27,7 @@ class LocalDataReset @Inject constructor(
     @ApplicationContext private val context: Context,
     private val articleDao: ArticleDao,
     private val firestoreSyncManager: FirestoreSyncManager,
+    private val archiveDownloads: ArchiveDownloads,
 ) {
     suspend fun pendingChangeCount(): Int = articleDao.countUnsyncedChanges()
 
@@ -62,6 +64,8 @@ class LocalDataReset @Inject constructor(
     suspend fun wipeLocalData() {
         firestoreSyncManager.runExclusive {
             cancelSyncWork()
+            // A download still running would write an archive of the old library after the wipe.
+            archiveDownloads.cancelAll()
             articleDao.wipeAllLocalData()
             withContext(Dispatchers.IO) {
                 val archives = File(context.filesDir, ARCHIVES_DIR)

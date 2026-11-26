@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import coil3.SingletonImageLoader
+import com.jayteealao.trails.data.archive.ArchiveDownloads
 import com.jayteealao.trails.data.local.database.AppDatabase
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.data.local.database.ArticleDao
@@ -57,6 +58,7 @@ class LocalDataResetTest {
     private lateinit var dao: ArticleDao
     private lateinit var syncManager: FirestoreSyncManager
     private lateinit var reset: LocalDataReset
+    private val downloads = mockk<ArchiveDownloads>(relaxed = true)
 
     @Before
     fun setUp() {
@@ -70,7 +72,7 @@ class LocalDataResetTest {
         syncManager = mockk()
         // The wipe holds the sync gate; the stub runs the block as the gate does.
         coEvery { syncManager.runExclusive<Unit>(any()) } coAnswers { firstArg<suspend () -> Unit>().invoke() }
-        reset = LocalDataReset(context, dao, syncManager)
+        reset = LocalDataReset(context, dao, syncManager, downloads)
         File(context.filesDir, LocalDataReset.ARCHIVES_DIR).deleteRecursively()
     }
 
@@ -115,6 +117,17 @@ class LocalDataResetTest {
             stmt.step()
             stmt.getLong(0)
         }
+    }
+
+    @Test
+    fun wipe_stopsTheArchiveDownloadsBeforeItDeletesTheArchives() = runTest {
+        val archives = File(context.filesDir, LocalDataReset.ARCHIVES_DIR).apply { mkdirs() }
+        coEvery { downloads.cancelAll() } coAnswers { assertTrue(archives.exists()) }
+
+        reset.wipeLocalData()
+
+        coVerify(exactly = 1) { downloads.cancelAll() }
+        assertFalse(archives.exists())
     }
 
     @Test

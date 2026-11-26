@@ -115,7 +115,7 @@ class LogoutWipeIntegrationTest {
         }
         coEvery { syncManager.runExclusive<Unit>(any()) } coAnswers { firstArg<suspend () -> Unit>().invoke() }
         owner = LocalDataOwner(prefs).also { it.adopt("owner-a", "a@example.com") }
-        reset = LocalDataReset(context, db.articleDao(), syncManager)
+        reset = LocalDataReset(context, db.articleDao(), syncManager, archiveDownloads = mockk(relaxed = true))
     }
 
     private fun user(uid: String, email: String?) = mockk<FirebaseUser>().also {
