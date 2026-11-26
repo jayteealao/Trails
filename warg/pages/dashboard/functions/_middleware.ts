@@ -85,9 +85,12 @@ function isCrossSite(request: Request): boolean {
 type Refusal = 'not_configured' | 'bad_credential' | 'cross_site_write' | 'too_many_guesses';
 
 // Wrong credentials allowed per client address in one window before the
-// dashboard stops checking that address's guesses for the rest of the window.
-// The count lives in the Worker instance: it slows online guessing at the
-// edge, it is not a global lockout.
+// dashboard answers that address's wrong credentials with 429 for the rest of
+// the window. The credential is still compared first, so the right one always
+// passes: an operator is never locked out by someone else's guesses, and the
+// limit does not stop a guesser who keeps trying. It only keeps refusals from
+// flooding the logs; what resists guessing is the length of the secret. The
+// count lives in the Worker instance: it is not a global lockout.
 const GUESS_LIMIT = 10;
 const GUESS_WINDOW_MS = 60_000;
 const guesses = new Map<string, { count: number; windowStart: number }>();
