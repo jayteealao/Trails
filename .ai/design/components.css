@@ -107,7 +107,7 @@ body { margin: 0; font-family: var(--font-body); font-size: var(--text-md); line
 .snackbar__action:hover, .snackbar__action[data-ui~="hover"], .snackbar__action:active, .snackbar__action[data-ui~="pressed"] { text-decoration: underline; }
 .snackbar__action:focus-visible, .snackbar__action[data-ui~="focus"] { outline-color: var(--inverse-accent); }
 .snackbar__action[data-ui~="disabled"] { opacity: 0.38; }
-.snackbar__action { min-height: var(--size-target); min-width: var(--size-target); display: inline-grid; place-items: center; padding: 0 var(--space-3); color: var(--inverse-accent); font-weight: var(--weight-semibold); text-decoration: none; text-transform: uppercase; letter-spacing: 0.04em; }
+.snackbar__action { min-height: var(--size-target); min-width: var(--size-target); display: inline-grid; place-items: center; padding: 0 var(--space-3); color: var(--inverse-accent); font-weight: var(--weight-semibold); text-decoration: none; }
 
 /* ---------- background layer under an overlay (no text) ---------- */
 .ghost { display: block; height: var(--space-3); background: var(--surface-variant); border-radius: var(--radius-sm); }
