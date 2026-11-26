@@ -273,7 +273,7 @@ Public:
 Orchestration:
 - `workflow` worker:
   - workflow entrypoint orchestrates the steps:
-    `render → derive → manifest → persist → done`
+    `render → readability → ai-markdown → singlefile → monolith → manifest → done` (each archive is persisted as it finishes; see workers/workflow/README.md)
 
 Internal workers (service-bound; not public):
 - `renderer`: Browser Rendering → rendered HTML / screenshot / PDF → R2

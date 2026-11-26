@@ -3,7 +3,12 @@
 Cloudflare Workflows orchestrator for the URL-to-archive pipeline. Internal
 worker (`X-Internal-API-Key` required on all HTTP routes).
 
-Steps in order: `render → derive → manifest → persist → done`
+Steps in order: `render → readability → ai-markdown → singlefile → monolith → manifest → done`
+
+The text archives (Readability, then AI Markdown) run first and are each
+persisted as soon as they finish, then the render archives, then each heavy
+archive (SingleFile, then Monolith, whose call starts beside SingleFile). A
+final persist picks up anything left before the manifest is written.
 
 Each quota-gated step (render, monolith, singlefile) calls into
 `BrowserQuotaDO` to acquire a container lease before starting work.
