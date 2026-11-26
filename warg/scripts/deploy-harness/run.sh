@@ -175,7 +175,7 @@ scenario_full_success() {
     expect_row "function:$fn" deployed ".*@20[0-9-]+T.*"
     expect_calls 1 "^firebase deploy --only functions:$fn --project trails-e428e --non-interactive GIT_SHA=$SHA\$"
   done
-  expect_calls 6 '^gcloud functions describe .* --region us-central1 --project trails-e428e'
+  expect_calls 7 '^gcloud functions describe .* --region us-central1 --project trails-e428e'
   expect_calls 3 '^gcloud run services get-iam-policy .* --region us-central1 --project trails-e428e --format=json$'
   expect_row "function:user-triggers" deployed ".* invoker private"
   expect_calls 1 '^firebase deploy --only firestore:rules,storage --project trails-e428e --non-interactive --config firebase.json'
