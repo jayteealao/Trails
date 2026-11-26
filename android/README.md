@@ -53,14 +53,26 @@ Download the latest APK from [Releases](../../releases) and install it, or build
 
 1. Open any article in your browser or app
 2. Tap **Share** and select **Trails**
-3. The article is saved, text extracted, and synced to the cloud
+3. A small sheet shows the title and the site, then **Saved** with **Undo** until it closes by itself. A link that is already in your library says so; a share with no web link says what to share instead
+4. Trails reads the page and archives it on the server; the text and the archives arrive on the phone as they finish
+
+### Read an article
+
+- The **Reader** tab shows the text; the **Web** tab shows the live page and says when you are offline or the page cannot load, with **Try again** and **Open in browser**
+- The other tabs are the saved archives of the page. A slim row above the tabs says when the archive is still being made or failed, and **Try again** asks the server to archive it again
 
 ### Organize your library
 
-- **Tags** — Long-press an article to manage tags. Trails can suggest tags using Gemini AI.
-- **Favorites** — Star articles you want to revisit
+- **Actions** — Touch and hold an article for Favourite, Mark read, Archive, Open in browser, Share, Copy link, Regenerate details and Delete. Delete offers **Undo**. TalkBack offers the same actions on each row. Swiping a row still shows its quick actions
+- **Tags** — Tap **Add tag** on an article to manage its tags. Trails can suggest tags using Gemini AI
+- **Favourites** — Star articles you want to revisit
 - **Archive** — Move read articles out of your main list
 - **Search** — Tap the search bar to find articles by title or content. Any typed word matches, "quoted phrases" match exactly, and the best 100 matches come first
+
+### Account and appearance
+
+- Sign in with Google (through the phone's account picker), continue as a guest, or skip. A guest can link a Google account later from **Settings** and keeps their articles
+- **Settings → Appearance** chooses **System**, **Light** or **Dark**; System, the default, follows the phone
 
 ---
 
