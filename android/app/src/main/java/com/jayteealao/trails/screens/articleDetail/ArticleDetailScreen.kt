@@ -3,6 +3,7 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import android.annotation.SuppressLint
+import android.webkit.WebSettings
 import android.content.ActivityNotFoundException
 import android.content.res.Configuration
 import androidx.compose.animation.AnimatedContent
@@ -607,7 +608,6 @@ fun ArticleDetails(
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ArticleArchiveWebView(
     htmlContent: String,
@@ -632,13 +632,21 @@ fun ArticleArchiveWebView(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(),
-            onCreated = { webView ->
-                webView.settings.javaScriptEnabled = true
-                webView.settings.domStorageEnabled = true
-            },
+            onCreated = { webView -> webView.settings.applyArchiveSettings() },
             client = remember { AccompanistWebViewClient() }
         )
     }
+}
+
+/**
+ * A saved archive is a still copy of a third-party page: it is shown without running its
+ * scripts, and it cannot read the phone's files or content providers.
+ */
+internal fun WebSettings.applyArchiveSettings() {
+    javaScriptEnabled = false
+    domStorageEnabled = false
+    allowFileAccess = false
+    allowContentAccess = false
 }
 
 /**
