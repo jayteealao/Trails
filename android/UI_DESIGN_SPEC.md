@@ -1,6 +1,11 @@
 # Trails App - UI Design Specification
 ## Settings & Authentication Screens
 
+> **Superseded in part.** The Dark mode switch is replaced by a System / Light / Dark
+> choice (System, the default, follows the phone), and sign-in now uses Credential Manager
+> with Continue as guest and Skip. The approved screens under `.ai/design/screens/` and
+> `DESIGN.md` describe the current Settings and sign-in; read this file for history only.
+
 **Version:** 1.0
 **Last Updated:** November 17, 2025
 **Design System:** Material Design 3 (Material You)
