@@ -14,6 +14,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -159,7 +160,9 @@ internal fun readerImageModel(link: String, filesDir: File?): String? {
  */
 @Composable
 fun ReaderFigure(ref: ImageRef, modifier: Modifier = Modifier) {
-    val model = readerImageModel(ref.link, LocalContext.current.filesDir)
+    val filesDir = LocalContext.current.filesDir
+    // The model resolves a file path; it is worked out once per link, not on each recomposition.
+    val model = remember(ref.link, filesDir) { readerImageModel(ref.link, filesDir) }
     if (model == null) {
         BrokenImagePlaceholder(ref.alt)
         return
@@ -184,7 +187,8 @@ fun ReaderFigure(ref: ImageRef, modifier: Modifier = Modifier) {
 /** An image inside running text, in the box the renderer sizes for it; the placeholder when it fails. */
 @Composable
 fun ReaderInlineImage(link: String, alt: String?) {
-    val model = readerImageModel(link, LocalContext.current.filesDir)
+    val filesDir = LocalContext.current.filesDir
+    val model = remember(link, filesDir) { readerImageModel(link, filesDir) }
     if (model == null) {
         BrokenImagePlaceholder(alt)
         return
