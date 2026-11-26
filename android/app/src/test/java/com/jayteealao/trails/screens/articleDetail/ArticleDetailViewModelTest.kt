@@ -179,6 +179,29 @@ class ArticleDetailViewModelTest {
         collectJob.cancel()
     }
 
+    @Test
+    fun aSlowReadOfThePreviousArticle_doesNotReplaceTheOneOpenedAfterIt() = runTest(scheduler) {
+        val slowA = CompletableDeferred<Article?>()
+        coEvery { articleRepository.getArticleById("a1") } coAnswers { slowA.await() }
+        coEvery { articleRepository.getArticleById("b2") } returns
+            Article(itemId = "b2", url = "https://example.com/b2", givenUrl = "https://example.com/b2")
+
+        val viewModel = buildViewModel()
+        val collectJob: Job = viewModel.state.onEach { }.launchIn(this)
+        advanceUntilIdle()
+
+        viewModel.getArticle("a1")
+        advanceUntilIdle()
+        viewModel.getArticle("b2")
+        advanceUntilIdle()
+        slowA.complete(Article(itemId = "a1", url = "https://example.com", givenUrl = "https://example.com"))
+        advanceUntilIdle()
+
+        assertEquals("b2", viewModel.state.value.article?.itemId)
+        assertEquals(false, viewModel.state.value.isLoading)
+        collectJob.cancel()
+    }
+
     // ----- AC: state assembly — setSelectedTab updates tabIndex -----
 
     @Test

@@ -103,6 +103,9 @@ class ArticleDetailViewModel @Inject constructor(
 
     private var archiveObserverJob: Job? = null
 
+    /** The first read of the open article; a switch to another article cancels it. */
+    private var openJob: Job? = null
+
     /** The text archives (key and download time) the last [offerBestText] read; null before one. */
     private var lastReadTextArchives: Set<Pair<String, Long>>? = null
     private var currentArticleId: String? = null
@@ -217,27 +220,31 @@ class ArticleDetailViewModel @Inject constructor(
             _selectedArchiveLoadFailed.value = false
             _downloadStates.value = emptyMap()
             archiveObserverJob?.cancel()
+            openJob?.cancel()
         }
         currentArticleId = itemId
 
-        viewModelScope.launch(ioDispatcher) {
+        openJob = viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             try {
                 // Rank the local text archives first, so the one read below gets the best text.
                 val archives = localArchiveDao.getArchivesForArticle(itemId)
-                _localText.value = offerBestText(itemId, archives)
+                val localText = offerBestText(itemId, archives)
+                // Another article opened while this one was read: nothing of this one shows.
+                if (currentArticleId != itemId) return@launch
+                _localText.value = localText
                 lastReadTextArchives = textArchivesOf(archives)
                 publishArticle(itemId)
 
                 // Start archive observation
-                loadArchives(itemId)
+                if (currentArticleId == itemId) loadArchives(itemId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Timber.e(e, "getArticle($itemId) — failed")
                 tellOpenFailed(itemId)
             } finally {
-                _isLoading.value = false
+                if (currentArticleId == itemId) _isLoading.value = false
             }
         }
     }
@@ -408,6 +415,8 @@ class ArticleDetailViewModel @Inject constructor(
         if (useFreediumFlow.value && article != null) {
             article = article.copy(url = urlModifier.modifyUrl(article.url ?: article.givenUrl!!))
         }
+        // A read that ends after another article opened must not replace it.
+        if (currentArticleId != itemId) return
         _article.value = article
         _textSource.value = article?.textSource ?: ""
     }
