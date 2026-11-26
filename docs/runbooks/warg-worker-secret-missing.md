@@ -10,9 +10,9 @@ CI logs matching any of the following patterns trigger this runbook:
 ## Steps
 
 1. Identify the worker and secret from the deploy.sh header (e.g. hyperrenderer needs INTERNAL_API_KEY, HYPERBROWSER_API_KEY).
-2. Set it: pnpm --dir warg exec wrangler secret put <NAME> --config workers/<worker>/wrangler.jsonc.
+2. Set it: `pnpm --dir warg exec cf workers secrets update <NAME> --worker <worker> --type secret_text --text "$VALUE"`.
 3. Re-run: cd warg && pnpm deploy:all (or pnpm run deploy -- <flags>; plain `pnpm deploy` is a pnpm built-in and does not run deploy.sh).
-4. The first deploy of a new worker has no secrets to list yet: pass `--allow-missing-secrets <worker>` for that one run (`pnpm run deploy -- --allow-missing-secrets <worker>`), then set its secrets and deploy again without the flag.
+4. The first deploy of a new worker: cf refuses a worker whose declared secrets are not set, and a worker that does not exist yet has no secrets to set. Deploy it once by hand with its secrets from a file, from `warg/workers/<worker>`: `../../node_modules/.bin/cf deploy --secrets-file <file>`. Delete the file afterwards. Then run `pnpm run deploy` from `warg` as usual. `--allow-missing-secrets <worker>` skips only the preflight listing of deploy.sh; it does not make the first deploy pass on its own.
 
 ## Notes
 
