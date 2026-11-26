@@ -176,7 +176,7 @@ internal fun ArticleSearchContent(
                 )
                 state.searchResults.isNotEmpty() ->
                     SearchResults(viewStore, onSelectArticle, useCardLayout)
-                !query.isNullOrBlank() -> Notice(
+                !query.isNullOrBlank() && state.foundNothing -> Notice(
                     icon = ImageVector.vectorResource(R.drawable.search_24px),
                     title = "No articles match “$query”",
                     text = "Search looks in titles and saved text. Check the spelling, or try fewer words.",

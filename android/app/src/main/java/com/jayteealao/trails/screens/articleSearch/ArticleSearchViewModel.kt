@@ -86,6 +86,7 @@ class ArticleSearchViewModel @Inject constructor(
     private val _state = combine(newestSearch, tagsFlow, actions.sheet) { search, tags, sheet ->
         ArticleSearchState(
             searchResults = search.results.filterNot { it.itemId in search.hidden },
+            foundNothing = search.query != null && search.results.isEmpty(),
             isSearching = search.running,
             searchedQuery = search.query,
             searchFailed = search.failed,

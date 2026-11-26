@@ -218,6 +218,8 @@ class ArticleSearchScreenTest {
         showResult()
         choose("Delete")
         assertGone(ROW.title)
+        // The search did match: deleting its only row does not turn it into no match.
+        assertGone("No articles match")
         rule.onNodeWithText("Article deleted").assertIsDisplayed()
 
         rule.onNode(hasText("Undo") and hasClickAction()).performClick()

@@ -13,6 +13,11 @@ data class ArticleSearchState(
     val isSearching: Boolean = false,
     /** The words of the newest search, or null when nothing was searched. */
     val searchedQuery: String? = null,
+    /**
+     * The newest search found no article. False when it found some that were deleted since, so
+     * the deleted rows do not read as a search that matched nothing.
+     */
+    val foundNothing: Boolean = false,
     /** The newest search did not finish. */
     val searchFailed: Boolean = false,
     val tags: List<String> = emptyList(),
