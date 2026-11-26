@@ -31,6 +31,19 @@ export class GatewayBeginError extends Error {
   }
 }
 
+/** The `code` of a gateway error body, undefined for a body the gateway did not write. */
+export function gatewayCode(body: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    // Not JSON, so not a gateway error body: the caller treats it as unknown.
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || !('code' in parsed)) return undefined;
+  return typeof parsed.code === 'string' ? parsed.code : undefined;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

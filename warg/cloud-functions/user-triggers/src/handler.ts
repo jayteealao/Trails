@@ -6,6 +6,7 @@ import {
   projectPocket,
   recordUserArticleError,
 } from '@warg/article-writer';
+import { GatewayBeginError, gatewayCode } from './gateway-client.js';
 import { InvalidSharedIdError, SharedIdConflictError, isValidSharedId, linkUserArticle } from './link.js';
 
 /** Starts the archive of a shared article (the gateway /begin call). */
@@ -58,8 +59,7 @@ export type HandleResult =
  * article, so the save must not retry or mark anything failed.
  */
 function isRequestIdConflict(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('REQUEST_ID_CONFLICT');
+  return error instanceof GatewayBeginError && error.status === 409 && gatewayCode(error.body) === 'REQUEST_ID_CONFLICT';
 }
 
 /**

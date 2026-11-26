@@ -9,7 +9,7 @@ import {
   readCanonicalId,
   releaseSharedArticleRetryInTransaction,
 } from '@warg/article-writer';
-import { GatewayBeginError } from './gateway-client.js';
+import { GatewayBeginError, gatewayCode } from './gateway-client.js';
 import type { BeginArchive } from './handler.js';
 
 /**
@@ -78,19 +78,6 @@ function usableUrl(data: DocumentData): string | undefined {
   const url: unknown = data['url'];
   if (typeof url !== 'string' || !URL.canParse(url)) return undefined;
   return /^https?:$/.test(new URL(url).protocol) ? url : undefined;
-}
-
-/** The `code` of a gateway error body, undefined for a body the gateway did not write. */
-function gatewayCode(body: string): string | undefined {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    // Not JSON, so not a gateway error body: the caller treats it as unknown.
-    return undefined;
-  }
-  if (typeof parsed !== 'object' || parsed === null || !('code' in parsed)) return undefined;
-  return typeof parsed.code === 'string' ? parsed.code : undefined;
 }
 
 /**
