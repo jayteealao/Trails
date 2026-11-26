@@ -2,6 +2,7 @@ package com.jayteealao.trails.screens.settings
 
 import androidx.lifecycle.ViewModel
 import com.jayteealao.trails.data.SettingsPreferenceKeys
+import com.jayteealao.trails.screens.components.ErrorMessage
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.BuildConfig
@@ -230,7 +231,8 @@ class SettingsViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _event.emit(SettingsEvent.ShowToast("Sync failed: ${e.message}"))
+                Timber.w(e, "Manual sync failed")
+                _event.emit(SettingsEvent.ShowToast(ErrorMessage.SYNC_FAILED.text))
             }
         }
     }
@@ -273,7 +275,8 @@ class SettingsViewModel @Inject constructor(
                 // A failed wipe, preferences clear or sign-out must not end the app; the
                 // person is told and can try again.
                 unsyncedChangesDialog.value = UnsyncedChangesDialogState.Hidden
-                _event.emit(SettingsEvent.ShowToast("Clear data failed: ${e.message}"))
+                Timber.w(e, "Clear data failed")
+                _event.emit(SettingsEvent.ShowToast(ErrorMessage.CLEAR_DATA_FAILED.text))
             }
         }
     }

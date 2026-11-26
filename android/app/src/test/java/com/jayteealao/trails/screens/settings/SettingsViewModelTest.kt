@@ -2,6 +2,7 @@ package com.jayteealao.trails.screens.settings
 
 import com.jayteealao.trails.services.firestore.SyncFailures
 import com.jayteealao.trails.data.SettingsPreferenceKeys
+import com.jayteealao.trails.screens.components.ErrorMessage
 import com.google.firebase.auth.FirebaseUser
 import com.jayteealao.trails.data.AuthRepository
 import com.jayteealao.trails.data.SharedPreferencesManager
@@ -502,6 +503,32 @@ class SettingsViewModelTest {
 
         assertEquals(1, vm.state.value.syncFailureCount)
         assertFalse(vm.state.value.retryFailed)
+    }
+
+    @Test
+    fun manualSync_failure_saysFixedWords_withoutTheExceptionText() = runTest(dispatcher) {
+        coEvery { syncManager.performFullSync() } throws IllegalStateException("PERMISSION_DENIED: secret detail")
+        val vm = viewModel()
+        val events = observe(vm)
+
+        vm.performManualSync()
+        advanceUntilIdle()
+
+        assertEquals(listOf<SettingsEvent>(SettingsEvent.ShowToast(ErrorMessage.SYNC_FAILED.text)), events)
+    }
+
+    @Test
+    fun clearData_failedWipe_saysFixedWords_withoutTheExceptionText() = runTest(dispatcher) {
+        coEvery { reset.pendingChangeCount() } returns 0
+        coEvery { reset.wipeLocalData() } throws IllegalStateException("disk I/O error /data/user/0")
+        val vm = viewModel()
+        val events = observe(vm)
+
+        vm.logout(clearData = true)
+        advanceUntilIdle()
+
+        assertEquals(listOf<SettingsEvent>(SettingsEvent.ShowToast(ErrorMessage.CLEAR_DATA_FAILED.text)), events)
+        assertEquals(UnsyncedChangesDialogState.Hidden, dialog(vm))
     }
 
     @Test

@@ -33,6 +33,9 @@ enum class ErrorMessage(val text: String, val staysUntilAnswered: Boolean = fals
     GOOGLE_FAILED(
         "Google did not finish signing you in. Nothing on this phone changed. Try again, or continue as a guest."
     ),
+    SYNC_FAILED("Sync did not finish. Your articles are still on this phone. Try again."),
+    CLEAR_DATA_FAILED("Clear data did not finish. Try again."),
+
     UPGRADE_FAILED("Your account was not upgraded. Your articles are still on this phone."),
     ACCOUNT_IN_USE(
         "That Google account already has a Trails library, so this one was not upgraded. " +
