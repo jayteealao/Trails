@@ -15,7 +15,6 @@ import com.jayteealao.trails.data.archive.ArchiveStatus
 import com.jayteealao.trails.data.archive.ArchiveType
 import com.jayteealao.trails.data.archive.LocalArchive
 import com.jayteealao.trails.data.archive.LocalArchiveDao
-import com.jayteealao.trails.data.archive.RetryFailure
 import com.jayteealao.trails.data.archive.TextSourceRank
 import com.jayteealao.trails.data.local.database.Article
 import com.jayteealao.trails.screens.components.ErrorMessage
@@ -33,10 +32,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -67,12 +64,6 @@ private data class NoticeGroup(
 ) {
     fun retryOf(itemId: String?): ArchiveRetryState = retries[itemId]?.retry ?: ArchiveRetryState.Idle
 }
-
-/** The retry of one article beside its last status, so one update reads and moves both. */
-private data class ArticleRetry(
-    val retry: ArchiveRetryState = ArchiveRetryState.Idle,
-    val status: String? = null,
-)
 
 /** What the last read of the ranked local text archives found. */
 private enum class LocalText { NONE, READABLE, BLANK, UNREADABLE }
@@ -108,8 +99,7 @@ class ArticleDetailViewModel @Inject constructor(
     private val _selectedArchiveLoadFailed = MutableStateFlow(false)
     private val _downloadStates = MutableStateFlow<Map<String, ArchiveDownload>>(emptyMap())
 
-    /** Kept per article, so a switch to another one and back does not free a pending request. */
-    private val _retries = MutableStateFlow<Map<String, ArticleRetry>>(emptyMap())
+    private val retries = ArchiveRetries()
 
     private var archiveObserverJob: Job? = null
 
@@ -143,7 +133,7 @@ class ArticleDetailViewModel @Inject constructor(
 
     private val noticeGroupFlow = combine(
         networkMonitor.isOnline,
-        combine(_articleStatus, _retries, ::Pair),
+        combine(_articleStatus, retries.all, ::Pair),
         _textDownloadFailed,
         _localText,
         _selectedArchiveLoadFailed,
@@ -191,7 +181,7 @@ class ArticleDetailViewModel @Inject constructor(
 
     // Actions
     fun getArticle(itemId: String) {
-        updateRetry(itemId) { it.copy(retry = it.retry.onReopen()) }
+        retries.onReopen(itemId)
 
         // The same article opens again: read the stored text once more, so a better source
         // that arrived while it was open shows now. Keep a running observer.
@@ -294,35 +284,10 @@ class ArticleDetailViewModel @Inject constructor(
      * (a request is pending, or the status cannot be retried) does nothing.
      */
     fun retryArchive(itemId: String) {
-        val online = state.value.online
-        val before = _retries.getAndUpdate { it.changed(itemId) { entry -> entry.copy(retry = entry.tapped(online)) } }
-        // Only the tap that moved the state to Sending sends the request.
-        val entry = before[itemId] ?: ArticleRetry()
-        if (entry.retry is ArchiveRetryState.Sending || entry.tapped(online) !is ArchiveRetryState.Sending) return
+        if (!retries.tap(itemId, state.value.online)) return
         viewModelScope.launch(ioDispatcher) {
-            val answer = archiveRetryClient.retry(itemId)
-            updateRetry(itemId) { it.copy(retry = it.retry.onAnswer(answer, it.status)) }
+            retries.onAnswer(itemId, archiveRetryClient.retry(itemId))
         }
-    }
-
-    private fun ArticleRetry.tapped(online: Boolean): ArchiveRetryState {
-        val tapped = retry.onTap(status)
-        val sends = tapped is ArchiveRetryState.Sending && retry !is ArchiveRetryState.Sending
-        return if (sends && !online) ArchiveRetryState.NotSent(RetryFailure.OFFLINE) else tapped
-    }
-
-    private fun updateRetry(itemId: String, change: (ArticleRetry) -> ArticleRetry) {
-        _retries.update { it.changed(itemId, change) }
-    }
-
-    /** This map with the entry of [itemId] changed; an article with nothing to keep gets no entry. */
-    private fun Map<String, ArticleRetry>.changed(
-        itemId: String,
-        change: (ArticleRetry) -> ArticleRetry,
-    ): Map<String, ArticleRetry> {
-        val before = this[itemId] ?: ArticleRetry()
-        val after = change(before)
-        return if (after == before) this else this + (itemId to after)
     }
 
     private fun loadArchives(itemId: String) {
@@ -353,7 +318,7 @@ class ArticleDetailViewModel @Inject constructor(
             // The status of the shared article tells a failed archive from one still on its way.
             launch {
                 archiveService.observeArticleStatus(itemId).collect { status ->
-                    updateRetry(itemId) { ArticleRetry(it.retry.onStatus(status), status) }
+                    retries.onStatus(itemId, status)
                     _articleStatus.value = status
                 }
             }
@@ -372,7 +337,7 @@ class ArticleDetailViewModel @Inject constructor(
                             Timber.e(e, "Failed to sync archives for $itemId after reconnecting")
                         }
                     }
-                    if (online) updateRetry(itemId) { it.copy(retry = it.retry.onOnline()) }
+                    if (online) retries.onOnline(itemId)
                     wasOnline = online
                 }
             }
