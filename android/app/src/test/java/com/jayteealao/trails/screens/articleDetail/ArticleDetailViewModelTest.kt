@@ -634,6 +634,24 @@ class ArticleDetailViewModelTest {
     }
 
     @Test
+    fun aSlowTabRead_thatEndsAfterAnotherTabIsPicked_showsNothing() = runTest(scheduler) {
+        val (viewModel, _) = openWithArchives(
+            "a15", listOf(ArchiveType.MARKDOWN, ArchiveType.READABILITY, ArchiveType.AI_MARKDOWN),
+        )
+        val slow = CompletableDeferred<String?>()
+        coEvery { archiveService.readArchiveText("a15", ArchiveType.AI_MARKDOWN) } coAnswers { slow.await() }
+
+        viewModel.setSelectedTab(3)
+        advanceUntilIdle()
+        viewModel.setSelectedTab(4)
+        advanceUntilIdle()
+        slow.complete("ai_markdown text")
+        advanceUntilIdle()
+
+        assertEquals("markdown text", viewModel.state.value.selectedArchiveContent)
+    }
+
+    @Test
     fun newArchiveBeforeTheSelectedOne_theSelectionStaysOnItsArchive() = runTest(scheduler) {
         val (viewModel, localFlow) = openWithArchives("a16", listOf(ArchiveType.READABILITY, ArchiveType.MARKDOWN))
         viewModel.setSelectedTab(3)

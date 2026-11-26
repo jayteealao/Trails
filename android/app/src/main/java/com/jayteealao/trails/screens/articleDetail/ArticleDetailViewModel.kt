@@ -494,8 +494,11 @@ class ArticleDetailViewModel @Inject constructor(
         viewModelScope.launch(ioDispatcher) {
             val content = archiveService.readArchiveText(itemId, type)
             Timber.d("loadArchiveContent($itemId, ${type.archiveKey}) — got ${content?.length ?: 0} chars")
-            _selectedArchiveContent.value = content
-            _selectedArchiveLoadFailed.value = content == null
+            // A slow read that ends after the person picked another tab or article shows nothing.
+            if (currentArticleId == itemId && selectedArchiveType() == type) {
+                _selectedArchiveContent.value = content
+                _selectedArchiveLoadFailed.value = content == null
+            }
 
             // A picked text tab goes through the same rank; the Reader text stays unless it was empty.
             if (type.providesText && content != null) {
