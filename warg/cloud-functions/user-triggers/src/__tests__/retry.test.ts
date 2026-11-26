@@ -77,6 +77,10 @@ const hasCode = (code: string) => (error: unknown) => {
   return true;
 };
 
+/** The writes of the articles, without the count of the retry limit. */
+const articleWrites = (store: ReturnType<typeof makeRecordingDb>) =>
+  store.writes.filter((write) => !write.path.startsWith('retry_limits/'));
+
 function assertNothingDone(store: ReturnType<typeof makeRecordingDb>) {
   assert.deepEqual(posts, []);
   assert.deepEqual(store.writes, []);
@@ -92,7 +96,7 @@ test('a failed article is claimed, started once at the gateway and recorded', as
       body: { url: URL, request_id: SHARED, includeScreenshot: true, includePdf: true },
     },
   ]);
-  assert.deepEqual(store.writes, [
+  assert.deepEqual(articleWrites(store), [
     {
       method: 'update',
       inTransaction: true,
@@ -241,7 +245,7 @@ test('a merged duplicate is followed to its winner, which is claimed and sent', 
     includeScreenshot: true,
     includePdf: true,
   });
-  assert.deepEqual([...new Set(store.writes.map((w) => w.path))], ['articles/winner01']);
+  assert.deepEqual([...new Set(articleWrites(store).map((w) => w.path))], ['articles/winner01']);
 });
 
 // --- a start that does not succeed ---
@@ -255,7 +259,7 @@ test('a refusal releases the claim, hides the gateway text and allows the next r
   assert.equal(doc?.['status'], 'failed');
   assert.equal(doc?.['error'], 'Archive retry refused: 400');
   assert.equal(doc?.['processing_started_at'], prior);
-  assert.deepEqual(store.writes[1], {
+  assert.deepEqual(articleWrites(store)[1], {
     method: 'update',
     inTransaction: true,
     path: SHARED_PATH,
@@ -293,7 +297,7 @@ test('a refusal leaves a newer start as it is', async () => {
     return new Response('{"code":"INVALID_OPTIONS"}', { status: 400 });
   });
   assert.deepEqual(await retry(), { outcome: 'not_sent', reason: 'gateway' });
-  assert.equal(store.writes.length, 1);
+  assert.equal(articleWrites(store).length, 1);
   assert.equal(store.docs.get(SHARED_PATH)?.['processing_started_at'], newer);
 });
 
@@ -324,7 +328,7 @@ for (const [name, respond] of unclear) {
     answer(respond);
     assert.deepEqual(await retry(), { outcome: 'unconfirmed' });
     assert.equal(posts.length, 1);
-    assert.equal(store.writes.length, 1);
+    assert.equal(articleWrites(store).length, 1);
     assert.equal(store.docs.get(SHARED_PATH)?.['status'], 'processing');
     assert.deepEqual(await retry(), { outcome: 'in_flight' });
     assert.equal(posts.length, 1);
@@ -364,4 +368,29 @@ test('the endpoint is callable, declares its keys as secrets and bounds its run'
   ]);
   assert.equal(endpoint.timeoutSeconds, 120);
   assert.equal(endpoint.maxInstances, 5);
+});
+
+// --- the hourly limit of retries ---
+
+test('a person who started the limit of retries this hour is not sent, and nothing is claimed', async () => {
+  const store = seed(failed(), { more: {} });
+  store.docs.set(`retry_limits/${USER}`, { window_start: ago(10 * MINUTE), count: 10 });
+  assert.deepEqual(await retry(), { outcome: 'not_sent', reason: 'rate_limited' });
+  assert.deepEqual(posts, []);
+  assert.deepEqual(store.writes, []);
+  assert.equal(store.docs.get(SHARED_PATH)?.['status'], 'failed');
+});
+
+test('a started retry counts toward the limit, and a window that ended starts a new count', async () => {
+  const store = seed(failed());
+  store.docs.set(`retry_limits/${USER}`, { window_start: ago(61 * MINUTE), count: 10 });
+  answer(started);
+  assert.deepEqual(await retry(), { outcome: 'started' });
+  assert.equal(store.docs.get(`retry_limits/${USER}`)?.['count'], 1);
+});
+
+test('an answer that starts nothing does not count toward the limit', async () => {
+  const store = seed({ ...failed(), status: 'processing', processing_started_at: ago(MINUTE) });
+  assert.deepEqual(await retry(), { outcome: 'in_flight' });
+  assert.equal(store.docs.get(`retry_limits/${USER}`), undefined);
 });

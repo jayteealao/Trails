@@ -19,14 +19,18 @@ import type { BeginArchive } from './handler.js';
  *   complete       the archive is complete; nothing was started
  *   not_started    the save has not started its first run yet and still owns it
  *   not_retryable  another run cannot help (bad data, or no usable link)
- *   not_sent       the gateway refused the start; a later retry may work
+ *   not_sent       the start was not sent: the gateway refused it, or the caller
+ *                  started too many retries this hour; a later retry may work
  *   unconfirmed    the start may have happened; the article stays claimed until
  *                  the stuck timeout of the status rule passes
  */
 export interface RetryAnswer {
   outcome: 'started' | 'in_flight' | 'complete' | 'not_started' | 'not_retryable' | 'not_sent' | 'unconfirmed';
-  /** Set with not_sent: the operator's own run owns the request id, or any other refusal. */
-  reason?: 'operator_owned' | 'gateway';
+  /**
+   * Set with not_sent: the operator's own run owns the request id, the caller
+   * reached the hourly limit of retries, or any other refusal of the gateway.
+   */
+  reason?: 'operator_owned' | 'rate_limited' | 'gateway';
 }
 
 /** A claimed start: what to send, and what a release needs. */
@@ -35,6 +39,29 @@ interface Claim {
   url: string;
   claimedAt: Timestamp;
   priorProcessingStartedAt: Timestamp | undefined;
+}
+
+/** The archive runs one person may start by retries in one window. */
+export const RETRY_LIMIT = 10;
+/** The window of the retry limit. */
+export const RETRY_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * The retries a person started in the current window. Kept in a collection the
+ * security rules give no client access to, so the caller cannot reset it.
+ */
+function retryLimitRef(db: Firestore, userId: string): DocumentReference {
+  return db.collection('retry_limits').doc(userId);
+}
+
+/** The count of the window that holds `now`, before this retry. */
+function startsInWindow(data: DocumentData | undefined, now: number): { windowStart: Timestamp; count: number } {
+  const start: unknown = data?.['window_start'];
+  const count: unknown = data?.['count'];
+  if (start instanceof Timestamp && typeof count === 'number' && now - start.toMillis() < RETRY_WINDOW_MS) {
+    return { windowStart: start, count };
+  }
+  return { windowStart: Timestamp.fromMillis(now), count: 0 };
 }
 
 /** One message for every article the caller may not retry, so the answer reveals no id. */
@@ -110,6 +137,9 @@ async function claimRetry(
     }
     const data = shared.data();
     if (!data) throw denied();
+    // Read with the other reads: a transaction writes only after its last read.
+    const limitRef = retryLimitRef(db, userId);
+    const limitData = (await tx.get(limitRef)).data();
 
     const now = nowMs();
     const status = deriveStatus(data, now);
@@ -119,6 +149,11 @@ async function claimRetry(
     if (status === 'pending' && !priorProcessingStartedAt) return { outcome: 'not_started' };
     const url = usableUrl(data);
     if (data['failure']?.class === 'DATA_ISSUE' || url === undefined) return { outcome: 'not_retryable' };
+
+    // Only a start counts: an answer that starts nothing costs nothing.
+    const window = startsInWindow(limitData, now);
+    if (window.count >= RETRY_LIMIT) return { outcome: 'not_sent', reason: 'rate_limited' };
+    tx.set(limitRef, { window_start: window.windowStart, count: window.count + 1 });
 
     const ref = articles.doc(shared.id);
     const claimedAt = Timestamp.fromMillis(now);
