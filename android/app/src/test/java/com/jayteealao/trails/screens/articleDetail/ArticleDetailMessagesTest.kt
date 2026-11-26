@@ -1,6 +1,9 @@
 package com.jayteealao.trails.screens.articleDetail
 
 import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
@@ -46,7 +49,7 @@ class ArticleDetailMessagesTest {
     )
     private val repository = mockk<ArticleRepository>(relaxed = true)
 
-    private fun show() {
+    private fun show(pane: () -> String? = { "a" }) {
         val preferences = mockk<SharedPreferencesManager>(relaxed = true) {
             every { preferenceChangesFlow() } returns MutableSharedFlow()
         }
@@ -72,7 +75,11 @@ class ArticleDetailMessagesTest {
         )
         viewModel.setSelectedTab(READER_TAB_INDEX)
         rule.setContent {
-            TrailsTheme(darkTheme = false) { ArticleDetailPane(articleId = "a", viewModel = viewModel) }
+            // The view model outlives the pane, as it does in the app, so it can still hold the
+            // article of a pane that closed.
+            TrailsTheme(darkTheme = false) {
+                pane()?.let { ArticleDetailPane(articleId = it, viewModel = viewModel) }
+            }
         }
         rule.waitForIdle()
     }
@@ -120,6 +127,26 @@ class ArticleDetailMessagesTest {
         rule.onNode(tryAgain).performClick()
         rule.waitForIdle()
         coVerify(exactly = 2) { repository.setReadStatus("a", true) }
+    }
+
+    @Test
+    fun openingAnotherArticle_doesNotMarkThePreviousOneRead() {
+        coEvery { repository.getArticleById("a") } returns article
+        coEvery { repository.getArticleById("b") } returns
+            Article(itemId = "b", url = "https://example.com/b", givenUrl = "https://example.com/b", text = "# B")
+        var open by mutableStateOf<String?>("a")
+        show { open }
+        rule.waitUntil(WAIT_MILLIS) { rule.onAllNodesWithText("Reader").fetchSemanticsNodes().isNotEmpty() }
+        coVerify(exactly = 1) { repository.setReadStatus("a", true) }
+
+        open = null
+        rule.waitForIdle()
+        open = "b"
+        rule.waitForIdle()
+        rule.waitUntil(WAIT_MILLIS) { rule.onAllNodesWithText("Reader").fetchSemanticsNodes().isNotEmpty() }
+
+        coVerify(exactly = 1) { repository.setReadStatus("a", true) }
+        coVerify(exactly = 1) { repository.setReadStatus("b", true) }
     }
 
     private companion object {

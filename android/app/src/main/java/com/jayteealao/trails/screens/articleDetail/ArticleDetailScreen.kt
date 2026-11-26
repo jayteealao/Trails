@@ -94,7 +94,9 @@ fun ArticleDetailPane(
     }
 
     Box(modifier.fillMaxSize()) {
-        val article = viewStore.state.article
+        // The view model can still hold the article of a pane that closed; it shows only once
+        // the article of this pane has loaded, so it is never marked as read in its place.
+        val article = viewStore.state.article?.takeIf { it.itemId == articleId }
         if (article == null) {
             SnackbarHost(
                 hostState = snackbarHostState,
