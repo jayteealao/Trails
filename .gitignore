@@ -32,7 +32,7 @@ hs_err_pid*.log
 .github/workflows/my.variables
 
 # Local automation scratch + per-machine Claude Code config
-.ai/
+.ai/*
 .claude/
 
 # Ad-hoc article export / audit data — contains user data, never commit
@@ -54,3 +54,5 @@ ui-debug.log
 pubsub-debug.log
 **/firebase-debug.log
 **/firestore-debug.log
+# Design record and frozen design boards: tracked although the rest of this folder is ignored
+!.ai/design/

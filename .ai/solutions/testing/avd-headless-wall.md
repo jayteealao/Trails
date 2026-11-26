@@ -2,7 +2,7 @@
 schema: sdlc/v1
 type: solution
 category: testing
-source-workflow: simplify-android-app
+source-workflow: [simplify-android-app, agp9-migration]
 created-at: "2026-07-11T08:44:42Z"
 tags: [avd, emulator, headless, runtime-evidence, deferral, android, verify, device-smoke]
 status: active
@@ -33,3 +33,7 @@ JVM-verifiable fallback (Robolectric, emulator-rules tests, Roborazzi previews).
   the existing `androidTest/` suite — then deferred ACs become closable without override.
 - Owed device smokes from v1.10.24 are listed in each slug's `00-index.md`
   `runtime-evidence-deferrals` (clear via `/wf probe` when a device is attached).
+- Not every runtime-evidence wall is a *device* wall: `agp9-migration`'s signed-release Firestore read
+  (AC-NC2) was an interactive-**auth** wall crossed on this same headless machine via anonymous/guest
+  sign-in + a headless R8 build — before deferring, pressure-test the cheapest proxy. See
+  [[runtime-evidence-wall-cheapest-proxy]].
